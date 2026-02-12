@@ -15,15 +15,4 @@ services:
       timeout: 5s
       retries: 10
 
-  phpmyadmin:
-    image: phpmyadmin:latest
-    environment:
-      PMA_HOST: mysql
-      PMA_USER: slbp
-      PMA_PASSWORD: slbp
-      PMA_DB: slbp
-    ports:
-      - "${PHPMYADMIN_PORT:-8080}:80"
-    depends_on:
-      mysql:
-        condition: service_healthy
+
