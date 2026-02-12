@@ -1,1 +1,21 @@
 #!/bin/bash
+
+set -euo pipefail
+
+dn="$(dirname "$(realpath "${BASH_SOURCE[0]}")")"
+
+# If a project virtualenv exists, source its activation script.
+# Prefer Unix-style venv, fall back to Windows-style Scripts/activate.
+if [ -f "$dn/.venv/bin/activate" ]; then
+	# shellcheck disable=SC1091
+	source "$dn/.venv/bin/activate"
+elif [ -f "$dn/.venv/Scripts/activate" ]; then
+	# shellcheck disable=SC1091
+	source "$dn/.venv/Scripts/activate"
+else
+	echo "No virtualenv activation script found in $dn/.venv" >&2
+	echo "Please create a virtualenv at $dn/.venv or activate one manually." >&2
+	exit 1
+fi
+
+python "$dn/main.py" "$@"
