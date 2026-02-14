@@ -17,6 +17,8 @@ Options:
 	-f FILE      Run a single SQL file (absolute or relative path)
 	-c SQL       Run inline SQL (accepts multiple statements; quote as needed)
 	-m DIR       Run all .sql files in DIR (no default; provide to run migrations)
+	-B           Batch output mode (machine-readable mysql output)
+	-q           Quiet mode (suppress progress log lines)
 	-n           Dry-run: print commands without executing
 	--help       Show this help
 
@@ -34,6 +36,8 @@ FILE=""
 SQL=""
 MIGRATIONS_DIR=""
 DRY_RUN=0
+QUIET=0
+BATCH_MODE=0
 STDIN_PRESENT=0
 STDIN_FILE=""
 
@@ -45,6 +49,8 @@ while [[ $# -gt 0 ]]; do
 		-f) FILE="$2"; shift 2;;
 		-c) SQL="$2"; shift 2;;
 		-m) MIGRATIONS_DIR="$2"; shift 2;;
+		-B) BATCH_MODE=1; shift 1;;
+		-q) QUIET=1; shift 1;;
 		-n) DRY_RUN=1; shift 1;;
 		--help) usage; exit 0;;
 		*) echo "Unknown arg: $1" >&2; usage; exit 2;;
@@ -57,7 +63,11 @@ if [[ -z "$DB" ]]; then
 fi
 
 COMPOSE_FILE="$SCRIPT_DIR/docker-compose.yml"
-MYSQL_ARGS=(mysql -u "$USER" -p"$PASSWORD" -D "$DB" --show-warnings --verbose)
+if [[ $BATCH_MODE -eq 1 ]]; then
+	MYSQL_ARGS=(mysql -u "$USER" -p"$PASSWORD" -D "$DB" --batch --raw --skip-column-names --silent)
+else
+	MYSQL_ARGS=(mysql -u "$USER" -p"$PASSWORD" -D "$DB" --show-warnings --verbose)
+fi
 
 cleanup() {
 	if [[ -n "$STDIN_FILE" && -f "$STDIN_FILE" ]]; then
@@ -90,7 +100,9 @@ run_mysql_file() {
 		echo "SQL file not found: $sqlfile" >&2
 		return 1
 	fi
-	echo "-> Running: $sqlfile"
+	if [[ $QUIET -eq 0 ]]; then
+		echo "-> Running: $sqlfile"
+	fi
 	if [[ $DRY_RUN -eq 1 ]]; then
 		echo "DRY: docker compose -f $COMPOSE_FILE exec -T mysql mysql -u $USER -p*** -D $DB --show-warnings --verbose < $sqlfile"
 		return 0
@@ -104,7 +116,9 @@ run_mysql_sql() {
 		echo "Error: SQL string is empty." >&2
 		return 2
 	fi
-	echo "-> Running inline SQL"
+	if [[ $QUIET -eq 0 ]]; then
+		echo "-> Running inline SQL"
+	fi
 	if [[ $DRY_RUN -eq 1 ]]; then
 		echo "DRY: docker compose -f $COMPOSE_FILE exec -T mysql mysql -u $USER -p*** -D $DB --show-warnings --verbose -e '<SQL>'"
 		return 0
@@ -113,7 +127,9 @@ run_mysql_sql() {
 }
 
 run_mysql_stdin() {
-	echo "-> Running SQL from stdin"
+	if [[ $QUIET -eq 0 ]]; then
+		echo "-> Running SQL from stdin"
+	fi
 	if [[ $DRY_RUN -eq 1 ]]; then
 		echo "DRY: docker compose -f $COMPOSE_FILE exec -T mysql mysql -u $USER -p*** -D $DB --show-warnings --verbose < stdin"
 		return 0

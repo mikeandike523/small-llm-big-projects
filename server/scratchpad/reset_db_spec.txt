@@ -1,0 +1,108 @@
+reset_db.sh Specification
+
+Purpose
+- Provide a reliable, project-scoped database reset for migration testing.
+- Clear all user-defined schema objects from this project's MySQL database while keeping container/runtime setup intact.
+- Reuse run_sql.sh for SQL execution so auth/default resolution and Docker wiring stay centralized.
+
+Project Scope
+- This script is designed to reset this project database, not to be a generic cross-project DB admin tool.
+- Database/user/password resolution must match run_sql.sh defaults exactly.
+
+Resolution Logic (must match run_sql.sh)
+- DB="${MYSQL_DATABASE:-slbp}"
+- USER="${MYSQL_USER:-slbp}"
+- PASSWORD="${MYSQL_PASSWORD:-slbp}"
+- Default invocation: ./reset_db.sh
+- No required database argument.
+- Optional -d/-u/-P flags may be supported as overrides, but they are never required.
+
+Out of Scope
+- Dropping/recreating Docker containers.
+- Deleting ./mysqldata files.
+- Modifying users, grants, or server-level settings.
+- Cross-database destructive operations.
+
+CLI Contract
+- Usage: ./reset_db.sh [options]
+- Options:
+  - -d DATABASE   Optional override (default resolved as above)
+  - -u USER       Optional override (default resolved as above)
+  - -P PASSWORD   Optional override (default resolved as above)
+  - -n            Dry-run (print planned actions/SQL; do not execute)
+  - --help
+
+Execution Model
+- reset_db.sh must call ./run_sql.sh for all SQL execution.
+- Script should be idempotent; running repeatedly should converge to the same empty schema state.
+- Script should fail fast on command errors (set -euo pipefail).
+
+Safety Guardrails
+- Refuse to run if resolved DB is empty.
+- Refuse to run against system schemas:
+  - mysql
+  - information_schema
+  - performance_schema
+  - sys
+- Print explicit target context before mutation:
+  - database name
+  - user name
+- Optional confirmation prompt is acceptable for local safety, with bypass in CI (e.g., CI=true).
+
+Reset Semantics
+- Reset means dropping all user-defined objects in the target schema.
+- Object coverage:
+  1. Views
+  2. Triggers
+  3. Events
+  4. Stored procedures
+  5. Stored functions
+  6. Base tables
+- Indexes and constraints do not need explicit drops; dropping tables removes them.
+
+Ordering and Session Controls
+- Disable FK checks during destructive phase:
+  - SET FOREIGN_KEY_CHECKS = 0;
+- Optional defensive session setting:
+  - SET SQL_SAFE_UPDATES = 0;
+- Re-enable FK checks after completion:
+  - SET FOREIGN_KEY_CHECKS = 1;
+- Drops should use IF EXISTS patterns or equivalent generated statements to remain idempotent.
+
+Discovery and SQL Generation
+- Discover objects via INFORMATION_SCHEMA scoped to current DB/schema only.
+- Build quoted DROP statements dynamically for each discovered object type.
+- Empty discovery sets are treated as no-op success.
+- No migration-history table exceptions are required at this time.
+
+run_sql.sh Integration Note
+- reset_db.sh should start by using run_sql.sh as-is.
+- If reset_db.sh needs cleaner programmatic control (object counts, machine-readable query output, reduced verbosity), update run_sql.sh with minimal compatible enhancements.
+- Candidate additions to run_sql.sh (if needed):
+  - a quiet/machine-readable mode (for example, using mysql batch/raw flags)
+  - a way to run SQL and return parseable output without verbose decorations
+  - preserving current defaults and existing behavior as the default mode
+
+Observability
+- Log clear phases:
+  - target resolution
+  - discovery counts by object type
+  - drop phase per object type
+  - completion summary
+- Dry-run output should show either:
+  - exact SQL that would run, or
+  - exact object list + corresponding DROP statements.
+
+Exit Codes
+- 0: success (including already-empty schema)
+- 2: invalid args/config/guardrail rejection
+- Non-zero passthrough for run_sql.sh or SQL execution failures
+
+Acceptance Criteria
+1. Running ./reset_db.sh with defaults resets the project DB resolved as ${MYSQL_DATABASE:-slbp}.
+2. Running with no objects present returns success and reports no-op behavior.
+3. FK-dependent schemas reset cleanly due to disabled FK checks during drops.
+4. Stored routines/triggers/events are removed in addition to tables/views.
+5. Dry-run performs no mutation and provides clear planned actions.
+6. Two consecutive runs produce the same successful empty end state.
+7. Script behavior and defaults remain aligned with run_sql.sh.
