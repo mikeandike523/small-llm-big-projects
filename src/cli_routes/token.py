@@ -1,6 +1,6 @@
 import click
 
-from ..cli_obj import cli
+from src.cli_obj import cli
 
 
 @cli.command()

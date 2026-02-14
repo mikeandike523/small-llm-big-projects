@@ -18,4 +18,6 @@ else
 	exit 1
 fi
 
+export PYTHONPATH="${PYTHONPATH:+$PYTHONPATH:}$dn"
+
 python "$dn/main.py" "$@"

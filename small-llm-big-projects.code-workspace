@@ -6,6 +6,7 @@
 	],
 	"settings": {
 		"files.eol":"\n",
-		"terminal.integrated.defaultProfile.windows": "Git Bash"
+		"terminal.integrated.defaultProfile.windows": "Git Bash",
+		"python.analysis.extraPaths": ["$workspaceFolder"]
 	}
 }
