@@ -2,6 +2,8 @@ import click
 
 from src.cli_obj import cli
 
+from src.data import get_pool
+
 
 @cli.command()
 @click.option(
@@ -39,3 +41,8 @@ def token():
     slbp token -n token1 anthropic <token_value>
 
     """
+
+    pool = get_pool()
+
+
+
