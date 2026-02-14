@@ -77,77 +77,94 @@ query_sql() {
 	"$RUN_SQL" -d "$DB" -u "$USER" -P "$PASSWORD" -q -B -c "$sql"
 }
 
-count_views=$(query_sql "SELECT COUNT(*) FROM information_schema.VIEWS WHERE TABLE_SCHEMA = DATABASE();")
-count_triggers=$(query_sql "SELECT COUNT(*) FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA = DATABASE();")
-count_events=$(query_sql "SELECT COUNT(*) FROM information_schema.EVENTS WHERE EVENT_SCHEMA = DATABASE();")
-count_procs=$(query_sql "SELECT COUNT(*) FROM information_schema.ROUTINES WHERE ROUTINE_SCHEMA = DATABASE() AND ROUTINE_TYPE = 'PROCEDURE';")
-count_funcs=$(query_sql "SELECT COUNT(*) FROM information_schema.ROUTINES WHERE ROUTINE_SCHEMA = DATABASE() AND ROUTINE_TYPE = 'FUNCTION';")
-count_tables=$(query_sql "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_TYPE = 'BASE TABLE';")
+sql_ident() {
+	local ident="$1"
+	printf '`%s`' "${ident//\`/\`\`}"
+}
+
+mapfile -t views < <(query_sql "SELECT TABLE_NAME FROM information_schema.VIEWS WHERE TABLE_SCHEMA = DATABASE() ORDER BY TABLE_NAME;")
+mapfile -t triggers < <(query_sql "SELECT TRIGGER_NAME FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA = DATABASE() ORDER BY TRIGGER_NAME;")
+mapfile -t events < <(query_sql "SELECT EVENT_NAME FROM information_schema.EVENTS WHERE EVENT_SCHEMA = DATABASE() ORDER BY EVENT_NAME;")
+mapfile -t procs < <(query_sql "SELECT ROUTINE_NAME FROM information_schema.ROUTINES WHERE ROUTINE_SCHEMA = DATABASE() AND ROUTINE_TYPE = 'PROCEDURE' ORDER BY ROUTINE_NAME;")
+mapfile -t funcs < <(query_sql "SELECT ROUTINE_NAME FROM information_schema.ROUTINES WHERE ROUTINE_SCHEMA = DATABASE() AND ROUTINE_TYPE = 'FUNCTION' ORDER BY ROUTINE_NAME;")
+mapfile -t tables < <(query_sql "SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_TYPE = 'BASE TABLE' ORDER BY TABLE_NAME;")
 
 echo "Discovered objects:"
-echo "  views: $count_views"
-echo "  triggers: $count_triggers"
-echo "  events: $count_events"
-echo "  procedures: $count_procs"
-echo "  functions: $count_funcs"
-echo "  tables: $count_tables"
-
-drop_views=$(query_sql "SELECT IF(COUNT(*) = 0, '', CONCAT('DROP VIEW IF EXISTS ', GROUP_CONCAT(CONCAT('`', REPLACE(TABLE_SCHEMA, '`', '``'), '`.`', REPLACE(TABLE_NAME, '`', '``'), '`') ORDER BY TABLE_NAME SEPARATOR ', '), ';')) FROM information_schema.VIEWS WHERE TABLE_SCHEMA = DATABASE();")
-
-drop_triggers=$(query_sql "SELECT IF(COUNT(*) = 0, '', GROUP_CONCAT(CONCAT('DROP TRIGGER IF EXISTS `', REPLACE(TRIGGER_SCHEMA, '`', '``'), '`.`', REPLACE(TRIGGER_NAME, '`', '``'), '`;') ORDER BY TRIGGER_NAME SEPARATOR ' ')) FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA = DATABASE();")
-
-drop_events=$(query_sql "SELECT IF(COUNT(*) = 0, '', GROUP_CONCAT(CONCAT('DROP EVENT IF EXISTS `', REPLACE(EVENT_SCHEMA, '`', '``'), '`.`', REPLACE(EVENT_NAME, '`', '``'), '`;') ORDER BY EVENT_NAME SEPARATOR ' ')) FROM information_schema.EVENTS WHERE EVENT_SCHEMA = DATABASE();")
-
-drop_procs=$(query_sql "SELECT IF(COUNT(*) = 0, '', GROUP_CONCAT(CONCAT('DROP PROCEDURE IF EXISTS `', REPLACE(ROUTINE_SCHEMA, '`', '``'), '`.`', REPLACE(ROUTINE_NAME, '`', '``'), '`;') ORDER BY ROUTINE_NAME SEPARATOR ' ')) FROM information_schema.ROUTINES WHERE ROUTINE_SCHEMA = DATABASE() AND ROUTINE_TYPE = 'PROCEDURE';")
-
-drop_funcs=$(query_sql "SELECT IF(COUNT(*) = 0, '', GROUP_CONCAT(CONCAT('DROP FUNCTION IF EXISTS `', REPLACE(ROUTINE_SCHEMA, '`', '``'), '`.`', REPLACE(ROUTINE_NAME, '`', '``'), '`;') ORDER BY ROUTINE_NAME SEPARATOR ' ')) FROM information_schema.ROUTINES WHERE ROUTINE_SCHEMA = DATABASE() AND ROUTINE_TYPE = 'FUNCTION';")
-
-drop_tables=$(query_sql "SELECT IF(COUNT(*) = 0, '', CONCAT('DROP TABLE IF EXISTS ', GROUP_CONCAT(CONCAT('`', REPLACE(TABLE_SCHEMA, '`', '``'), '`.`', REPLACE(TABLE_NAME, '`', '``'), '`') ORDER BY TABLE_NAME SEPARATOR ', '), ';')) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_TYPE = 'BASE TABLE';")
-
-echo "Drop plan:"
-if [[ -n "$drop_views" ]]; then echo "  drop views"; else echo "  no views to drop"; fi
-if [[ -n "$drop_triggers" ]]; then echo "  drop triggers"; else echo "  no triggers to drop"; fi
-if [[ -n "$drop_events" ]]; then echo "  drop events"; else echo "  no events to drop"; fi
-if [[ -n "$drop_procs" ]]; then echo "  drop procedures"; else echo "  no procedures to drop"; fi
-if [[ -n "$drop_funcs" ]]; then echo "  drop functions"; else echo "  no functions to drop"; fi
-if [[ -n "$drop_tables" ]]; then echo "  drop tables"; else echo "  no tables to drop"; fi
-
-reset_sql=$'SET FOREIGN_KEY_CHECKS = 0;\nSET SQL_SAFE_UPDATES = 0;\n'
-
-if [[ -n "$drop_views" ]]; then
-	reset_sql+="$drop_views"
-	reset_sql+=$'\n'
-fi
-if [[ -n "$drop_triggers" ]]; then
-	reset_sql+="$drop_triggers"
-	reset_sql+=$'\n'
-fi
-if [[ -n "$drop_events" ]]; then
-	reset_sql+="$drop_events"
-	reset_sql+=$'\n'
-fi
-if [[ -n "$drop_procs" ]]; then
-	reset_sql+="$drop_procs"
-	reset_sql+=$'\n'
-fi
-if [[ -n "$drop_funcs" ]]; then
-	reset_sql+="$drop_funcs"
-	reset_sql+=$'\n'
-fi
-if [[ -n "$drop_tables" ]]; then
-	reset_sql+="$drop_tables"
-	reset_sql+=$'\n'
-fi
-
-reset_sql+=$'SET FOREIGN_KEY_CHECKS = 1;\n'
+echo "  found ${#views[@]} views"
+echo "  found ${#triggers[@]} triggers"
+echo "  found ${#events[@]} events"
+echo "  found ${#procs[@]} procedures"
+echo "  found ${#funcs[@]} functions"
+echo "  found ${#tables[@]} tables"
 
 if [[ $DRY_RUN -eq 1 ]]; then
-	echo "Dry-run SQL:"
-	echo "$reset_sql"
+	echo "Dry-run plan:"
+	for name in "${views[@]}"; do
+		echo "  DROP VIEW IF EXISTS $(sql_ident "$DB").$(sql_ident "$name");"
+	done
+	for name in "${triggers[@]}"; do
+		echo "  DROP TRIGGER IF EXISTS $(sql_ident "$DB").$(sql_ident "$name");"
+	done
+	for name in "${events[@]}"; do
+		echo "  DROP EVENT IF EXISTS $(sql_ident "$DB").$(sql_ident "$name");"
+	done
+	for name in "${procs[@]}"; do
+		echo "  DROP PROCEDURE IF EXISTS $(sql_ident "$DB").$(sql_ident "$name");"
+	done
+	for name in "${funcs[@]}"; do
+		echo "  DROP FUNCTION IF EXISTS $(sql_ident "$DB").$(sql_ident "$name");"
+	done
+	for name in "${tables[@]}"; do
+		echo "  DROP TABLE IF EXISTS $(sql_ident "$DB").$(sql_ident "$name");"
+	done
 	echo "Reset complete (dry-run)."
 	exit 0
 fi
 
-"$RUN_SQL" -d "$DB" -u "$USER" -P "$PASSWORD" -q -c "$reset_sql"
+fk_checks_disabled=0
+reenable_fk_checks() {
+	if [[ $fk_checks_disabled -eq 1 ]]; then
+		"$RUN_SQL" -d "$DB" -u "$USER" -P "$PASSWORD" -q -c "SET FOREIGN_KEY_CHECKS = 1;" >/dev/null 2>&1 || true
+	fi
+}
+trap reenable_fk_checks EXIT
+
+echo "Disabling foreign key checks..."
+"$RUN_SQL" -d "$DB" -u "$USER" -P "$PASSWORD" -q -c "SET FOREIGN_KEY_CHECKS = 0; SET SQL_SAFE_UPDATES = 0;"
+fk_checks_disabled=1
+
+echo "Deleting views..."
+for name in "${views[@]}"; do
+	query_sql "DROP VIEW IF EXISTS $(sql_ident "$DB").$(sql_ident "$name");" >/dev/null
+done
+
+echo "Deleting triggers..."
+for name in "${triggers[@]}"; do
+	query_sql "DROP TRIGGER IF EXISTS $(sql_ident "$DB").$(sql_ident "$name");" >/dev/null
+done
+
+echo "Deleting events..."
+for name in "${events[@]}"; do
+	query_sql "DROP EVENT IF EXISTS $(sql_ident "$DB").$(sql_ident "$name");" >/dev/null
+done
+
+echo "Deleting procedures..."
+for name in "${procs[@]}"; do
+	query_sql "DROP PROCEDURE IF EXISTS $(sql_ident "$DB").$(sql_ident "$name");" >/dev/null
+done
+
+echo "Deleting functions..."
+for name in "${funcs[@]}"; do
+	query_sql "DROP FUNCTION IF EXISTS $(sql_ident "$DB").$(sql_ident "$name");" >/dev/null
+done
+
+echo "Deleting tables..."
+for name in "${tables[@]}"; do
+	query_sql "DROP TABLE IF EXISTS $(sql_ident "$DB").$(sql_ident "$name");" >/dev/null
+done
+
+echo "Re-enabling foreign key checks..."
+"$RUN_SQL" -d "$DB" -u "$USER" -P "$PASSWORD" -q -c "SET FOREIGN_KEY_CHECKS = 1;"
+fk_checks_disabled=0
 
 echo "Reset complete."

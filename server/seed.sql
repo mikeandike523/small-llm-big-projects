@@ -3,6 +3,7 @@ VALUES
   ('openai',  'OpenAI',            'https://api.openai.com/v1'),
   ('claude',  'Anthropic Claude',  'https://api.anthropic.com/v1'),
   ('local',   'Local',             'http://localhost:11434')
+AS new
 ON DUPLICATE KEY UPDATE
-  display_name = VALUES(display_name),
-  default_endpoint_url = VALUES(default_endpoint_url);
+  display_name = new.display_name,
+  default_endpoint_url = new.default_endpoint_url;
