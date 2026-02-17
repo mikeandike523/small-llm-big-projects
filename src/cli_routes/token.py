@@ -10,6 +10,29 @@ from src.data import get_pool
 def token():
     ...
 
+@token.command(name="list")
+def sub_cmd_list():
+    """
+    List the tokens currently stored, including provider, optional name, and endpoint URL.
+    Token value is showns securely as the first 2 and last 2 characters, with ellipses in between
+    If you have a desparate need to recover the token for another purpose
+    Use "slbp token export -p <provider> -n <name> -o <>" to export to a plaintext file
+    (TODO: implement the export command) 
+    """
+    
+    pool = get_pool()
+
+    with pool.get_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT provider, token_name, endpoint_url, token_value FROM tokens")
+            rows = cursor.fetchall()
+            print(f"{'Provider':<20} {'Name':<20} {'Endpoint URL':<40} {'Token Value'}")
+            print("-" * 100)
+            for provider, token_name, endpoint_url, token_value in rows:
+                display_token = f"{token_value[:2]}...{token_value[-2:]}" if token_value else "(empty)"
+                print(f"{provider:<20} {token_name or '(no name)':<20} {endpoint_url:<40} {display_token}")
+
+
 @token.command(name="set")
 @click.option(
     "--name", "-n", type=Optional[str], required=False, default=None,
