@@ -1,3 +1,4 @@
 click
 mysql-connector-python
 termcolor
+prompt_toolkit
