@@ -37,7 +37,7 @@ def sub_cmd_list():
 
 @token.command(name="set")
 @click.option(
-    "--name", "-n", type=str, required=False, default=None,
+    "--name", "-n", type=str, required=False, default="",
     help="Optional name of the token to store"
 )
 @click.option(
@@ -53,7 +53,7 @@ of "openai", but if you want to use a different endpoint, you can specify it her
 @click.argument("provider", required=True, type=str, nargs=1)
 @click.argument("token", required=True, type=str, nargs=1)
 def sub_cmd_set(
-    name: Optional[str],
+    name: str,
     endpoint: Optional[str],
     provider: str,
     token: str
@@ -78,6 +78,7 @@ def sub_cmd_set(
     """
 
     pool = get_pool()
+    token_name = name or ""
 
     with pool.get_connection() as conn:
         with conn.cursor() as cursor:
@@ -150,19 +151,16 @@ def sub_cmd_set(
                     )
 
             # Step 3: find an existing token by (provider, token_name) with case-sensitive
-            # matching and explicit NULL handling for unnamed tokens.
+            # matching.
             cursor.execute(
                 """
                 SELECT id, endpoint_url, token_value
                 FROM tokens
                 WHERE BINARY provider = BINARY %s
-                  AND (
-                    (%s IS NULL AND token_name IS NULL)
-                    OR (%s IS NOT NULL AND BINARY token_name = BINARY %s)
-                  )
+                  AND BINARY token_name = BINARY %s
                 LIMIT 1
                 """,
-                (provider, name, name, name),
+                (provider, token_name),
             )
             existing_token = cursor.fetchone()
 
@@ -174,7 +172,7 @@ def sub_cmd_set(
 
                 # Existing token pair found: ask before replacing the stored token value.
                 replace = click.confirm(
-                    f'Token for provider "{provider}" and name "{name}" exists. Replace it?',
+                    f'Token for provider "{provider}" and name "{token_name}" exists. Replace it?',
                     default=False,
                 )
                 if not replace:
@@ -199,7 +197,7 @@ def sub_cmd_set(
                 INSERT INTO tokens (provider, endpoint_url, token_name, token_value)
                 VALUES (%s, %s, %s, %s)
                 """,
-                (provider, chosen_endpoint, name, token),
+                (provider, chosen_endpoint, token_name, token),
             )
             conn.commit()
             click.echo("Token added.")
@@ -214,21 +212,21 @@ slbp token use <provider> <name>
             
 @token.command(name="use")
 @click.argument("provider", type=str, required=True, nargs=1)
-@click.argument("name", type=str, required=False, nargs=1, default=None)
-def sub_cmd_use(provider: str, name: Optional[str]):
+@click.argument("name", type=str, required=False, nargs=1, default="")
+def sub_cmd_use(provider: str, name: str):
     """
     Set the active token for this session by provider and optional name.
     """
 
     pool= get_pool()
+    token_name = name or ""
     with pool.get_connection() as conn:
         KVManager(conn).set_value("active_token", {
             "provider": provider,
-            "name": name,
+            "name": token_name,
         })
     click.echo(f"""\
-Set active token to provider="{provider}" and name="{name}" for this session.
+Set active token to provider="{provider}" and name="{token_name}" for this session.
                """.strip())
-
 
 
