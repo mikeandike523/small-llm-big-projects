@@ -14,7 +14,8 @@ def token():
 def sub_cmd_list():
     """
     List the tokens currently stored, including provider, optional name, and endpoint URL.
-    Token value is showns securely as the first 2 and last 2 characters, with ellipses in between
+    Token value is showns securely as the first 2 and last 2 characters, with ellipses in between.
+    
     If you have a desparate need to recover the token for another purpose
     Use "slbp token export -p <provider> -n <name> -o <>" to export to a plaintext file
     (TODO: implement the export command) 
