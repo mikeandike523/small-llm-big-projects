@@ -35,11 +35,11 @@ def sub_cmd_list():
 
 @token.command(name="set")
 @click.option(
-    "--name", "-n", type=Optional[str], required=False, default=None,
+    "--name", "-n", type=str, required=False, default=None,
     help="Optional name of the token to store"
 )
 @click.option(
-    "--endpoint", "-e", type=Optional[str], required=False, default=None,
+    "--endpoint", "-e", type=str, required=False, default=None,
     help="""\
 Override the known endpoint in our system for a known provider,
 or set the endpoint for an unknown provider.
