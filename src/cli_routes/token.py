@@ -5,7 +5,7 @@ import warnings
 from src.cli_obj import cli
 
 from src.data import get_pool
-from utils.sql.kv_manager import KVManager
+from src.utils.sql.kv_manager import KVManager
 
 @cli.group()
 def token():
