@@ -5,6 +5,7 @@ import warnings
 from src.cli_obj import cli
 
 from src.data import get_pool
+from utils.sql.kv_manager import KVManager
 
 @cli.group()
 def token():
@@ -202,6 +203,32 @@ def sub_cmd_set(
             )
             conn.commit()
             click.echo("Token added.")
+            click.echo("""\
+Note: token not immediately used (set as active).
+If you want to use the token, run
+
+slbp token use <provider> <name>
+(name is optional)
+                    
+""".strip())
+            
+@token.command(name="use")
+@click.argument("provider", type=str, required=True, nargs=1)
+@click.argument("name", type=str, required=False, nargs=1, default=None)
+def sub_cmd_use(provider: str, name: Optional[str]):
+    """
+    Set the active token for this session by provider and optional name.
+    """
+
+    pool= get_pool()
+    with pool.get_connection() as conn:
+        KVManager(conn).set_value("active_token", {
+            "provider": provider,
+            "name": name,
+        })
+    click.echo(f"""\
+Set active token to provider="{provider}" and name="{name}" for this session.
+               """.strip())
 
 
 
