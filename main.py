@@ -1,7 +1,7 @@
 import importlib
 
 importlib.import_module("src.cli_routes.token")
-importlib.import_module("src.cli_routes.endpoints")
+importlib.import_module("src.cli_routes.endpoint")
 
 from src.cli_obj import cli
 

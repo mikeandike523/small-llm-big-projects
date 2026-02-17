@@ -2,8 +2,12 @@ from src.cli_obj import cli
 
 from src.data import get_pool
 
-@cli.command()
-def endpoints():
+@cli.group()
+def endpoint():
+    ...
+
+@endpoint.command(name="list")
+def sub_cmd_list():
     """
     List or modify known providers and endpoints
     """
