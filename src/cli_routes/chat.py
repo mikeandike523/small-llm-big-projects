@@ -7,6 +7,7 @@ from src.cli_obj import cli
 from src.data import get_pool
 from src.utils.sql.kv_manager import KVManager
 from src.utils.cli.multiline_prompt import multiline_prompt
+from src.utils.cli.slash_commands import try_handle_slash_command
 from src.utils.llm.streaming import StreamingLLM
 from src.tools import ALL_TOOL_DEFINITIONS, execute_tool
 
@@ -78,7 +79,7 @@ def chat():
     print(f"Endpoint url: {endpoint_url}")
     if token_name:
         print(f"Token name: {token_name}")
-    print(f"Token value: {token_value[:2] + "..." + token_value[-2:]}")
+    print(f"Token value: {token_value[:2] + '...' + token_value[-2:]}")
     print(f"Model: {model or '(not set)'}")
 
     acc_data = {
@@ -124,6 +125,10 @@ def chat():
             break
 
         user_input = ml_result.text
+        slash_result = try_handle_slash_command(user_input, session_data)
+        if slash_result.handled:
+            click.echo(colored(slash_result.output, "cyan"))
+            continue
 
         message_history.append({
             "role": "user",
