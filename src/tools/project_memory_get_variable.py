@@ -28,6 +28,13 @@ DEFINITION: dict = {
                         "Defaults to the current working directory."
                     ),
                 },
+                "render_text": {
+                    "type": "boolean",
+                    "description": (
+                        "If true and the stored value is a JSON string, return the "
+                        "raw string instead of a JSON-encoded value."
+                    ),
+                },
             },
             "required": ["key"],
             "additionalProperties": False,
@@ -42,4 +49,6 @@ def execute(args: dict, _session_data: dict | None = None) -> str:
     pool = get_pool()
     with pool.get_connection() as conn:
         value = KVManager(conn, project).get_value(key)
+    if args.get("render_text") and isinstance(value, str):
+        return value
     return json.dumps(value, ensure_ascii=False)

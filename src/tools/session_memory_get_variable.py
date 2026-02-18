@@ -14,6 +14,13 @@ DEFINITION: dict = {
                     "type": "string",
                     "description": "The memory key to fetch.",
                 },
+                "render_text": {
+                    "type": "boolean",
+                    "description": (
+                        "If true and the stored value is a JSON string, return the "
+                        "raw string instead of a JSON-encoded value."
+                    ),
+                },
             },
             "required": ["key"],
             "additionalProperties": False,
@@ -35,4 +42,7 @@ def execute(args: dict, session_data: dict | None = None) -> str:
         session_data = {}
     memory = _ensure_session_memory(session_data)
     key = args["key"]
-    return json.dumps(memory.get(key), ensure_ascii=False)
+    value = memory.get(key)
+    if args.get("render_text") and isinstance(value, str):
+        return value
+    return json.dumps(value, ensure_ascii=False)
