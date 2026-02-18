@@ -9,44 +9,40 @@ from src.utils.sql.kv_manager import KVManager
 DEFINITION: dict = {
     "type": "function",
     "function": {
-        "name": "project_memory_set_variable",
+        "name": "project_memory_delete_variable",
         "description": (
-            "Set the value of a persistent memory item scoped to the current "
-            "project or a specified project. Projects are identified by their "
-            "filesystem paths."
-            "Memory values must be valid JSON."
+            "Delete a persistent memory item scoped to the current project or a "
+            "specified project."
         ),
         "parameters": {
             "type": "object",
             "properties": {
                 "key": {
                     "type": "string",
-                    "description": "The memory key to store."
-                },
-                "value": {
-                    "type": "string",
-                    "description": "The value to store for the given key."
+                    "description": "The memory key to delete.",
                 },
                 "project": {
                     "type": "string",
                     "description": (
                         "Optional filesystem path identifying the project scope. "
                         "Defaults to the current working directory."
-                    )
-                }
+                    ),
+                },
             },
-            "required": ["key", "value"],
-            "additionalProperties": False
-        }
-    }
+            "required": ["key"],
+            "additionalProperties": False,
+        },
+    },
 }
+
 
 def execute(args: dict, _session_data: dict | None = None) -> str:
     key = args["key"]
-    value = args["value"]
     project = args.get("project", os.getcwd())
     pool = get_pool()
     with pool.get_connection() as conn:
-        KVManager(conn, project).set_value(key, value)
+        manager = KVManager(conn, project)
+        deleted = manager.exists(key)
+        manager.delete_value(key)
         conn.commit()
-    return json.dumps({"key": key, "project": project}, ensure_ascii=False)
+    return json.dumps({"deleted": deleted, "key": key, "project": project}, ensure_ascii=False)
