@@ -40,7 +40,7 @@ DEFINITION: dict = {
     }
 }
 
-def execute(args: dict) -> str:
+def execute(args: dict,_session_data={}) -> str:
     key=args["key"]
     value=args["value"]
     project=args.get("project", os.getcwd())

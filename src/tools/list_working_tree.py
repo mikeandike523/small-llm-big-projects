@@ -10,7 +10,7 @@ DEFINITION: dict = {
     },
 }
 
-def execute(args: dict) -> str:
+def execute(args: dict,_session_data={}) -> str:
     result = run_command(["git", "ls-files", "--cached", "--others", "--exclude-standard"])
     if not result.success:
         return f"Error (exit {result.returncode}): {result.stderr.strip()}"

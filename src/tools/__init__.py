@@ -12,8 +12,8 @@ _TOOL_MAP: dict[str, object] = {
     "project_memory_set_variable":project_memory_set_variable
 }
 
-def execute_tool(name: str, args: dict) -> str:
+def execute_tool(name: str, args: dict, session_data={}) -> str:
     module = _TOOL_MAP.get(name)
     if module is None:
         return f"Unknown tool: {name!r}"
-    return module.execute(args)
+    return module.execute(args, session_data{})

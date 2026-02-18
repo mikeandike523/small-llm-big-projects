@@ -113,6 +113,8 @@ def chat():
 
     message_history = [{"role": "system", "content": SYSTEM_PROMPT}]
 
+    session_data={}
+
     while ml_result is None or ml_result.submitted:
         ml_result = multiline_prompt()
         if ml_result.aborted:
@@ -151,7 +153,7 @@ def chat():
                 for tc in stream_result.tool_calls:
                     sys.stdout.write(colored(f"\n[Tool call: {tc.name}  args={tc.arguments}]", "magenta"))
                     sys.stdout.flush()
-                    tool_result = execute_tool(tc.name, tc.arguments)
+                    tool_result = execute_tool(tc.name, tc.arguments, session_data)
                     sys.stdout.write(colored(f"\n[Tool result: {tool_result[:300]}{'...' if len(tool_result) > 300 else ''}]", "magenta"))
                     sys.stdout.flush()
 
