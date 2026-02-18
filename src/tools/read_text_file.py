@@ -4,6 +4,7 @@ import os
 
 from src.data import get_pool
 from src.utils.sql.kv_manager import KVManager
+from src.utils.text.line_numbers import add_line_numbers
 
 DEFINITION: dict = {
     "type": "function",
@@ -47,6 +48,10 @@ DEFINITION: dict = {
                     "description":
                     "Optional 1-based line number to stop reading at (inclusive).",
                 },
+                "number_lines": {
+                    "type": "boolean",
+                    "description": "If true, prefix each returned line with its line number.",
+                },
             },
             "required": ["filepath"],
             "additionalProperties": False,
@@ -68,6 +73,7 @@ def execute(args, session_data):
     target = args.get("target", "return_value")
     start_line = args.get("start_line")
     end_line = args.get("end_line")
+    number_lines = bool(args.get("number_lines"))
 
     if start_line is not None and start_line < 1:
         return "Error: start_line must be >= 1"
@@ -76,11 +82,12 @@ def execute(args, session_data):
     if start_line is not None and end_line is not None and end_line < start_line:
         return "Error: end_line must be >= start_line"
 
+    effective_start_line = start_line if start_line is not None else 1
+
     if start_line is None and end_line is None:
         with open(filepath, "r", encoding="utf-8") as fl:
             contents = fl.read()
     else:
-        effective_start_line = start_line if start_line is not None else 1
         selected_lines: list[str] = []
 
         with open(filepath, "r", encoding="utf-8") as fl:
@@ -92,6 +99,9 @@ def execute(args, session_data):
                 selected_lines.append(line)
 
         contents = "".join(selected_lines)
+
+    if number_lines:
+        contents = add_line_numbers(contents, start_line=effective_start_line)
 
     if target == "return_value":
         return contents

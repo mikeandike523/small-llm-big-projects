@@ -5,6 +5,7 @@ import os
 
 from src.data import get_pool
 from src.utils.sql.kv_manager import KVManager
+from src.utils.text.line_numbers import add_line_numbers
 
 DEFINITION: dict = {
     "type": "function",
@@ -35,6 +36,13 @@ DEFINITION: dict = {
                         "raw string instead of a JSON-encoded value."
                     ),
                 },
+                "number_lines": {
+                    "type": "boolean",
+                    "description": (
+                        "If true, return a line-numbered view of the value. "
+                        "The memory item must be a top-level JSON string."
+                    ),
+                },
             },
             "required": ["key"],
             "additionalProperties": False,
@@ -49,6 +57,10 @@ def execute(args: dict, _session_data: dict | None = None) -> str:
     pool = get_pool()
     with pool.get_connection() as conn:
         value = KVManager(conn, project).get_value(key)
+    if args.get("number_lines"):
+        if not isinstance(value, str):
+            return f"key {key} is not a json string"
+        return add_line_numbers(value, start_line=1)
     if args.get("render_text") and isinstance(value, str):
         return value
     return json.dumps(value, ensure_ascii=False)

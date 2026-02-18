@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from src.utils.text.line_numbers import add_line_numbers
 
 DEFINITION: dict = {
     "type": "function",
@@ -19,6 +20,13 @@ DEFINITION: dict = {
                     "description": (
                         "If true and the stored value is a JSON string, return the "
                         "raw string instead of a JSON-encoded value."
+                    ),
+                },
+                "number_lines": {
+                    "type": "boolean",
+                    "description": (
+                        "If true, return a line-numbered view of the value. "
+                        "The memory item must be a top-level JSON string."
                     ),
                 },
             },
@@ -43,6 +51,10 @@ def execute(args: dict, session_data: dict | None = None) -> str:
     memory = _ensure_session_memory(session_data)
     key = args["key"]
     value = memory.get(key)
+    if args.get("number_lines"):
+        if not isinstance(value, str):
+            return f"key {key} is not a json string"
+        return add_line_numbers(value, start_line=1)
     if args.get("render_text") and isinstance(value, str):
         return value
     return json.dumps(value, ensure_ascii=False)
