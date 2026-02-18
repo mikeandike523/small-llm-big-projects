@@ -131,5 +131,5 @@ class StreamingLLM:
             except json.JSONDecodeError:
                 arguments = {}
             tool_calls.append(ToolCall(id=entry["id"], name=entry["name"], arguments=arguments))
-
+        
         return StreamResult(tool_calls=tool_calls)
