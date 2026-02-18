@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import click
@@ -30,16 +31,18 @@ def ui_run():
     """
     bash = find_bash()
 
+    print(bash)
+
     processes = [
         ManagedProcess(
             label="vite",
-            cmd=[bash, "-lc" "pnpm", "run", "vite"],
-            cwd=UI_DIR,
+            cmd=[bash, "-l", "run_ui_server.sh"],
+            cwd=PROJECT_ROOT,
         ),
         ManagedProcess(
             label="flask",
             cmd=[bash, "-l", str(PROJECT_ROOT / "run_ui_connector.sh")],
-            cwd=PROJECT_ROOT,
+            cwd=os.getcwd(),
         ),
     ]
 
