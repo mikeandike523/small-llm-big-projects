@@ -1,3 +1,4 @@
+import json
 import click
 from termcolor import colored
 import sys
@@ -7,6 +8,17 @@ from src.data import get_pool
 from src.utils.sql.kv_manager import KVManager
 from src.utils.cli.multiline_prompt import multiline_prompt
 from src.utils.llm.streaming import StreamingLLM
+from src.tools import ALL_TOOL_DEFINITIONS, execute_tool
+
+SYSTEM_PROMPT = """\
+You are a helpful assistant with access to tools that let you inspect the user's environment.
+
+When responding to a request:
+- If a tool is relevant, use it. You may call multiple tools in sequence.
+- If no available tool applies, explicitly state that no tools are relevant and that you cannot complete the request.
+- Do not guess at file contents or directory structure; use tools to check.
+- After receiving tool results, synthesize them into a clear answer.
+"""
 
 @cli.command()
 def chat():
@@ -99,37 +111,62 @@ def chat():
     
     ml_result = None
 
-    message_history=[]
+    message_history = [{"role": "system", "content": SYSTEM_PROMPT}]
 
     while ml_result is None or ml_result.submitted:
         ml_result = multiline_prompt()
         if ml_result.aborted:
             break
 
-
         user_input = ml_result.text
 
         message_history.append({
-            "role":"user",
-            "content":user_input
+            "role": "user",
+            "content": user_input,
         })
 
-        acc_data["reasoning"] = ""
-        acc_data["content"] = ""
+        while True:
+            acc_data["reasoning"] = ""
+            acc_data["content"] = ""
 
-        try:
-            streaming_llm.stream(message_history, on_data)
-        except:
-            raise SystemExit(-1)
+            try:
+                stream_result = streaming_llm.stream(message_history, on_data, tools=ALL_TOOL_DEFINITIONS)
+            except Exception:
+                raise SystemExit(-1)
 
+            if stream_result.has_tool_calls:
+                message_history.append({
+                    "role": "assistant",
+                    "content": acc_data["content"] or None,
+                    "tool_calls": [
+                        {
+                            "id": tc.id,
+                            "type": "function",
+                            "function": {"name": tc.name, "arguments": json.dumps(tc.arguments)},
+                        }
+                        for tc in stream_result.tool_calls
+                    ],
+                })
 
-        message_history.append({
-            "role":"assistant",
-            "content":acc_data["content"]
-        })
+                for tc in stream_result.tool_calls:
+                    sys.stdout.write(colored(f"\n[Tool call: {tc.name}  args={tc.arguments}]", "magenta"))
+                    sys.stdout.flush()
+                    tool_result = execute_tool(tc.name, tc.arguments)
+                    sys.stdout.write(colored(f"\n[Tool result: {tool_result[:300]}{'...' if len(tool_result) > 300 else ''}]", "magenta"))
+                    sys.stdout.flush()
 
-        sys.stdout.write("\n\n")
-        sys.stdout.flush()
+                    message_history.append({
+                        "role": "tool",
+                        "tool_call_id": tc.id,
+                        "content": tool_result,
+                    })
+                continue
+
+            else:
+                message_history.append({"role": "assistant", "content": acc_data["content"]})
+                sys.stdout.write("\n\n")
+                sys.stdout.flush()
+                break
 
 
         
