@@ -8,6 +8,7 @@ from src.tools import session_memory_delete_variable
 from src.tools import session_memory_get_variable
 from src.tools import session_memory_list_variables
 from src.tools import session_memory_set_variable
+from src.tools import count_text_file_lines
 from src.tools import read_text_file
 
 ALL_TOOL_DEFINITIONS: list[dict] = [
@@ -20,6 +21,7 @@ ALL_TOOL_DEFINITIONS: list[dict] = [
     session_memory_get_variable.DEFINITION,
     session_memory_list_variables.DEFINITION,
     session_memory_delete_variable.DEFINITION,
+    count_text_file_lines.DEFINITION,
     read_text_file.DEFINITION
 ]
 
@@ -33,6 +35,7 @@ _TOOL_MAP: dict[str, object] = {
     "session_memory_get_variable": session_memory_get_variable,
     "session_memory_list_variables": session_memory_list_variables,
     "session_memory_delete_variable": session_memory_delete_variable,
+    "count_text_file_lines": count_text_file_lines,
     "read_text_file":read_text_file
 }
 

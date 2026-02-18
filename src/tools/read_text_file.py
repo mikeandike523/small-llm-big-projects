@@ -9,7 +9,7 @@ DEFINITION: dict = {
     "type": "function",
     "function": {
         "name": "read_text_file",
-        "description": "Read the entire contents of a text file. Encoding is utf-8.",
+        "description": "Read a text file (or an inclusive line range). Encoding is utf-8.",
         "parameters": {
             "type": "object",
             "properties": {
@@ -35,6 +35,18 @@ DEFINITION: dict = {
                         "Required when target is 'session_memory' or 'project_memory'."
                     ),
                 },
+                "start_line": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description":
+                    "Optional 1-based line number to start reading from (inclusive).",
+                },
+                "end_line": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description":
+                    "Optional 1-based line number to stop reading at (inclusive).",
+                },
             },
             "required": ["filepath"],
             "additionalProperties": False,
@@ -54,9 +66,32 @@ def _ensure_session_memory(session_data: dict) -> dict:
 def execute(args, session_data):
     filepath = args["filepath"]
     target = args.get("target", "return_value")
+    start_line = args.get("start_line")
+    end_line = args.get("end_line")
 
-    with open(filepath, "r", encoding="utf-8") as fl:
-        contents = fl.read()
+    if start_line is not None and start_line < 1:
+        return "Error: start_line must be >= 1"
+    if end_line is not None and end_line < 1:
+        return "Error: end_line must be >= 1"
+    if start_line is not None and end_line is not None and end_line < start_line:
+        return "Error: end_line must be >= start_line"
+
+    if start_line is None and end_line is None:
+        with open(filepath, "r", encoding="utf-8") as fl:
+            contents = fl.read()
+    else:
+        effective_start_line = start_line if start_line is not None else 1
+        selected_lines: list[str] = []
+
+        with open(filepath, "r", encoding="utf-8") as fl:
+            for line_number, line in enumerate(fl, start=1):
+                if line_number < effective_start_line:
+                    continue
+                if end_line is not None and line_number > end_line:
+                    break
+                selected_lines.append(line)
+
+        contents = "".join(selected_lines)
 
     if target == "return_value":
         return contents
