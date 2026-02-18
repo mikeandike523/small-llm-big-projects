@@ -11,12 +11,14 @@ from src.utils.llm.streaming import StreamingLLM
 from src.tools import ALL_TOOL_DEFINITIONS, execute_tool
 
 SYSTEM_PROMPT = """\
-You are a helpful assistant with access to tools that let you inspect the user's environment.
+You are a helpful assistant with access to tools
+that let you perform many useful actions.
+
+Prefer tool use when possible to get precise answers.
 
 When responding to a request:
 - If a tool is relevant, use it. You may call multiple tools in sequence.
 - If no available tool applies, explicitly state that no tools are relevant and that you cannot complete the request.
-- Do not guess at file contents or directory structure; use tools to check.
 - After receiving tool results, synthesize them into a clear answer.
 """
 
