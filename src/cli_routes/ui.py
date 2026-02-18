@@ -33,12 +33,12 @@ def ui_run():
     processes = [
         ManagedProcess(
             label="vite",
-            cmd=["pnpm", "run", "vite"],
+            cmd=[bash, "-lc" "pnpm", "run", "vite"],
             cwd=UI_DIR,
         ),
         ManagedProcess(
             label="flask",
-            cmd=[bash, str(PROJECT_ROOT / "run_ui_connector.sh")],
+            cmd=[bash, "-l", str(PROJECT_ROOT / "run_ui_connector.sh")],
             cwd=PROJECT_ROOT,
         ),
     ]

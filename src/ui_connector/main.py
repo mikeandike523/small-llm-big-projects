@@ -5,6 +5,7 @@ eventlet.monkey_patch() MUST be called before any other imports that touch
 the standard library's socket/threading/etc so that eventlet can intercept
 them.  All other project imports therefore happen after the patch.
 """
+
 import eventlet
 eventlet.monkey_patch()
 
@@ -15,6 +16,10 @@ from dotenv import load_dotenv
 
 # Load .env from the project root (two levels up from src/ui_connector/)
 load_dotenv(Path(__file__).resolve().parent.parent.parent / ".env")
+
+import sys
+
+sys.path.insert(0,os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 
 from src.ui_connector.app import app, socketio  # noqa: E402
 

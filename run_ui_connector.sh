@@ -17,4 +17,4 @@ fi
 
 export PYTHONPATH="${PYTHONPATH:+$PYTHONPATH:}$dn"
 
-exec python "$dn/src/ui_connector/main.py"
+python "$dn/src/ui_connector/main.py"
