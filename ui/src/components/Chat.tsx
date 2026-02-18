@@ -125,6 +125,8 @@ const userBubbleCss = css`
 
 const assistantBubbleCss = css`
   max-width: 78%;
+  max-height: 480px;
+  overflow-y: auto;
   background: #1e1e1e;
   border-radius: 16px 16px 16px 4px;
   padding: 10px 14px;
@@ -204,6 +206,8 @@ const reasoningCss = css`
   margin-bottom: 6px;
   white-space: pre-wrap;
   word-break: break-word;
+  max-height: 180px;
+  overflow-y: auto;
 `
 
 const toolCallCss = css`
@@ -229,6 +233,8 @@ const toolArgsCss = css`
   font-family: 'Consolas', monospace;
   white-space: pre-wrap;
   word-break: break-word;
+  max-height: 160px;
+  overflow-y: auto;
 `
 
 const toolResultCss = css`
@@ -239,6 +245,8 @@ const toolResultCss = css`
   white-space: pre-wrap;
   word-break: break-word;
   border-top: 1px solid #1a3a1a;
+  max-height: 220px;
+  overflow-y: auto;
 `
 
 const statusCss = css`
@@ -247,6 +255,61 @@ const statusCss = css`
   padding: 4px 16px;
   text-align: center;
 `
+
+// ---------------------------------------------------------------------------
+// AssistantBubble — needs its own refs for per-bubble inner auto-scroll
+// ---------------------------------------------------------------------------
+
+function AssistantBubble({ entry }: { entry: AssistantEntry }) {
+  const contentRef = useRef<HTMLDivElement>(null)
+  const reasoningRef = useRef<HTMLDivElement>(null)
+
+  // Scroll the content area to bottom as tokens stream in
+  useEffect(() => {
+    if (entry.streaming && contentRef.current) {
+      contentRef.current.scrollTop = contentRef.current.scrollHeight
+    }
+  }, [entry.content, entry.streaming])
+
+  // Scroll the reasoning area to bottom as tokens stream in
+  useEffect(() => {
+    if (entry.streaming && reasoningRef.current) {
+      reasoningRef.current.scrollTop = reasoningRef.current.scrollHeight
+    }
+  }, [entry.reasoning, entry.streaming])
+
+  return (
+    <div css={bubbleCss('assistant')}>
+      {entry.reasoning ? (
+        <div css={reasoningCss} ref={reasoningRef}>{entry.reasoning}</div>
+      ) : null}
+      {entry.content ? (
+        <div css={assistantBubbleCss} ref={contentRef}>
+          <ReactMarkdown
+            remarkPlugins={[remarkGfm]}
+            rehypePlugins={[rehypeHighlight]}
+          >
+            {entry.content}
+          </ReactMarkdown>
+        </div>
+      ) : null}
+      {entry.toolCalls.map(tc => (
+        <div key={tc.id} css={toolCallCss}>
+          <div css={toolHeaderCss}>⚙ {tc.name}</div>
+          {Object.keys(tc.args).length > 0 && (
+            <div css={toolArgsCss}>{JSON.stringify(tc.args, null, 2)}</div>
+          )}
+          {tc.result !== undefined && (
+            <div css={toolResultCss}>{tc.result}</div>
+          )}
+        </div>
+      ))}
+      {entry.streaming && !entry.content && entry.toolCalls.length === 0 && (
+        <div css={streamingPlaceholderCss}>…</div>
+      )}
+    </div>
+  )
+}
 
 // ---------------------------------------------------------------------------
 // Component
@@ -258,10 +321,22 @@ export default function Chat() {
   const [connected, setConnected] = useState(socket.connected)
   const [busy, setBusy] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
+  const threadRef = useRef<HTMLDivElement>(null)
+  // Tracks whether the user is near the bottom; avoid state to skip re-renders
+  const isAtBottom = useRef(true)
 
-  // Scroll to bottom whenever thread updates
+  const handleScroll = useCallback(() => {
+    const el = threadRef.current
+    if (!el) return
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
+    isAtBottom.current = distanceFromBottom <= 50
+  }, [])
+
+  // Scroll to bottom on thread updates only when already at the bottom
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+    if (isAtBottom.current) {
+      bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+    }
   }, [thread])
 
   // ---------------------------------------------------------------------------
@@ -379,6 +454,8 @@ export default function Chat() {
     setBusy(true)
     setInputText('')
 
+    // Re-enable autoscroll so the incoming response is followed
+    isAtBottom.current = true
     socket.emit('user_message', { text })
   }, [inputText, busy, connected])
 
@@ -402,37 +479,7 @@ export default function Chat() {
       )
     }
 
-    return (
-      <div key={entry.id} css={bubbleCss('assistant')}>
-        {entry.reasoning ? (
-          <div css={reasoningCss}>{entry.reasoning}</div>
-        ) : null}
-        {entry.content ? (
-          <div css={assistantBubbleCss}>
-            <ReactMarkdown
-              remarkPlugins={[remarkGfm]}
-              rehypePlugins={[rehypeHighlight]}
-            >
-              {entry.content}
-            </ReactMarkdown>
-          </div>
-        ) : null}
-        {entry.toolCalls.map(tc => (
-          <div key={tc.id} css={toolCallCss}>
-            <div css={toolHeaderCss}>⚙ {tc.name}</div>
-            {Object.keys(tc.args).length > 0 && (
-              <div css={toolArgsCss}>{JSON.stringify(tc.args, null, 2)}</div>
-            )}
-            {tc.result !== undefined && (
-              <div css={toolResultCss}>{tc.result}</div>
-            )}
-          </div>
-        ))}
-        {entry.streaming && !entry.content && entry.toolCalls.length === 0 && (
-          <div css={streamingPlaceholderCss}>…</div>
-        )}
-      </div>
-    )
+    return <AssistantBubble key={entry.id} entry={entry} />
   }
 
   // ---------------------------------------------------------------------------
@@ -444,7 +491,7 @@ export default function Chat() {
       <div css={statusCss}>
         {connected ? '● connected' : '○ disconnected'}
       </div>
-      <div css={threadCss}>
+      <div css={threadCss} ref={threadRef} onScroll={handleScroll}>
         {thread.map(renderEntry)}
         <div ref={bottomRef} />
       </div>
