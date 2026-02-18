@@ -3,3 +3,8 @@ mysql-connector-python
 termcolor
 prompt_toolkit
 requests
+flask
+flask-socketio
+eventlet
+redis
+python-dotenv

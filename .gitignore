@@ -4,3 +4,9 @@
 
 data
 credentials
+
+# Environment files — never commit secrets
+.env
+.env.local
+ui/.env
+ui/.env.local
