@@ -1,10 +1,12 @@
 import click
 from termcolor import colored
+import sys
 
 from src.cli_obj import cli
 from src.data import get_pool
 from src.utils.sql.kv_manager import KVManager
-from src.utils.cli import multiline_prompt
+from src.utils.cli.multiline_prompt import multiline_prompt
+from src.utils.llm.streaming import StreamingLLM
 
 @cli.command()
 def chat():
@@ -53,18 +55,83 @@ def chat():
         click.echo(colored("Could not retrieve endpoint url value", "red"))
         raise SystemExit(-1)
     
+    with pool.get_connection() as conn:
+        model = KVManager(conn).get_value("model")
+        if not model:
+            model=None
+
+    
     print(f"Endpoint url: {endpoint_url}")
     if token_name:
         print(f"Token name: {token_name}")
     print(f"Token value: {token_value[:2] + "..." + token_value[-2:]}")
+    print(f"Model: {model or '(not set)'}")
+
+    acc_data = {
+        "reasoning":"",
+        "content":""
+    }
+
+    def on_data(data):
+        # Hot patch for an issue with Qwen3 parsing on openrouter
+        # Where EOS token shows up in output
+        if endpoint_url=="https://openrouter.ai/api/v1":
+            data["content"].rstrip()
+        content_previously_blank = not acc_data["content"]
+        acc_data["reasoning"]+=data.get("reasoning") or ''
+        acc_data["content"]+=data.get("content") or ''
+        if data.get("reasoning"):
+            sys.stdout.write(colored(data.get("reasoning"),"blue"))
+            sys.stdout.flush()
+        if data.get("content"):
+            if content_previously_blank:
+                sys.stdout.write("\n\n")
+                sys.stdout.flush()
+            sys.stdout.write(data.get("content"))
+            sys.stdout.flush()
+        
+
+    
+
+    streaming_llm = StreamingLLM(endpoint_url, token_value, 60,model,{
+        "max_tokens": 8192
+    })
     
     ml_result = None
+
+    message_history=[]
 
     while ml_result is None or ml_result.submitted:
         ml_result = multiline_prompt()
         if ml_result.aborted:
             break
-        user_message = ml_result.text
+
+
+        user_input = ml_result.text
+
+        message_history.append({
+            "role":"user",
+            "content":user_input
+        })
+
+        acc_data["reasoning"] = ""
+        acc_data["content"] = ""
+
+        try:
+            streaming_llm.stream(message_history, on_data)
+        except:
+            raise SystemExit(-1)
+
+
+        message_history.append({
+            "role":"assistant",
+            "content":acc_data["content"]
+        })
+
+        sys.stdout.write("\n\n")
+        sys.stdout.flush()
+
+
         
     
     click.echo("Bye!")

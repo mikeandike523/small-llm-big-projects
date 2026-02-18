@@ -5,6 +5,7 @@ from typing import Optional
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit.key_binding import KeyBindings
+from prompt_toolkit.keys  import Keys
 from termcolor import colored
 
 
@@ -30,8 +31,7 @@ def multiline_prompt(
     Multiline prompt behavior:
 
       Enter        -> newline (never submits)
-      Ctrl+Enter   -> submit
-      Alt+Enter    -> submit (portable fallback)
+      Ctrl+J or Alt+Enter   -> submit
       Ctrl+C       -> abort (returns captured text, does NOT exit program)
 
     Returns:
@@ -51,8 +51,8 @@ def multiline_prompt(
     def _(event):
         event.app.current_buffer.insert_text("\n")
 
-    # Ctrl+Enter: submit
-    @kb.add("c-enter")
+    # Ctrl+J: submit
+    @kb.add("c-j")
     def _(event):
         event.app.exit(result=event.app.current_buffer.text)
 
@@ -64,8 +64,8 @@ def multiline_prompt(
     controls_text = (
         "Controls: "
         "Enter → newline  •  "
-        "Ctrl+Enter → submit  •  "
-        "Alt+Enter → submit  •  "
+        "Ctrl+J or Alt+Enter → submit  •  "
+
         "Ctrl+C → abort"
     )
     controls_blue = colored(controls_text, "blue")

@@ -78,7 +78,6 @@ class KVManager:
 
         with self._conn.cursor(dictionary=True) as cur:
 
-            print(cur, key, payload)
 
             cur.execute(
         """

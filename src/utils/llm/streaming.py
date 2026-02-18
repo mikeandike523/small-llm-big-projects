@@ -24,24 +24,33 @@ class StreamingLLM:
         self._default_parameters = default_parameters
         self._timeout_s = timeout_s
 
-    def stream(self, messages, on_data: Callable[dict], max_tokens=None, parameters={}):
-        payload = {}
+    def stream(self, messages, on_data: Callable[[dict],None], max_tokens=None, parameters={}):
+        payload = {
+            "stream":True
+        }
         payload.update(self._default_parameters)
         if self._model:
             payload["model"] = self._model
         if parameters:
             payload.update(parameters)
         payload["messages"] = messages
-        payload["max_tokens"] = max_tokens
+        if max_tokens:
+            payload["max_tokens"] = max_tokens
 
         headers = {"Authorization": f"Bearer {self._token}"}
 
         with requests.post(
-            self._endpoint, json=payload, stream=True, timeout=60, headers=headers
+            self._endpoint.rstrip("/") + "/chat/completions", json=payload, stream=True, timeout=60, headers=headers
         ) as r:
+            
+            if r.status_code!=200:
+                print(colored(r.text,"red"))
+                
+
             r.raise_for_status()
 
             for line in r.iter_lines(decode_unicode=True):
+                
                 if not line:
                     continue
 
@@ -57,6 +66,8 @@ class StreamingLLM:
                     obj = json.loads(data)
                 except json.JSONDecodeError:
                     continue
+
+
 
                 choice = obj.get("choices", [{}])[0]
                 delta = choice.get("delta", {}) or {}
