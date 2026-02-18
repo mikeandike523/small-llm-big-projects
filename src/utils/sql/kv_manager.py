@@ -62,10 +62,11 @@ class KVManager:
       )
     """
 
-    def __init__(self, conn: ConnLike):
+    def __init__(self, conn: ConnLike,default_project=None):
         self._conn = conn
         # Cache project_id by path_hash (bytes) for speed within this manager instance.
         self._project_id_cache: dict[bytes, int] = {}
+        self._default_project=default_project
 
     # ---------------------------
     # Internal helpers
@@ -139,6 +140,9 @@ class KVManager:
         *,
         project: Optional[str] = None,
     ) -> Optional[JSONValue]:
+
+        if project is None and self._default_project:
+            project = self._default_project
         if project is None:
             with self._conn.cursor(dictionary=True) as cur:
                 cur.execute(
@@ -171,6 +175,8 @@ class KVManager:
         *,
         project: Optional[str] = None,
     ) -> None:
+        if project is None and self._default_project:
+            project = self._default_project
         payload = json.dumps(value, ensure_ascii=False)
 
         if project is None:
@@ -199,6 +205,8 @@ class KVManager:
             )
 
     def delete_value(self, key: str, *, project: Optional[str] = None) -> None:
+        if project is None and self._default_project:
+            project = self._default_project
         if project is None:
             with self._conn.cursor(dictionary=False) as cur:
                 cur.execute(
@@ -215,6 +223,8 @@ class KVManager:
             )
 
     def exists(self, key: str, *, project: Optional[str] = None) -> bool:
+        if project is None and self._default_project:
+            project = self._default_project
         if project is None:
             with self._conn.cursor(dictionary=False) as cur:
                 cur.execute(
@@ -250,6 +260,9 @@ class KVManager:
         Returns:
             List of keys (strings) ordered lexicographically.
         """
+
+        if project is None and self._default_project:
+            project = self._default_project
 
         # Build query fragments safely
         like_clause = ""

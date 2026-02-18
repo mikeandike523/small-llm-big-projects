@@ -4,7 +4,7 @@ from src.tools._subprocess import run_command
 DEFINITION: dict = {
     "type": "function",
     "function": {
-        "name": "list-working-tree",
+        "name": "list_working_tree",
         "description": "List all tracked and untracked (non-ignored) files in the git working tree.",
         "parameters": {"type": "object", "properties": {}, "required": []},
     },
