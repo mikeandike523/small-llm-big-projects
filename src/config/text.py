@@ -1,3 +1,3 @@
 from __future__ import annotations
 
-DELIMIETER = " | "
+LINE_NUMBERING_DELIMETER = " | "
