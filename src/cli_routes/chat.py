@@ -118,6 +118,7 @@ def chat():
     session_data={}
 
     while ml_result is None or ml_result.submitted:
+
         ml_result = multiline_prompt()
         if ml_result.aborted:
             break
