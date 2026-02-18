@@ -1,6 +1,9 @@
 /** @jsxImportSource @emotion/react */
 import { css } from '@emotion/react'
 import { useEffect, useRef, useState, useCallback } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
+import rehypeHighlight from 'rehype-highlight'
 import { socket } from '../socket'
 
 // ---------------------------------------------------------------------------
@@ -110,14 +113,88 @@ const bubbleCss = (role: 'user' | 'assistant') => css`
   align-items: ${role === 'user' ? 'flex-end' : 'flex-start'};
 `
 
-const bubbleInnerCss = (role: 'user' | 'assistant') => css`
+const userBubbleCss = css`
   max-width: 78%;
-  background: ${role === 'user' ? '#1d4ed8' : '#1e1e1e'};
-  border-radius: ${role === 'user' ? '16px 16px 4px 16px' : '16px 16px 16px 4px'};
+  background: #1d4ed8;
+  border-radius: 16px 16px 4px 16px;
   padding: 10px 14px;
   white-space: pre-wrap;
   word-break: break-word;
   line-height: 1.5;
+`
+
+const assistantBubbleCss = css`
+  max-width: 78%;
+  background: #1e1e1e;
+  border-radius: 16px 16px 16px 4px;
+  padding: 10px 14px;
+  word-break: break-word;
+  line-height: 1.5;
+
+  p { margin: 0.4em 0; }
+  p:first-child { margin-top: 0; }
+  p:last-child { margin-bottom: 0; }
+
+  h1, h2, h3, h4, h5, h6 { margin: 0.6em 0 0.3em; font-weight: 600; line-height: 1.3; }
+  h1 { font-size: 1.4em; }
+  h2 { font-size: 1.25em; }
+  h3 { font-size: 1.1em; }
+
+  ul, ol { padding-left: 1.5em; margin: 0.4em 0; }
+  li { margin: 0.2em 0; }
+
+  blockquote {
+    border-left: 3px solid #444;
+    padding-left: 0.8em;
+    color: #aaa;
+    margin: 0.4em 0;
+    font-style: italic;
+  }
+
+  code {
+    background: #2a2a2a;
+    padding: 0.15em 0.35em;
+    border-radius: 4px;
+    font-family: 'Consolas', 'Monaco', monospace;
+    font-size: 0.9em;
+  }
+
+  pre {
+    background: #141414;
+    border: 1px solid #2a2a2a;
+    border-radius: 6px;
+    padding: 10px 12px;
+    overflow-x: auto;
+    margin: 0.5em 0;
+  }
+
+  pre code {
+    background: none;
+    padding: 0;
+    border-radius: 0;
+    font-size: 0.85em;
+    line-height: 1.5;
+  }
+
+  a { color: #7aa2e0; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  hr { border: none; border-top: 1px solid #333; margin: 0.6em 0; }
+
+  table { border-collapse: collapse; width: 100%; margin: 0.5em 0; font-size: 0.9em; }
+  th { background: #252525; padding: 6px 10px; text-align: left; border: 1px solid #333; }
+  td { padding: 5px 10px; border: 1px solid #2a2a2a; }
+  tr:nth-child(even) td { background: #1a1a1a; }
+
+  .hljs { background: transparent !important; }
+`
+
+const streamingPlaceholderCss = css`
+  max-width: 78%;
+  background: #1e1e1e;
+  border-radius: 16px 16px 16px 4px;
+  padding: 10px 14px;
+  color: #555;
 `
 
 const reasoningCss = css`
@@ -320,7 +397,7 @@ export default function Chat() {
     if (entry.type === 'user') {
       return (
         <div key={entry.id} css={bubbleCss('user')}>
-          <div css={bubbleInnerCss('user')}>{entry.text}</div>
+          <div css={userBubbleCss}>{entry.text}</div>
         </div>
       )
     }
@@ -331,7 +408,14 @@ export default function Chat() {
           <div css={reasoningCss}>{entry.reasoning}</div>
         ) : null}
         {entry.content ? (
-          <div css={bubbleInnerCss('assistant')}>{entry.content}</div>
+          <div css={assistantBubbleCss}>
+            <ReactMarkdown
+              remarkPlugins={[remarkGfm]}
+              rehypePlugins={[rehypeHighlight]}
+            >
+              {entry.content}
+            </ReactMarkdown>
+          </div>
         ) : null}
         {entry.toolCalls.map(tc => (
           <div key={tc.id} css={toolCallCss}>
@@ -345,7 +429,7 @@ export default function Chat() {
           </div>
         ))}
         {entry.streaming && !entry.content && entry.toolCalls.length === 0 && (
-          <div css={bubbleInnerCss('assistant')} style={{ color: '#555' }}>…</div>
+          <div css={streamingPlaceholderCss}>…</div>
         )}
       </div>
     )
