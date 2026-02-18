@@ -225,6 +225,7 @@ def sub_cmd_use(provider: str, name: str):
             "provider": provider,
             "name": token_name,
         })
+        conn.commit()
     click.echo(f"""\
 Set active token to provider="{provider}" and name="{token_name}" for this session.
                """.strip())

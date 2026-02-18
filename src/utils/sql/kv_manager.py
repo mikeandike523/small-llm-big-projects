@@ -73,15 +73,19 @@ class KVManager:
         return self._normalize_json(row["value"])
 
     def set_value(self, key: str, value: JSONValue) -> None:
-        payload = json.dumps(value)
+        payload = json.dumps(value, ensure_ascii=False)
+
 
         with self._conn.cursor(dictionary=True) as cur:
+
+            print(cur, key, payload)
+
             cur.execute(
-                """
-                INSERT INTO kv_store (`key`, `value`)
-                VALUES (%s, CAST(%s AS JSON))
-                ON DUPLICATE KEY UPDATE `value` = VALUES(`value`)
-                """,
+        """
+        INSERT INTO kv_store (`key`, `value`)
+        VALUES (%s, %s) AS incoming
+        ON DUPLICATE KEY UPDATE `value` = incoming.`value`
+        """,
                 (key, payload),
             )
 

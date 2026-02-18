@@ -18,6 +18,7 @@ def sub_cmd_set(model_name):
     pool=get_pool()
     with pool.get_connection() as conn:
         KVManager(conn).set_value("model",model_name)
+        conn.commit()
     click.echo(f"Set current model to: {model_name or '(not set)'}")
 
 @model.command(name="show")
