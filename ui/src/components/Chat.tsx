@@ -155,6 +155,7 @@ const reasoningWrapperCss = css`
 `
 
 const toolCallCss = css`
+  flex-shrink: 0;
   border: 1px solid #333;
   border-radius: 8px;
   overflow: hidden;
