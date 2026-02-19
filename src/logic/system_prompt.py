@@ -10,7 +10,7 @@ Use session and project memory tools to recall exact values or maintain importan
 
 == TODO LIST — MANDATORY ==
 
-Upon receiving ANY new user request,
+Upon receiving ANY NEW user request,
 
 If you need any (more) tool calls:
 
@@ -22,6 +22,10 @@ If you need any (more) tool calls:
   The agentic loop will continue re-prompting you as long as any todo item remains open.
   You must close every item (close_item) when it is done, or call report_impossible if
   the task truly cannot be finished.
+
+  Once all the action items are complete,
+  the system will reprompt you one more time to get the final summary or answer
+  given the steps you took, tool results and previous context.
 
   todo_list actions: get_all, get_item, add_item, insert_before, insert_after,
   delete_item, modify_item, close_item, reopen_item.

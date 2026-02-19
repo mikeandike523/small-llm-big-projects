@@ -161,6 +161,9 @@ def chat(streaming):
             "content": user_input,
         })
 
+        had_tool_calls = False
+        final_reprompt_done = False
+
         while True:
             acc_data["reasoning"] = ""
             acc_data["content"] = ""
@@ -222,6 +225,8 @@ def chat(streaming):
                         "content": tool_result,
                     })
 
+                had_tool_calls = True
+
                 if session_data.get("_report_impossible"):
                     reason = session_data.pop("_report_impossible")
                     sys.stdout.write(colored(f"\n[Impossible: {reason}]\n", "red"))
@@ -250,6 +255,20 @@ def chat(streaming):
                         "content": (
                             f"You still have {len(_unclosed)} unclosed todo item(s). "
                             f"Please continue:\n{_items_text}"
+                        ),
+                    })
+                    continue
+
+                if had_tool_calls and not final_reprompt_done:
+                    final_reprompt_done = True
+                    sys.stdout.write(colored("\n[Final reprompt: summarising results]\n", "yellow"))
+                    sys.stdout.flush()
+                    message_history.append({
+                        "role": "user",
+                        "content": (
+                            "All action items are complete. "
+                            "Please provide your final summary or answer based on the steps "
+                            "you took, the tool results, and the previous context."
                         ),
                     })
                     continue

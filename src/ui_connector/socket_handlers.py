@@ -145,6 +145,9 @@ def handle_user_message(data: dict):
     session["message_history"].append({"role": "user", "content": text})
 
     # Agentic loop — streaming or non-streaming depending on SLBP_STREAMING env var
+    had_tool_calls = False
+    final_reprompt_done = False
+
     while True:
         if _USE_STREAMING:
             acc: dict[str, str] = {"reasoning": "", "content": ""}
@@ -218,6 +221,8 @@ def handle_user_message(data: dict):
                     "content": tool_result,
                 })
 
+            had_tool_calls = True
+
             # Check if report_impossible was signalled
             if session["session_data"].get("_report_impossible"):
                 reason = session["session_data"].pop("_report_impossible")
@@ -244,6 +249,19 @@ def handle_user_message(data: dict):
                     "content": (
                         f"You still have {len(_unclosed)} unclosed todo item(s). "
                         f"Please continue:\n{_items_text}"
+                    ),
+                })
+                continue
+
+            if had_tool_calls and not final_reprompt_done:
+                final_reprompt_done = True
+                emit("final_reprompt", {})
+                session["message_history"].append({
+                    "role": "user",
+                    "content": (
+                        "All action items are complete. "
+                        "Please provide your final summary or answer based on the steps "
+                        "you took, the tool results, and the previous context."
                     ),
                 })
                 continue
