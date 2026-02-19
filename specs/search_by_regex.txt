@@ -1,0 +1,81 @@
+Tool: search_by_regex
+=====================
+
+Purpose
+-------
+Search the contents of files under a given path using a regular expression.
+Powered by python_ripgrep (Python bindings for ripgrep) — no shell subprocess.
+
+Parameters
+----------
+pattern  (required, string)
+    The regular expression to search for.
+    Restrictions (enforced by ripgrep's regex engine):
+      - Must be linear-time: no backreferences (e.g. \1), no atomic groups.
+      - No lookahead  (?=...) / (?!...)
+      - No lookbehind (?<=...) / (?<!...)
+      - No lookaround of any kind.
+    Standard features allowed: character classes, alternation, quantifiers,
+    anchors, non-capturing groups (?:...), Unicode categories.
+
+path  (optional, string)
+    File or directory to search.
+    Accepts relative paths (resolved from os.getcwd()) or absolute paths.
+    When omitted, defaults to os.getcwd().
+    If a file path is given, only that file is searched.
+    If a directory path is given, all files under it are searched recursively
+    (ripgrep's default behaviour, respecting .gitignore).
+
+Output Format
+-------------
+Results are grouped by file. For each file that contains at least one match:
+
+  <file_path>:
+    <line_number>:
+    <line_with_bold_matches>
+
+Rules:
+  - <file_path> is printed followed immediately by a colon and newline.
+  - Each match within that file is printed as a two-line block, indented by
+    two spaces:
+      Line 1:  "  <line_number>:"
+      Line 2:  "  <rendered_line>"
+    where <rendered_line> is the full text of the matched line with every
+    occurrence of the matched substring wrapped in ANSI bold escape codes:
+        \033[1m<matched_text>\033[0m
+    The rest of the line is plain text.
+  - Multiple matches in the same file are listed consecutively under the same
+    file-path header (no blank line between them within a file).
+  - A blank line separates consecutive file blocks.
+  - If the pattern matches nothing anywhere, return the string:
+        "No matches found."
+  - If the path does not exist, return an error string beginning with "Error:".
+  - If the regex is rejected by ripgrep (e.g. unsupported syntax), return an
+    error string beginning with "Error:" that includes the library's message.
+
+Example Output
+--------------
+Given pattern "foo" searching a directory:
+
+    src/bar.py:
+      12:
+      result = \033[1mfoo\033[0m(x)
+      45:
+      # calls \033[1mfoo\033[0m here
+
+    tests/test_bar.py:
+      7:
+      def test_\033[1mfoo\033[0m():
+
+Implementation Notes
+--------------------
+- Import as: from python_ripgrep import search
+- Call with: heading=True, line_number=True so results are grouped per file.
+- Each element of the returned list has the form:
+      "<file_path>\n<lineno>:<line_text>\n<lineno>:<line_text>\n..."
+- After retrieving raw lines from python_ripgrep, apply Python's re module to
+  find match spans and insert ANSI codes — python_ripgrep does not return
+  span information.
+- The tool has no session_memory / project_memory target; it always returns
+  the formatted string directly (return_value only).
+- Add python-ripgrep to requirements.txt.

@@ -9,3 +9,4 @@ eventlet
 redis
 python-dotenv
 gitignore-parser
+python-ripgrep

@@ -19,6 +19,7 @@ from src.tools import count_text_file_lines
 from src.tools import read_text_file
 from src.tools import todo_list
 from src.tools import report_impossible
+from src.tools import search_by_regex
 
 ALL_TOOL_DEFINITIONS: list[dict] = [
     list_dir.DEFINITION,
@@ -41,6 +42,7 @@ ALL_TOOL_DEFINITIONS: list[dict] = [
     read_text_file.DEFINITION,
     todo_list.DEFINITION,
     report_impossible.DEFINITION,
+    search_by_regex.DEFINITION,
 ]
 
 _TOOL_MAP: dict[str, object] = {
@@ -64,6 +66,7 @@ _TOOL_MAP: dict[str, object] = {
     "read_text_file": read_text_file,
     "todo_list": todo_list,
     "report_impossible": report_impossible,
+    "search_by_regex": search_by_regex,
 }
 
 def execute_tool(name: str, args: dict, session_data: dict | None = None) -> str:
