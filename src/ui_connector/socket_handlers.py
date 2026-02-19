@@ -10,6 +10,8 @@ import requests
 
 from src.ui_connector.app import socketio
 from src.data import get_pool
+
+_USE_STREAMING = os.environ.get("SLBP_STREAMING", "1") != "0"
 from src.utils.sql.kv_manager import KVManager
 from src.utils.llm.streaming import StreamingLLM
 from src.tools import ALL_TOOL_DEFINITIONS, execute_tool
@@ -142,46 +144,63 @@ def handle_user_message(data: dict):
     session = _load_session(sid)
     session["message_history"].append({"role": "user", "content": text})
 
-    # Agentic loop — mirrors chat.py's inner while True
+    # Agentic loop — streaming or non-streaming depending on SLBP_STREAMING env var
     while True:
-        acc: dict[str, str] = {"reasoning": "", "content": ""}
+        if _USE_STREAMING:
+            acc: dict[str, str] = {"reasoning": "", "content": ""}
 
-        def on_data(chunk: dict) -> None:
-            if chunk.get("reasoning"):
-                acc["reasoning"] += chunk["reasoning"]
-                emit("token", {"type": "reasoning", "text": chunk["reasoning"]})
-            if chunk.get("content"):
-                acc["content"] += chunk["content"]
-                emit("token", {"type": "content", "text": chunk["content"]})
+            def on_data(chunk: dict) -> None:
+                if chunk.get("reasoning"):
+                    acc["reasoning"] += chunk["reasoning"]
+                    emit("token", {"type": "reasoning", "text": chunk["reasoning"]})
+                if chunk.get("content"):
+                    acc["content"] += chunk["content"]
+                    emit("token", {"type": "content", "text": chunk["content"]})
 
-        try:
-            stream_result = streaming_llm.stream(
-                session["message_history"], on_data, tools=ALL_TOOL_DEFINITIONS
-            )
-        except requests.exceptions.HTTPError as exc:
-            emit("error", {
-                "message":f"LLM stream error:\n\n{format_http_error(exc)}"
-            })
-            break
-        except Exception as exc:
-            emit("error", {"message": f"LLM stream error:\n\n{exc}"})
-            break
+            try:
+                result = streaming_llm.stream(
+                    session["message_history"], on_data, tools=ALL_TOOL_DEFINITIONS
+                )
+            except requests.exceptions.HTTPError as exc:
+                emit("error", {"message": f"LLM stream error:\n\n{format_http_error(exc)}"})
+                break
+            except Exception as exc:
+                emit("error", {"message": f"LLM stream error:\n\n{exc}"})
+                break
+            content_for_history = acc["content"]
+        else:
+            try:
+                result = streaming_llm.fetch(
+                    session["message_history"], tools=ALL_TOOL_DEFINITIONS
+                )
+            except requests.exceptions.HTTPError as exc:
+                emit("error", {"message": f"LLM error:\n\n{format_http_error(exc)}"})
+                break
+            except Exception as exc:
+                emit("error", {"message": f"LLM error:\n\n{exc}"})
+                break
+            # Emit as single token events so the UI renders reasoning + content
+            if result.reasoning:
+                emit("token", {"type": "reasoning", "text": result.reasoning})
+            if result.content:
+                emit("token", {"type": "content", "text": result.content})
+            content_for_history = result.content
 
-        if stream_result.has_tool_calls:
+        if result.has_tool_calls:
             session["message_history"].append({
                 "role": "assistant",
-                "content": acc["content"] or None,
+                "content": content_for_history or None,
                 "tool_calls": [
                     {
                         "id": tc.id,
                         "type": "function",
                         "function": {"name": tc.name, "arguments": json.dumps(tc.arguments)},
                     }
-                    for tc in stream_result.tool_calls
+                    for tc in result.tool_calls
                 ],
             })
 
-            for tc in stream_result.tool_calls:
+            for tc in result.tool_calls:
                 emit("tool_call", {"id": tc.id, "name": tc.name, "args": tc.arguments})
                 tool_result = execute_tool(tc.name, tc.arguments, session["session_data"])
                 emit("tool_result", {"id": tc.id, "result": tool_result})
@@ -194,9 +213,9 @@ def handle_user_message(data: dict):
 
         else:
             session["message_history"].append(
-                {"role": "assistant", "content": acc["content"]}
+                {"role": "assistant", "content": content_for_history}
             )
-            emit("message_done", {"content": acc["content"]})
+            emit("message_done", {"content": content_for_history})
             break
 
     _save_session(sid, session)

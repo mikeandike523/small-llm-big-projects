@@ -19,7 +19,11 @@ def ui():
 
 
 @ui.command(name="run")
-def ui_run():
+@click.option(
+    '--streaming', default=True, type=bool, show_default=True,
+    help='Stream tokens from the LLM. Set false to receive the full response at once (useful for diagnosing vLLM garbled-character bugs).',
+)
+def ui_run(streaming):
     """
     Start the web UI: launches the Vite dev server and the Flask/SocketIO
     backend concurrently, forwarding both streams to stdout.
@@ -32,6 +36,9 @@ def ui_run():
     bash = find_bash()
 
     print(bash)
+
+    if not streaming:
+        os.environ["SLBP_STREAMING"] = "0"
 
     processes = [
         ManagedProcess(

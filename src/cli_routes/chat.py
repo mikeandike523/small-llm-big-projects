@@ -1,4 +1,5 @@
 import json
+import threading
 import click
 from termcolor import colored
 import sys
@@ -13,8 +14,40 @@ from src.tools import ALL_TOOL_DEFINITIONS, execute_tool
 from src.logic.system_prompt import SYSTEM_PROMPT
 
 
+def _run_with_spinner(fn):
+    """Run fn() in a daemon thread while showing a \\r spinner. Returns its result."""
+    done = threading.Event()
+    holder, exc_holder = [], []
+
+    def target():
+        try:
+            holder.append(fn())
+        except Exception as e:
+            exc_holder.append(e)
+        finally:
+            done.set()
+
+    threading.Thread(target=target, daemon=True).start()
+    frames = ['|', '/', '-', '\\']
+    i = 0
+    while not done.wait(0.1):
+        sys.stdout.write(f'\rThinking... {frames[i % 4]}')
+        sys.stdout.flush()
+        i += 1
+    sys.stdout.write('\r' + ' ' * 20 + '\r')
+    sys.stdout.flush()
+
+    if exc_holder:
+        raise exc_holder[0]
+    return holder[0]
+
+
 @cli.command()
-def chat():
+@click.option(
+    '--streaming', default=True, type=bool, show_default=True,
+    help='Stream tokens as they arrive. Set false to receive the full response at once (useful for diagnosing vLLM garbled-character bugs).',
+)
+def chat(streaming):
     """
     Start a chat with your model of choice.
     """
@@ -75,6 +108,7 @@ def chat():
     if llm_params:
         for k, v in llm_params.items():
             print(f"Param {k}: {v}")
+    print(f"Streaming: {'enabled' if streaming else 'disabled'}")
 
     acc_data = {
         "reasoning":"",
@@ -131,12 +165,28 @@ def chat():
             acc_data["reasoning"] = ""
             acc_data["content"] = ""
 
-            try:
-                stream_result = streaming_llm.stream(message_history, on_data, tools=ALL_TOOL_DEFINITIONS)
-            except Exception:
-                raise SystemExit(-1)
+            if streaming:
+                try:
+                    result = streaming_llm.stream(message_history, on_data, tools=ALL_TOOL_DEFINITIONS)
+                except Exception:
+                    raise SystemExit(-1)
+            else:
+                try:
+                    result = _run_with_spinner(
+                        lambda: streaming_llm.fetch(message_history, tools=ALL_TOOL_DEFINITIONS)
+                    )
+                except Exception:
+                    raise SystemExit(-1)
+                acc_data["reasoning"] = result.reasoning
+                acc_data["content"] = result.content
+                if result.reasoning:
+                    sys.stdout.write(colored(result.reasoning, "blue"))
+                    sys.stdout.flush()
+                if result.content:
+                    sys.stdout.write("\n\n" + result.content)
+                    sys.stdout.flush()
 
-            if stream_result.has_tool_calls:
+            if result.has_tool_calls:
                 message_history.append({
                     "role": "assistant",
                     "content": acc_data["content"] or None,
@@ -146,11 +196,11 @@ def chat():
                             "type": "function",
                             "function": {"name": tc.name, "arguments": json.dumps(tc.arguments)},
                         }
-                        for tc in stream_result.tool_calls
+                        for tc in result.tool_calls
                     ],
                 })
 
-                for tc in stream_result.tool_calls:
+                for tc in result.tool_calls:
                     sys.stdout.write(colored(f"\n[Tool call: {tc.name}  args={tc.arguments}]", "magenta"))
                     sys.stdout.flush()
                     tool_result = execute_tool(tc.name, tc.arguments, session_data)

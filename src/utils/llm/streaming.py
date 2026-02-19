@@ -24,6 +24,17 @@ class StreamResult:
         return bool(self.tool_calls)
 
 
+@dataclass
+class FetchResult:
+    content: str
+    reasoning: str
+    tool_calls: list[ToolCall] = field(default_factory=list)
+
+    @property
+    def has_tool_calls(self) -> bool:
+        return bool(self.tool_calls)
+
+
 class StreamingLLM:
 
     _endpoint: str
@@ -131,5 +142,52 @@ class StreamingLLM:
             except json.JSONDecodeError:
                 arguments = {}
             tool_calls.append(ToolCall(id=entry["id"], name=entry["name"], arguments=arguments))
-        
+
         return StreamResult(tool_calls=tool_calls)
+
+    def fetch(self, messages, max_tokens=None, parameters={},
+              tools: Optional[list[dict]] = None) -> FetchResult:
+        """Non-streaming request — returns the full response in one shot."""
+        payload = {"stream": False}
+        payload.update(self._default_parameters)
+        if self._model:
+            payload["model"] = self._model
+        if parameters:
+            payload.update(parameters)
+        payload["messages"] = messages
+        if max_tokens:
+            payload["max_tokens"] = max_tokens
+        if tools:
+            payload["tools"] = tools
+
+        headers = {"Authorization": f"Bearer {self._token}"}
+        r = requests.post(
+            self._endpoint.rstrip("/") + "/chat/completions",
+            json=payload,
+            timeout=self._timeout_s,
+            headers=headers,
+        )
+        if r.status_code != 200:
+            print(colored(r.text, "red"))
+        r.raise_for_status()
+
+        obj = r.json()
+        message = obj.get("choices", [{}])[0].get("message", {}) or {}
+        content = message.get("content") or ""
+        reasoning = message.get("reasoning") or ""
+
+        tool_calls = []
+        for tc in message.get("tool_calls") or []:
+            func = tc.get("function", {})
+            raw_args = func.get("arguments", "{}")
+            try:
+                arguments = json.loads(raw_args) if raw_args else {}
+            except json.JSONDecodeError:
+                arguments = {}
+            tool_calls.append(ToolCall(
+                id=tc.get("id", ""),
+                name=func.get("name", ""),
+                arguments=arguments,
+            ))
+
+        return FetchResult(content=content, reasoning=reasoning, tool_calls=tool_calls)
