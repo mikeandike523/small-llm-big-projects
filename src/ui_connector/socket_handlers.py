@@ -217,12 +217,37 @@ def handle_user_message(data: dict):
                     "tool_call_id": tc.id,
                     "content": tool_result,
                 })
+
+            # Check if report_impossible was signalled
+            if session["session_data"].get("_report_impossible"):
+                reason = session["session_data"].pop("_report_impossible")
+                emit("report_impossible", {"reason": reason})
+                emit("message_done", {"content": None})
+                break
+
             continue
 
         else:
             session["message_history"].append(
                 {"role": "assistant", "content": content_for_history}
             )
+
+            # Check for unclosed todo items — reprompt if any remain
+            _todo_raw = session["session_data"].get("todo_list") or []
+            _unclosed = [it for it in _todo_raw if it.get("status") != "closed"]
+            if _unclosed:
+                _items_text = "\n".join(
+                    f"  {i + 1}. {it['text']}" for i, it in enumerate(_unclosed)
+                )
+                session["message_history"].append({
+                    "role": "user",
+                    "content": (
+                        f"You still have {len(_unclosed)} unclosed todo item(s). "
+                        f"Please continue:\n{_items_text}"
+                    ),
+                })
+                continue
+
             emit("message_done", {"content": content_for_history})
             break
 

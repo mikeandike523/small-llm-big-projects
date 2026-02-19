@@ -221,12 +221,39 @@ def chat(streaming):
                         "tool_call_id": tc.id,
                         "content": tool_result,
                     })
+
+                if session_data.get("_report_impossible"):
+                    reason = session_data.pop("_report_impossible")
+                    sys.stdout.write(colored(f"\n[Impossible: {reason}]\n", "red"))
+                    sys.stdout.flush()
+                    break
+
                 continue
 
             else:
                 message_history.append({"role": "assistant", "content": acc_data["content"]})
                 sys.stdout.write("\n\n")
                 sys.stdout.flush()
+
+                _todo_raw = session_data.get("todo_list") or []
+                _unclosed = [it for it in _todo_raw if it.get("status") != "closed"]
+                if _unclosed:
+                    _items_text = "\n".join(
+                        f"  {i + 1}. {it['text']}" for i, it in enumerate(_unclosed)
+                    )
+                    sys.stdout.write(colored(
+                        f"\n[Reprompting: {len(_unclosed)} unclosed todo item(s)]\n", "yellow"
+                    ))
+                    sys.stdout.flush()
+                    message_history.append({
+                        "role": "user",
+                        "content": (
+                            f"You still have {len(_unclosed)} unclosed todo item(s). "
+                            f"Please continue:\n{_items_text}"
+                        ),
+                    })
+                    continue
+
                 break
 
 
