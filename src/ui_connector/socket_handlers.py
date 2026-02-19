@@ -132,7 +132,10 @@ def handle_user_message(data: dict):
         llm_config["token_value"],
         60,
         llm_config["model"],
-        {"max_tokens": 8192},
+        {
+            # "max_tokens": 8192
+            # Actually we shouldnt provide a default value
+         },
     )
 
     session = _load_session(sid)

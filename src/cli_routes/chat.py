@@ -99,7 +99,8 @@ def chat():
     
 
     streaming_llm = StreamingLLM(endpoint_url, token_value, 60,model,{
-        "max_tokens": 8192
+        # "max_tokens": 8192
+        # Actually, we should not provide a default value here
     })
     
     ml_result = None
