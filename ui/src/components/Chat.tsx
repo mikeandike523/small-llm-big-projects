@@ -6,14 +6,20 @@ import { useScrollToBottom } from '../hooks/useScrollToBottom'
 import { TextPresenter } from './TextPresenter'
 
 // ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+const MAX_TOOL_CHARS = 80
+
+// ---------------------------------------------------------------------------
 // Shared scrollbar styles
 // ---------------------------------------------------------------------------
 
 const scrollbarCss = css`
   &::-webkit-scrollbar { width: 6px; }
   &::-webkit-scrollbar-track { background: #0a0a0a; }
-  &::-webkit-scrollbar-thumb { background: #2e2e2e; border-radius: 3px; }
-  &::-webkit-scrollbar-thumb:hover { background: #484848; }
+  &::-webkit-scrollbar-thumb { background: #3a3a3a; border-radius: 3px; }
+  &::-webkit-scrollbar-thumb:hover { background: #555; }
 `
 
 // ---------------------------------------------------------------------------
@@ -80,7 +86,7 @@ const threadCss = css`
   padding: 24px 16px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 16px;
 `
 
 const inputBarCss = css`
@@ -141,75 +147,122 @@ const spinnerCss = css`
   animation: ${_spin} 0.7s linear infinite;
 `
 
+// User bubble — constrained + auto-scroll (one of the 4 regions)
 const userBubbleCss = css`
+  ${scrollbarCss}
   background: #1d4ed8;
+  border: 1px solid #2d5fe8;
   border-radius: 16px 16px 4px 16px;
-  padding: 10px 14px;
+  padding: 12px 16px;
   white-space: pre-wrap;
   word-break: break-word;
   line-height: 1.5;
   align-self: flex-end;
+  max-height: 180px;
+  overflow-y: auto;
+  box-shadow: 0 2px 10px rgba(29, 78, 216, 0.3);
 `
 
+// Assistant bubble — wraps TextPresenter which handles its own scroll (one of the 4 regions)
 const assistantBubbleCss = css`
-  background: #1e1e1e;
+  background: #1c1c1c;
+  border: 1px solid #303030;
   border-radius: 16px 16px 16px 4px;
-  padding: 10px 14px;
+  padding: 12px 16px;
   word-break: break-word;
   line-height: 1.5;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
 `
 
 const streamingPlaceholderCss = css`
-  background: #1e1e1e;
+  background: #1c1c1c;
+  border: 1px solid #303030;
   border-radius: 16px 16px 16px 4px;
-  padding: 10px 14px;
+  padding: 12px 16px;
   color: #555;
 `
 
+// Reasoning wrapper — wraps TextPresenter which handles its own scroll (one of the 4 regions)
 const reasoningWrapperCss = css`
   color: #7aa2e0;
   font-size: 13px;
   font-style: italic;
+  background: #111827;
+  border: 1px solid #1e3a5f;
+  border-radius: 10px;
+  padding: 12px 16px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
 `
 
+// Individual tool call card — NO scroll, NO max-height; fixed height by design (truncated result)
 const toolCallCss = css`
   flex-shrink: 0;
-  border: 1px solid #333;
-  border-radius: 8px;
+  border: 1px solid #3d2f5a;
+  border-radius: 10px;
   overflow: hidden;
   font-size: 13px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
 `
 
 const toolHeaderCss = css`
   background: #2a1a4a;
   color: #b48be0;
-  padding: 6px 12px;
+  padding: 8px 14px;
   font-family: 'Consolas', monospace;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
 `
 
+const viewFullButtonCss = css`
+  background: transparent;
+  color: #8860c0;
+  border: 1px solid #4a2a7a;
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-size: 11px;
+  cursor: pointer;
+  font-family: 'Consolas', monospace;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: background 0.15s, color 0.15s;
+  &:hover {
+    background: #3a1a5a;
+    color: #c090f0;
+  }
+`
+
+// Args — no max-height, no scroll; typically short JSON
 const toolArgsCss = css`
-  ${scrollbarCss}
-  background: #1a1a2e;
+  background: #16162a;
   color: #a0a0c0;
-  padding: 6px 12px;
+  padding: 8px 14px;
   font-family: 'Consolas', monospace;
   white-space: pre-wrap;
   word-break: break-word;
-  max-height: 160px;
-  overflow-y: auto;
+  border-top: 1px solid #252545;
 `
 
+// Result — no max-height, no scroll; content is truncated to MAX_TOOL_CHARS
 const toolResultCss = css`
-  ${scrollbarCss}
-  background: #0d1f0d;
+  background: #0a1a0a;
   color: #7ec87e;
-  padding: 6px 12px;
+  padding: 8px 14px;
   font-family: 'Consolas', monospace;
   white-space: pre-wrap;
   word-break: break-word;
   border-top: 1px solid #1a3a1a;
-  max-height: 220px;
+`
+
+// Tool calls GROUP — constrained + auto-scroll (one of the 4 regions)
+const toolCallsGroupCss = css`
+  ${scrollbarCss}
+  max-height: 420px;
   overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 `
 
 const statusCss = css`
@@ -219,45 +272,121 @@ const statusCss = css`
   text-align: center;
 `
 
+// TurnContainer — UNCONSTRAINED; grows to fit all 4 child regions
 const turnContainerCss = css`
-  ${scrollbarCss}
   display: grid;
   grid-template-columns: 3fr 2fr;
-  gap: 20px;
-  padding: 20px;
-  border: 1px solid #2e2e2e;
+  gap: 24px;
+  padding: 20px 24px;
+  border: 1px solid #3a3a3a;
   border-radius: 12px;
-  background: #131313;
-  max-height: 70vh;
-  overflow-y: auto;
+  background: #141414;
+  box-shadow: 0 3px 16px rgba(0, 0, 0, 0.5);
 `
 
 const leftColumnCss = css`
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 14px;
 `
 
 const rightColumnCss = css`
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
 `
 
-const toolCallsGroupCss = css`
-  ${scrollbarCss}
-  max-height: 420px;
-  overflow-y: auto;
+// ---------------------------------------------------------------------------
+// Modal styles
+// ---------------------------------------------------------------------------
+
+const modalOverlayBaseCss = css`
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  transition: opacity 0.2s ease;
+`
+
+const modalOverlayVisibleCss = css`
+  opacity: 1;
+  pointer-events: auto;
+`
+
+const modalOverlayHiddenCss = css`
+  opacity: 0;
+  pointer-events: none;
+`
+
+const modalCardCss = css`
+  background: #181818;
+  border: 1px solid #444;
+  border-radius: 12px;
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.8);
+  width: 80%;
+  max-width: 900px;
+  max-height: 80vh;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  overflow: hidden;
+`
+
+const modalHeaderCss = css`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 20px;
+  border-bottom: 1px solid #333;
+  background: #1e1e1e;
+  flex-shrink: 0;
+`
+
+const modalTitleCss = css`
+  color: #7ec87e;
+  font-family: 'Consolas', monospace;
+  font-size: 13px;
+  font-style: normal;
+`
+
+const modalCloseButtonCss = css`
+  background: transparent;
+  color: #888;
+  border: none;
+  font-size: 22px;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+  &:hover { color: #ccc; }
+`
+
+const modalBodyCss = css`
+  ${scrollbarCss}
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 20px;
+  font-family: 'Consolas', monospace;
+  font-size: 13px;
+  color: #7ec87e;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: #0a1a0a;
+  line-height: 1.6;
 `
 
 // ---------------------------------------------------------------------------
 // TurnContainer
 // ---------------------------------------------------------------------------
 
-function TurnContainer({ turn }: { turn: Turn }) {
+function TurnContainer({
+  turn,
+  onViewFull,
+}: {
+  turn: Turn
+  onViewFull: (content: string) => void
+}) {
   const { user, assistant } = turn
   const { containerRef: toolsRef, scrollToBottomIfNeeded: scrollTools, onScroll: onToolsScroll } =
     useScrollToBottom<HTMLDivElement>()
@@ -300,17 +429,34 @@ function TurnContainer({ turn }: { turn: Turn }) {
         ) : null}
         {assistant.toolCalls.length > 0 && (
           <div css={toolCallsGroupCss} ref={toolsRef} onScroll={onToolsScroll}>
-            {assistant.toolCalls.map(tc => (
-              <div key={tc.id} css={toolCallCss}>
-                <div css={toolHeaderCss}>⚙ {tc.name}</div>
-                {Object.keys(tc.args).length > 0 && (
-                  <div css={toolArgsCss}>{JSON.stringify(tc.args, null, 2)}</div>
-                )}
-                {tc.result !== undefined && (
-                  <div css={toolResultCss}>{tc.result}</div>
-                )}
-              </div>
-            ))}
+            {assistant.toolCalls.map(tc => {
+              const hasResult = tc.result !== undefined
+              const truncated = hasResult && tc.result!.length > MAX_TOOL_CHARS
+              const displayResult = hasResult
+                ? truncated
+                  ? tc.result!.slice(0, MAX_TOOL_CHARS) + `... (${tc.result!.length - MAX_TOOL_CHARS} more)`
+                  : tc.result!
+                : undefined
+
+              return (
+                <div key={tc.id} css={toolCallCss}>
+                  <div css={toolHeaderCss}>
+                    <span>⚙ {tc.name}</span>
+                    {truncated && (
+                      <button css={viewFullButtonCss} onClick={() => onViewFull(tc.result!)}>
+                        view full
+                      </button>
+                    )}
+                  </div>
+                  {Object.keys(tc.args).length > 0 && (
+                    <div css={toolArgsCss}>{JSON.stringify(tc.args, null, 2)}</div>
+                  )}
+                  {hasResult && (
+                    <div css={toolResultCss}>{displayResult}</div>
+                  )}
+                </div>
+              )
+            })}
           </div>
         )}
       </div>
@@ -327,6 +473,7 @@ export default function Chat() {
   const [inputText, setInputText] = useState('')
   const [connected, setConnected] = useState(socket.connected)
   const [busy, setBusy] = useState(false)
+  const [modalContent, setModalContent] = useState<string | null>(null)
 
   const {
     containerRef: threadRef,
@@ -463,11 +610,27 @@ export default function Chat() {
 
   return (
     <div css={rootCss}>
+      {/* Shared modal for full tool result */}
+      <div
+        css={[modalOverlayBaseCss, modalContent !== null ? modalOverlayVisibleCss : modalOverlayHiddenCss]}
+        onClick={() => setModalContent(null)}
+      >
+        <div css={modalCardCss} onClick={e => e.stopPropagation()}>
+          <div css={modalHeaderCss}>
+            <span css={modalTitleCss}>Tool Result</span>
+            <button css={modalCloseButtonCss} onClick={() => setModalContent(null)}>×</button>
+          </div>
+          <div css={modalBodyCss}>{modalContent}</div>
+        </div>
+      </div>
+
       <div css={statusCss}>
         {connected ? '● connected' : '○ disconnected'}
       </div>
       <div css={threadCss} ref={threadRef} onScroll={handleScroll}>
-        {thread.map(turn => <TurnContainer key={turn.id} turn={turn} />)}
+        {thread.map(turn => (
+          <TurnContainer key={turn.id} turn={turn} onViewFull={setModalContent} />
+        ))}
       </div>
       <div css={inputBarCss}>
         <textarea
