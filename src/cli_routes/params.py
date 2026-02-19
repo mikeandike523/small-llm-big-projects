@@ -4,7 +4,7 @@ from src.data import get_pool
 from src.cli_obj import cli
 from src.utils.sql.kv_manager import KVManager
 
-_ALLOWED_PARAMS = {"temperature", "top_p", "top_k"}
+_ALLOWED_PARAMS = {"temperature", "top_p", "top_k","max_tokens"}
 
 
 def _parse_and_validate(name: str, raw_value: str):
