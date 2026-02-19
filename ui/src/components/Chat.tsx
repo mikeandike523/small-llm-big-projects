@@ -6,6 +6,17 @@ import { useScrollToBottom } from '../hooks/useScrollToBottom'
 import { TextPresenter } from './TextPresenter'
 
 // ---------------------------------------------------------------------------
+// Shared scrollbar styles
+// ---------------------------------------------------------------------------
+
+const scrollbarCss = css`
+  &::-webkit-scrollbar { width: 6px; }
+  &::-webkit-scrollbar-track { background: #0a0a0a; }
+  &::-webkit-scrollbar-thumb { background: #2e2e2e; border-radius: 3px; }
+  &::-webkit-scrollbar-thumb:hover { background: #484848; }
+`
+
+// ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
@@ -63,12 +74,13 @@ const rootCss = css`
 `
 
 const threadCss = css`
+  ${scrollbarCss}
   flex: 1;
   overflow-y: auto;
   padding: 24px 16px;
   display: flex;
   flex-direction: column;
-  gap: 0;
+  gap: 12px;
 `
 
 const inputBarCss = css`
@@ -157,6 +169,7 @@ const toolHeaderCss = css`
 `
 
 const toolArgsCss = css`
+  ${scrollbarCss}
   background: #1a1a2e;
   color: #a0a0c0;
   padding: 6px 12px;
@@ -168,6 +181,7 @@ const toolArgsCss = css`
 `
 
 const toolResultCss = css`
+  ${scrollbarCss}
   background: #0d1f0d;
   color: #7ec87e;
   padding: 6px 12px;
@@ -187,11 +201,16 @@ const statusCss = css`
 `
 
 const turnContainerCss = css`
+  ${scrollbarCss}
   display: grid;
   grid-template-columns: 3fr 2fr;
   gap: 20px;
-  padding: 20px 0;
-  border-bottom: 1px solid #1a1a1a;
+  padding: 20px;
+  border: 1px solid #2e2e2e;
+  border-radius: 12px;
+  background: #131313;
+  max-height: 70vh;
+  overflow-y: auto;
 `
 
 const leftColumnCss = css`
@@ -207,6 +226,7 @@ const rightColumnCss = css`
 `
 
 const toolCallsGroupCss = css`
+  ${scrollbarCss}
   max-height: 420px;
   overflow-y: auto;
   display: flex;
@@ -220,6 +240,13 @@ const toolCallsGroupCss = css`
 
 function TurnContainer({ turn }: { turn: Turn }) {
   const { user, assistant } = turn
+  const { containerRef: toolsRef, scrollToBottomIfNeeded: scrollTools, onScroll: onToolsScroll } =
+    useScrollToBottom<HTMLDivElement>()
+
+  useEffect(() => {
+    if (assistant.streaming) scrollTools()
+  }, [assistant.toolCalls, assistant.streaming, scrollTools])
+
   return (
     <div css={turnContainerCss}>
       {/* Left column: user message + AI content */}
@@ -253,7 +280,7 @@ function TurnContainer({ turn }: { turn: Turn }) {
           </div>
         ) : null}
         {assistant.toolCalls.length > 0 && (
-          <div css={toolCallsGroupCss}>
+          <div css={toolCallsGroupCss} ref={toolsRef} onScroll={onToolsScroll}>
             {assistant.toolCalls.map(tc => (
               <div key={tc.id} css={toolCallCss}>
                 <div css={toolHeaderCss}>⚙ {tc.name}</div>

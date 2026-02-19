@@ -44,7 +44,15 @@ const toggleBtnCss = css`
   }
 `
 
+const scrollbarCss = css`
+  &::-webkit-scrollbar { width: 6px; }
+  &::-webkit-scrollbar-track { background: #0a0a0a; }
+  &::-webkit-scrollbar-thumb { background: #2e2e2e; border-radius: 3px; }
+  &::-webkit-scrollbar-thumb:hover { background: #484848; }
+`
+
 const scrollContainerCss = (maxHeight: number) => css`
+  ${scrollbarCss}
   max-height: ${maxHeight}px;
   overflow-y: auto;
 `
