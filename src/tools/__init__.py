@@ -1,4 +1,5 @@
 from __future__ import annotations
+from src.tools import list_dir
 from src.tools import list_working_tree
 from src.tools import project_memory_delete_variable
 from src.tools import project_memory_count_lines
@@ -20,6 +21,7 @@ from src.tools import todo_list
 from src.tools import report_impossible
 
 ALL_TOOL_DEFINITIONS: list[dict] = [
+    list_dir.DEFINITION,
     list_working_tree.DEFINITION,
     project_memory_set_variable.DEFINITION,
     project_memory_get_variable.DEFINITION,
@@ -42,6 +44,7 @@ ALL_TOOL_DEFINITIONS: list[dict] = [
 ]
 
 _TOOL_MAP: dict[str, object] = {
+    "list_dir": list_dir,
     "list_working_tree": list_working_tree,
     "project_memory_set_variable": project_memory_set_variable,
     "project_memory_get_variable": project_memory_get_variable,

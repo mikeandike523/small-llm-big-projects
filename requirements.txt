@@ -8,3 +8,4 @@ flask-socketio
 eventlet
 redis
 python-dotenv
+gitignore-parser

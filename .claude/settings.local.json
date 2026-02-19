@@ -4,7 +4,8 @@
       "Bash(dir:*)",
       "Bash(pnpm add:*)",
       "Bash(pnpm build:*)",
-      "Bash(npx tsc:*)"
+      "Bash(npx tsc:*)",
+      "Bash(.venv/Scripts/pip:*)"
     ]
   }
 }
