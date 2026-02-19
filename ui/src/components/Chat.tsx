@@ -1,5 +1,5 @@
 /** @jsxImportSource @emotion/react */
-import { css } from '@emotion/react'
+import { css, keyframes } from '@emotion/react'
 import { useEffect, useState, useCallback } from 'react'
 import { socket } from '../socket'
 import { useScrollToBottom } from '../hooks/useScrollToBottom'
@@ -108,6 +108,7 @@ const textareaCss = css`
 `
 
 const sendButtonCss = css`
+  position: relative;
   background: #2563eb;
   color: #fff;
   border: none;
@@ -117,10 +118,27 @@ const sendButtonCss = css`
   cursor: pointer;
   align-self: flex-end;
   height: 40px;
+  overflow: hidden;
   &:disabled {
     background: #1e3a6e;
     cursor: not-allowed;
   }
+`
+
+const _spin = keyframes`
+  to { transform: rotate(360deg); }
+`
+
+const spinnerCss = css`
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 18px;
+  height: 18px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: ${_spin} 0.7s linear infinite;
 `
 
 const userBubbleCss = css`
@@ -462,7 +480,8 @@ export default function Chat() {
           disabled={busy || !connected}
         />
         <button css={sendButtonCss} onClick={send} disabled={busy || !connected}>
-          Send
+          <span css={busy ? css`visibility: hidden` : undefined}>Send</span>
+          {busy && <span css={spinnerCss} />}
         </button>
       </div>
     </div>

@@ -3,6 +3,7 @@ import importlib
 importlib.import_module("src.cli_routes.token")
 importlib.import_module("src.cli_routes.endpoint")
 importlib.import_module("src.cli_routes.model")
+importlib.import_module("src.cli_routes.params")
 importlib.import_module("src.cli_routes.chat")
 importlib.import_module("src.cli_routes.ui")
 

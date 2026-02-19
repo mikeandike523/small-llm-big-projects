@@ -92,11 +92,13 @@ def _load_llm_config() -> dict | None:
         token_value, endpoint_url = row
 
         model = kv.get_value("model") or None
+        param_keys = kv.list_keys(prefix="params.")
+        llm_params = {k[len("params."):]: kv.get_value(k) for k in param_keys}
 
     if not token_value or not endpoint_url:
         return None
 
-    return {"endpoint_url": endpoint_url, "token_value": token_value, "model": model}
+    return {"endpoint_url": endpoint_url, "token_value": token_value, "model": model, "params": llm_params}
 
 
 # ---------------------------------------------------------------------------
@@ -132,10 +134,7 @@ def handle_user_message(data: dict):
         llm_config["token_value"],
         60,
         llm_config["model"],
-        {
-            # "max_tokens": 8192
-            # Actually we shouldnt provide a default value
-         },
+        llm_config["params"],
     )
 
     session = _load_session(sid)

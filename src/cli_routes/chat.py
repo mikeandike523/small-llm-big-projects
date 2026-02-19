@@ -61,16 +61,20 @@ def chat():
         raise SystemExit(-1)
     
     with pool.get_connection() as conn:
-        model = KVManager(conn).get_value("model")
-        if not model:
-            model=None
+        kv = KVManager(conn)
+        model = kv.get_value("model") or None
+        param_keys = kv.list_keys(prefix="params.")
+        llm_params = {k[len("params."):]: kv.get_value(k) for k in param_keys}
 
-    
+
     print(f"Endpoint url: {endpoint_url}")
     if token_name:
         print(f"Token name: {token_name}")
     print(f"Token value: {token_value[:2] + '...' + token_value[-2:]}")
     print(f"Model: {model or '(not set)'}")
+    if llm_params:
+        for k, v in llm_params.items():
+            print(f"Param {k}: {v}")
 
     acc_data = {
         "reasoning":"",
@@ -98,10 +102,7 @@ def chat():
 
     
 
-    streaming_llm = StreamingLLM(endpoint_url, token_value, 60,model,{
-        # "max_tokens": 8192
-        # Actually, we should not provide a default value here
-    })
+    streaming_llm = StreamingLLM(endpoint_url, token_value, 60, model, llm_params)
     
     ml_result = None
 
