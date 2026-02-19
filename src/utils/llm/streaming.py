@@ -80,6 +80,7 @@ class StreamingLLM:
                 
 
             r.raise_for_status()
+            r.encoding = 'utf-8'
 
             _pending_tool_calls: dict[int, dict] = {}
 
