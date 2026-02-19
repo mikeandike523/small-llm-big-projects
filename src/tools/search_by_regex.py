@@ -59,7 +59,9 @@ def _apply_bold(line: str, pattern: str) -> str:
 
 def execute(args: dict, _session_data: dict | None = None) -> str:
     pattern: str = args.get("pattern", "")
-    path: str = args.get("path", "") or os.getcwd()
+    raw_path: str = args.get("path", "")
+    display_path: str = raw_path if raw_path else "."
+    path: str = raw_path or os.getcwd()
 
     # Resolve relative paths against cwd
     if not os.path.isabs(path):
@@ -79,11 +81,14 @@ def execute(args: dict, _session_data: dict | None = None) -> str:
         return f"Error: {exc}"
 
     if not raw_results:
-        return "No matches found."
+        return f"Search path: {display_path}\n\nNo matches found."
 
     # When searching a single file, python_ripgrep omits the file-path heading
     # even with heading=True. Only directory searches include it.
     is_single_file = os.path.isfile(path)
+
+    # For relative path computation: use the directory as root for single files
+    search_root: str = path
 
     output_blocks: list[str] = []
 
@@ -93,12 +98,13 @@ def execute(args: dict, _session_data: dict | None = None) -> str:
             continue
 
         if is_single_file:
-            # All lines are match lines; use the provided path as the header
-            block_file_path = path
+            # All lines are match lines; file is the search root so rel path is "."
+            rel_file_path = "."
             match_lines = lines
         else:
-            # First line is the file path heading
-            block_file_path = lines[0]
+            # First line is the absolute file path heading from ripgrep
+            abs_file_path = lines[0]
+            rel_file_path = os.path.relpath(abs_file_path, search_root).replace("\\", "/")
             match_lines = lines[1:]
 
         rendered_matches: list[str] = []
@@ -117,10 +123,10 @@ def execute(args: dict, _session_data: dict | None = None) -> str:
             rendered_matches.append(f"  {highlighted}")
 
         if rendered_matches:
-            block_lines = [f"{block_file_path}:"] + rendered_matches
+            block_lines = [f"{rel_file_path}:"] + rendered_matches
             output_blocks.append("\n".join(block_lines))
 
     if not output_blocks:
-        return "No matches found."
+        return f"Search path: {display_path}\n\nNo matches found."
 
-    return "\n\n".join(output_blocks)
+    return f"Search path: {display_path}\n\n" + "\n\n".join(output_blocks)

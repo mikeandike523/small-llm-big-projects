@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { socket } from '../socket'
 import { useScrollToBottom } from '../hooks/useScrollToBottom'
 import { TextPresenter } from './TextPresenter'
+import Ansi from 'ansi-to-react'
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -260,6 +261,13 @@ const toolResultCss = css`
   white-space: pre-wrap;
   word-break: break-word;
   border-top: 1px solid #1a3a1a;
+  & code {
+    display: block;
+    font-family: inherit;
+    background: transparent;
+    padding: 0;
+    margin: 0;
+  }
 `
 
 // Tool calls GROUP — constrained + auto-scroll (one of the 4 regions)
@@ -425,6 +433,13 @@ const modalBodyCss = css`
   word-break: break-word;
   background: #0a1a0a;
   line-height: 1.6;
+  & code {
+    display: block;
+    font-family: inherit;
+    background: transparent;
+    padding: 0;
+    margin: 0;
+  }
 `
 
 // ---------------------------------------------------------------------------
@@ -503,7 +518,7 @@ function TurnContainer({
                     <div css={toolArgsCss}>{JSON.stringify(tc.args, null, 2)}</div>
                   )}
                   {hasResult && (
-                    <div css={toolResultCss}>{displayResult}</div>
+                    <div css={toolResultCss}><Ansi>{displayResult}</Ansi></div>
                   )}
                 </div>
               )
@@ -699,7 +714,7 @@ export default function Chat() {
             <span css={modalTitleCss}>Tool Result</span>
             <button css={modalCloseButtonCss} onClick={() => setModalContent(null)}>×</button>
           </div>
-          <div css={modalBodyCss}>{modalContent}</div>
+          <div css={modalBodyCss}><Ansi>{modalContent ?? ''}</Ansi></div>
         </div>
       </div>
 

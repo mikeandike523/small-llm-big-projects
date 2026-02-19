@@ -20,6 +20,7 @@ from src.tools import read_text_file
 from src.tools import todo_list
 from src.tools import report_impossible
 from src.tools import search_by_regex
+from src.tools import pwd
 
 ALL_TOOL_DEFINITIONS: list[dict] = [
     list_dir.DEFINITION,
@@ -43,6 +44,7 @@ ALL_TOOL_DEFINITIONS: list[dict] = [
     todo_list.DEFINITION,
     report_impossible.DEFINITION,
     search_by_regex.DEFINITION,
+    pwd.DEFINITION,
 ]
 
 _TOOL_MAP: dict[str, object] = {
@@ -67,6 +69,7 @@ _TOOL_MAP: dict[str, object] = {
     "todo_list": todo_list,
     "report_impossible": report_impossible,
     "search_by_regex": search_by_regex,
+    "pwd": pwd,
 }
 
 def execute_tool(name: str, args: dict, session_data: dict | None = None) -> str:

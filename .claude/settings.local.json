@@ -7,7 +7,12 @@
       "Bash(npx tsc:*)",
       "Bash(.venv/Scripts/pip:*)",
       "Bash(./python_in_env.sh -c \"import ripgrep; print\\(dir\\(ripgrep\\)\\)\")",
-      "Bash(./python_in_env.sh:*)"
+      "Bash(./python_in_env.sh:*)",
+      "WebSearch",
+      "WebFetch(domain:www.npmjs.com)",
+      "WebFetch(domain:github.com)",
+      "Bash(npm install:*)",
+      "Bash(pnpm exec tsc:*)"
     ]
   }
 }

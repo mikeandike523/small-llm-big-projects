@@ -28,14 +28,27 @@ path  (optional, string)
 
 Output Format
 -------------
-Results are grouped by file. For each file that contains at least one match:
+The output always begins with a header line identifying the search root:
 
-  <file_path>:
+    Search path: <display_path>
+
+where <display_path> is the path argument as given by the caller, or "." if
+path was not specified.
+
+A blank line follows the header, then file blocks for each matching file.
+For each file that contains at least one match:
+
+  <relative_file_path>:
     <line_number>:
     <line_with_bold_matches>
 
 Rules:
-  - <file_path> is printed followed immediately by a colon and newline.
+  - <relative_file_path> is a forward-slash-delimited path relative to the
+    resolved search root (the absolute path used internally). On Windows,
+    backslashes are converted to forward slashes.
+  - When the path argument is a single file, ripgrep omits the file-path
+    heading; the relative path is "." (the file is its own root).
+  - <relative_file_path> is printed followed immediately by a colon and newline.
   - Each match within that file is printed as a two-line block, indented by
     two spaces:
       Line 1:  "  <line_number>:"
@@ -47,25 +60,43 @@ Rules:
   - Multiple matches in the same file are listed consecutively under the same
     file-path header (no blank line between them within a file).
   - A blank line separates consecutive file blocks.
-  - If the pattern matches nothing anywhere, return the string:
-        "No matches found."
+  - If the pattern matches nothing anywhere, return:
+        "Search path: <display_path>\n\nNo matches found."
   - If the path does not exist, return an error string beginning with "Error:".
   - If the regex is rejected by ripgrep (e.g. unsupported syntax), return an
     error string beginning with "Error:" that includes the library's message.
 
 Example Output
 --------------
-Given pattern "foo" searching a directory:
+Given pattern "foo" and path "src" (a directory):
 
-    src/bar.py:
+    Search path: src
+
+    bar.py:
       12:
       result = \033[1mfoo\033[0m(x)
       45:
       # calls \033[1mfoo\033[0m here
 
-    tests/test_bar.py:
+    sub/test_bar.py:
       7:
       def test_\033[1mfoo\033[0m():
+
+Given pattern "foo" and path "src/bar.py" (a single file):
+
+    Search path: src/bar.py
+
+    .:
+      12:
+      result = \033[1mfoo\033[0m(x)
+
+Given pattern "foo" with no path specified (defaults to cwd):
+
+    Search path: .
+
+    src/bar.py:
+      12:
+      result = \033[1mfoo\033[0m(x)
 
 Implementation Notes
 --------------------
