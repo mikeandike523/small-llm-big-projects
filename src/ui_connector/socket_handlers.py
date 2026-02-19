@@ -6,6 +6,7 @@ import os
 import redis
 from flask import request
 from flask_socketio import emit
+import requests
 
 from src.ui_connector.app import socketio
 from src.data import get_pool
@@ -13,6 +14,7 @@ from src.utils.sql.kv_manager import KVManager
 from src.utils.llm.streaming import StreamingLLM
 from src.tools import ALL_TOOL_DEFINITIONS, execute_tool
 from src.logic.system_prompt import SYSTEM_PROMPT
+from src.utils.request_error_formatting import format_http_error
 
 # ---------------------------------------------------------------------------
 # Redis session helpers
@@ -156,8 +158,13 @@ def handle_user_message(data: dict):
             stream_result = streaming_llm.stream(
                 session["message_history"], on_data, tools=ALL_TOOL_DEFINITIONS
             )
+        except requests.exceptions.HTTPError as exc:
+            emit("error", {
+                "message":f"LLM stream error:\n\n{format_http_error(exc)}"
+            })
+            break
         except Exception as exc:
-            emit("error", {"message": f"LLM stream error: {exc}"})
+            emit("error", {"message": f"LLM stream error:\n\n{exc}"})
             break
 
         if stream_result.has_tool_calls:
