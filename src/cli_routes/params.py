@@ -17,8 +17,13 @@ def _parse_and_validate(name: str, raw_value: str):
     try:
         if name == "top_k":
             value = int(raw_value)
-            if value < 0:
-                raise click.BadParameter("top_k must be >= 0", param_hint="value")
+            if value <= 0:
+                raise click.BadParameter("top_k must be > 0", param_hint="value")
+            return value
+        elif name == "max_tokens":
+            value = int(raw_value)
+            if value <= 0:
+                raise click.BadParameter("max_tokens must be > 0", param_hint="value")
             return value
         else:
             value = float(raw_value)
