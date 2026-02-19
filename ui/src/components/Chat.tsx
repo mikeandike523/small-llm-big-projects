@@ -1,10 +1,9 @@
 /** @jsxImportSource @emotion/react */
 import { css } from '@emotion/react'
-import { useEffect, useRef, useState, useCallback } from 'react'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
-import rehypeHighlight from 'rehype-highlight'
+import { useEffect, useState, useCallback } from 'react'
 import { socket } from '../socket'
+import { useScrollToBottom } from '../hooks/useScrollToBottom'
+import { TextPresenter } from './TextPresenter'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -32,7 +31,11 @@ interface AssistantEntry {
   streaming: boolean
 }
 
-type ThreadEntry = UserEntry | AssistantEntry
+interface Turn {
+  id: string
+  user: UserEntry
+  assistant: AssistantEntry
+}
 
 function makeId() {
   return Math.random().toString(36).slice(2)
@@ -50,7 +53,8 @@ const rootCss = css`
   display: flex;
   flex-direction: column;
   height: 100vh;
-  max-width: 820px;
+  max-width: 1600px;
+  width: 96%;
   margin: 0 auto;
   font-family: 'Segoe UI', system-ui, sans-serif;
   font-size: 15px;
@@ -64,7 +68,7 @@ const threadCss = css`
   padding: 24px 16px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 0;
 `
 
 const inputBarCss = css`
@@ -107,116 +111,42 @@ const sendButtonCss = css`
   }
 `
 
-const bubbleCss = (role: 'user' | 'assistant') => css`
-  display: flex;
-  flex-direction: column;
-  align-items: ${role === 'user' ? 'flex-end' : 'flex-start'};
-`
-
 const userBubbleCss = css`
-  max-width: 78%;
   background: #1d4ed8;
   border-radius: 16px 16px 4px 16px;
   padding: 10px 14px;
   white-space: pre-wrap;
   word-break: break-word;
   line-height: 1.5;
+  align-self: flex-end;
 `
 
 const assistantBubbleCss = css`
-  max-width: 78%;
-  max-height: 480px;
-  overflow-y: auto;
   background: #1e1e1e;
   border-radius: 16px 16px 16px 4px;
   padding: 10px 14px;
   word-break: break-word;
   line-height: 1.5;
-
-  p { margin: 0.4em 0; }
-  p:first-child { margin-top: 0; }
-  p:last-child { margin-bottom: 0; }
-
-  h1, h2, h3, h4, h5, h6 { margin: 0.6em 0 0.3em; font-weight: 600; line-height: 1.3; }
-  h1 { font-size: 1.4em; }
-  h2 { font-size: 1.25em; }
-  h3 { font-size: 1.1em; }
-
-  ul, ol { padding-left: 1.5em; margin: 0.4em 0; }
-  li { margin: 0.2em 0; }
-
-  blockquote {
-    border-left: 3px solid #444;
-    padding-left: 0.8em;
-    color: #aaa;
-    margin: 0.4em 0;
-    font-style: italic;
-  }
-
-  code {
-    background: #2a2a2a;
-    padding: 0.15em 0.35em;
-    border-radius: 4px;
-    font-family: 'Consolas', 'Monaco', monospace;
-    font-size: 0.9em;
-  }
-
-  pre {
-    background: #141414;
-    border: 1px solid #2a2a2a;
-    border-radius: 6px;
-    padding: 10px 12px;
-    overflow-x: auto;
-    margin: 0.5em 0;
-  }
-
-  pre code {
-    background: none;
-    padding: 0;
-    border-radius: 0;
-    font-size: 0.85em;
-    line-height: 1.5;
-  }
-
-  a { color: #7aa2e0; text-decoration: none; }
-  a:hover { text-decoration: underline; }
-
-  hr { border: none; border-top: 1px solid #333; margin: 0.6em 0; }
-
-  table { border-collapse: collapse; width: 100%; margin: 0.5em 0; font-size: 0.9em; }
-  th { background: #252525; padding: 6px 10px; text-align: left; border: 1px solid #333; }
-  td { padding: 5px 10px; border: 1px solid #2a2a2a; }
-  tr:nth-child(even) td { background: #1a1a1a; }
-
-  .hljs { background: transparent !important; }
 `
 
 const streamingPlaceholderCss = css`
-  max-width: 78%;
   background: #1e1e1e;
   border-radius: 16px 16px 16px 4px;
   padding: 10px 14px;
   color: #555;
 `
 
-const reasoningCss = css`
+const reasoningWrapperCss = css`
   color: #7aa2e0;
   font-size: 13px;
   font-style: italic;
-  margin-bottom: 6px;
-  white-space: pre-wrap;
-  word-break: break-word;
-  max-height: 180px;
-  overflow-y: auto;
 `
 
 const toolCallCss = css`
-  margin-top: 8px;
   border: 1px solid #333;
   border-radius: 8px;
   overflow: hidden;
   font-size: 13px;
-  max-width: 78%;
 `
 
 const toolHeaderCss = css`
@@ -256,57 +186,88 @@ const statusCss = css`
   text-align: center;
 `
 
+const turnContainerCss = css`
+  display: grid;
+  grid-template-columns: 3fr 2fr;
+  gap: 20px;
+  padding: 20px 0;
+  border-bottom: 1px solid #1a1a1a;
+`
+
+const leftColumnCss = css`
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+`
+
+const rightColumnCss = css`
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+`
+
+const toolCallsGroupCss = css`
+  max-height: 420px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+`
+
 // ---------------------------------------------------------------------------
-// AssistantBubble — needs its own refs for per-bubble inner auto-scroll
+// TurnContainer
 // ---------------------------------------------------------------------------
 
-function AssistantBubble({ entry }: { entry: AssistantEntry }) {
-  const contentRef = useRef<HTMLDivElement>(null)
-  const reasoningRef = useRef<HTMLDivElement>(null)
-
-  // Scroll the content area to bottom as tokens stream in
-  useEffect(() => {
-    if (entry.streaming && contentRef.current) {
-      contentRef.current.scrollTop = contentRef.current.scrollHeight
-    }
-  }, [entry.content, entry.streaming])
-
-  // Scroll the reasoning area to bottom as tokens stream in
-  useEffect(() => {
-    if (entry.streaming && reasoningRef.current) {
-      reasoningRef.current.scrollTop = reasoningRef.current.scrollHeight
-    }
-  }, [entry.reasoning, entry.streaming])
-
+function TurnContainer({ turn }: { turn: Turn }) {
+  const { user, assistant } = turn
   return (
-    <div css={bubbleCss('assistant')}>
-      {entry.reasoning ? (
-        <div css={reasoningCss} ref={reasoningRef}>{entry.reasoning}</div>
-      ) : null}
-      {entry.content ? (
-        <div css={assistantBubbleCss} ref={contentRef}>
-          <ReactMarkdown
-            remarkPlugins={[remarkGfm]}
-            rehypePlugins={[rehypeHighlight]}
-          >
-            {entry.content}
-          </ReactMarkdown>
-        </div>
-      ) : null}
-      {entry.toolCalls.map(tc => (
-        <div key={tc.id} css={toolCallCss}>
-          <div css={toolHeaderCss}>⚙ {tc.name}</div>
-          {Object.keys(tc.args).length > 0 && (
-            <div css={toolArgsCss}>{JSON.stringify(tc.args, null, 2)}</div>
-          )}
-          {tc.result !== undefined && (
-            <div css={toolResultCss}>{tc.result}</div>
-          )}
-        </div>
-      ))}
-      {entry.streaming && !entry.content && entry.toolCalls.length === 0 && (
-        <div css={streamingPlaceholderCss}>…</div>
-      )}
+    <div css={turnContainerCss}>
+      {/* Left column: user message + AI content */}
+      <div css={leftColumnCss}>
+        <div css={userBubbleCss}>{user.text}</div>
+        {assistant.content ? (
+          <div css={assistantBubbleCss}>
+            <TextPresenter
+              content={assistant.content}
+              maxHeight={600}
+              streaming={assistant.streaming}
+            />
+          </div>
+        ) : null}
+        {assistant.streaming && !assistant.content && assistant.toolCalls.length === 0 && (
+          <div css={streamingPlaceholderCss}>…</div>
+        )}
+      </div>
+
+      {/* Right column: reasoning + tool calls */}
+      <div css={rightColumnCss}>
+        {assistant.reasoning ? (
+          <div css={reasoningWrapperCss}>
+            <TextPresenter
+              content={assistant.reasoning}
+              maxHeight={200}
+              streaming={assistant.streaming}
+              initialMode="plain"
+              showToggle={false}
+            />
+          </div>
+        ) : null}
+        {assistant.toolCalls.length > 0 && (
+          <div css={toolCallsGroupCss}>
+            {assistant.toolCalls.map(tc => (
+              <div key={tc.id} css={toolCallCss}>
+                <div css={toolHeaderCss}>⚙ {tc.name}</div>
+                {Object.keys(tc.args).length > 0 && (
+                  <div css={toolArgsCss}>{JSON.stringify(tc.args, null, 2)}</div>
+                )}
+                {tc.result !== undefined && (
+                  <div css={toolResultCss}>{tc.result}</div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   )
 }
@@ -316,28 +277,22 @@ function AssistantBubble({ entry }: { entry: AssistantEntry }) {
 // ---------------------------------------------------------------------------
 
 export default function Chat() {
-  const [thread, setThread] = useState<ThreadEntry[]>([])
+  const [thread, setThread] = useState<Turn[]>([])
   const [inputText, setInputText] = useState('')
   const [connected, setConnected] = useState(socket.connected)
   const [busy, setBusy] = useState(false)
-  const bottomRef = useRef<HTMLDivElement>(null)
-  const threadRef = useRef<HTMLDivElement>(null)
-  // Tracks whether the user is near the bottom; avoid state to skip re-renders
-  const isAtBottom = useRef(true)
 
-  const handleScroll = useCallback(() => {
-    const el = threadRef.current
-    if (!el) return
-    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
-    isAtBottom.current = distanceFromBottom <= 50
-  }, [])
+  const {
+    containerRef: threadRef,
+    isAtBottom,
+    scrollToBottomIfNeeded,
+    onScroll: handleScroll,
+  } = useScrollToBottom<HTMLDivElement>()
 
-  // Scroll to bottom on thread updates only when already at the bottom
+  // Scroll to bottom on thread updates only when already at the bottom.
   useEffect(() => {
-    if (isAtBottom.current) {
-      bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-    }
-  }, [thread])
+    scrollToBottomIfNeeded()
+  }, [thread, scrollToBottomIfNeeded])
 
   // ---------------------------------------------------------------------------
   // Socket wiring
@@ -349,76 +304,63 @@ export default function Chat() {
 
     function onToken({ type, text }: { type: 'reasoning' | 'content'; text: string }) {
       setThread(prev => {
+        if (prev.length === 0) return prev
         const last = prev[prev.length - 1]
-        if (last?.type === 'assistant' && last.streaming) {
-          const updated: AssistantEntry = {
-            ...last,
-            reasoning: type === 'reasoning' ? last.reasoning + text : last.reasoning,
-            content:   type === 'content'   ? last.content   + text : last.content,
-          }
-          return [...prev.slice(0, -1), updated]
+        const a = last.assistant
+        if (!a.streaming) return prev
+        const updated: AssistantEntry = {
+          ...a,
+          reasoning: type === 'reasoning' ? a.reasoning + text : a.reasoning,
+          content:   type === 'content'   ? a.content   + text : a.content,
         }
-        // No current assistant bubble — create one
-        const entry = newAssistant(true)
-        return [
-          ...prev,
-          {
-            ...entry,
-            reasoning: type === 'reasoning' ? text : '',
-            content:   type === 'content'   ? text : '',
-          },
-        ]
+        return [...prev.slice(0, -1), { ...last, assistant: updated }]
       })
     }
 
     function onToolCall({ id, name, args }: { id: string; name: string; args: Record<string, unknown> }) {
       setThread(prev => {
+        if (prev.length === 0) return prev
         const last = prev[prev.length - 1]
-        if (last?.type === 'assistant') {
-          const updated: AssistantEntry = {
-            ...last,
-            toolCalls: [...last.toolCalls, { id, name, args }],
-          }
-          return [...prev.slice(0, -1), updated]
+        const a = last.assistant
+        const updated: AssistantEntry = {
+          ...a,
+          toolCalls: [...a.toolCalls, { id, name, args }],
         }
-        // No assistant bubble yet — create one then add the tool call
-        const entry = newAssistant(true)
-        return [...prev, { ...entry, toolCalls: [{ id, name, args }] }]
+        return [...prev.slice(0, -1), { ...last, assistant: updated }]
       })
     }
 
     function onToolResult({ id, result }: { id: string; result: string }) {
       setThread(prev => {
+        if (prev.length === 0) return prev
         const last = prev[prev.length - 1]
-        if (last?.type === 'assistant') {
-          const updated: AssistantEntry = {
-            ...last,
-            toolCalls: last.toolCalls.map(tc =>
-              tc.id === id ? { ...tc, result } : tc
-            ),
-          }
-          return [...prev.slice(0, -1), updated]
+        const a = last.assistant
+        const updated: AssistantEntry = {
+          ...a,
+          toolCalls: a.toolCalls.map(tc => tc.id === id ? { ...tc, result } : tc),
         }
-        return prev
+        return [...prev.slice(0, -1), { ...last, assistant: updated }]
       })
     }
 
     function onMessageDone({ content }: { content: string }) {
       setThread(prev => {
+        if (prev.length === 0) return prev
         const last = prev[prev.length - 1]
-        if (last?.type === 'assistant') {
-          return [...prev.slice(0, -1), { ...last, content, streaming: false }]
-        }
-        return [...prev, { ...newAssistant(false), content }]
+        return [...prev.slice(0, -1), { ...last, assistant: { ...last.assistant, content, streaming: false } }]
       })
       setBusy(false)
     }
 
     function onError({ message }: { message: string }) {
-      setThread(prev => [
-        ...prev,
-        { type: 'assistant', id: makeId(), reasoning: '', content: `⚠ ${message}`, toolCalls: [], streaming: false },
-      ])
+      setThread(prev => {
+        if (prev.length === 0) return prev
+        const last = prev[prev.length - 1]
+        return [...prev.slice(0, -1), {
+          ...last,
+          assistant: { ...last.assistant, content: `⚠ ${message}`, streaming: false },
+        }]
+      })
       setBusy(false)
     }
 
@@ -449,37 +391,24 @@ export default function Chat() {
     const text = inputText.trim()
     if (!text || busy || !connected) return
 
-    setThread(prev => [...prev, { type: 'user', id: makeId(), text }])
-    setThread(prev => [...prev, newAssistant(true)])
+    setThread(prev => [...prev, {
+      id: makeId(),
+      user: { type: 'user', id: makeId(), text },
+      assistant: newAssistant(true),
+    }])
     setBusy(true)
     setInputText('')
 
-    // Re-enable autoscroll so the incoming response is followed
+    // Re-enable autoscroll so the incoming response is followed.
     isAtBottom.current = true
     socket.emit('user_message', { text })
-  }, [inputText, busy, connected])
+  }, [inputText, busy, connected, isAtBottom])
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       send()
     }
-  }
-
-  // ---------------------------------------------------------------------------
-  // Render helpers
-  // ---------------------------------------------------------------------------
-
-  function renderEntry(entry: ThreadEntry) {
-    if (entry.type === 'user') {
-      return (
-        <div key={entry.id} css={bubbleCss('user')}>
-          <div css={userBubbleCss}>{entry.text}</div>
-        </div>
-      )
-    }
-
-    return <AssistantBubble key={entry.id} entry={entry} />
   }
 
   // ---------------------------------------------------------------------------
@@ -492,8 +421,7 @@ export default function Chat() {
         {connected ? '● connected' : '○ disconnected'}
       </div>
       <div css={threadCss} ref={threadRef} onScroll={handleScroll}>
-        {thread.map(renderEntry)}
-        <div ref={bottomRef} />
+        {thread.map(turn => <TurnContainer key={turn.id} turn={turn} />)}
       </div>
       <div css={inputBarCss}>
         <textarea
