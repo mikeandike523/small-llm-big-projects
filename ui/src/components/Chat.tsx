@@ -33,6 +33,12 @@ interface ToolCallEntry {
   result?: string
 }
 
+interface TodoItem {
+  item_number: number
+  text: string
+  status: 'open' | 'closed'
+}
+
 interface UserEntry {
   type: 'user'
   id: string
@@ -52,6 +58,7 @@ interface Turn {
   id: string
   user: UserEntry
   assistant: AssistantEntry
+  todoItems: TodoItem[]
 }
 
 function makeId() {
@@ -272,10 +279,10 @@ const statusCss = css`
   text-align: center;
 `
 
-// TurnContainer — UNCONSTRAINED; grows to fit all 4 child regions
+// TurnContainer — UNCONSTRAINED; grows to fit all child regions
 const turnContainerCss = css`
   display: grid;
-  grid-template-columns: 3fr 2fr;
+  grid-template-columns: 3fr 2fr 1.5fr;
   gap: 24px;
   padding: 20px 24px;
   border: 1px solid #3a3a3a;
@@ -294,6 +301,50 @@ const rightColumnCss = css`
   display: flex;
   flex-direction: column;
   gap: 12px;
+`
+
+const todoColumnCss = css`
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border-left: 1px solid #2a2a2a;
+  padding-left: 16px;
+  min-width: 0;
+`
+
+const todoHeaderCss = css`
+  font-size: 11px;
+  color: #555;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 4px;
+`
+
+const todoItemOpenCss = css`
+  font-size: 12px;
+  color: #c0c0c0;
+  font-family: 'Consolas', monospace;
+  padding: 2px 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+`
+
+const todoItemClosedCss = css`
+  font-size: 12px;
+  color: #505050;
+  font-family: 'Consolas', monospace;
+  padding: 2px 0;
+  text-decoration: line-through;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+`
+
+const todoEmptyCss = css`
+  font-size: 12px;
+  color: #3a3a3a;
+  font-style: italic;
 `
 
 // ---------------------------------------------------------------------------
@@ -387,7 +438,7 @@ function TurnContainer({
   turn: Turn
   onViewFull: (content: string) => void
 }) {
-  const { user, assistant } = turn
+  const { user, assistant, todoItems } = turn
   const { containerRef: toolsRef, scrollToBottomIfNeeded: scrollTools, onScroll: onToolsScroll } =
     useScrollToBottom<HTMLDivElement>()
 
@@ -459,6 +510,23 @@ function TurnContainer({
             })}
           </div>
         )}
+      </div>
+
+      {/* Third column: todo list */}
+      <div css={todoColumnCss}>
+        <div css={todoHeaderCss}>Todo</div>
+        {todoItems.length === 0
+          ? <div css={todoEmptyCss}>empty</div>
+          : todoItems.map(item => (
+              <div
+                key={item.item_number}
+                css={item.status === 'closed' ? todoItemClosedCss : todoItemOpenCss}
+                title={item.text}
+              >
+                {item.item_number}. {item.text}
+              </div>
+            ))
+        }
       </div>
     </div>
   )
@@ -557,6 +625,14 @@ export default function Chat() {
       setBusy(false)
     }
 
+    function onTodoListUpdate({ items }: { items: TodoItem[] }) {
+      setThread(prev => {
+        if (prev.length === 0) return prev
+        const last = prev[prev.length - 1]
+        return [...prev.slice(0, -1), { ...last, todoItems: items }]
+      })
+    }
+
     socket.on('connect', onConnect)
     socket.on('disconnect', onDisconnect)
     socket.on('token', onToken)
@@ -564,6 +640,7 @@ export default function Chat() {
     socket.on('tool_result', onToolResult)
     socket.on('message_done', onMessageDone)
     socket.on('error', onError)
+    socket.on('todo_list_update', onTodoListUpdate)
 
     return () => {
       socket.off('connect', onConnect)
@@ -573,6 +650,7 @@ export default function Chat() {
       socket.off('tool_result', onToolResult)
       socket.off('message_done', onMessageDone)
       socket.off('error', onError)
+      socket.off('todo_list_update', onTodoListUpdate)
     }
   }, [])
 
@@ -588,6 +666,7 @@ export default function Chat() {
       id: makeId(),
       user: { type: 'user', id: makeId(), text },
       assistant: newAssistant(true),
+      todoItems: [],
     }])
     setBusy(true)
     setInputText('')

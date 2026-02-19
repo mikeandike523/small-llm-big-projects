@@ -206,6 +206,15 @@ def chat(streaming):
                     tool_result = execute_tool(tc.name, tc.arguments, session_data)
                     sys.stdout.write(colored(f"\n[Tool result: {tool_result[:300]}{'...' if len(tool_result) > 300 else ''}]", "magenta"))
                     sys.stdout.flush()
+                    if tc.name == "todo_list":
+                        try:
+                            _td = json.loads(tool_result)
+                            _msg = _td.get("message") or _td.get("error")
+                            if _msg:
+                                sys.stdout.write(colored(f"\n[Todo: {_msg}]", "cyan"))
+                                sys.stdout.flush()
+                        except (json.JSONDecodeError, AttributeError):
+                            pass
 
                     message_history.append({
                         "role": "tool",

@@ -16,6 +16,7 @@ from src.tools import session_memory_read_lines
 from src.tools import session_memory_set_variable
 from src.tools import count_text_file_lines
 from src.tools import read_text_file
+from src.tools import todo_list
 
 ALL_TOOL_DEFINITIONS: list[dict] = [
     list_working_tree.DEFINITION,
@@ -34,7 +35,8 @@ ALL_TOOL_DEFINITIONS: list[dict] = [
     session_memory_count_lines.DEFINITION,
     session_memory_read_lines.DEFINITION,
     count_text_file_lines.DEFINITION,
-    read_text_file.DEFINITION
+    read_text_file.DEFINITION,
+    todo_list.DEFINITION,
 ]
 
 _TOOL_MAP: dict[str, object] = {
@@ -54,7 +56,8 @@ _TOOL_MAP: dict[str, object] = {
     "session_memory_count_lines": session_memory_count_lines,
     "session_memory_read_lines": session_memory_read_lines,
     "count_text_file_lines": count_text_file_lines,
-    "read_text_file":read_text_file
+    "read_text_file": read_text_file,
+    "todo_list": todo_list,
 }
 
 def execute_tool(name: str, args: dict, session_data: dict | None = None) -> str:

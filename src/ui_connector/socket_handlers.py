@@ -204,6 +204,14 @@ def handle_user_message(data: dict):
                 emit("tool_call", {"id": tc.id, "name": tc.name, "args": tc.arguments})
                 tool_result = execute_tool(tc.name, tc.arguments, session["session_data"])
                 emit("tool_result", {"id": tc.id, "result": tool_result})
+                if tc.name == "todo_list":
+                    _raw = session["session_data"].get("todo_list") or []
+                    emit("todo_list_update", {
+                        "items": [
+                            {"item_number": i + 1, "text": it["text"], "status": it["status"]}
+                            for i, it in enumerate(_raw)
+                        ]
+                    })
                 session["message_history"].append({
                     "role": "tool",
                     "tool_call_id": tc.id,
