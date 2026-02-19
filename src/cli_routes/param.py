@@ -38,11 +38,11 @@ def _parse_and_validate(name: str, raw_value: str):
 
 
 @cli.group()
-def params():
+def param():
     ...
 
 
-@params.command(name="set")
+@param.command(name="set")
 @click.argument("name", type=str)
 @click.argument("value", type=str)
 def sub_cmd_set(name, value):
@@ -57,7 +57,7 @@ def sub_cmd_set(name, value):
     click.echo(f"Set params.{name} = {typed_value}")
 
 
-@params.command(name="show")
+@param.command(name="show")
 def sub_cmd_show():
     """
     Show all currently set generation parameters.
@@ -75,7 +75,7 @@ def sub_cmd_show():
             click.echo(f"{param_name} = {val}")
 
 
-@params.command(name="unset")
+@param.command(name="unset")
 @click.argument("name", type=str)
 def sub_cmd_unset(name):
     """
