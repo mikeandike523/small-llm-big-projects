@@ -1,0 +1,445 @@
+================================================================================
+TOOL SPEC: list_dir
+================================================================================
+
+PURPOSE
+-------
+List the contents of a directory with configurable recursion, symlink handling,
+filtering, and type annotation.
+
+
+PARAMETERS
+----------
+
+path (string, optional)
+    The directory to list.
+    Accepts relative (resolved from cwd via os.getcwd()) or absolute paths.
+    Default: os.getcwd()
+
+recursive (boolean, optional)
+    If true, descend into subdirectories.
+    Default: false
+
+follow_folder_symlinks (boolean, optional)
+    If true, recurse into symlinks that point to directories.
+    Covers both Windows junctions and true Windows directory symlinks — both
+    are treated identically (both detected via entry.is_symlink(), both resolved
+    via os.path.realpath() for loop detection).
+    Only meaningful when recursive=true.
+    Default: false
+
+follow_file_symlinks (boolean, optional)
+    If true, follow file symlinks to their final destination and show that
+    destination as the entry (with type "file").
+    Chains are followed repeatedly (A -> B -> C -> final).
+    See "File Symlink Loop Handling" below for the edge case.
+    Default: false
+
+filter (string enum, optional)
+    Controls which entry types appear in the output.
+    Allowed values: "files", "folders", "both"
+    NOTE: filtering affects OUTPUT ONLY — traversal is never affected.
+          Even if filter="files", subdirectories are still descended into.
+    Default: "both"
+
+show_data (boolean, optional)
+    If true, annotate each entry with its resolved kind.
+    Annotations appear as suffixes on each entry (text format only).
+    Has no effect when format="json" — type info is always present in JSON.
+    See "Annotation Format" below.
+    Default: false
+
+depth (integer or null, optional)
+    Maximum recursion depth. Only meaningful when recursive=true.
+    Follows the standard recursive-function convention:
+        depth=0  => list immediate children only (no descent into subdirs)
+        depth=1  => descend one level into subdirs
+        depth=N  => descend N levels
+        null     => unlimited depth
+    Default: null
+
+format (string enum, optional)
+    Output format.
+    Allowed values: "text", "json"
+    "text" produces human-readable indented tree or flat path list (see Output Format).
+    "json" produces structured JSON (see JSON Format section below).
+    Default: "text"
+
+use_gitignore (boolean, optional)
+    If true, parse and apply .gitignore rules during traversal.
+    Ignored entries are excluded from output and ignored directories are never
+    descended into (for performance). See "Gitignore Parsing" section below.
+    Default: false
+
+target (string enum, optional)
+    Where to send the result.
+    Allowed values: "return_value", "session_memory", "project_memory"
+    "return_value"   — result is returned directly as the tool response.
+    "session_memory" — result is written to a session memory key (see memory_key).
+    "project_memory" — result is written to a project memory key (see memory_key).
+    Default: "return_value"
+
+memory_key (string, optional)
+    The memory key to write the result to.
+    Required when target is "session_memory" or "project_memory".
+    Ignored when target is "return_value".
+
+
+OUTPUT FORMAT
+-------------
+
+Two modes, determined by whether a filter is active:
+
+  Mode A — No filter (filter="both"):
+      Indented tree view. Each level of depth is indented by 2 spaces.
+      Directories are shown with a trailing "/".
+
+      Example (show_data=false):
+          src/
+            main.py
+            utils/
+              helpers.py
+
+      Example (show_data=true):
+          src/ (folder)
+            main.py (file)
+            link_to_old/ -> ../old (link)
+            data.csv (file)
+
+  Mode B — Filter active (filter="files" or filter="folders"):
+      Flat list of forward-slash-delimited relative paths, one per line.
+      No indentation, no tree structure.
+      Paths are relative to the `path` argument.
+
+      Example (filter="files", show_data=false):
+          src/main.py
+          src/utils/helpers.py
+          src/data.csv
+
+      Example (filter="files", show_data=true):
+          src/main.py (file)
+          src/utils/helpers.py (file)
+          src/data.csv (file)
+
+
+JSON FORMAT (format="json")
+---------------------------
+
+Type information is always present in JSON output. show_data has no effect.
+
+Each entry object has the following fields:
+
+    name        (string)  — the entry's filename or dirname (no path prefix)
+    type        (string)  — one of: "file", "folder", "link"
+    link_target (string)  — present only when type is "link"; the raw stored
+                            target path of the symlink/junction
+    children    (array)   — present only when type is "folder" or a followed
+                            folder link; contains child entry objects
+
+Type values by scenario:
+    Regular file                                 => type: "file"
+    Regular directory                            => type: "folder"
+    File symlink, not followed                   => type: "link", link_target: "<raw target>"
+    File symlink, followed, clean chain          => type: "file"  (no link_target)
+    File symlink, followed, looping chain        => type: "link", link_target: "<target of last node>"
+    Folder symlink/junction, not followed        => type: "link", link_target: "<raw target>"
+    Folder symlink/junction, followed            => type: "link", link_target: "<raw target>",
+                                                   children: [...]
+
+Mode A — No filter (filter="both"), format="json":
+    A single root object representing the listed directory, with nested children.
+
+    {
+      "name": "src",
+      "type": "folder",
+      "children": [
+        {"name": "main.py", "type": "file"},
+        {
+          "name": "utils",
+          "type": "folder",
+          "children": [
+            {"name": "helpers.py", "type": "file"}
+          ]
+        },
+        {
+          "name": "link_to_old",
+          "type": "link",
+          "link_target": "../old"
+        },
+        {
+          "name": "followed_link",
+          "type": "link",
+          "link_target": "../other",
+          "children": [
+            {"name": "data.csv", "type": "file"}
+          ]
+        }
+      ]
+    }
+
+Mode B — Filter active (filter="files" or filter="folders"), format="json":
+    A flat JSON array of entry objects. Each object includes "path" (forward-slash
+    relative path from the listed root) instead of "name".
+
+    [
+      {"path": "main.py",              "type": "file"},
+      {"path": "utils/helpers.py",     "type": "file"},
+      {"path": "link_to_file",         "type": "link", "link_target": "../real.txt"},
+      {"path": "followed_link/data.csv","type": "file"}
+    ]
+
+    For filter="folders":
+    [
+      {"path": "utils",          "type": "folder"},
+      {"path": "utils/sub",      "type": "folder"},
+      {"path": "link_to_old",    "type": "link", "link_target": "../old"}
+    ]
+
+Note: in Mode B JSON, a followed folder symlink/junction itself appears if
+filter="folders", and its contents appear at their full relative paths.
+
+
+ANNOTATION FORMAT (show_data=true)
+-----------------------------------
+
+Each entry is suffixed with one of the following:
+
+    (file)              — a regular file
+    (folder)            — a regular directory
+    (link -> TARGET)    — a symlink (file or folder) that was NOT followed,
+                          where TARGET is the raw link target path (as stored)
+    (file)              — a file symlink that WAS followed (follow_file_symlinks=true)
+                          and resolved cleanly to a real file
+    (link)              — a file symlink that WAS followed but whose chain looped
+                          back on itself (see "File Symlink Loop Handling")
+
+Note: when follow_folder_symlinks=true and a folder symlink/junction is followed,
+it is descended into as a normal folder. Its entry in the listing shows (link -> TARGET),
+not (folder), since it is still structurally a link at that path.
+
+When follow_folder_symlinks=false, folder symlinks/junctions appear as leaf entries
+with (link -> TARGET) annotation and are not descended into.
+
+
+INFINITE LOOP PROTECTION — DIRECTORIES
+----------------------------------------
+
+A single set of resolved real paths (visited_dirs) is maintained for the entire
+traversal. Before descending into any directory (including those reached via
+folder symlinks or junctions):
+
+    real_path = os.path.realpath(dir_path)
+    if real_path in visited_dirs:
+        skip silently (no output for this entry)
+    else:
+        visited_dirs.add(real_path)
+        descend normally
+
+This guards against:
+    - Recursive symlinks (A -> A)
+    - Mutual symlinks (A -> B -> A)
+    - Relative symlinks that resolve to an ancestor
+    - Windows junctions forming cycles
+
+
+FILE SYMLINK LOOP HANDLING
+---------------------------
+
+When follow_file_symlinks=true, file symlinks are resolved by following the
+chain of targets repeatedly until a non-symlink file is reached.
+
+A per-chain set (chain_seen) is used to detect loops within a single chain.
+This set is independent of visited_dirs and is reset for each new file symlink
+encountered.
+
+Algorithm:
+    current = initial symlink path
+    chain_seen = {os.path.realpath(current)}
+
+    loop:
+        target = os.readlink(current)
+        target_real = os.path.realpath(target)
+
+        if target_real in chain_seen:
+            # Loop detected. The result is `current` (last node before loop).
+            # Report it as type "link" (since it cannot be resolved further).
+            break
+
+        if os.path.islink(target):
+            chain_seen.add(target_real)
+            current = target
+            continue
+        else:
+            # Reached a real file. Report it as type "file".
+            break
+
+Edge case summary:
+    - Clean chain A -> B -> C (C is a real file): shown as (file)
+    - Looping chain A -> B -> C -> A: C is reported, shown as (link)
+
+
+GITIGNORE PARSING (use_gitignore=true)
+---------------------------------------
+
+SCOPE
+  Only .gitignore files on disk are considered.
+  The following are intentionally OUT OF SCOPE:
+    - ~/.gitignore_global  (user global gitignore)
+    - .git/info/exclude    (per-repo excludes)
+  These are omitted for simplicity and because the tool is not exclusively
+  a git tool.
+
+ANCESTOR WALK — STOPPING CONDITIONS AND DRIVE ROOT
+  This tool is valid in ANY directory, not only inside git repositories.
+  The ancestor walk therefore always goes all the way up to the drive root
+  (e.g. C:\ on Windows, / on Unix) if no earlier stopping condition is met.
+
+  Walk UP from `path` one directory at a time using pathlib:
+      p = Path(path).resolve()
+      while True:
+          if (p / '.git').exists():   # .git file OR folder — presence only,
+              gitignore_root = p      # no validation that it is a real repo
+              break
+          parent = p.parent
+          if parent == p:             # reached drive root (Path.parent of root
+              gitignore_root = p      # is itself — pathlib convention)
+              break
+          p = parent
+
+  IMPORTANT: The .git check is a simple existence check (os.path.exists or
+  Path.exists). There is NO validation that the directory is a legitimate git
+  repository (no .git/HEAD check, no git command invocation). A folder named
+  .git is sufficient to stop the walk. This is intentional — it is fast and
+  correct enough for the purpose of bounding ancestor .gitignore discovery.
+
+  If no .git is found anywhere, gitignore_root = drive root. All .gitignore
+  files along the entire ancestor chain (from drive root down to `path`) are
+  then collected. This is unusual in practice but correct and complete.
+
+  The gitignore root matters because .gitignore files above `path` but within
+  the same repo (or ancestor chain) still apply to entries under `path`.
+
+PRE-TRAVERSAL: ANCESTOR .gitignore COLLECTION
+  Walk DOWN from the gitignore root to `path` (exclusive of `path` itself,
+  which is handled during traversal). For each directory along this ancestor
+  chain, if a `.gitignore` file exists, parse it with gitignore-parser and
+  add the resulting matcher to the initial matcher list.
+
+  Example: gitignore root = /repo, path = /repo/src/utils
+    Check /repo/.gitignore       → add matcher if present
+    Check /repo/src/.gitignore   → add matcher if present
+    (path itself, /repo/src/utils, handled during traversal)
+
+DURING TRAVERSAL: MATCHER STACK
+  The matcher list is passed down through recursion. At each directory level:
+
+    1. Check if a .gitignore exists in the current directory.
+    2. If yes, parse it and produce a new local matcher.
+    3. Construct the effective matcher list for this level:
+           effective = parent_matchers + [local_matcher]  (if .gitignore exists)
+           effective = parent_matchers                    (if no .gitignore)
+    4. Scan the current directory's entries.
+    5. For each entry, check against the effective matcher list (see below).
+    6. When recursing into a subdirectory, pass down `effective` as the new
+       parent_matchers. The list is never mutated; each level creates its own.
+
+IGNORE CHECKING: COMBINATION LOGIC
+  An entry is ignored if ANY matcher in the effective list returns True for it.
+  The path passed to each matcher must be an ABSOLUTE path.
+
+  Pseudo-code:
+      def is_ignored(abs_path, matchers):
+          return any(matcher(abs_path) for matcher in matchers)
+
+  Rule: OR across all matchers (outermost ancestor to innermost).
+
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │ KNOWN LIMITATION: Cross-file negation is NOT supported.                 │
+  │                                                                         │
+  │ Scenario:                                                               │
+  │   parent/.gitignore  contains:  *.log                                  │
+  │   parent/child/.gitignore  contains:  !important.log                   │
+  │   File:  parent/child/important.log                                     │
+  │                                                                         │
+  │ Expected (real git): important.log is NOT ignored (child overrides).    │
+  │ This tool: important.log IS ignored (parent matcher returns True,       │
+  │            OR logic short-circuits, child negation is never applied).   │
+  │                                                                         │
+  │ Root cause: gitignore-parser's returned callable returns a plain bool.  │
+  │ False means either "no rule matched" or "a ! rule matched" — these are  │
+  │ indistinguishable. Correct cross-file combination would require          │
+  │ re-implementing the rule engine at a lower level.                       │
+  │                                                                         │
+  │ Within-file negation (! patterns in the same file) IS handled correctly │
+  │ by gitignore-parser and works as expected.                              │
+  │                                                                         │
+  │ Cross-file negation is an uncommon pattern. This limitation is          │
+  │ acceptable and matches the behavior of many other listing tools.        │
+  └─────────────────────────────────────────────────────────────────────────┘
+
+PERFORMANCE: EARLY DIRECTORY PRUNING
+  The ignored check is performed on a directory BEFORE os.scandir() is called
+  on it. If a directory entry is ignored, it is skipped immediately — no
+  directory open, no recursive descent. This is the key performance guarantee.
+
+  Order of checks when encountering a directory entry `d`:
+    1. Is `d` in visited_dirs? → skip (loop protection)
+    2. Is `d` ignored by effective matchers? → skip (gitignore)
+    3. Should we follow symlinks / check depth? → apply those rules
+    4. Recurse into `d`.
+
+  This means large ignored subtrees (e.g. node_modules/, .venv/) are never
+  opened at all.
+
+.gitignore DIRECTORY MATCHING
+  gitignore rules can match directories by name (e.g. `node_modules`) or by
+  trailing slash (e.g. `build/`). gitignore-parser handles both. When checking
+  a directory entry, pass its absolute path; the library correctly handles
+  both file and directory patterns.
+
+MATCHER CONSTRUCTION (implementation detail)
+  from gitignore_parser import parse_gitignore
+
+  matcher = parse_gitignore('/abs/path/to/.gitignore')
+  # matcher(abs_path) -> True if ignored, False if not
+
+
+WINDOWS COMPATIBILITY NOTES
+-----------------------------
+
+- Windows junctions and true Windows directory symlinks are treated identically.
+  Both are detected via entry.is_symlink() == True in os.scandir().
+  Both are resolved via os.path.realpath() for loop detection.
+  Both are annotated as (link -> TARGET) when show_data=true.
+  follow_file_symlinks never applies to junctions (they can only target dirs).
+
+- os.readlink() is supported for both junctions and symlinks on Python 3.8+.
+
+- Reading symlinks does NOT require elevated privileges on Windows.
+  Only creating symlinks requires admin or Developer Mode. This tool is
+  read-only and has no privilege concerns.
+
+- OSError and PermissionError during traversal (e.g. protected system dirs)
+  are caught silently and the offending entry is skipped.
+
+
+IMPLEMENTATION NOTES
+---------------------
+
+- Use os.scandir() for directory listing (efficient, provides DirEntry objects).
+- Use entry.is_symlink() to detect symlinks/junctions.
+- Use entry.is_dir(follow_symlinks=False) to distinguish dirs from files
+  without following links.
+- Use os.path.realpath() for canonical path resolution in all loop detection.
+- Paths in output use forward slashes regardless of OS.
+- JSON serialization via json.dumps(result, indent=2).
+- session_memory and project_memory follow the same pattern as read_text_file:
+    session_memory  => session_data["memory"][memory_key] = result_string
+    project_memory  => KVManager(conn, project).set_value(memory_key, result_string)
+    (result_string is the serialized text or JSON string)
+- gitignore-parser usage: from gitignore_parser import parse_gitignore
+  parse_gitignore(abs_path_to_gitignore_file) returns a callable(abs_path) -> bool.
+  Requires gitignore-parser to be listed in requirements.txt.
+- The tool follows the existing project pattern:
+    DEFINITION dict  +  execute(args, session_data) -> str
+================================================================================
