@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+from typing import TypedDict
 
 import redis
 from flask import request
@@ -17,6 +18,16 @@ from src.utils.llm.streaming import StreamingLLM
 from src.tools import ALL_TOOL_DEFINITIONS, execute_tool
 from src.logic.system_prompt import SYSTEM_PROMPT
 from src.utils.request_error_formatting import format_http_error
+
+
+# ---------------------------------------------------------------------------
+# Data structures
+# ---------------------------------------------------------------------------
+
+class CondensedTurn(TypedDict):
+    user: str
+    assistant: str
+
 
 # ---------------------------------------------------------------------------
 # Redis session helpers
@@ -39,9 +50,12 @@ def _load_session(sid: str) -> dict:
     r = _get_redis()
     raw = r.get(f"session:{sid}")
     if raw:
-        return json.loads(raw)
+        session = json.loads(raw)
+        session.setdefault("condensed_turns", [])
+        return session
     return {
         "message_history": [{"role": "system", "content": SYSTEM_PROMPT}],
+        "condensed_turns": [],
         "session_data": {},
     }
 
@@ -106,6 +120,156 @@ def _load_llm_config() -> dict | None:
 
 
 # ---------------------------------------------------------------------------
+# Payload construction
+# ---------------------------------------------------------------------------
+
+def _build_llm_payload(
+    condensed_turns: list[CondensedTurn],
+    current_turn_slice: list[dict],
+) -> list[dict]:
+    """Assemble the message list actually sent to the LLM endpoint."""
+    messages: list[dict] = [{"role": "system", "content": SYSTEM_PROMPT}]
+    for turn in condensed_turns:
+        messages.append({"role": "user", "content": turn["user"]})
+        messages.append({"role": "assistant", "content": turn["assistant"]})
+    messages.extend(current_turn_slice)
+    return messages
+
+
+# ---------------------------------------------------------------------------
+# LLM call abstraction
+# ---------------------------------------------------------------------------
+
+def _run_llm_call(streaming_llm: StreamingLLM, payload: list[dict]) -> tuple[object, str]:
+    """
+    Run one LLM call (streaming or non-streaming) and emit token events.
+    Returns (result, content_for_history). Raises on HTTP/network errors.
+    """
+    if _USE_STREAMING:
+        acc: dict[str, str] = {"content": ""}
+
+        def on_data(chunk: dict) -> None:
+            if chunk.get("reasoning"):
+                emit("token", {"type": "reasoning", "text": chunk["reasoning"]})
+            if chunk.get("content"):
+                acc["content"] += chunk["content"]
+                emit("token", {"type": "content", "text": chunk["content"]})
+
+        result = streaming_llm.stream(payload, on_data, tools=ALL_TOOL_DEFINITIONS)
+        return result, acc["content"]
+    else:
+        result = streaming_llm.fetch(payload, tools=ALL_TOOL_DEFINITIONS)
+        if result.reasoning:
+            emit("token", {"type": "reasoning", "text": result.reasoning})
+        if result.content:
+            emit("token", {"type": "content", "text": result.content})
+        return result, result.content or ""
+
+
+# ---------------------------------------------------------------------------
+# Tool execution
+# ---------------------------------------------------------------------------
+
+def _execute_tools(result, content_for_history: str, session: dict) -> tuple[bool, str | None]:
+    """
+    Append the assistant tool-call message, execute all tools, emit events,
+    and append tool result messages to message_history.
+    Returns (was_impossible, reason_or_none).
+    """
+    mh = session["message_history"]
+    mh.append({
+        "role": "assistant",
+        "content": content_for_history or None,
+        "tool_calls": [
+            {
+                "id": tc.id,
+                "type": "function",
+                "function": {"name": tc.name, "arguments": json.dumps(tc.arguments)},
+            }
+            for tc in result.tool_calls
+        ],
+    })
+
+    for tc in result.tool_calls:
+        emit("tool_call", {"id": tc.id, "name": tc.name, "args": tc.arguments})
+        tool_result = execute_tool(tc.name, tc.arguments, session["session_data"])
+        emit("tool_result", {"id": tc.id, "result": tool_result})
+        if tc.name == "todo_list":
+            _raw = session["session_data"].get("todo_list") or []
+            emit("todo_list_update", {
+                "items": [
+                    {"item_number": i + 1, "text": it["text"], "status": it["status"]}
+                    for i, it in enumerate(_raw)
+                ]
+            })
+        mh.append({
+            "role": "tool",
+            "tool_call_id": tc.id,
+            "content": tool_result,
+        })
+
+    if session["session_data"].get("_report_impossible"):
+        reason = session["session_data"].pop("_report_impossible")
+        return True, reason
+    return False, None
+
+
+# ---------------------------------------------------------------------------
+# Todo list helpers
+# ---------------------------------------------------------------------------
+
+def _get_closed_items(todo_list: list) -> list[str]:
+    return [it["text"] for it in todo_list if it.get("status") == "closed"]
+
+
+def _get_open_items(todo_list: list) -> list[str]:
+    return [it["text"] for it in todo_list if it.get("status") != "closed"]
+
+
+def _count_tool_messages(messages: list[dict]) -> int:
+    return sum(1 for m in messages if m.get("role") == "tool")
+
+
+# ---------------------------------------------------------------------------
+# Condensed turn builder
+# ---------------------------------------------------------------------------
+
+def _build_condensed_turn(
+    user_text: str,
+    had_tool_calls: bool,
+    was_impossible: bool,
+    n_tools: int,
+    session_data: dict,
+    final_content: str,
+    impossible_reason: str | None,
+) -> CondensedTurn:
+    if not had_tool_calls:
+        return {"user": user_text, "assistant": final_content}
+
+    todo_list = session_data.get("todo_list") or []
+    m = len(_get_closed_items(todo_list))
+    open_items = _get_open_items(todo_list)
+
+    if was_impossible:
+        failed_text = ", ".join(open_items) if open_items else "none"
+        thoughts = impossible_reason or final_content or ""
+        assistant = (
+            f"Hi, I could not complete your request. "
+            f"I called {n_tools} tools, completed {m} todo items, "
+            f"and could not complete: {failed_text}. "
+            f"My final thoughts: {thoughts}"
+        )
+    else:
+        assistant = (
+            f"Hi. To complete your request, I called {n_tools} tools, "
+            f"completed {m} todo items, and arrived at this answer/summary: "
+            f"{final_content}"
+        )
+
+    return {"user": user_text, "assistant": assistant}
+
+
+# ---------------------------------------------------------------------------
 # Socket event handlers
 # ---------------------------------------------------------------------------
 
@@ -143,130 +307,82 @@ def handle_user_message(data: dict):
 
     session = _load_session(sid)
     session["message_history"].append({"role": "user", "content": text})
+    turn_start_idx = len(session["message_history"]) - 1
 
-    # Agentic loop — streaming or non-streaming depending on SLBP_STREAMING env var
     had_tool_calls = False
     final_reprompt_done = False
+    was_impossible = False
+    impossible_reason: str | None = None
+    last_assistant_content = ""
+    turn_completed = False
 
     while True:
-        if _USE_STREAMING:
-            acc: dict[str, str] = {"reasoning": "", "content": ""}
+        current_turn_slice = session["message_history"][turn_start_idx:]
+        payload = _build_llm_payload(session["condensed_turns"], current_turn_slice)
 
-            def on_data(chunk: dict) -> None:
-                if chunk.get("reasoning"):
-                    acc["reasoning"] += chunk["reasoning"]
-                    emit("token", {"type": "reasoning", "text": chunk["reasoning"]})
-                if chunk.get("content"):
-                    acc["content"] += chunk["content"]
-                    emit("token", {"type": "content", "text": chunk["content"]})
+        try:
+            result, content_for_history = _run_llm_call(streaming_llm, payload)
+        except requests.exceptions.HTTPError as exc:
+            emit("error", {"message": f"LLM stream error:\n\n{format_http_error(exc)}"})
+            break
+        except Exception as exc:
+            emit("error", {"message": f"LLM stream error:\n\n{exc}"})
+            break
 
-            try:
-                result = streaming_llm.stream(
-                    session["message_history"], on_data, tools=ALL_TOOL_DEFINITIONS
-                )
-            except requests.exceptions.HTTPError as exc:
-                emit("error", {"message": f"LLM stream error:\n\n{format_http_error(exc)}"})
-                break
-            except Exception as exc:
-                emit("error", {"message": f"LLM stream error:\n\n{exc}"})
-                break
-            content_for_history = acc["content"]
-        else:
-            try:
-                result = streaming_llm.fetch(
-                    session["message_history"], tools=ALL_TOOL_DEFINITIONS
-                )
-            except requests.exceptions.HTTPError as exc:
-                emit("error", {"message": f"LLM error:\n\n{format_http_error(exc)}"})
-                break
-            except Exception as exc:
-                emit("error", {"message": f"LLM error:\n\n{exc}"})
-                break
-            # Emit as single token events so the UI renders reasoning + content
-            if result.reasoning:
-                emit("token", {"type": "reasoning", "text": result.reasoning})
-            if result.content:
-                emit("token", {"type": "content", "text": result.content})
-            content_for_history = result.content
+        last_assistant_content = content_for_history
 
         if result.has_tool_calls:
-            session["message_history"].append({
-                "role": "assistant",
-                "content": content_for_history or None,
-                "tool_calls": [
-                    {
-                        "id": tc.id,
-                        "type": "function",
-                        "function": {"name": tc.name, "arguments": json.dumps(tc.arguments)},
-                    }
-                    for tc in result.tool_calls
-                ],
-            })
-
-            for tc in result.tool_calls:
-                emit("tool_call", {"id": tc.id, "name": tc.name, "args": tc.arguments})
-                tool_result = execute_tool(tc.name, tc.arguments, session["session_data"])
-                emit("tool_result", {"id": tc.id, "result": tool_result})
-                if tc.name == "todo_list":
-                    _raw = session["session_data"].get("todo_list") or []
-                    emit("todo_list_update", {
-                        "items": [
-                            {"item_number": i + 1, "text": it["text"], "status": it["status"]}
-                            for i, it in enumerate(_raw)
-                        ]
-                    })
-                session["message_history"].append({
-                    "role": "tool",
-                    "tool_call_id": tc.id,
-                    "content": tool_result,
-                })
-
+            impossible, reason = _execute_tools(result, content_for_history, session)
             had_tool_calls = True
-
-            # Check if report_impossible was signalled
-            if session["session_data"].get("_report_impossible"):
-                reason = session["session_data"].pop("_report_impossible")
+            if impossible:
+                was_impossible = True
+                impossible_reason = reason
                 emit("report_impossible", {"reason": reason})
                 emit("message_done", {"content": None})
+                turn_completed = True
                 break
-
             continue
 
-        else:
-            session["message_history"].append(
-                {"role": "assistant", "content": content_for_history}
-            )
+        # No tool calls — this is a non-tool assistant response
+        session["message_history"].append({"role": "assistant", "content": content_for_history})
 
-            # Check for unclosed todo items — reprompt if any remain
-            _todo_raw = session["session_data"].get("todo_list") or []
-            _unclosed = [it for it in _todo_raw if it.get("status") != "closed"]
-            if _unclosed:
-                _items_text = "\n".join(
-                    f"  {i + 1}. {it['text']}" for i, it in enumerate(_unclosed)
-                )
-                session["message_history"].append({
-                    "role": "user",
-                    "content": (
-                        f"You still have {len(_unclosed)} unclosed todo item(s). "
-                        f"Please continue:\n{_items_text}"
-                    ),
-                })
-                continue
+        unclosed = _get_open_items(session["session_data"].get("todo_list") or [])
+        if unclosed:
+            items_text = "\n".join(f"  {i + 1}. {item}" for i, item in enumerate(unclosed))
+            session["message_history"].append({
+                "role": "user",
+                "content": f"You still have {len(unclosed)} unclosed todo item(s). Please continue:\n{items_text}",
+            })
+            continue
 
-            if had_tool_calls and not final_reprompt_done:
-                final_reprompt_done = True
-                emit("final_reprompt", {})
-                session["message_history"].append({
-                    "role": "user",
-                    "content": (
-                        "All action items are complete. "
-                        "Please provide your final summary or answer based on the steps "
-                        "you took, the tool results, and the previous context."
-                    ),
-                })
-                continue
+        if had_tool_calls and not final_reprompt_done:
+            final_reprompt_done = True
+            emit("final_reprompt", {})
+            session["message_history"].append({
+                "role": "user",
+                "content": (
+                    "All action items are complete. "
+                    "Please provide your final summary or answer based on the steps "
+                    "you took, the tool results, and the previous context."
+                ),
+            })
+            continue
 
-            emit("message_done", {"content": content_for_history})
-            break
+        emit("message_done", {"content": content_for_history})
+        turn_completed = True
+        break
+
+    if turn_completed:
+        n_tools = _count_tool_messages(session["message_history"][turn_start_idx:])
+        condensed = _build_condensed_turn(
+            user_text=text,
+            had_tool_calls=had_tool_calls,
+            was_impossible=was_impossible,
+            n_tools=n_tools,
+            session_data=session["session_data"],
+            final_content=last_assistant_content,
+            impossible_reason=impossible_reason,
+        )
+        session["condensed_turns"].append(condensed)
 
     _save_session(sid, session)
