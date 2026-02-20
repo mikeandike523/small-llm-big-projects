@@ -68,7 +68,8 @@ format (string enum, optional)
 use_gitignore (boolean, optional)
     If true, parse and apply .gitignore rules during traversal.
     Ignored entries are excluded from output and ignored directories are never
-    descended into (for performance). See "Gitignore Parsing" section below.
+    descended into (for performance). The .git directory is always excluded
+    when this is enabled (not configurable). See "Gitignore Parsing" section below.
     Default: false
 
 target (string enum, optional)
@@ -280,6 +281,12 @@ Edge case summary:
 
 GITIGNORE PARSING (use_gitignore=true)
 ---------------------------------------
+
+.git EXCLUSION
+  When use_gitignore=true, the .git directory is always skipped — it is never
+  listed and never descended into. This check is unconditional and not
+  configurable. It is applied before the gitignore matcher check, by name
+  (entry.name == ".git"), on directory entries only.
 
 SCOPE
   Only .gitignore files on disk are considered.

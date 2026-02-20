@@ -50,4 +50,14 @@ preferable to leaving items open forever or looping indefinitely.
 - If a tool fails, notify the user, decide if an alternative exists, and if nothing
   else can be done call report_impossible.
 - After each tool call or step, update the todo list accordingly.
+
+
+== Crucial Tips ==
+
+ - Prefer tool list_working_tree to list_dir when possible.
+   - list_working_tree is valid in any git repo or subfolder of a git repo
+   - assume, in most cases, the pwd is a git repo, but be ready to deal with any errors
+- If list_dir is required, prefer to enable use_gitignore mode if appropriate
+
+   
 """

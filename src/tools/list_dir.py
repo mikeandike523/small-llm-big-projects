@@ -75,6 +75,7 @@ DEFINITION: dict = {
                     "description": (
                         "If true, parse and apply .gitignore rules during traversal. "
                         "Ignored entries are excluded and ignored directories are not descended into. "
+                        "The .git directory is always excluded when this is enabled. "
                         "Default: false."
                     ),
                 },
@@ -263,6 +264,10 @@ def _traverse(
             continue
 
         abs_path = os.path.abspath(entry.path)
+
+        # When respecting gitignores, always skip .git directories
+        if use_gitignore and is_dir and entry.name == ".git":
+            continue
 
         # Gitignore check (before any other processing for performance)
         if use_gitignore and matchers:
