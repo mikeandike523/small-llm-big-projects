@@ -55,6 +55,17 @@ DEFINITION: dict = {
                         "so it can be read in chunks by other tools."
                     ),
                 },
+                "load_service_tokens": {
+                    "type": "array",
+                    "description": (
+                        "A list of service tokens (categorized by provider name) "
+                        "to load for this request. "
+                        "Use a service token in header item values, using the special "
+                        "syntax service_token:<provider_name> "
+                        "for example, Authorization: Bearer service_token:<provider_name>"
+                    ),
+                    "items": {"type": "string"},
+                },
                 "target": {
                     "type": "string",
                     "enum": ["return_value", "session_memory", "project_memory"],
@@ -108,7 +119,9 @@ def _format_response(
     ct_line = response_content_type if response_content_type else "(not set)"
     lines: list[str] = []
 
-    lines.append(f"Response Status: {status_code if status_code is not None else '(no response)'}")
+    lines.append(
+        f"Response Status: {status_code if status_code is not None else '(no response)'}"
+    )
     lines.append("")
     lines.append(f"Response Content Type: {ct_line}")
     lines.append("")
@@ -132,6 +145,96 @@ def _format_response(
     return "\n".join(lines)
 
 
+def _validate_string_list(value: Any, field_name: str) -> list[str] | None:
+    """Validate that value is either None or a list[str]."""
+    if value is None:
+        return None
+    if not isinstance(value, list) or not all(isinstance(x, str) for x in value):
+        raise ValueError(f"'{field_name}' must be an array of strings.")
+    return value
+
+
+def _load_latest_service_tokens_from_db(providers: list[str]) -> tuple[dict[str, str], list[str]]:
+    """
+    Load the *most recently created* token for each provider.
+
+    Returns:
+      (tokens_by_provider, missing_providers)
+
+    Missing providers means the query succeeded, but no token rows were found
+    for those providers.
+
+    Expected table shape (minimum):
+      - provider VARCHAR(64)
+      - value TEXT
+      - created_at TIMESTAMP (or DATETIME)
+
+    If your table doesn't have created_at but does have an auto-increment id,
+    you can replace ORDER BY created_at DESC with ORDER BY id DESC.
+    """
+    if not providers:
+        return {}, []
+
+    # De-duplicate but keep deterministic order
+    providers_unique = list(dict.fromkeys([p.strip() for p in providers if p and p.strip()]))
+    if not providers_unique:
+        return {}, []
+
+    placeholders = ", ".join(["%s"] * len(providers_unique))
+
+    # MySQL 8+ window function approach (recommended)
+    sql = f"""
+        SELECT provider, value
+        FROM (
+            SELECT
+                provider,
+                value,
+                ROW_NUMBER() OVER (
+                    PARTITION BY provider
+                    ORDER BY created_at DESC
+                ) AS rn
+            FROM service_tokens
+            WHERE provider IN ({placeholders})
+        ) t
+        WHERE rn = 1
+    """
+
+    pool = get_pool()
+    tokens: dict[str, str] = {}
+
+    # Any exception here is considered a "failed to load" (DB down, bad schema, etc.)
+    with pool.get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(sql, tuple(providers_unique))
+            for provider, token_value in cur.fetchall():
+                tokens[str(provider)] = str(token_value)
+
+    missing = [p for p in providers_unique if p not in tokens]
+    return tokens, missing
+
+
+def _apply_service_tokens_to_headers(
+    headers: dict[str, str],
+    tokens: dict[str, str],
+) -> dict[str, str]:
+    """Replace occurrences of 'service_token:<provider>' inside header values."""
+    out = headers.copy()
+
+    for hk, hv in out.items():
+        if not isinstance(hv, str) or "service_token:" not in hv:
+            continue
+
+        new_val = hv
+        for provider, token_value in tokens.items():
+            needle = f"service_token:{provider}"
+            if needle in new_val:
+                new_val = new_val.replace(needle, token_value)
+
+        out[hk] = new_val
+
+    return out
+
+
 def execute(args, session_data):
     url: str = args["url"]
     content_type: str = args["content_type"]
@@ -144,6 +247,35 @@ def execute(args, session_data):
     debug_show_bad_json: bool = bool(args.get("debug_show_bad_json", False))
 
     target = args.get("target", "return_value")
+
+    # NEW: Validate + load + apply service tokens to header values
+    try:
+        load_service_tokens = _validate_string_list(
+            args.get("load_service_tokens"), "load_service_tokens"
+        )
+    except ValueError as e:
+        return f"Error: {e}"
+
+    if load_service_tokens:
+        # Load most recently created token per provider.
+        try:
+            tokens, missing = _load_latest_service_tokens_from_db(load_service_tokens)
+        except Exception as e:
+            # Differentiate "failed to load" (DB/query failure) from "missing provider"
+            return (
+                "Error: Failed to load service tokens due to "
+                f"{type(e).__name__}: {e}"
+            )
+
+        if missing:
+            missing_list = ", ".join(missing)
+            return (
+                "Error: No service token found for provider(s): "
+                f"{missing_list}. "
+                "Create one with your service-token set command."
+            )
+
+        headers = _apply_service_tokens_to_headers(headers, tokens)
 
     # Enforce memory_key presence when required
     if target in ("session_memory", "project_memory") and not args.get("memory_key"):

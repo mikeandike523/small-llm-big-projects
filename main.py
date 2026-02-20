@@ -6,6 +6,7 @@ importlib.import_module("src.cli_routes.model")
 importlib.import_module("src.cli_routes.param")
 importlib.import_module("src.cli_routes.chat")
 importlib.import_module("src.cli_routes.ui")
+importlib.import_module("src.cli_routes.service_token")
 
 from src.cli_obj import cli
 
