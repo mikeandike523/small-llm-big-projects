@@ -21,6 +21,7 @@ from src.tools import todo_list
 from src.tools import report_impossible
 from src.tools import search_by_regex
 from src.tools import pwd
+from src.tools import basic_web_request
 
 ALL_TOOL_DEFINITIONS: list[dict] = [
     list_dir.DEFINITION,
@@ -45,6 +46,7 @@ ALL_TOOL_DEFINITIONS: list[dict] = [
     report_impossible.DEFINITION,
     search_by_regex.DEFINITION,
     pwd.DEFINITION,
+    basic_web_request.DEFINITION
 ]
 
 _TOOL_MAP: dict[str, object] = {
@@ -70,6 +72,7 @@ _TOOL_MAP: dict[str, object] = {
     "report_impossible": report_impossible,
     "search_by_regex": search_by_regex,
     "pwd": pwd,
+    "basic_web_request":basic_web_request
 }
 
 def execute_tool(name: str, args: dict, session_data: dict | None = None) -> str:
