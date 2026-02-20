@@ -1,0 +1,64 @@
+from __future__ import annotations
+
+DEFINITION: dict = {
+    "type": "function",
+    "function": {
+        "name": "session_memory_append_to_variable",
+        "description": (
+            "Append a literal string to an existing session memory variable, "
+            "writing the result back to the same key. The key must hold a "
+            "JSON string value (or be absent, treated as empty string). The "
+            "text is appended to the decoded string content and the result is "
+            "stored back as a JSON string. Does not work on numbers, objects, "
+            "or arrays."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "key": {
+                    "type": "string",
+                    "description": (
+                        "The session memory key to read from and write back to. "
+                        "The stored value must be a JSON string (or absent, "
+                        "treated as empty string)."
+                    ),
+                },
+                "text": {
+                    "type": "string",
+                    "description": (
+                        "The literal text to append to the decoded JSON string "
+                        "value. This is a raw string, not a JSON-encoded value."
+                    ),
+                },
+            },
+            "required": ["key", "text"],
+            "additionalProperties": False,
+        },
+    },
+}
+
+
+def _ensure_session_memory(session_data: dict) -> dict:
+    memory = session_data.get("memory")
+    if not isinstance(memory, dict):
+        memory = {}
+        session_data["memory"] = memory
+    return memory
+
+
+def _as_text(value: object) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    return str(value)
+
+
+def execute(args: dict, session_data: dict | None = None) -> str:
+    if session_data is None:
+        session_data = {}
+    memory = _ensure_session_memory(session_data)
+    key = args["key"]
+    text = args["text"]
+    memory[key] = _as_text(memory.get(key)) + text
+    return f"Appended text to {key}"

@@ -77,6 +77,23 @@ preferable to leaving items open forever or looping indefinitely.
    - assume, in most cases, the pwd is a git repo, but be ready to deal with any errors
 - If list_dir is required, prefer to enable use_gitignore mode if appropriate
 
+== Memory — JSON Values ==
+
+All session and project memory values are stored and retrieved as JSON.
+When writing a value, it must be a valid JSON literal:
+  - Text:    "hello world"      (a JSON string — must be quoted and escaped)
+  - Number:  42
+  - Boolean: true / false
+  - Null:    null
+  - Object / Array: {{"k": "v"}} / [1, 2, 3]
+
+Text-based operations (concat, append_to_variable) decode the stored JSON
+string to its text content, perform the operation, then re-encode and store
+the result as a JSON string. Both operands must already be JSON strings —
+these tools do not stringify numbers, objects, or arrays. The `text`
+parameter in append_to_variable is a raw string literal (the text to
+append), not a JSON-encoded value.
+
 == Custom Skills ==
 
 Custom skills are guides to solving certain

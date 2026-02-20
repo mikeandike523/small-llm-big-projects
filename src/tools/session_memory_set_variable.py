@@ -6,7 +6,12 @@ DEFINITION: dict = {
     "type": "function",
     "function": {
         "name": "session_memory_set_variable",
-        "description": "Set a memory value in the current session scope.",
+        "description": (
+            "Set a memory value in the current session scope. "
+            "The value must be valid JSON (string, number, boolean, null, "
+            "object, or array). To store text, pass a JSON string — "
+            "e.g. \"hello world\" (quoted and escaped)."
+        ),
         "parameters": {
             "type": "object",
             "properties": {
@@ -15,7 +20,11 @@ DEFINITION: dict = {
                     "description": "The memory key to store.",
                 },
                 "value": {
-                    "description": "The value to store for the given key.",
+                    "description": (
+                        "The JSON value to store. Must be a valid JSON literal "
+                        "(string, number, boolean, null, object, or array). "
+                        "Text must be passed as a JSON string (quoted and escaped)."
+                    ),
                 },
             },
             "required": ["key", "value"],

@@ -11,8 +11,8 @@ DEFINITION: dict = {
     "function": {
         "name": "project_memory_count_lines",
         "description": (
-            "Count lines in a project memory item when the top-level value is a "
-            "JSON string."
+            "Count lines in a project memory item. Requires the stored value "
+            "to be a JSON string."
         ),
         "parameters": {
             "type": "object",

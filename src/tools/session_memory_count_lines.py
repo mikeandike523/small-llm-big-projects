@@ -6,7 +6,7 @@ DEFINITION: dict = {
     "type": "function",
     "function": {
         "name": "session_memory_count_lines",
-        "description": "Count lines in a session memory item when the top-level value is a JSON string.",
+        "description": "Count lines in a session memory item. Requires the stored value to be a JSON string.",
         "parameters": {
             "type": "object",
             "properties": {

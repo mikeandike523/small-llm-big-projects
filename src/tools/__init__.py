@@ -4,12 +4,14 @@ from src.tools import list_working_tree
 from src.tools import project_memory_delete_variable
 from src.tools import project_memory_count_lines
 from src.tools import project_memory_concat
+from src.tools import project_memory_append_to_variable
 from src.tools import project_memory_get_variable
 from src.tools import project_memory_list_variables
 from src.tools import project_memory_read_lines
 from src.tools import project_memory_set_variable
 from src.tools import session_memory_count_lines
 from src.tools import session_memory_concat
+from src.tools import session_memory_append_to_variable
 from src.tools import session_memory_delete_variable
 from src.tools import session_memory_get_variable
 from src.tools import session_memory_list_variables
@@ -32,6 +34,7 @@ ALL_TOOL_DEFINITIONS: list[dict] = [
     project_memory_list_variables.DEFINITION,
     project_memory_delete_variable.DEFINITION,
     project_memory_concat.DEFINITION,
+    project_memory_append_to_variable.DEFINITION,
     project_memory_count_lines.DEFINITION,
     project_memory_read_lines.DEFINITION,
     session_memory_set_variable.DEFINITION,
@@ -39,6 +42,7 @@ ALL_TOOL_DEFINITIONS: list[dict] = [
     session_memory_list_variables.DEFINITION,
     session_memory_delete_variable.DEFINITION,
     session_memory_concat.DEFINITION,
+    session_memory_append_to_variable.DEFINITION,
     session_memory_count_lines.DEFINITION,
     session_memory_read_lines.DEFINITION,
     count_text_file_lines.DEFINITION,
@@ -59,6 +63,7 @@ _TOOL_MAP: dict[str, object] = {
     "project_memory_list_variables": project_memory_list_variables,
     "project_memory_delete_variable": project_memory_delete_variable,
     "project_memory_concat": project_memory_concat,
+    "project_memory_append_to_variable": project_memory_append_to_variable,
     "project_memory_count_lines": project_memory_count_lines,
     "project_memory_read_lines": project_memory_read_lines,
     "session_memory_set_variable": session_memory_set_variable,
@@ -66,6 +71,7 @@ _TOOL_MAP: dict[str, object] = {
     "session_memory_list_variables": session_memory_list_variables,
     "session_memory_delete_variable": session_memory_delete_variable,
     "session_memory_concat": session_memory_concat,
+    "session_memory_append_to_variable": session_memory_append_to_variable,
     "session_memory_count_lines": session_memory_count_lines,
     "session_memory_read_lines": session_memory_read_lines,
     "count_text_file_lines": count_text_file_lines,

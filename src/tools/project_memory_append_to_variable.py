@@ -8,34 +8,32 @@ from src.utils.sql.kv_manager import KVManager
 DEFINITION: dict = {
     "type": "function",
     "function": {
-        "name": "project_memory_concat",
+        "name": "project_memory_append_to_variable",
         "description": (
-            "Concatenate two persistent project memory values and save the "
-            "result to a destination key. Both source keys must hold JSON "
-            "string values; their decoded text content is concatenated and "
-            "stored back as a JSON string. Does not work on numbers, objects, "
-            "or arrays."
+            "Append a literal string to an existing persistent project memory "
+            "variable, writing the result back to the same key. The key must "
+            "hold a JSON string value (or be absent, treated as empty string). "
+            "The text is appended to the decoded string content and the result "
+            "is stored back as a JSON string. Does not work on numbers, "
+            "objects, or arrays."
         ),
         "parameters": {
             "type": "object",
             "properties": {
-                "key_a": {
+                "key": {
                     "type": "string",
                     "description": (
-                        "The first memory key to read. "
-                        "The stored value must be a JSON string."
+                        "The project memory key to read from and write back to. "
+                        "The stored value must be a JSON string (or absent, "
+                        "treated as empty string)."
                     ),
                 },
-                "key_b": {
+                "text": {
                     "type": "string",
                     "description": (
-                        "The second memory key to read. "
-                        "The stored value must be a JSON string."
+                        "The literal text to append to the decoded JSON string "
+                        "value. This is a raw string, not a JSON-encoded value."
                     ),
-                },
-                "dest_key": {
-                    "type": "string",
-                    "description": "The destination memory key to write.",
                 },
                 "project": {
                     "type": "string",
@@ -45,7 +43,7 @@ DEFINITION: dict = {
                     ),
                 },
             },
-            "required": ["key_a", "key_b", "dest_key"],
+            "required": ["key", "text"],
             "additionalProperties": False,
         },
     },
@@ -61,15 +59,12 @@ def _as_text(value: object) -> str:
 
 
 def execute(args: dict, _session_data: dict | None = None) -> str:
-    key_a = args["key_a"]
-    key_b = args["key_b"]
-    dest_key = args["dest_key"]
+    key = args["key"]
+    text = args["text"]
     project = args.get("project", os.getcwd())
     pool = get_pool()
     with pool.get_connection() as conn:
         manager = KVManager(conn, project)
-        value_a = _as_text(manager.get_value(key_a))
-        value_b = _as_text(manager.get_value(key_b))
-        manager.set_value(dest_key, value_a + value_b)
+        manager.set_value(key, _as_text(manager.get_value(key)) + text)
         conn.commit()
-    return f"Concatted {key_a} and {key_b} and saved to {dest_key}"
+    return f"Appended text to {key}"

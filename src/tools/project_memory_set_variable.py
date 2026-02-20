@@ -13,8 +13,10 @@ DEFINITION: dict = {
         "description": (
             "Set the value of a persistent memory item scoped to the current "
             "project or a specified project. Projects are identified by their "
-            "filesystem paths."
-            "Memory values must be valid JSON."
+            "filesystem paths. "
+            "The value must be valid JSON (string, number, boolean, null, "
+            "object, or array). To store text, pass a JSON string — "
+            "e.g. \"hello world\" (quoted and escaped)."
         ),
         "parameters": {
             "type": "object",
@@ -25,7 +27,11 @@ DEFINITION: dict = {
                 },
                 "value": {
                     "type": "string",
-                    "description": "The value to store for the given key."
+                    "description": (
+                        "The JSON value to store. Must be a valid JSON literal "
+                        "(string, number, boolean, null, object, or array). "
+                        "Text must be passed as a JSON string (quoted and escaped)."
+                    )
                 },
                 "project": {
                     "type": "string",

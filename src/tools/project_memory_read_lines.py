@@ -13,7 +13,7 @@ DEFINITION: dict = {
         "name": "project_memory_read_lines",
         "description": (
             "Read all lines or an inclusive line range from a project memory "
-            "item when the top-level value is a JSON string."
+            "item. Requires the stored value to be a JSON string."
         ),
         "parameters": {
             "type": "object",
