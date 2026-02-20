@@ -1,4 +1,20 @@
-SKILLS=[]
+SKILLS=[
+    
+"""
+Browsing the web:
+
+Prefer to load brave_search, and basic_web_request results into session memory
+(target=session_memory)
+Then use session_memory_count_lines and session_memory_read_lines
+To read web pages in chunks
+You can even use session_memory_list_variables and sessiont_memory_set_variable
+to save and recall important snippets
+
+AVOID using target=return_value at all costs when browsing the web
+and PLEASE USE chunked reading strategies of session memory items
+
+"""
+]
 
 SYSTEM_PROMPT = f"""\
 You are a helpful assistant with access to tools
