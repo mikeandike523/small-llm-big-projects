@@ -1,4 +1,6 @@
-SYSTEM_PROMPT = """\
+SKILLS=[]
+
+SYSTEM_PROMPT = f"""\
 You are a helpful assistant with access to tools
 that let you perform many useful actions.
 
@@ -59,5 +61,11 @@ preferable to leaving items open forever or looping indefinitely.
    - assume, in most cases, the pwd is a git repo, but be ready to deal with any errors
 - If list_dir is required, prefer to enable use_gitignore mode if appropriate
 
-   
+== Custom Skills ==
+
+Custom skills are guides to solving certain
+types problems using the tools you already have.
+
+{'\n\n'.join(SKILLS) if SKILLS else '(no custom skills yet)'}
+
 """
