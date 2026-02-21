@@ -72,7 +72,7 @@ def execute(args: dict, session_data: dict) -> str:
             return "Error: either 'patch' or 'session_memory_key' must be provided."
 
     result = subprocess.run(
-        ["git", "apply", "--strict"],
+        ["git", "apply"],
         input=patch_data,
         capture_output=True,
         text=True,
