@@ -328,11 +328,30 @@ const toolCallsGroupCss = css`
   gap: 10px;
 `
 
-const statusCss = css`
-  font-size: 12px;
-  color: #555;
+const headerBarCss = css`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   padding: 4px 16px;
-  text-align: center;
+  border-bottom: 1px solid #1a1a1a;
+  flex-shrink: 0;
+`
+
+const statusCss = css`
+  font-size: 11px;
+  color: #555;
+  white-space: nowrap;
+`
+
+const pwdCss = css`
+  font-size: 11px;
+  color: #383838;
+  font-family: 'Consolas', monospace;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 70%;
+  text-align: right;
 `
 
 // TurnContainer — UNCONSTRAINED; grows to fit all child regions
@@ -748,6 +767,7 @@ export default function Chat() {
   const [connected, setConnected] = useState(socket.connected)
   const [busy, setBusy] = useState(false)
   const [modalContent, setModalContent] = useState<string | null>(null)
+  const [pwd, setPwd] = useState<string>('')
 
   const {
     containerRef: threadRef,
@@ -766,8 +786,15 @@ export default function Chat() {
   // ---------------------------------------------------------------------------
 
   useEffect(() => {
-    function onConnect() { setConnected(true) }
+    // Fetch current pwd immediately if already connected at mount time.
+    if (socket.connected) socket.emit('get_pwd')
+
+    function onConnect() {
+      setConnected(true)
+      socket.emit('get_pwd')
+    }
     function onDisconnect() { setConnected(false) }
+    function onPwdUpdate({ path }: { path: string }) { setPwd(path) }
 
     function onToken({ type, text }: { type: 'reasoning' | 'content'; text: string }) {
       setThread(prev => {
@@ -894,6 +921,7 @@ export default function Chat() {
 
     socket.on('connect', onConnect)
     socket.on('disconnect', onDisconnect)
+    socket.on('pwd_update', onPwdUpdate)
     socket.on('token', onToken)
     socket.on('begin_interim_stream', onBeginInterimStream)
     socket.on('begin_final_summary', onBeginFinalSummary)
@@ -909,6 +937,7 @@ export default function Chat() {
     return () => {
       socket.off('connect', onConnect)
       socket.off('disconnect', onDisconnect)
+      socket.off('pwd_update', onPwdUpdate)
       socket.off('token', onToken)
       socket.off('begin_interim_stream', onBeginInterimStream)
       socket.off('begin_final_summary', onBeginFinalSummary)
@@ -984,8 +1013,9 @@ export default function Chat() {
         </div>
       </div>
 
-      <div css={statusCss}>
-        {connected ? '● connected' : '○ disconnected'}
+      <div css={headerBarCss}>
+        <span css={statusCss}>{connected ? '●' : '○'} {connected ? 'connected' : 'disconnected'}</span>
+        {pwd && <span css={pwdCss}>{pwd}</span>}
       </div>
       <div css={threadCss} ref={threadRef} onScroll={handleScroll}>
         {thread.map(turn => (

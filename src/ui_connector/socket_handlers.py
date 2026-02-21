@@ -227,6 +227,8 @@ def _execute_tools(result, content_for_history: str, session: dict, sid: str) ->
 
         tool_result = execute_tool(tc.name, tc.arguments, session["session_data"])
         emit("tool_result", {"id": tc.id, "result": tool_result})
+        if tc.name == "change_pwd":
+            emit("pwd_update", {"path": os.getcwd().replace("\\", "/")})
         if tc.name == "todo_list":
             _raw = session["session_data"].get("todo_list") or []
             emit("todo_list_update", {
@@ -317,6 +319,11 @@ def handle_disconnect():
     print(f"[ui_connector] Client disconnected: {sid}")
     _pending_approvals.pop(sid, None)
     _delete_session(sid)
+
+
+@socketio.on("get_pwd")
+def handle_get_pwd():
+    emit("pwd_update", {"path": os.getcwd().replace("\\", "/")})
 
 
 @socketio.on("approval_response")
