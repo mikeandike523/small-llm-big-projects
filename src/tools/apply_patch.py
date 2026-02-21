@@ -12,6 +12,7 @@ DEFINITION: dict = {
             "The patch must be fully valid: context lines must match exactly and "
             "the patch must be unambiguous. On failure the full error detail is "
             "returned so the patch can be corrected and retried."
+            "Note: DO NOT ADD ***begin patch*** or any special delimters. Emit ONLY the patch text. "
         ),
         "parameters": {
             "type": "object",
