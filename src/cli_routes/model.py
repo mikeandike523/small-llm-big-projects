@@ -8,11 +8,11 @@ from src.utils.sql.kv_manager import KVManager
 def model():
     ...
 
-@model.command(name="set")
+@model.command(name="use")
 @click.argument("model_name", type=str, required=False)
-def sub_cmd_set(model_name):
+def sub_cmd_use(model_name):
     """
-    Sets the current model by name
+    Sets the active model by name
     """
 
     pool=get_pool()

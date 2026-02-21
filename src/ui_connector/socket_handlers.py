@@ -352,6 +352,8 @@ def handle_user_message(data: dict):
     )
 
     session = _load_session(sid)
+    session["session_data"]["todo_list"] = []
+    emit("todo_list_update", {"items": []})
     session["message_history"].append({"role": "user", "content": text})
     turn_start_idx = len(session["message_history"]) - 1
 
@@ -363,6 +365,10 @@ def handle_user_message(data: dict):
     turn_completed = False
 
     while True:
+        # Emit a signal so the frontend knows this is an interim (pre-summary) stream
+        if had_tool_calls and not final_reprompt_done:
+            emit("begin_interim_stream", {})
+
         current_turn_slice = session["message_history"][turn_start_idx:]
         payload = _build_llm_payload(session["condensed_turns"], current_turn_slice)
 
@@ -404,6 +410,7 @@ def handle_user_message(data: dict):
         if had_tool_calls and not final_reprompt_done:
             final_reprompt_done = True
             emit("final_reprompt", {})
+            emit("begin_final_summary", {})
             session["message_history"].append({
                 "role": "user",
                 "content": (

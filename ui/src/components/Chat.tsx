@@ -60,6 +60,8 @@ interface AssistantEntry {
   content: string
   toolCalls: ToolCallEntry[]
   streaming: boolean
+  interimCharCount: number
+  isInterimStreaming: boolean
 }
 
 interface Turn {
@@ -76,7 +78,7 @@ function makeId() {
 }
 
 function newAssistant(streaming = true): AssistantEntry {
-  return { type: 'assistant', id: makeId(), reasoning: '', content: '', toolCalls: [], streaming }
+  return { type: 'assistant', id: makeId(), reasoning: '', content: '', toolCalls: [], streaming, interimCharCount: 0, isInterimStreaming: false }
 }
 
 // ---------------------------------------------------------------------------
@@ -197,6 +199,17 @@ const streamingPlaceholderCss = css`
   border-radius: 16px 16px 16px 4px;
   padding: 12px 16px;
   color: #555;
+`
+
+const interimBubbleCss = css`
+  background: #111;
+  border: 1px solid #252525;
+  border-radius: 8px;
+  padding: 5px 10px;
+  font-size: 11px;
+  color: #484848;
+  font-family: 'Consolas', monospace;
+  font-style: italic;
 `
 
 // Impossible bubble — shown below assistant content
@@ -606,6 +619,11 @@ function TurnContainer({
       {/* Left column: user message + AI content + impossible notice */}
       <div css={leftColumnCss}>
         <div css={userBubbleCss}>{user.text}</div>
+        {(assistant.interimCharCount > 0 || assistant.isInterimStreaming) && (
+          <div css={interimBubbleCss}>
+            AI interim response: {assistant.interimCharCount} chars
+          </div>
+        )}
         {assistant.content ? (
           <div css={assistantBubbleCss}>
             <TextPresenter
@@ -615,7 +633,7 @@ function TurnContainer({
             />
           </div>
         ) : null}
-        {assistant.streaming && !assistant.content && assistant.toolCalls.length === 0 && (
+        {assistant.streaming && !assistant.content && !assistant.isInterimStreaming && assistant.toolCalls.length === 0 && (
           <div css={streamingPlaceholderCss}>…</div>
         )}
         {impossible && (
@@ -757,12 +775,31 @@ export default function Chat() {
         const last = prev[prev.length - 1]
         const a = last.assistant
         if (!a.streaming) return prev
+        if (a.isInterimStreaming && type === 'content') {
+          return [...prev.slice(0, -1), { ...last, assistant: { ...a, interimCharCount: a.interimCharCount + text.length } }]
+        }
         const updated: AssistantEntry = {
           ...a,
           reasoning: type === 'reasoning' ? a.reasoning + text : a.reasoning,
           content:   type === 'content'   ? a.content   + text : a.content,
         }
         return [...prev.slice(0, -1), { ...last, assistant: updated }]
+      })
+    }
+
+    function onBeginInterimStream() {
+      setThread(prev => {
+        if (prev.length === 0) return prev
+        const last = prev[prev.length - 1]
+        return [...prev.slice(0, -1), { ...last, assistant: { ...last.assistant, isInterimStreaming: true } }]
+      })
+    }
+
+    function onBeginFinalSummary() {
+      setThread(prev => {
+        if (prev.length === 0) return prev
+        const last = prev[prev.length - 1]
+        return [...prev.slice(0, -1), { ...last, assistant: { ...last.assistant, isInterimStreaming: false } }]
       })
     }
 
@@ -858,6 +895,8 @@ export default function Chat() {
     socket.on('connect', onConnect)
     socket.on('disconnect', onDisconnect)
     socket.on('token', onToken)
+    socket.on('begin_interim_stream', onBeginInterimStream)
+    socket.on('begin_final_summary', onBeginFinalSummary)
     socket.on('tool_call', onToolCall)
     socket.on('tool_result', onToolResult)
     socket.on('message_done', onMessageDone)
@@ -871,6 +910,8 @@ export default function Chat() {
       socket.off('connect', onConnect)
       socket.off('disconnect', onDisconnect)
       socket.off('token', onToken)
+      socket.off('begin_interim_stream', onBeginInterimStream)
+      socket.off('begin_final_summary', onBeginFinalSummary)
       socket.off('tool_call', onToolCall)
       socket.off('tool_result', onToolResult)
       socket.off('message_done', onMessageDone)
