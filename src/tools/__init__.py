@@ -42,7 +42,8 @@ from src.tools import read_text_file
 from src.tools import todo_list
 from src.tools import report_impossible
 from src.tools import search_by_regex
-from src.tools import pwd
+from src.tools import get_pwd
+from src.tools import change_pwd
 from src.tools import basic_web_request
 from src.tools import brave_web_search
 
@@ -90,7 +91,8 @@ ALL_TOOL_DEFINITIONS: list[dict] = [
     todo_list.DEFINITION,
     report_impossible.DEFINITION,
     search_by_regex.DEFINITION,
-    pwd.DEFINITION,
+    get_pwd.DEFINITION,
+    change_pwd.DEFINITION,
     basic_web_request.DEFINITION,
     brave_web_search.DEFINITION,
 ]
@@ -139,7 +141,8 @@ _TOOL_MAP: dict[str, object] = {
     "todo_list": todo_list,
     "report_impossible": report_impossible,
     "search_by_regex": search_by_regex,
-    "pwd": pwd,
+    "get_pwd": get_pwd,
+    "change_pwd": change_pwd,
     "basic_web_request": basic_web_request,
     "brave_web_search": brave_web_search,
 }

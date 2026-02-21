@@ -8,7 +8,7 @@ from src.utils.sql.kv_manager import KVManager
 DEFINITION: dict = {
     "type": "function",
     "function": {
-        "name": "pwd",
+        "name": "get_pwd",
         "description": (
             "Return the current working directory as a forward-slash-delimited path. "
             "Optionally write the result to session or project memory."
@@ -46,6 +46,8 @@ def needs_approval(args: dict) -> bool:
 
 
 def execute(args: dict, session_data: dict | None = None) -> str:
+    from src.tools._memory import ensure_session_memory
+
     target: str = args.get("target", "return_value")
     cwd: str = os.getcwd().replace("\\", "/")
 
@@ -57,10 +59,7 @@ def execute(args: dict, session_data: dict | None = None) -> str:
     if target == "session_memory":
         if session_data is None:
             session_data = {}
-        memory = session_data.get("memory")
-        if not isinstance(memory, dict):
-            memory = {}
-            session_data["memory"] = memory
+        memory = ensure_session_memory(session_data)
         memory[memory_key] = cwd
         return f"Current working directory written to session memory item {memory_key!r}"
 
