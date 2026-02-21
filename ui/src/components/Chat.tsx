@@ -40,6 +40,13 @@ interface TodoItem {
   status: 'open' | 'closed'
 }
 
+interface ApprovalItem {
+  id: string
+  tool_name: string
+  args: Record<string, unknown>
+  resolved?: { approved: boolean }
+}
+
 interface UserEntry {
   type: 'user'
   id: string
@@ -60,6 +67,8 @@ interface Turn {
   user: UserEntry
   assistant: AssistantEntry
   todoItems: TodoItem[]
+  approvalItem?: ApprovalItem
+  impossible?: string
 }
 
 function makeId() {
@@ -78,7 +87,7 @@ const rootCss = css`
   display: flex;
   flex-direction: column;
   height: 100vh;
-  max-width: 1600px;
+  max-width: 1800px;
   width: 96%;
   margin: 0 auto;
   font-family: 'Segoe UI', system-ui, sans-serif;
@@ -190,6 +199,32 @@ const streamingPlaceholderCss = css`
   color: #555;
 `
 
+// Impossible bubble — shown below assistant content
+const impossibleBubbleCss = css`
+  background: #1a0a00;
+  border: 1px solid #7a3000;
+  border-radius: 10px;
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+`
+
+const impossibleLabelCss = css`
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: #c05010;
+  font-weight: 600;
+`
+
+const impossibleReasonCss = css`
+  font-size: 13px;
+  color: #d08040;
+  line-height: 1.5;
+  word-break: break-word;
+`
+
 // Reasoning wrapper — wraps TextPresenter which handles its own scroll (one of the 4 regions)
 const reasoningWrapperCss = css`
   color: #7aa2e0;
@@ -290,7 +325,7 @@ const statusCss = css`
 // TurnContainer — UNCONSTRAINED; grows to fit all child regions
 const turnContainerCss = css`
   display: grid;
-  grid-template-columns: 3fr 2fr 1.5fr;
+  grid-template-columns: 3fr 2fr 1.5fr 1.5fr;
   gap: 24px;
   padding: 20px 24px;
   border: 1px solid #3a3a3a;
@@ -310,6 +345,10 @@ const rightColumnCss = css`
   flex-direction: column;
   gap: 12px;
 `
+
+// ---------------------------------------------------------------------------
+// Todo column styles
+// ---------------------------------------------------------------------------
 
 const todoColumnCss = css`
   display: flex;
@@ -353,6 +392,103 @@ const todoEmptyCss = css`
   font-size: 12px;
   color: #3a3a3a;
   font-style: italic;
+`
+
+// ---------------------------------------------------------------------------
+// Approval column styles
+// ---------------------------------------------------------------------------
+
+const approvalColumnCss = css`
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-left: 1px solid #2a2a2a;
+  padding-left: 16px;
+  min-width: 0;
+`
+
+const approvalHeaderCss = css`
+  font-size: 11px;
+  color: #555;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 4px;
+`
+
+const approvalEmptyCss = css`
+  font-size: 12px;
+  color: #3a3a3a;
+  font-style: italic;
+`
+
+const approvalPendingCardCss = css`
+  background: #1a1200;
+  border: 1px solid #6a4800;
+  border-radius: 8px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+`
+
+const approvalToolNameCss = css`
+  font-family: 'Consolas', monospace;
+  font-size: 12px;
+  color: #d4a030;
+  font-weight: 600;
+  word-break: break-all;
+`
+
+const approvalArgsCss = css`
+  font-family: 'Consolas', monospace;
+  font-size: 11px;
+  color: #907040;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 120px;
+  overflow-y: auto;
+  ${scrollbarCss}
+`
+
+const approvalButtonRowCss = css`
+  display: flex;
+  gap: 6px;
+`
+
+const approveButtonCss = css`
+  flex: 1;
+  background: #14532d;
+  color: #4ade80;
+  border: 1px solid #166534;
+  border-radius: 5px;
+  padding: 5px 0;
+  font-size: 12px;
+  cursor: pointer;
+  font-family: 'Consolas', monospace;
+  transition: background 0.15s;
+  &:hover { background: #166534; }
+`
+
+const denyButtonCss = css`
+  flex: 1;
+  background: #450a0a;
+  color: #f87171;
+  border: 1px solid #7f1d1d;
+  border-radius: 5px;
+  padding: 5px 0;
+  font-size: 12px;
+  cursor: pointer;
+  font-family: 'Consolas', monospace;
+  transition: background 0.15s;
+  &:hover { background: #7f1d1d; }
+`
+
+const approvalResolvedCss = (approved: boolean) => css`
+  font-family: 'Consolas', monospace;
+  font-size: 12px;
+  color: ${approved ? '#4ade80' : '#f87171'};
+  padding: 4px 0;
+  word-break: break-all;
 `
 
 // ---------------------------------------------------------------------------
@@ -449,11 +585,15 @@ const modalBodyCss = css`
 function TurnContainer({
   turn,
   onViewFull,
+  onApprove,
+  onDeny,
 }: {
   turn: Turn
   onViewFull: (content: string) => void
+  onApprove: (id: string) => void
+  onDeny: (id: string) => void
 }) {
-  const { user, assistant, todoItems } = turn
+  const { user, assistant, todoItems, approvalItem, impossible } = turn
   const { containerRef: toolsRef, scrollToBottomIfNeeded: scrollTools, onScroll: onToolsScroll } =
     useScrollToBottom<HTMLDivElement>()
 
@@ -463,7 +603,7 @@ function TurnContainer({
 
   return (
     <div css={turnContainerCss}>
-      {/* Left column: user message + AI content */}
+      {/* Left column: user message + AI content + impossible notice */}
       <div css={leftColumnCss}>
         <div css={userBubbleCss}>{user.text}</div>
         {assistant.content ? (
@@ -477,6 +617,12 @@ function TurnContainer({
         ) : null}
         {assistant.streaming && !assistant.content && assistant.toolCalls.length === 0 && (
           <div css={streamingPlaceholderCss}>…</div>
+        )}
+        {impossible && (
+          <div css={impossibleBubbleCss}>
+            <span css={impossibleLabelCss}>Task impossible</span>
+            <span css={impossibleReasonCss}>{impossible}</span>
+          </div>
         )}
       </div>
 
@@ -542,6 +688,33 @@ function TurnContainer({
               </div>
             ))
         }
+      </div>
+
+      {/* Fourth column: approval */}
+      <div css={approvalColumnCss}>
+        <div css={approvalHeaderCss}>Approval</div>
+        {!approvalItem ? (
+          <div css={approvalEmptyCss}>—</div>
+        ) : approvalItem.resolved ? (
+          <div css={approvalResolvedCss(approvalItem.resolved.approved)}>
+            {approvalItem.resolved.approved ? '✓' : '✗'} {approvalItem.tool_name}
+          </div>
+        ) : (
+          <div css={approvalPendingCardCss}>
+            <div css={approvalToolNameCss}>{approvalItem.tool_name}</div>
+            {Object.keys(approvalItem.args).length > 0 && (
+              <div css={approvalArgsCss}>{JSON.stringify(approvalItem.args, null, 2)}</div>
+            )}
+            <div css={approvalButtonRowCss}>
+              <button css={approveButtonCss} onClick={() => onApprove(approvalItem.id)}>
+                Approve
+              </button>
+              <button css={denyButtonCss} onClick={() => onDeny(approvalItem.id)}>
+                Deny
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )
@@ -619,11 +792,16 @@ export default function Chat() {
       })
     }
 
-    function onMessageDone({ content }: { content: string }) {
+    function onMessageDone({ content }: { content: string | null }) {
       setThread(prev => {
         if (prev.length === 0) return prev
         const last = prev[prev.length - 1]
-        return [...prev.slice(0, -1), { ...last, assistant: { ...last.assistant, content, streaming: false } }]
+        const updatedAssistant: AssistantEntry = {
+          ...last.assistant,
+          streaming: false,
+          ...(content !== null ? { content } : {}),
+        }
+        return [...prev.slice(0, -1), { ...last, assistant: updatedAssistant }]
       })
       setBusy(false)
     }
@@ -640,11 +818,40 @@ export default function Chat() {
       setBusy(false)
     }
 
+    function onReportImpossible({ reason }: { reason: string }) {
+      setThread(prev => {
+        if (prev.length === 0) return prev
+        const last = prev[prev.length - 1]
+        return [...prev.slice(0, -1), { ...last, impossible: reason }]
+      })
+      // busy is cleared by the subsequent message_done event
+    }
+
     function onTodoListUpdate({ items }: { items: TodoItem[] }) {
       setThread(prev => {
         if (prev.length === 0) return prev
         const last = prev[prev.length - 1]
         return [...prev.slice(0, -1), { ...last, todoItems: items }]
+      })
+    }
+
+    function onApprovalRequest({ id, tool_name, args }: { id: string; tool_name: string; args: Record<string, unknown> }) {
+      setThread(prev => {
+        if (prev.length === 0) return prev
+        const last = prev[prev.length - 1]
+        return [...prev.slice(0, -1), { ...last, approvalItem: { id, tool_name, args } }]
+      })
+    }
+
+    function onApprovalResolved({ id, approved }: { id: string; approved: boolean }) {
+      setThread(prev => {
+        if (prev.length === 0) return prev
+        const last = prev[prev.length - 1]
+        if (!last.approvalItem || last.approvalItem.id !== id) return prev
+        return [...prev.slice(0, -1), {
+          ...last,
+          approvalItem: { ...last.approvalItem, resolved: { approved } },
+        }]
       })
     }
 
@@ -655,7 +862,10 @@ export default function Chat() {
     socket.on('tool_result', onToolResult)
     socket.on('message_done', onMessageDone)
     socket.on('error', onError)
+    socket.on('report_impossible', onReportImpossible)
     socket.on('todo_list_update', onTodoListUpdate)
+    socket.on('approval_request', onApprovalRequest)
+    socket.on('approval_resolved', onApprovalResolved)
 
     return () => {
       socket.off('connect', onConnect)
@@ -665,8 +875,23 @@ export default function Chat() {
       socket.off('tool_result', onToolResult)
       socket.off('message_done', onMessageDone)
       socket.off('error', onError)
+      socket.off('report_impossible', onReportImpossible)
       socket.off('todo_list_update', onTodoListUpdate)
+      socket.off('approval_request', onApprovalRequest)
+      socket.off('approval_resolved', onApprovalResolved)
     }
+  }, [])
+
+  // ---------------------------------------------------------------------------
+  // Approval actions
+  // ---------------------------------------------------------------------------
+
+  const approve = useCallback((id: string) => {
+    socket.emit('approval_response', { id, approved: true })
+  }, [])
+
+  const deny = useCallback((id: string) => {
+    socket.emit('approval_response', { id, approved: false })
   }, [])
 
   // ---------------------------------------------------------------------------
@@ -723,7 +948,13 @@ export default function Chat() {
       </div>
       <div css={threadCss} ref={threadRef} onScroll={handleScroll}>
         {thread.map(turn => (
-          <TurnContainer key={turn.id} turn={turn} onViewFull={setModalContent} />
+          <TurnContainer
+            key={turn.id}
+            turn={turn}
+            onViewFull={setModalContent}
+            onApprove={approve}
+            onDeny={deny}
+          />
         ))}
       </div>
       <div css={inputBarCss}>

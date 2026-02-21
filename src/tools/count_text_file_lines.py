@@ -23,6 +23,11 @@ DEFINITION: dict = {
 }
 
 
+def needs_approval(args: dict) -> bool:
+    from src.tools._approval import needs_path_approval
+    return needs_path_approval(args.get("filepath"))
+
+
 def execute(args: dict, _session_data: dict | None = None) -> str:
     filepath = args["filepath"]
     chunk_size = 1024 * 1024

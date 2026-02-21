@@ -57,6 +57,10 @@ DEFINITION: dict = {
 }
 
 
+def needs_approval(args: dict) -> bool:
+    return False
+
+
 def _read_lines(text: str, start_line: int | None, end_line: int | None) -> str:
     if start_line is None and end_line is None:
         return text

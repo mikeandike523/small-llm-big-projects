@@ -38,6 +38,10 @@ DEFINITION: dict = {
 }
 
 
+def needs_approval(args: dict) -> bool:
+    return False
+
+
 def _ensure_session_memory(session_data: dict) -> dict:
     memory = session_data.get("memory")
     if not isinstance(memory, dict):

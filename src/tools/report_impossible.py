@@ -26,6 +26,10 @@ DEFINITION = {
 }
 
 
+def needs_approval(args: dict) -> bool:
+    return False
+
+
 def execute(args: dict, session_data: dict | None = None) -> str:
     if session_data is None:
         session_data = {}

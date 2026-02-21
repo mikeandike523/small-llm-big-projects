@@ -52,6 +52,10 @@ DEFINITION: dict = {
 }
 
 
+def needs_approval(args: dict) -> bool:
+    return False
+
+
 def _as_text(value: object) -> str:
     if value is None:
         return ""

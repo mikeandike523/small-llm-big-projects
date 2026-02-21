@@ -41,6 +41,10 @@ DEFINITION: dict = {
 }
 
 
+def needs_approval(args: dict) -> bool:
+    return False
+
+
 def execute(args: dict, session_data: dict | None = None) -> str:
     target: str = args.get("target", "return_value")
     cwd: str = os.getcwd().replace("\\", "/")

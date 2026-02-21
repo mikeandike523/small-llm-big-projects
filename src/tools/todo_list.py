@@ -62,6 +62,10 @@ DEFINITION: dict = {
     },
 }
 
+def needs_approval(args: dict) -> bool:
+    return False
+
+
 # Actions that require item_number
 _NEEDS_ITEM_NUMBER = {
     "get_item", "insert_before", "insert_after",

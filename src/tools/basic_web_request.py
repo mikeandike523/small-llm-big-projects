@@ -98,6 +98,10 @@ DEFINITION: dict = {
 }
 
 
+def needs_approval(args: dict) -> bool:
+    return False
+
+
 def execute(args, session_data):
     url: str = args["url"]
     content_type: str = args["content_type"]

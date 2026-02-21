@@ -84,6 +84,17 @@ _TOOL_MAP: dict[str, object] = {
     "brave_web_search": brave_web_search,
 }
 
+def check_needs_approval(name: str, args: dict) -> bool:
+    """Return True if this tool call requires user approval before executing."""
+    module = _TOOL_MAP.get(name)
+    if module is None:
+        return False
+    fn = getattr(module, "needs_approval", None)
+    if fn is None:
+        return False
+    return bool(fn(args))
+
+
 def execute_tool(name: str, args: dict, session_data: dict | None = None) -> str:
     module = _TOOL_MAP.get(name)
     if module is None:

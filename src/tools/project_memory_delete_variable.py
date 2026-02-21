@@ -36,6 +36,10 @@ DEFINITION: dict = {
 }
 
 
+def needs_approval(args: dict) -> bool:
+    return False
+
+
 def execute(args: dict, _session_data: dict | None = None) -> str:
     key = args["key"]
     project = args.get("project", os.getcwd())

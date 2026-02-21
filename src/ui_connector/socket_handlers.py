@@ -15,9 +15,31 @@ from src.data import get_pool
 _USE_STREAMING = os.environ.get("SLBP_STREAMING", "1") != "0"
 from src.utils.sql.kv_manager import KVManager
 from src.utils.llm.streaming import StreamingLLM
-from src.tools import ALL_TOOL_DEFINITIONS, execute_tool
+from src.tools import ALL_TOOL_DEFINITIONS, execute_tool, check_needs_approval
 from src.logic.system_prompt import SYSTEM_PROMPT
 from src.utils.request_error_formatting import format_http_error
+
+
+# ---------------------------------------------------------------------------
+# Approval gate
+# ---------------------------------------------------------------------------
+
+# Maps socket session ID to {"event": GreenEvent, "approved": bool | None}
+_pending_approvals: dict[str, dict] = {}
+
+
+def _request_approval(sid: str, tool_id: str, tool_name: str, args: dict) -> bool:
+    """
+    Emit an approval_request event and block until the user approves or denies.
+    Returns True if approved, False if denied.
+    """
+    import eventlet
+    ev = eventlet.event.Event()
+    _pending_approvals[sid] = {"event": ev, "approved": None}
+    emit("approval_request", {"id": tool_id, "tool_name": tool_name, "args": args})
+    ev.wait()  # yields green thread; unblocked by handle_approval_response
+    entry = _pending_approvals.pop(sid, {})
+    return bool(entry.get("approved", False))
 
 
 # ---------------------------------------------------------------------------
@@ -170,7 +192,7 @@ def _run_llm_call(streaming_llm: StreamingLLM, payload: list[dict]) -> tuple[obj
 # Tool execution
 # ---------------------------------------------------------------------------
 
-def _execute_tools(result, content_for_history: str, session: dict) -> tuple[bool, str | None]:
+def _execute_tools(result, content_for_history: str, session: dict, sid: str) -> tuple[bool, str | None]:
     """
     Append the assistant tool-call message, execute all tools, emit events,
     and append tool result messages to message_history.
@@ -192,6 +214,17 @@ def _execute_tools(result, content_for_history: str, session: dict) -> tuple[boo
 
     for tc in result.tool_calls:
         emit("tool_call", {"id": tc.id, "name": tc.name, "args": tc.arguments})
+
+        if check_needs_approval(tc.name, tc.arguments):
+            approved = _request_approval(sid, tc.id, tc.name, tc.arguments)
+            if not approved:
+                denial = f"DENIED: User did not approve this action."
+                mh.append({"role": "tool", "tool_call_id": tc.id, "content": denial})
+                emit("tool_result", {"id": tc.id, "result": denial})
+                reason = f"User denied approval to run '{tc.name}'."
+                session["session_data"]["_report_impossible"] = reason
+                return True, reason
+
         tool_result = execute_tool(tc.name, tc.arguments, session["session_data"])
         emit("tool_result", {"id": tc.id, "result": tool_result})
         if tc.name == "todo_list":
@@ -282,7 +315,20 @@ def handle_connect():
 def handle_disconnect():
     sid = request.sid
     print(f"[ui_connector] Client disconnected: {sid}")
+    _pending_approvals.pop(sid, None)
     _delete_session(sid)
+
+
+@socketio.on("approval_response")
+def handle_approval_response(data: dict):
+    sid = request.sid
+    tool_id = data.get("id")
+    approved = bool(data.get("approved"))
+    pending = _pending_approvals.get(sid)
+    if pending:
+        pending["approved"] = approved
+        emit("approval_resolved", {"id": tool_id, "approved": approved})
+        pending["event"].send()
 
 
 @socketio.on("user_message")
@@ -332,7 +378,7 @@ def handle_user_message(data: dict):
         last_assistant_content = content_for_history
 
         if result.has_tool_calls:
-            impossible, reason = _execute_tools(result, content_for_history, session)
+            impossible, reason = _execute_tools(result, content_for_history, session, sid)
             had_tool_calls = True
             if impossible:
                 was_impossible = True

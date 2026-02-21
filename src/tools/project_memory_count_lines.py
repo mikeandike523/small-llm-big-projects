@@ -36,6 +36,10 @@ DEFINITION: dict = {
 }
 
 
+def needs_approval(args: dict) -> bool:
+    return False
+
+
 def _count_lines(text: str) -> int:
     if text == "":
         return 0
