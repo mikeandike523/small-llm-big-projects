@@ -36,6 +36,11 @@ def _git_dir_is_ignored(resolved: str) -> bool:
     return r.returncode == 0
 
 
+def file_needs_approval(args: dict, path_arg: str = "path") -> bool:
+    """Convenience wrapper: approval check for a single path argument in a tool's args dict."""
+    return needs_path_approval(args.get(path_arg))
+
+
 def needs_path_approval(raw_path: str | None) -> bool:
     """
     Core approval check for a path argument.
