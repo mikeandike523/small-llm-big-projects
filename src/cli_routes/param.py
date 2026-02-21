@@ -20,10 +20,10 @@ def _parse_and_validate(name: str, raw_value: str):
             if value <= 0:
                 raise click.BadParameter("top_k must be > 0", param_hint="value")
             return value
-        elif name == "max_tokens":
+        elif name == "max_tokens" or name=="max_generation_tokens":
             value = int(raw_value)
             if value <= 0:
-                raise click.BadParameter("max_tokens must be > 0", param_hint="value")
+                raise click.BadParameter(f"{name} must be > 0", param_hint="value")
             return value
         else:
             value = float(raw_value)
