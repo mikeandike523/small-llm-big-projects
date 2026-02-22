@@ -164,4 +164,10 @@ def execute_tool(name: str, args: dict, session_data: dict | None = None) -> str
         return f"Unknown tool: {name!r}"
     if session_data is None:
         session_data = {}
-    return module.execute(args, session_data)
+    try:
+        return module.execute(args, session_data)
+    except Exception as e:
+        return f"""
+Failed to execute tool {name}:
+{e}
+""".strip()

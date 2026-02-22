@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import os
 from pathlib import Path
 
@@ -54,8 +53,8 @@ DEFINITION: dict = {
                 "show_data": {
                     "type": "boolean",
                     "description": (
-                        "If true, annotate each entry with its resolved kind (text format only). "
-                        "Has no effect when format='json'. Default: false."
+                        "If true, annotate each entry with its resolved kind. "
+                        "Default: false."
                     ),
                 },
                 "depth": {
@@ -64,11 +63,6 @@ DEFINITION: dict = {
                         "Maximum recursion depth. depth=0 means immediate children only; "
                         "null means unlimited. Only meaningful when recursive=true. Default: null."
                     ),
-                },
-                "format": {
-                    "type": "string",
-                    "enum": ["text", "json"],
-                    "description": "Output format: 'text' for human-readable, 'json' for structured JSON. Default: 'text'.",
                 },
                 "use_gitignore": {
                     "type": "boolean",
@@ -106,6 +100,7 @@ DEFINITION: dict = {
 
 def needs_approval(args: dict) -> bool:
     from src.tools._approval import needs_path_approval
+
     return needs_path_approval(args.get("path"))
 
 
@@ -192,6 +187,13 @@ def _read_link_safe(path: str) -> str:
         return ""
 
 
+def _resolve_link_target(current: str, target: str) -> str:
+    """Resolve a potentially-relative symlink target against current's directory."""
+    if os.path.isabs(target):
+        return target
+    return os.path.normpath(os.path.join(os.path.dirname(current), target))
+
+
 def _follow_file_symlink(path: str):
     """
     Follow a file symlink chain until a real file or a loop is detected.
@@ -207,23 +209,29 @@ def _follow_file_symlink(path: str):
 
         while True:
             try:
-                target = os.readlink(current)
+                raw_target = os.readlink(current)
             except (OSError, ValueError):
                 return "link", _read_link_safe(current)
 
-            target_real = os.path.realpath(target)
+            next_path = _resolve_link_target(current, raw_target)
+            next_real = os.path.realpath(next_path)
 
-            if target_real in chain_seen:
+            if next_real in chain_seen:
                 # Loop detected — current is the last node before the loop
-                return "link", target  # raw readlink of current
+                return "link", raw_target
 
-            if os.path.islink(target):
-                chain_seen.add(target_real)
-                current = target
+            # If next hop is itself a symlink, continue the chain
+            if os.path.islink(next_path):
+                chain_seen.add(next_real)
+                current = next_path
                 continue
-            else:
-                # Reached a real file
+
+            # Otherwise we've reached a non-symlink path; classify it
+            if os.path.isfile(next_path):
                 return "file", None
+
+            # Not a regular file (missing, directory, etc.) — treat as link-ish
+            return "link", raw_target
 
     except (OSError, ValueError):
         return "link", _read_link_safe(path)
@@ -238,7 +246,7 @@ def _traverse(
     recursive: bool,
     follow_folder_symlinks: bool,
     follow_file_symlinks: bool,
-    depth,           # int | None
+    depth,  # int | None
     visited_dirs: set,
     matchers: list,
     use_gitignore: bool,
@@ -285,12 +293,14 @@ def _traverse(
                 link_target = _read_link_safe(entry.path)
 
                 if not follow_folder_symlinks:
-                    entries.append({
-                        "name": entry.name,
-                        "type": "link",
-                        "link_target": link_target,
-                        "_is_dir_link": True,
-                    })
+                    entries.append(
+                        {
+                            "name": entry.name,
+                            "type": "link",
+                            "link_target": link_target,
+                            "_is_dir_link": True,
+                        }
+                    )
                 else:
                     real = os.path.realpath(entry.path)
                     if real in visited_dirs:
@@ -311,13 +321,15 @@ def _traverse(
                             matchers=child_matchers,
                             use_gitignore=use_gitignore,
                         )
-                    entries.append({
-                        "name": entry.name,
-                        "type": "link",
-                        "link_target": link_target,
-                        "_is_dir_link": True,
-                        "children": children,
-                    })
+                    entries.append(
+                        {
+                            "name": entry.name,
+                            "type": "link",
+                            "link_target": link_target,
+                            "_is_dir_link": True,
+                            "children": children,
+                        }
+                    )
 
             else:
                 # Regular directory
@@ -340,11 +352,13 @@ def _traverse(
                         matchers=child_matchers,
                         use_gitignore=use_gitignore,
                     )
-                entries.append({
-                    "name": entry.name,
-                    "type": "folder",
-                    "children": children,
-                })
+                entries.append(
+                    {
+                        "name": entry.name,
+                        "type": "folder",
+                        "children": children,
+                    }
+                )
 
         else:
             # File (possibly symlinked)
@@ -352,32 +366,40 @@ def _traverse(
                 link_target = _read_link_safe(entry.path)
 
                 if not follow_file_symlinks:
-                    entries.append({
-                        "name": entry.name,
-                        "type": "link",
-                        "link_target": link_target,
-                    })
+                    entries.append(
+                        {
+                            "name": entry.name,
+                            "type": "link",
+                            "link_target": link_target,
+                        }
+                    )
                 else:
                     result_type, loop_target = _follow_file_symlink(entry.path)
                     if result_type == "file":
-                        entries.append({
-                            "name": entry.name,
-                            "type": "file",
-                        })
+                        entries.append(
+                            {
+                                "name": entry.name,
+                                "type": "file",
+                            }
+                        )
                     else:
-                        # Looped file symlink
-                        entries.append({
-                            "name": entry.name,
-                            "type": "link",
-                            "link_target": loop_target,
-                            "_loop": True,
-                        })
+                        # Looped / unresolved file symlink
+                        entries.append(
+                            {
+                                "name": entry.name,
+                                "type": "link",
+                                "link_target": loop_target,
+                                "_loop": True,
+                            }
+                        )
             else:
                 # Regular file
-                entries.append({
-                    "name": entry.name,
-                    "type": "file",
-                })
+                entries.append(
+                    {
+                        "name": entry.name,
+                        "type": "file",
+                    }
+                )
 
     return entries
 
@@ -396,15 +418,9 @@ def _tree_lines(entry: dict, indent: int, show_data: bool) -> list[str]:
     link_target = entry.get("link_target")
 
     if etype == "folder":
-        if show_data:
-            lines.append(f"{prefix}{name}/ (folder)")
-        else:
-            lines.append(f"{prefix}{name}/")
+        lines.append(f"{prefix}{name}/" + (" (folder)" if show_data else ""))
     elif etype == "file":
-        if show_data:
-            lines.append(f"{prefix}{name} (file)")
-        else:
-            lines.append(f"{prefix}{name}")
+        lines.append(f"{prefix}{name}" + (" (file)" if show_data else ""))
     elif etype == "link":
         if show_data:
             if is_loop:
@@ -459,67 +475,31 @@ def _text_annotation(entry: dict) -> str:
 
     if etype == "file":
         return "file"
-    elif etype == "folder":
+    if etype == "folder":
         return "folder"
-    elif etype == "link":
+    if etype == "link":
         if is_loop:
             return "link"
-        else:
-            return f"link -> {link_target}"
+        return f"link -> {link_target}"
     return ""
 
 
 def _format_text(root_entry: dict, filter_mode: str, show_data: bool) -> str:
     if filter_mode == "both":
-        # Mode A: indented tree view starting at root
-        lines = _tree_lines(root_entry, indent=0, show_data=show_data)
-        return "\n".join(lines)
-    else:
-        # Mode B: flat list of relative paths
-        flat: list = []
-        _collect_flat(root_entry.get("children", []), "", filter_mode, flat)
-        if show_data:
-            lines = [f"{rel_path} ({_text_annotation(entry)})" for rel_path, entry in flat]
-        else:
-            lines = [rel_path for rel_path, entry in flat]
+        # Mode A: indented tree view starting at CHILDREN (omit root itself)
+        lines: list[str] = []
+        for child in root_entry.get("children", []):
+            lines.extend(_tree_lines(child, indent=0, show_data=show_data))
         return "\n".join(lines)
 
-
-# ---------------------------------------------------------------------------
-# JSON formatting
-# ---------------------------------------------------------------------------
-
-def _clean_for_json_mode_a(entry: dict) -> dict:
-    """Strip internal fields and produce a clean JSON-serialisable entry dict."""
-    cleaned: dict = {"name": entry["name"], "type": entry["type"]}
-    if "link_target" in entry:
-        cleaned["link_target"] = entry["link_target"]
-    if "children" in entry:
-        cleaned["children"] = [_clean_for_json_mode_a(c) for c in entry["children"]]
-    return cleaned
-
-
-def _format_json(root_entry: dict, filter_mode: str) -> str:
-    if filter_mode == "both":
-        # Mode A: single root object with nested children
-        cleaned = _clean_for_json_mode_a(root_entry)
-        return json.dumps(cleaned, indent=2)
+    # Mode B: flat list of relative paths
+    flat: list = []
+    _collect_flat(root_entry.get("children", []), "", filter_mode, flat)
+    if show_data:
+        lines = [f"{rel_path} ({_text_annotation(entry)})" for rel_path, entry in flat]
     else:
-        # Mode B: flat array with "path" field
-        flat: list = []
-        _collect_flat(root_entry.get("children", []), "", filter_mode, flat)
-
-        json_entries: list = []
-        for rel_path, entry in flat:
-            obj: dict = {
-                "path": rel_path.replace("\\", "/"),
-                "type": entry["type"],
-            }
-            if "link_target" in entry:
-                obj["link_target"] = entry["link_target"]
-            json_entries.append(obj)
-
-        return json.dumps(json_entries, indent=2)
+        lines = [rel_path for rel_path, _entry in flat]
+    return "\n".join(lines)
 
 
 # ---------------------------------------------------------------------------
@@ -549,7 +529,6 @@ def execute(args: dict, session_data: dict) -> str:
     filter_mode = args.get("filter", "both")
     show_data = bool(args.get("show_data", False))
     depth = args.get("depth", None)  # int | None
-    fmt = args.get("format", "text")
     use_gitignore = bool(args.get("use_gitignore", False))
     target = args.get("target", "return_value")
     memory_key = args.get("memory_key")
@@ -588,11 +567,8 @@ def execute(args: dict, session_data: dict) -> str:
         "children": children,
     }
 
-    # --- Format ---
-    if fmt == "json":
-        result_str = _format_json(root_entry, filter_mode)
-    else:
-        result_str = _format_text(root_entry, filter_mode, show_data)
+    # --- Format (text only) ---
+    result_str = _format_text(root_entry, filter_mode, show_data)
 
     # --- Deliver ---
     if target == "return_value":
