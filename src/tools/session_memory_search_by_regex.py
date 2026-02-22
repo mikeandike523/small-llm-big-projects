@@ -7,7 +7,7 @@ DEFINITION: dict = {
     "function": {
         "name": "session_memory_search_by_regex",
         "description": (
-            "Search a session memory item (must be a JSON string) for lines matching "
+            "Search a session memory item (must hold a text value) for lines matching "
             "a Python regular expression. Returns matching lines with right-justified "
             "line numbers and matched substrings highlighted in bold (ANSI). "
             "Use this to locate relevant lines without reading the entire buffer into context. "
@@ -18,7 +18,7 @@ DEFINITION: dict = {
             "properties": {
                 "key": {
                     "type": "string",
-                    "description": "The session memory key. Must hold a JSON string value.",
+                    "description": "The session memory key. Must hold a text value.",
                 },
                 "pattern": {
                     "type": "string",
@@ -63,7 +63,7 @@ def execute(args: dict, session_data: dict | None = None) -> str:
     key = args["key"]
     value = memory.get(key)
     if not isinstance(value, str):
-        return f"Error: key {key!r} is not a JSON string."
+        return f"Error: key {key!r} does not hold a text value."
 
     pattern: str = args["pattern"]
 

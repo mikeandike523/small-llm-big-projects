@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import json
-
 DEFINITION: dict = {
     "type": "function",
     "function": {
@@ -63,4 +61,4 @@ def execute(args: dict, session_data: dict | None = None) -> str:
     if limit is not None:
         keys = keys[:limit]
 
-    return json.dumps(keys, ensure_ascii=False)
+    return "\n".join(keys)

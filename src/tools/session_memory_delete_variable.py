@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import json
-
 DEFINITION: dict = {
     "type": "function",
     "function": {
@@ -42,4 +40,5 @@ def execute(args: dict, session_data: dict | None = None) -> str:
     deleted = key in memory
     if deleted:
         del memory[key]
-    return json.dumps({"deleted": deleted, "key": key}, ensure_ascii=False)
+        return f"Deleted key {key!r}."
+    return f"Key {key!r} was not in session memory."

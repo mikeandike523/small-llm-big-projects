@@ -1,16 +1,13 @@
 from __future__ import annotations
 
-import json
-
 DEFINITION: dict = {
     "type": "function",
     "function": {
         "name": "session_memory_set_variable",
         "description": (
             "Set a memory value in the current session scope. "
-            "The value must be valid JSON (string, number, boolean, null, "
-            "object, or array). To store text, pass a JSON string — "
-            "e.g. \"hello world\" (quoted and escaped)."
+            "The value is stored as plain text. Any format is accepted — "
+            "prose, JSON, TOML, CSV, code, etc."
         ),
         "parameters": {
             "type": "object",
@@ -20,11 +17,8 @@ DEFINITION: dict = {
                     "description": "The memory key to store.",
                 },
                 "value": {
-                    "description": (
-                        "The JSON value to store. Must be a valid JSON literal "
-                        "(string, number, boolean, null, object, or array). "
-                        "Text must be passed as a JSON string (quoted and escaped)."
-                    ),
+                    "type": "string",
+                    "description": "The text value to store.",
                 },
             },
             "required": ["key", "value"],
@@ -52,4 +46,4 @@ def execute(args: dict, session_data: dict | None = None) -> str:
     memory = _ensure_session_memory(session_data)
     key = args["key"]
     memory[key] = args["value"]
-    return json.dumps({"key": key}, ensure_ascii=False)
+    return f"Stored value at key {key!r}."

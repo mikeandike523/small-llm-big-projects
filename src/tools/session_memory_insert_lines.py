@@ -6,7 +6,7 @@ DEFINITION: dict = {
         "name": "session_memory_insert_lines",
         "description": (
             "Insert text before a given 1-based line number in a session memory item. "
-            "The key must hold a JSON string value. The inserted text is treated as "
+            "The key must hold a text value. The inserted text is treated as "
             "complete lines; a trailing newline is added automatically if absent. "
             "If before_line is 1 the text is prepended. If before_line exceeds the "
             "total line count the text is appended. "
@@ -18,7 +18,7 @@ DEFINITION: dict = {
             "properties": {
                 "key": {
                     "type": "string",
-                    "description": "The session memory key. Must hold a JSON string value.",
+                    "description": "The session memory key. Must hold a text value.",
                 },
                 "before_line": {
                     "type": "integer",
@@ -63,7 +63,7 @@ def execute(args: dict, session_data: dict | None = None) -> str:
     key = args["key"]
     value = memory.get(key)
     if not isinstance(value, str):
-        return f"Error: key {key!r} is not a JSON string."
+        return f"Error: key {key!r} does not hold a text value."
 
     before_line: int = args["before_line"]
     text: str = args["text"]

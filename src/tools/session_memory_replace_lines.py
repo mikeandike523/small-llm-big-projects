@@ -6,7 +6,7 @@ DEFINITION: dict = {
         "name": "session_memory_replace_lines",
         "description": (
             "Replace an inclusive 1-based line range in a session memory item with new text. "
-            "The key must hold a JSON string value. The replacement text is treated as "
+            "The key must hold a text value. The replacement text is treated as "
             "complete lines; a trailing newline is added automatically if absent. "
             "More efficient than delete-then-insert: avoids recalculating line numbers "
             "after deletion. "
@@ -18,7 +18,7 @@ DEFINITION: dict = {
             "properties": {
                 "key": {
                     "type": "string",
-                    "description": "The session memory key. Must hold a JSON string value.",
+                    "description": "The session memory key. Must hold a text value.",
                 },
                 "start_line": {
                     "type": "integer",
@@ -65,7 +65,7 @@ def execute(args: dict, session_data: dict | None = None) -> str:
     key = args["key"]
     value = memory.get(key)
     if not isinstance(value, str):
-        return f"Error: key {key!r} is not a JSON string."
+        return f"Error: key {key!r} does not hold a text value."
 
     start_line: int = args["start_line"]
     end_line: int = args["end_line"]

@@ -5,27 +5,19 @@ DEFINITION: dict = {
     "function": {
         "name": "session_memory_concat",
         "description": (
-            "Concatenate two session memory values and save the result to a "
-            "destination key. Both source keys must hold JSON string values; "
-            "their decoded text content is concatenated and stored back as a "
-            "JSON string. Does not work on numbers, objects, or arrays."
+            "Concatenate two session memory text values and save the result to a "
+            "destination key. Both source keys must hold text values."
         ),
         "parameters": {
             "type": "object",
             "properties": {
                 "key_a": {
                     "type": "string",
-                    "description": (
-                        "The first memory key to read. "
-                        "The stored value must be a JSON string."
-                    ),
+                    "description": "The first memory key to read. The stored value must be a text string.",
                 },
                 "key_b": {
                     "type": "string",
-                    "description": (
-                        "The second memory key to read. "
-                        "The stored value must be a JSON string."
-                    ),
+                    "description": "The second memory key to read. The stored value must be a text string.",
                 },
                 "dest_key": {
                     "type": "string",

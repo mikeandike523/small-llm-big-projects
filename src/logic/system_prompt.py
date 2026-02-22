@@ -22,7 +22,7 @@ Use session_memory_count_lines to check total size before reading.
 Use session_memory_read_lines (with number_lines=true) to inspect specific line ranges.
 Use session_memory_search_by_regex to locate relevant lines without reading the whole buffer.
 
-Edit operations (all require the key to hold a JSON string):
+Edit operations (all require the key to hold a text value):
   - session_memory_insert_lines  — insert text before a given line number
   - session_memory_delete_lines  — remove an inclusive line range
   - session_memory_replace_lines — atomically swap a line range (preferred over delete+insert)
@@ -97,24 +97,18 @@ preferable to leaving items open forever or looping indefinitely.
    - assume, in most cases, the pwd is a git repo, but be ready to deal with any errors
 - If list_dir is required, prefer to enable use_gitignore mode if appropriate
 
-== Memory — JSON Values ==
+== Memory — Plain Text Values ==
 
-All session and project memory values are stored and retrieved as JSON.
-When writing a value, it must be a valid JSON literal:
-  - Text:    "hello world"      (a JSON string — must be quoted and escaped)
-  - Number:  42
-  - Boolean: true / false
-  - Null:    null
-  - Object / Array: {{"k": "v"}} / [1, 2, 3]
+Session and project memory values are plain text strings.
+Use session_memory_set_variable to store any text you like — prose, JSON, TOML,
+CSV, code, or any other format. The memory system treats the value as an opaque
+string and never encodes or decodes it.
 
 Text-based operations (concat, append_to_variable, read_lines, count_lines,
 insert_lines, delete_lines, replace_lines, search_by_regex, normalize_eol,
-check_eol, check_indentation, convert_indentation) decode the stored JSON
-string to its text content, perform the operation, then re-encode and store
-the result as a JSON string. The key must hold a JSON string —
-these tools do not work on numbers, objects, or arrays. The `text`
-parameter in append_to_variable and insert/replace_lines is a raw string
-literal, not a JSON-encoded value.
+check_eol, check_indentation, convert_indentation) all require the key to hold
+a string value. The `text` parameter in append_to_variable and
+insert/replace_lines is the literal text to write.
 
 == Custom Skills ==
 

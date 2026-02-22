@@ -6,7 +6,7 @@ DEFINITION: dict = {
         "name": "session_memory_delete_lines",
         "description": (
             "Delete an inclusive 1-based line range from a session memory item. "
-            "The key must hold a JSON string value. "
+            "The key must hold a text value. "
             "Part of the in-memory text editor toolkit: "
             "read_text_file_to_session_memory → edit → write_text_file_from_session_memory."
         ),
@@ -15,7 +15,7 @@ DEFINITION: dict = {
             "properties": {
                 "key": {
                     "type": "string",
-                    "description": "The session memory key. Must hold a JSON string value.",
+                    "description": "The session memory key. Must hold a text value.",
                 },
                 "start_line": {
                     "type": "integer",
@@ -55,7 +55,7 @@ def execute(args: dict, session_data: dict | None = None) -> str:
     key = args["key"]
     value = memory.get(key)
     if not isinstance(value, str):
-        return f"Error: key {key!r} is not a JSON string."
+        return f"Error: key {key!r} does not hold a text value."
 
     start_line: int = args["start_line"]
     end_line: int = args["end_line"]

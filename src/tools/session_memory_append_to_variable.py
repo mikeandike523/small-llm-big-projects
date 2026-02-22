@@ -5,12 +5,9 @@ DEFINITION: dict = {
     "function": {
         "name": "session_memory_append_to_variable",
         "description": (
-            "Append a literal string to an existing session memory variable, "
+            "Append text to an existing session memory variable, "
             "writing the result back to the same key. The key must hold a "
-            "JSON string value (or be absent, treated as empty string). The "
-            "text is appended to the decoded string content and the result is "
-            "stored back as a JSON string. Does not work on numbers, objects, "
-            "or arrays."
+            "text value (or be absent, treated as empty string)."
         ),
         "parameters": {
             "type": "object",
@@ -19,16 +16,13 @@ DEFINITION: dict = {
                     "type": "string",
                     "description": (
                         "The session memory key to read from and write back to. "
-                        "The stored value must be a JSON string (or absent, "
+                        "The stored value must be a text string (or absent, "
                         "treated as empty string)."
                     ),
                 },
                 "text": {
                     "type": "string",
-                    "description": (
-                        "The literal text to append to the decoded JSON string "
-                        "value. This is a raw string, not a JSON-encoded value."
-                    ),
+                    "description": "The literal text to append.",
                 },
             },
             "required": ["key", "text"],

@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-import json
-
 DEFINITION: dict = {
     "type": "function",
     "function": {
         "name": "session_memory_count_lines",
-        "description": "Count lines in a session memory item. Requires the stored value to be a JSON string.",
+        "description": "Count lines in a session memory item. Requires the stored value to be a text string.",
         "parameters": {
             "type": "object",
             "properties": {
@@ -51,6 +49,6 @@ def execute(args: dict, session_data: dict | None = None) -> str:
     key = args["key"]
     value = memory.get(key)
     if not isinstance(value, str):
-        return f"key {key} is not a json string"
+        return f"Error: key {key!r} does not hold a text value."
 
-    return json.dumps({"line_count": _count_lines(value)}, ensure_ascii=False)
+    return str(_count_lines(value))

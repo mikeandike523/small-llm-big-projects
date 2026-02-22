@@ -40,6 +40,15 @@ class KVManager:
     - Does NOT commit or rollback.
     - Caller controls connection lifetime + transaction scope.
 
+    Storage notes:
+
+      kv_store stores JSON-typed values (used for system config: model, params, tokens).
+      JSON encoding/decoding is applied automatically on this path.
+
+      project_memory stores plain LONGTEXT values (used for LLM-controlled memory).
+      Values are raw strings; no JSON encoding/decoding is applied.
+      If the LLM needs structured data it can write JSON/TOML/etc. as text.
+
     Schema assumptions:
 
       projects(
@@ -51,7 +60,7 @@ class KVManager:
       project_memory(
         project_id BIGINT NOT NULL,
         `key` VARCHAR(255) NOT NULL,
-        `value` JSON NOT NULL,
+        `value` LONGTEXT NOT NULL,
         PRIMARY KEY (project_id, `key`),
         FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
       )
@@ -136,14 +145,14 @@ class KVManager:
     def get_value(
         self,
         key: str,
-        default: Optional[JSONValue] = None,
+        default=None,
         *,
         project: Optional[str] = None,
-    ) -> Optional[JSONValue]:
-
+    ):
         if project is None and self._default_project:
             project = self._default_project
         if project is None:
+            # kv_store: JSON-typed system config — decode JSON on read
             with self._conn.cursor(dictionary=True) as cur:
                 cur.execute(
                     "SELECT `value` FROM kv_store WHERE `key`=%s",
@@ -156,6 +165,7 @@ class KVManager:
 
             return self._normalize_json(row["value"])
 
+        # project_memory: plain text — return raw string
         project_id = self._get_or_create_project_id(project)
         with self._conn.cursor(dictionary=True) as cur:
             cur.execute(
@@ -166,20 +176,22 @@ class KVManager:
 
         if not row:
             return default
-        return self._normalize_json(row["value"])
+        raw = row["value"]
+        return str(raw) if raw is not None else default
 
     def set_value(
         self,
         key: str,
-        value: JSONValue,
+        value,
         *,
         project: Optional[str] = None,
     ) -> None:
         if project is None and self._default_project:
             project = self._default_project
-        payload = json.dumps(value, ensure_ascii=False)
 
         if project is None:
+            # kv_store: JSON-typed system config — encode JSON on write
+            payload = json.dumps(value, ensure_ascii=False)
             with self._conn.cursor(dictionary=False) as cur:
                 cur.execute(
                     """
@@ -192,6 +204,11 @@ class KVManager:
                 )
             return
 
+        # project_memory: plain text — store raw string, no JSON encoding
+        if not isinstance(value, str):
+            raise TypeError(
+                f"project_memory values must be plain strings, got {type(value).__name__}"
+            )
         project_id = self._get_or_create_project_id(project)
         with self._conn.cursor(dictionary=False) as cur:
             cur.execute(
@@ -201,7 +218,7 @@ class KVManager:
                 AS incoming
                     ON DUPLICATE KEY UPDATE `value` = incoming.`value`
                 """,
-                (project_id, key, payload),
+                (project_id, key, value),
             )
 
     def delete_value(self, key: str, *, project: Optional[str] = None) -> None:

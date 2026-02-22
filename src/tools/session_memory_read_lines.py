@@ -9,7 +9,7 @@ DEFINITION: dict = {
         "name": "session_memory_read_lines",
         "description": (
             "Read all lines or an inclusive line range from a session memory "
-            "item. Requires the stored value to be a JSON string."
+            "item. Requires the stored value to be a text string."
         ),
         "parameters": {
             "type": "object",
@@ -91,7 +91,7 @@ def execute(args: dict, session_data: dict | None = None) -> str:
     key = args["key"]
     value = memory.get(key)
     if not isinstance(value, str):
-        return f"key {key} is not a json string"
+        return f"Error: key {key!r} does not hold a text value."
 
     start_line = args.get("start_line")
     end_line = args.get("end_line")
