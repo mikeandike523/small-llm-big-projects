@@ -1,7 +1,7 @@
 SKILLS=[
 
 """
-Browsing the web:
+Browsing the Web:
 
 Load brave_web_search and basic_web_request results into session memory.
 Then use session_memory_count_lines and session_memory_read_lines (with number_lines=true)
@@ -15,7 +15,9 @@ and use chunked reading strategies.
 """,
 
 """
-In-memory text editing:
+In-Memory Text Editing:
+
+ -- Use when writing or editing code, stories, documents, or other text. --
 
 Use read_text_file_to_session_memory to load a file into session memory.
 Use session_memory_count_lines to check total size before reading.
