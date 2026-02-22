@@ -38,6 +38,14 @@ DEFINITION: dict = {
                     "type": "boolean",
                     "description": "If true, prefix each returned line with its line number.",
                 },
+                "delimiter": {
+                    "type": "string",
+                    "description": (
+                        "Separator between the line number and line content when "
+                        "number_lines is true. Defaults to \" | \". Override when "
+                        "the content itself contains \" | \" to avoid ambiguity."
+                    ),
+                },
             },
             "required": ["key"],
             "additionalProperties": False,
@@ -88,6 +96,7 @@ def execute(args: dict, session_data: dict | None = None) -> str:
     start_line = args.get("start_line")
     end_line = args.get("end_line")
     number_lines = bool(args.get("number_lines"))
+    delimiter = args.get("delimiter")
 
     if start_line is not None and start_line < 1:
         return "Error: start_line must be >= 1"
@@ -99,5 +108,5 @@ def execute(args: dict, session_data: dict | None = None) -> str:
     contents = _read_lines(value, start_line, end_line)
     if number_lines:
         effective_start_line = start_line if start_line is not None else 1
-        return add_line_numbers(contents, start_line=effective_start_line)
+        return add_line_numbers(contents, start_line=effective_start_line, delimiter=delimiter)
     return contents

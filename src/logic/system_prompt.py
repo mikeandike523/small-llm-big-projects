@@ -1,17 +1,37 @@
 SKILLS=[
-    
+
 """
 Browsing the web:
 
-Prefer to load brave_search, and basic_web_request results into session memory
-(target=session_memory)
-Then use session_memory_count_lines and session_memory_read_lines
-To read web pages in chunks
-You can even use session_memory_list_variables and sessiont_memory_set_variable
-to save and recall important snippets
+Load brave_web_search and basic_web_request results into session memory.
+Then use session_memory_count_lines and session_memory_read_lines (with number_lines=true)
+to read pages in chunks.
+Use session_memory_search_by_regex to find relevant sections without reading everything.
+Use session_memory_list_variables and session_memory_set_variable to save and recall snippets.
 
-AVOID using target=return_value at all costs when browsing the web
-and PLEASE USE chunked reading strategies of session memory items
+AVOID returning large web content directly — always load into session memory first
+and use chunked reading strategies.
+
+""",
+
+"""
+In-memory text editing:
+
+Use read_text_file_to_session_memory to load a file into session memory.
+Use session_memory_count_lines to check total size before reading.
+Use session_memory_read_lines (with number_lines=true) to inspect specific line ranges.
+Use session_memory_search_by_regex to locate relevant lines without reading the whole buffer.
+
+Edit operations (all require the key to hold a JSON string):
+  - session_memory_insert_lines  — insert text before a given line number
+  - session_memory_delete_lines  — remove an inclusive line range
+  - session_memory_replace_lines — atomically swap a line range (preferred over delete+insert)
+  - session_memory_append_to_variable — append text to the end
+
+Use write_text_file_from_session_memory to write the result back to disk.
+
+Line numbers shown by session_memory_read_lines are 1-based and right-justified —
+use them directly as arguments to the edit tools.
 
 """
 ]
@@ -87,12 +107,14 @@ When writing a value, it must be a valid JSON literal:
   - Null:    null
   - Object / Array: {{"k": "v"}} / [1, 2, 3]
 
-Text-based operations (concat, append_to_variable) decode the stored JSON
+Text-based operations (concat, append_to_variable, read_lines, count_lines,
+insert_lines, delete_lines, replace_lines, search_by_regex, normalize_eol,
+check_eol, check_indentation, convert_indentation) decode the stored JSON
 string to its text content, perform the operation, then re-encode and store
-the result as a JSON string. Both operands must already be JSON strings —
-these tools do not stringify numbers, objects, or arrays. The `text`
-parameter in append_to_variable is a raw string literal (the text to
-append), not a JSON-encoded value.
+the result as a JSON string. The key must hold a JSON string —
+these tools do not work on numbers, objects, or arrays. The `text`
+parameter in append_to_variable and insert/replace_lines is a raw string
+literal, not a JSON-encoded value.
 
 == Custom Skills ==
 
