@@ -65,6 +65,7 @@ ALL_TOOL_DEFINITIONS: list[dict] = [
     session_memory_set_variable.DEFINITION,
     todo_list.DEFINITION,
     write_text_file_from_session_memory.DEFINITION,
+    
 ]
 
 _TOOL_MAP: dict[str, object] = {
@@ -100,6 +101,7 @@ _TOOL_MAP: dict[str, object] = {
     "session_memory_set_variable": session_memory_set_variable,
     "todo_list": todo_list,
     "write_text_file_from_session_memory": write_text_file_from_session_memory,
+    "read_text_file_to_session_memory": read_text_file_to_session_memory
 }
 
 def check_needs_approval(name: str, args: dict) -> bool:
