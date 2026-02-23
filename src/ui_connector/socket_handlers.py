@@ -18,6 +18,7 @@ from src.utils.llm.streaming import StreamingLLM
 from src.tools import ALL_TOOL_DEFINITIONS, execute_tool, check_needs_approval
 from src.logic.system_prompt import SYSTEM_PROMPT
 from src.utils.request_error_formatting import format_http_error
+from src.utils.env_info import get_env_context
 
 
 # ---------------------------------------------------------------------------
@@ -361,7 +362,8 @@ def handle_user_message(data: dict):
     session = _load_session(sid)
     session["session_data"]["todo_list"] = []
     emit("todo_list_update", {"items": []})
-    session["message_history"].append({"role": "user", "content": text})
+    user_content = f"{text}\n\n{get_env_context()}"
+    session["message_history"].append({"role": "user", "content": user_content})
     turn_start_idx = len(session["message_history"]) - 1
 
     had_tool_calls = False
