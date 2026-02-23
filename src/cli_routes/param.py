@@ -1,4 +1,7 @@
+import json
+
 import click
+from termcolor import colored
 
 from src.data import get_pool
 from src.cli_obj import cli
@@ -41,6 +44,39 @@ def _parse_and_validate(name: str, raw_value: str):
 def param():
     ...
 
+@param.command("list")
+def sub_cmd_list():
+    click.echo('')
+    pool = get_pool()
+    with pool.get_connection() as conn:
+        SQL="""
+SELECT * FROM `kv_store` where `key` like "params.%"
+"""
+        with conn.cursor(dictionary=True) as cursor:
+            cursor.execute(SQL)
+            results = cursor.fetchall()
+            if not results:
+                click.echo("No params set.")
+            for i, result in enumerate(results):
+                is_last = i == len(results) - 1
+                key=result['key']
+                value_str=result["value"]
+                try:
+                    value=json.loads(value_str)
+                    print(f"""
+{colored(key,'blue')}:
+
+{json.dumps(value, indent=2)}
+""".strip()+("\n\n" if not is_last else ""))
+
+                except json.JSONDecodeError as e:
+                    click.echo(f"""
+{colored(key,'blue')}:
+
+[Invalid JSON]
+
+{value_str}
+""".strip()+("\n\n" if not is_last else ""))
 
 @param.command(name="set")
 @click.argument("name", type=str)
