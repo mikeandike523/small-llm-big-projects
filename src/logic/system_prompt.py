@@ -29,6 +29,28 @@ Edit operations (all require the key to hold a text value):
   - session_memory_delete_lines  — remove an inclusive line range
   - session_memory_replace_lines — atomically swap a line range (preferred over delete+insert)
   - session_memory_append_to_variable — append text to the end
+  - session_memory_apply_patch   — apply a unified diff patch (alternative to line-based edits;
+                                   auto-detects CRLF/LF, tolerates small line-number offsets;
+                                   output ONLY raw unified diff text — no 'begin patch'/'end patch'
+                                   wrappers or any other surrounding formatting)
+
+Before making large or risky changes to a buffer, snapshot the current state:
+  Use session_memory_copy_rename (rename=false) to copy the key to a versioned name such as
+  "myfile.version1", "myfile.version2", etc., incrementing the number each time.
+  If a patch produces garbled output, or any edit leaves the buffer in a bad state,
+  revert by copying the snapshot back over the working key with session_memory_copy_rename
+  (rename=false, force_overwrite=true) and then retry the edit.
+
+After each patch or edit operation, verify correctness:
+  Read the affected region back with session_memory_read_lines (number_lines=true) and confirm
+  the result looks right before moving on to the next edit. Catching mistakes early is far
+  cheaper than untangling a file that has accumulated several bad edits.
+
+Once editing is complete for a file — meaning the todo list is done, all planned changes have
+been applied, or you are otherwise finished with the file — do a full-file review:
+  Read the entire buffer with session_memory_read_lines (number_lines=true), working through
+  it in chunks if necessary, and verify the file is coherent and correct as a whole before
+  writing it back to disk.
 
 Use write_text_file_from_session_memory to write the result back to disk.
 

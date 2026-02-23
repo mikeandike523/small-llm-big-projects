@@ -11,3 +11,4 @@ python-dotenv
 gitignore-parser
 python-ripgrep
 httpx
+unidiff
