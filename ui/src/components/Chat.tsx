@@ -777,6 +777,7 @@ export default function Chat() {
   const [skillsInfo, setSkillsInfo] = useState<{ enabled: boolean; count: number; path: string | null } | null>(null)
   const [envInfo, setEnvInfo] = useState<{ os: string; shell: string } | null>(null)
   const [debugOpen, setDebugOpen] = useState(true)
+  const [systemPrompt, setSystemPrompt] = useState<string | null>(null)
 
   const {
     containerRef: threadRef,
@@ -800,6 +801,7 @@ export default function Chat() {
       socket.emit('get_pwd')
       socket.emit('get_skills_info')
       socket.emit('get_env_info')
+      socket.emit('get_system_prompt')
     }
 
     function onConnect() {
@@ -807,11 +809,13 @@ export default function Chat() {
       socket.emit('get_pwd')
       socket.emit('get_skills_info')
       socket.emit('get_env_info')
+      socket.emit('get_system_prompt')
     }
     function onDisconnect() { setConnected(false) }
     function onPwdUpdate({ path }: { path: string }) { setPwd(path) }
     function onSkillsInfo(data: { enabled: boolean; count: number; path: string | null }) { setSkillsInfo(data) }
     function onEnvInfo(data: { os: string; shell: string }) { setEnvInfo(data) }
+    function onSystemPrompt({ text }: { text: string }) { setSystemPrompt(text) }
 
     function onToken({ type, text }: { type: 'reasoning' | 'content'; text: string }) {
       setThread(prev => {
@@ -941,6 +945,7 @@ export default function Chat() {
     socket.on('pwd_update', onPwdUpdate)
     socket.on('skills_info', onSkillsInfo)
     socket.on('env_info', onEnvInfo)
+    socket.on('system_prompt', onSystemPrompt)
     socket.on('token', onToken)
     socket.on('begin_interim_stream', onBeginInterimStream)
     socket.on('begin_final_summary', onBeginFinalSummary)
@@ -959,6 +964,7 @@ export default function Chat() {
       socket.off('pwd_update', onPwdUpdate)
       socket.off('skills_info', onSkillsInfo)
       socket.off('env_info', onEnvInfo)
+      socket.off('system_prompt', onSystemPrompt)
       socket.off('token', onToken)
       socket.off('begin_interim_stream', onBeginInterimStream)
       socket.off('begin_final_summary', onBeginFinalSummary)
@@ -1028,6 +1034,7 @@ export default function Chat() {
           pwd={pwd}
           envInfo={envInfo}
           skillsInfo={skillsInfo}
+          systemPrompt={systemPrompt}
         />
       </div>
 

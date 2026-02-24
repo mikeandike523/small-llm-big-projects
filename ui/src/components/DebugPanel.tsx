@@ -10,6 +10,7 @@ interface SkillsInfo {
   enabled: boolean
   count: number
   path: string | null
+  files: string[]
 }
 
 interface EnvInfo {
@@ -23,18 +24,20 @@ interface Props {
   pwd: string
   envInfo: EnvInfo | null
   skillsInfo: SkillsInfo | null
+  systemPrompt: string | null
 }
 
 // ---------------------------------------------------------------------------
 // Tab system
 // ---------------------------------------------------------------------------
 
-type TabId = 'system' | 'session' | 'project'
+type TabId = 'system' | 'session' | 'project' | 'prompt'
 
 const TABS: { id: TabId; label: string }[] = [
   { id: 'system',  label: 'System Info' },
-  { id: 'session', label: 'Session Memory' },
-  { id: 'project', label: 'Project Memory' },
+  { id: 'session', label: 'Session Mem' },
+  { id: 'project', label: 'Project Mem' },
+  { id: 'prompt',  label: 'Sys Prompt' },
 ]
 
 // ---------------------------------------------------------------------------
@@ -101,6 +104,7 @@ const collapsedStripCss = css`
 const tabBarCss = css`
   display: flex;
   flex-direction: row;
+  height: 30px;
   border-bottom: 1px solid #1e1e1e;
   background: #0d0d0d;
   flex-shrink: 0;
@@ -109,15 +113,17 @@ const tabBarCss = css`
 
 const tabButtonCss = (active: boolean) => css`
   flex: 1;
+  height: 100%;
   background: ${active ? '#161616' : 'transparent'};
   border: none;
   border-bottom: 2px solid ${active ? '#2563eb' : 'transparent'};
   color: ${active ? '#b0b0b0' : '#484848'};
-  padding: 5px 4px;
+  padding: 0 4px;
   font-family: 'Consolas', monospace;
   font-size: 9px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
+  text-align: center;
   cursor: pointer;
   transition: color 0.15s, background 0.15s;
   white-space: nowrap;
@@ -143,6 +149,23 @@ const tabPanelCss = (visible: boolean) => css`
   pointer-events: ${visible ? 'auto' : 'none'};
   transition: opacity 0.18s ease;
   padding: 10px;
+  ${scrollbarCss}
+`
+
+const promptPanelCss = (visible: boolean) => css`
+  position: absolute;
+  inset: 0;
+  overflow-y: auto;
+  opacity: ${visible ? 1 : 0};
+  pointer-events: ${visible ? 'auto' : 'none'};
+  transition: opacity 0.18s ease;
+  padding: 10px;
+  font-family: 'Consolas', monospace;
+  font-size: 10px;
+  color: #777;
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.6;
   ${scrollbarCss}
 `
 
@@ -176,6 +199,48 @@ const placeholderCss = css`
   padding: 4px 0;
 `
 
+const skillsCardCss = css`
+  border: 1px solid #1e1e1e;
+  border-radius: 6px;
+  overflow: hidden;
+  margin-bottom: 10px;
+`
+
+const skillsCardHeaderCss = css`
+  font-family: 'Consolas', monospace;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: #555;
+  padding: 4px 8px;
+  background: #111;
+  border-bottom: 1px solid #1e1e1e;
+`
+
+const skillsCardBodyCss = css`
+  ${scrollbarCss}
+  max-height: 100px;
+  overflow-y: auto;
+  padding: 6px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+`
+
+const skillsCardPathCss = css`
+  font-family: 'Consolas', monospace;
+  font-size: 9px;
+  color: #4a4a4a;
+  word-break: break-all;
+  margin-bottom: 3px;
+`
+
+const skillsCardFileCss = css`
+  font-family: 'Consolas', monospace;
+  font-size: 10px;
+  color: #777;
+`
+
 // ---------------------------------------------------------------------------
 // Sub-components
 // ---------------------------------------------------------------------------
@@ -185,6 +250,26 @@ function InfoRow({ label, value }: { label: string; value: string }) {
     <div css={rowCss}>
       <span css={rowLabelCss}>{label}</span>
       <span css={rowValueCss}>{value}</span>
+    </div>
+  )
+}
+
+function SkillsCard({ skillsInfo }: { skillsInfo: SkillsInfo }) {
+  if (!skillsInfo.enabled) {
+    return <InfoRow label="Skills" value="Disabled" />
+  }
+  return (
+    <div css={skillsCardCss}>
+      <div css={skillsCardHeaderCss}>
+        {skillsInfo.count} skill{skillsInfo.count !== 1 ? 's' : ''} loaded
+      </div>
+      <div css={skillsCardBodyCss}>
+        {skillsInfo.path && <div css={skillsCardPathCss}>{skillsInfo.path}</div>}
+        {skillsInfo.files.length > 0
+          ? skillsInfo.files.map(f => <div key={f} css={skillsCardFileCss}>· {f}</div>)
+          : <div css={placeholderCss}>No skill files found.</div>
+        }
+      </div>
     </div>
   )
 }
@@ -199,14 +284,7 @@ function SystemTab({ pwd, envInfo, skillsInfo }: { pwd: string; envInfo: EnvInfo
         </>
       )}
       {pwd && <InfoRow label="Working Directory" value={pwd} />}
-      {skillsInfo && (
-        <>
-          <InfoRow label="Skills" value={skillsInfo.enabled ? `Enabled (${skillsInfo.count})` : 'Disabled'} />
-          {skillsInfo.enabled && skillsInfo.path && (
-            <InfoRow label="Skills Path" value={skillsInfo.path} />
-          )}
-        </>
-      )}
+      {skillsInfo && <SkillsCard skillsInfo={skillsInfo} />}
       {!envInfo && !pwd && !skillsInfo && (
         <div css={placeholderCss}>No system info available.</div>
       )}
@@ -218,7 +296,7 @@ function SystemTab({ pwd, envInfo, skillsInfo }: { pwd: string; envInfo: EnvInfo
 // DebugPanel
 // ---------------------------------------------------------------------------
 
-export function DebugPanel({ open, onToggle, pwd, envInfo, skillsInfo }: Props) {
+export function DebugPanel({ open, onToggle, pwd, envInfo, skillsInfo, systemPrompt }: Props) {
   const [activeTab, setActiveTab] = useState<TabId>('system')
 
   if (!open) {
@@ -257,6 +335,12 @@ export function DebugPanel({ open, onToggle, pwd, envInfo, skillsInfo }: Props) 
         </div>
         <div css={tabPanelCss(activeTab === 'project')}>
           <div css={placeholderCss}>Under construction.</div>
+        </div>
+        <div css={promptPanelCss(activeTab === 'prompt')}>
+          {systemPrompt !== null
+            ? systemPrompt
+            : <span css={placeholderCss}>Not yet received.</span>
+          }
         </div>
       </div>
     </div>

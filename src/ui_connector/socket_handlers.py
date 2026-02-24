@@ -29,13 +29,15 @@ _env_shell = get_shell()
 
 _skills_enabled = os.environ.get("SLBP_LOAD_SKILLS") == "1"
 _skills_dir: str | None = None
+_skills_files: list[str] = []
 _skills_count: int = 0
 if _skills_enabled:
     _skills_dir = os.path.join(os.getcwd(), "skills").replace("\\", "/")
     try:
-        _skills_count = len([f for f in os.listdir(_skills_dir) if f.lower().endswith(".md")])
+        _skills_files = sorted(f for f in os.listdir(_skills_dir) if f.lower().endswith(".md"))
+        _skills_count = len(_skills_files)
     except (FileNotFoundError, OSError):
-        _skills_count = 0
+        pass
 
 
 
@@ -387,7 +389,12 @@ def handle_get_pwd():
 
 @socketio.on("get_skills_info")
 def handle_get_skills_info():
-    emit("skills_info", {"enabled": _skills_enabled, "count": _skills_count, "path": _skills_dir})
+    emit("skills_info", {"enabled": _skills_enabled, "count": _skills_count, "path": _skills_dir, "files": _skills_files})
+
+
+@socketio.on("get_system_prompt")
+def handle_get_system_prompt():
+    emit("system_prompt", {"text": SYSTEM_PROMPT})
 
 
 @socketio.on("get_env_info")

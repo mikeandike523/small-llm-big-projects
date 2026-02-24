@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import webbrowser
 from pathlib import Path
 
 import click
@@ -62,6 +63,9 @@ def ui_run(streaming, load_skills):
     ]
 
     click.echo("[slbp] Starting UI processes. Press Ctrl+C to stop.")
+
+    ui_port = os.environ.get("UI_PORT", "5173")
+    webbrowser.open(f"http://localhost:{ui_port}", new=0, autoraise=True)
 
     try:
         run_processes(processes)
