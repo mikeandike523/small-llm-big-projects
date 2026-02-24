@@ -13,27 +13,44 @@ class ToolValidationError(Exception):
 
 
 class MissingOrExtraArgumentsError(ToolValidationError):
+    """Raised when required args are missing and/or unknown args are present.
+
+    IMPORTANT:
+      - Missing is computed relative to `required`.
+      - Extra is computed relative to `allowed` (i.e. schema `properties` keys),
+        and only when additionalProperties is False.
+
+    This matches JSON Schema / OpenAI tool-parameters semantics:
+      * optional args are in properties but not in required
+      * additionalProperties:false rejects keys not in properties
+    """
+
     def __init__(
         self,
         tool_name: str,
         provided: Sequence[str],
         required_arguments: Sequence[str],
+        allowed_arguments: Sequence[str],
         additional_fields_permitted: bool,
     ):
         self.tool_name = tool_name
         self.provided = list(provided)
         self.required_arguments = list(required_arguments)
+        self.allowed_arguments = list(allowed_arguments)
         self.additional_fields_permitted = additional_fields_permitted
 
         provided_set = set(self.provided)
         required_set = set(self.required_arguments)
+        allowed_set = set(self.allowed_arguments)
 
         # stable ordering
         self.missing = [a for a in self.required_arguments if a not in provided_set]
-        self.extra = [a for a in self.provided if a not in required_set]
 
+        # extra keys are ONLY those not declared in properties when additionalProperties is false
         if self.additional_fields_permitted:
             self.extra = []
+        else:
+            self.extra = [a for a in self.provided if a not in allowed_set]
 
         super().__init__(str(self))
 
@@ -42,6 +59,7 @@ class MissingOrExtraArgumentsError(ToolValidationError):
 MissingOrExtraArgumentsError
 
 Tool Name: {self.tool_name}
+Allowed Arguments: {self.allowed_arguments}
 Required Arguments: {self.required_arguments}
 Extra Args Permitted: {self.additional_fields_permitted}
 Missing: {', '.join(self.missing) if self.missing else '(none)'}
@@ -127,7 +145,7 @@ class AggregateToolValidationError(ToolValidationError):
 # - required
 # - additionalProperties (False)
 # - properties.<name>.type: string/integer/number/boolean/object
-# - string: minLength, maxLength, pattern (OPTIONAL; uses re if present)
+# - string: minLength, maxLength, pattern
 # - number: minimum, maximum
 # - enum
 # -------------------------
@@ -143,15 +161,31 @@ _JSON_TYPE_MAP = {
 }
 
 
+def _tool_name_from_def(tool_def: Mapping[str, Any]) -> str:
+    # you showed {"type":"function","function":{...}}
+    # but some code uses {"function":{...}} directly
+    if "function" in tool_def:
+        return tool_def.get("function", {}).get("name", "<unknown-tool>")
+    return tool_def.get("name", "<unknown-tool>")
+
+
+def _params_from_def(tool_def: Mapping[str, Any]) -> Mapping[str, Any]:
+    if "function" in tool_def:
+        return tool_def.get("function", {}).get("parameters", {}) or {}
+    return tool_def.get("parameters", {}) or {}
+
+
 def validate_tool_args(tool_def: Mapping[str, Any], args: Mapping[str, Any]) -> None:
-    """
-    Validate tool args against a subset of JSON Schema constraints
-    used in OpenAI-style tool definitions (object args).
+    """Validate tool args against a subset of JSON Schema constraints.
+
+    NOTE: This is intentionally partial; it focuses on the most common constraints
+    used in OpenAI-style tool definitions.
 
     Raises ToolValidationError on failure.
     """
-    tool_name = tool_def.get("function", {}).get("name", "<unknown-tool>")
-    params = tool_def.get("function", {}).get("parameters", {})
+    tool_name = _tool_name_from_def(tool_def)
+    params = _params_from_def(tool_def)
+
     if params.get("type") != "object":
         raise ToolValidationError(f"{tool_name}: parameters.type must be 'object'")
 
@@ -159,15 +193,21 @@ def validate_tool_args(tool_def: Mapping[str, Any], args: Mapping[str, Any]) -> 
         raise InvalidTypeError(tool_name, "$", "object", type(args).__name__)
 
     properties: dict[str, Any] = params.get("properties", {}) or {}
+    allowed: list[str] = list(properties.keys())
     required: list[str] = list(params.get("required", []) or [])
-    additional_permitted: bool = params.get("additionalProperties", True) is not False
+
+    # JSON Schema semantics:
+    #   additionalProperties: false  => no keys outside `properties`.
+    #   if missing or omitted => defaults to true.
+    additional_fields_permitted: bool = params.get("additionalProperties", True) is not False
 
     provided_keys = list(args.keys())
     err = MissingOrExtraArgumentsError(
         tool_name=tool_name,
         provided=provided_keys,
         required_arguments=required,
-        additional_fields_permitted=additional_permitted,
+        allowed_arguments=allowed,
+        additional_fields_permitted=additional_fields_permitted,
     )
     if err.missing or err.extra:
         raise err
@@ -229,9 +269,7 @@ def _validate_value(
     if "enum" in schema:
         allowed = schema["enum"]
         if value not in allowed:
-            issues.append(
-                ValidationIssue(path, f"value must be one of {list(allowed)!r}")
-            )
+            issues.append(ValidationIssue(path, f"value must be one of {list(allowed)!r}"))
             return
 
     # string constraints
@@ -268,18 +306,18 @@ def _validate_value(
 
     # object constraints (very shallow)
     if expected_type == "object":
-        # Optional: validate nested objects if they have 'properties'
         sub_props = schema.get("properties")
         if isinstance(sub_props, dict) and isinstance(value, Mapping):
-            sub_required = schema.get("required", []) or []
-            additional_permitted = schema.get("additionalProperties", True) is not False
+            sub_required = list(schema.get("required", []) or [])
+            sub_allowed = list(sub_props.keys())
+            sub_additional_permitted = schema.get("additionalProperties", True) is not False
 
-            provided = list(value.keys())
             err = MissingOrExtraArgumentsError(
                 tool_name=tool_name,
-                provided=provided,
-                required_arguments=list(sub_required),
-                additional_fields_permitted=additional_permitted,
+                provided=list(value.keys()),
+                required_arguments=sub_required,
+                allowed_arguments=sub_allowed,
+                additional_fields_permitted=sub_additional_permitted,
             )
             if err.missing or err.extra:
                 issues.append(ValidationIssue(path, str(err)))
@@ -294,4 +332,3 @@ def _validate_value(
                         schema=sub_schema,
                         issues=issues,
                     )
-
