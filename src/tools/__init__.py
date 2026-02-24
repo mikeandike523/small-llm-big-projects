@@ -32,6 +32,7 @@ from src.tools import session_memory_search_by_regex
 from src.tools import session_memory_set_variable
 from src.tools import todo_list
 from src.tools import write_text_file_from_session_memory
+from src.utils.tool_calling.arguments import validate_tool_args
 
 ALL_TOOL_DEFINITIONS: list[dict] = [
     basic_web_request.DEFINITION,
@@ -125,6 +126,7 @@ def execute_tool(name: str, args: dict, session_data: dict | None = None) -> str
     if session_data is None:
         session_data = {}
     try:
+        validate_tool_args(args, module.DEFINITION)
         return module.execute(args, session_data)
     except Exception as e:
         return f"""
