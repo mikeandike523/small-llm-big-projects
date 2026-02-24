@@ -126,7 +126,7 @@ def execute_tool(name: str, args: dict, session_data: dict | None = None) -> str
     if session_data is None:
         session_data = {}
     try:
-        validate_tool_args(args, module.DEFINITION)
+        validate_tool_args(module.DEFINITION,args)
         return module.execute(args, session_data)
     except Exception as e:
         return f"""
