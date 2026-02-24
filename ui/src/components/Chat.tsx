@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { socket } from '../socket'
 import { useScrollToBottom } from '../hooks/useScrollToBottom'
 import { TextPresenter } from './TextPresenter'
+import { DebugPanel } from './DebugPanel'
 import Ansi from 'ansi-to-react'
 
 // ---------------------------------------------------------------------------
@@ -85,17 +86,32 @@ function newAssistant(streaming = true): AssistantEntry {
 // Styles
 // ---------------------------------------------------------------------------
 
-const rootCss = css`
+const appLayoutCss = css`
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   height: 100vh;
-  max-width: 1800px;
-  width: 96%;
-  margin: 0 auto;
   font-family: 'Segoe UI', system-ui, sans-serif;
   font-size: 15px;
   background: #0f0f0f;
   color: #e0e0e0;
+`
+
+const debugPanelWrapperCss = (open: boolean) => css`
+  width: ${open ? '20%' : '28px'};
+  min-width: ${open ? '160px' : '28px'};
+  max-width: ${open ? '320px' : '28px'};
+  transition: width 0.2s ease, min-width 0.2s ease, max-width 0.2s ease;
+  overflow: hidden;
+  flex-shrink: 0;
+  height: 100%;
+`
+
+const mainAreaCss = css`
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
 `
 
 const threadCss = css`
@@ -342,23 +358,6 @@ const statusCss = css`
   color: #c8c8c8;
   font-family: 'Consolas', monospace;
   white-space: nowrap;
-`
-
-const pwdCss = css`
-  font-size: 11px;
-  color: #c8c8c8;
-  font-family: 'Consolas', monospace;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 70%;
-  text-align: right;
-`
-
-const headerLeftCss = css`
-  display: flex;
-  align-items: center;
-  gap: 12px;
 `
 
 // TurnContainer — UNCONSTRAINED; grows to fit all child regions
@@ -777,6 +776,7 @@ export default function Chat() {
   const [pwd, setPwd] = useState<string>('')
   const [skillsInfo, setSkillsInfo] = useState<{ enabled: boolean; count: number; path: string | null } | null>(null)
   const [envInfo, setEnvInfo] = useState<{ os: string; shell: string } | null>(null)
+  const [debugOpen, setDebugOpen] = useState(true)
 
   const {
     containerRef: threadRef,
@@ -1019,61 +1019,63 @@ export default function Chat() {
   // ---------------------------------------------------------------------------
 
   return (
-    <div css={rootCss}>
-      {/* Shared modal for full tool result */}
-      <div
-        css={[modalOverlayBaseCss, modalContent !== null ? modalOverlayVisibleCss : modalOverlayHiddenCss]}
-        onClick={() => setModalContent(null)}
-      >
-        <div css={modalCardCss} onClick={e => e.stopPropagation()}>
-          <div css={modalHeaderCss}>
-            <span css={modalTitleCss}>Tool Result</span>
-            <button css={modalCloseButtonCss} onClick={() => setModalContent(null)}>×</button>
-          </div>
-          <div css={modalBodyCss}><Ansi>{modalContent ?? ''}</Ansi></div>
-        </div>
+    <div css={appLayoutCss}>
+      {/* Debug panel */}
+      <div css={debugPanelWrapperCss(debugOpen)}>
+        <DebugPanel
+          open={debugOpen}
+          onToggle={() => setDebugOpen(o => !o)}
+          pwd={pwd}
+          envInfo={envInfo}
+          skillsInfo={skillsInfo}
+        />
       </div>
 
-      <div css={headerBarCss}>
-        <div css={headerLeftCss}>
-          <span css={statusCss}>{connected ? '●' : '○'} {connected ? 'connected' : 'disconnected'}</span>
-          {envInfo && (
-            <span css={statusCss}>{envInfo.os} / {envInfo.shell}</span>
-          )}
-          {skillsInfo?.enabled && (
-            <>
-              <span css={statusCss}>skills enabled</span>
-              <span css={statusCss}>{skillsInfo.count} skills from {skillsInfo.path}</span>
-            </>
-          )}
+      {/* Main content area */}
+      <div css={mainAreaCss}>
+        {/* Shared modal for full tool result */}
+        <div
+          css={[modalOverlayBaseCss, modalContent !== null ? modalOverlayVisibleCss : modalOverlayHiddenCss]}
+          onClick={() => setModalContent(null)}
+        >
+          <div css={modalCardCss} onClick={e => e.stopPropagation()}>
+            <div css={modalHeaderCss}>
+              <span css={modalTitleCss}>Tool Result</span>
+              <button css={modalCloseButtonCss} onClick={() => setModalContent(null)}>×</button>
+            </div>
+            <div css={modalBodyCss}><Ansi>{modalContent ?? ''}</Ansi></div>
+          </div>
         </div>
-        {pwd && <span css={pwdCss}>{pwd}</span>}
-      </div>
-      <div css={threadCss} ref={threadRef} onScroll={handleScroll}>
-        {thread.map(turn => (
-          <TurnContainer
-            key={turn.id}
-            turn={turn}
-            onViewFull={setModalContent}
-            onApprove={approve}
-            onDeny={deny}
+
+        <div css={headerBarCss}>
+          <span css={statusCss}>{connected ? '●' : '○'} {connected ? 'connected' : 'disconnected'}</span>
+        </div>
+        <div css={threadCss} ref={threadRef} onScroll={handleScroll}>
+          {thread.map(turn => (
+            <TurnContainer
+              key={turn.id}
+              turn={turn}
+              onViewFull={setModalContent}
+              onApprove={approve}
+              onDeny={deny}
+            />
+          ))}
+        </div>
+        <div css={inputBarCss}>
+          <textarea
+            css={textareaCss}
+            rows={3}
+            placeholder="Send a message… (Enter to send, Shift+Enter for newline)"
+            value={inputText}
+            onChange={e => setInputText(e.target.value)}
+            onKeyDown={onKeyDown}
+            disabled={busy || !connected}
           />
-        ))}
-      </div>
-      <div css={inputBarCss}>
-        <textarea
-          css={textareaCss}
-          rows={3}
-          placeholder="Send a message… (Enter to send, Shift+Enter for newline)"
-          value={inputText}
-          onChange={e => setInputText(e.target.value)}
-          onKeyDown={onKeyDown}
-          disabled={busy || !connected}
-        />
-        <button css={sendButtonCss} onClick={send} disabled={busy || !connected}>
-          <span css={busy ? css`visibility: hidden` : undefined}>Send</span>
-          {busy && <span css={spinnerCss} />}
-        </button>
+          <button css={sendButtonCss} onClick={send} disabled={busy || !connected}>
+            <span css={busy ? css`visibility: hidden` : undefined}>Send</span>
+            {busy && <span css={spinnerCss} />}
+          </button>
+        </div>
       </div>
     </div>
   )
