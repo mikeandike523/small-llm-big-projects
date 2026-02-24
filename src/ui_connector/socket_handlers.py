@@ -153,12 +153,25 @@ def _load_llm_config() -> dict | None:
 
         model = kv.get_value("model") or None
         param_keys = kv.list_keys(prefix="params.")
-        llm_params = {k[len("params."):]: kv.get_value(k) for k in param_keys}
+        model_params = {
+            k[len("params.model."):]: kv.get_value(k)
+            for k in param_keys if k.startswith("params.model.")
+        }
+        system_params = {
+            k[len("params.system."):]: kv.get_value(k)
+            for k in param_keys if k.startswith("params.system.")
+        }
 
     if not token_value or not endpoint_url:
         return None
 
-    return {"endpoint_url": endpoint_url, "token_value": token_value, "model": model, "params": llm_params}
+    return {
+        "endpoint_url": endpoint_url,
+        "token_value": token_value,
+        "model": model,
+        "model_params": model_params,
+        "system_params": system_params,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -212,7 +225,31 @@ def _run_llm_call(streaming_llm: StreamingLLM, payload: list[dict]) -> tuple[obj
 # Tool execution
 # ---------------------------------------------------------------------------
 
-def _execute_tools(result, content_for_history: str, session: dict, sid: str) -> tuple[bool, str | None]:
+def _stub_tool_result(full_result: str, max_chars: int, session_data: dict) -> str:
+    """
+    Store full_result in session memory under a unique stubs.* key and return
+    a truncated stub string the LLM can use to identify and retrieve it.
+    """
+    import secrets
+    memory = session_data.setdefault("memory", {})
+    while True:
+        code = secrets.token_hex(4)
+        key = f"stubs.{code}"
+        if key not in memory:
+            break
+    memory[key] = full_result
+    total = len(full_result)
+    overflow = total - max_chars
+    preview = full_result[:max_chars]
+    return (
+        f"** STUBBED LONG RETURN VALUE **\n"
+        f"(total {total} chars, session_memory_key=\"{key}\")\n"
+        f"Preview:\n\n"
+        f"{preview}... (+ {overflow} more chars)"
+    )
+
+
+def _execute_tools(result, content_for_history: str, session: dict, sid: str, return_value_max_chars: int | None = None) -> tuple[bool, str | None]:
     """
     Append the assistant tool-call message, execute all tools, emit events,
     and append tool result messages to message_history.
@@ -246,6 +283,8 @@ def _execute_tools(result, content_for_history: str, session: dict, sid: str) ->
                 return True, reason
 
         tool_result = execute_tool(tc.name, tc.arguments, session["session_data"])
+        if return_value_max_chars is not None and len(tool_result) > return_value_max_chars:
+            tool_result = _stub_tool_result(tool_result, return_value_max_chars, session["session_data"])
         emit("tool_result", {"id": tc.id, "result": tool_result})
         if tc.name == "change_pwd":
             emit("pwd_update", {"path": os.getcwd().replace("\\", "/")})
@@ -385,8 +424,9 @@ def handle_user_message(data: dict):
         llm_config["token_value"],
         60,
         llm_config["model"],
-        llm_config["params"],
+        llm_config["model_params"],
     )
+    return_value_max_chars: int | None = llm_config["system_params"].get("return_value_max_chars")
 
     session = _load_session(sid)
     session["session_data"]["todo_list"] = []
@@ -422,7 +462,7 @@ def handle_user_message(data: dict):
         last_assistant_content = content_for_history
 
         if result.has_tool_calls:
-            impossible, reason = _execute_tools(result, content_for_history, session, sid)
+            impossible, reason = _execute_tools(result, content_for_history, session, sid, return_value_max_chars)
             had_tool_calls = True
             if impossible:
                 was_impossible = True

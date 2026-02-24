@@ -7,7 +7,13 @@ from src.data import get_pool
 from src.cli_obj import cli
 from src.utils.sql.kv_manager import KVManager
 
-_ALLOWED_PARAMS = {"temperature", "top_p", "top_k","max_tokens"}
+_ALLOWED_PARAMS = {
+    "model.temperature",
+    "model.top_p",
+    "model.top_k",
+    "model.max_tokens",
+    "system.return_value_max_chars",
+}
 
 
 def _parse_and_validate(name: str, raw_value: str):
@@ -18,25 +24,30 @@ def _parse_and_validate(name: str, raw_value: str):
             param_hint="name",
         )
     try:
-        if name == "top_k":
+        if name == "model.top_k":
             value = int(raw_value)
             if value <= 0:
-                raise click.BadParameter("top_k must be > 0", param_hint="value")
+                raise click.BadParameter("model.top_k must be > 0", param_hint="value")
             return value
-        elif name == "max_tokens" or name=="max_generation_tokens":
+        elif name == "model.max_tokens":
             value = int(raw_value)
             if value <= 0:
-                raise click.BadParameter(f"{name} must be > 0", param_hint="value")
+                raise click.BadParameter("model.max_tokens must be > 0", param_hint="value")
+            return value
+        elif name == "system.return_value_max_chars":
+            value = int(raw_value)
+            if value <= 0:
+                raise click.BadParameter("system.return_value_max_chars must be > 0", param_hint="value")
             return value
         else:
             value = float(raw_value)
-            if name == "temperature" and not (0.0 <= value <= 2.0):
-                raise click.BadParameter("temperature must be between 0.0 and 2.0", param_hint="value")
-            if name == "top_p" and not (0.0 <= value <= 1.0):
-                raise click.BadParameter("top_p must be between 0.0 and 1.0", param_hint="value")
+            if name == "model.temperature" and not (0.0 <= value <= 2.0):
+                raise click.BadParameter("model.temperature must be between 0.0 and 2.0", param_hint="value")
+            if name == "model.top_p" and not (0.0 <= value <= 1.0):
+                raise click.BadParameter("model.top_p must be between 0.0 and 1.0", param_hint="value")
             return value
     except ValueError:
-        type_hint = "integer" if name == "top_k" else "float"
+        type_hint = "integer" if name in ("model.top_k", "model.max_tokens", "system.return_value_max_chars") else "float"
         raise click.BadParameter(f"value for '{name}' must be a {type_hint}", param_hint="value")
 
 

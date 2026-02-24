@@ -19,6 +19,7 @@ from src.tools import session_memory_check_indentation
 from src.tools import session_memory_concat
 from src.tools import session_memory_convert_indentation
 from src.tools import session_memory_copy_rename
+from src.tools import session_memory_count_chars
 from src.tools import session_memory_count_lines
 from src.tools import session_memory_delete_lines
 from src.tools import session_memory_delete_variable
@@ -26,6 +27,7 @@ from src.tools import session_memory_get_variable
 from src.tools import session_memory_insert_lines
 from src.tools import session_memory_list_variables
 from src.tools import session_memory_normalize_eol
+from src.tools import session_memory_read_char_range
 from src.tools import session_memory_read_lines
 from src.tools import session_memory_replace_lines
 from src.tools import session_memory_search_by_regex
@@ -55,6 +57,7 @@ ALL_TOOL_DEFINITIONS: list[dict] = [
     session_memory_concat.DEFINITION,
     session_memory_convert_indentation.DEFINITION,
     session_memory_copy_rename.DEFINITION,
+    session_memory_count_chars.DEFINITION,
     session_memory_count_lines.DEFINITION,
     session_memory_delete_lines.DEFINITION,
     session_memory_delete_variable.DEFINITION,
@@ -62,6 +65,7 @@ ALL_TOOL_DEFINITIONS: list[dict] = [
     session_memory_insert_lines.DEFINITION,
     session_memory_list_variables.DEFINITION,
     session_memory_normalize_eol.DEFINITION,
+    session_memory_read_char_range.DEFINITION,
     session_memory_read_lines.DEFINITION,
     session_memory_replace_lines.DEFINITION,
     session_memory_search_by_regex.DEFINITION,
@@ -92,6 +96,7 @@ _TOOL_MAP: dict[str, object] = {
     "session_memory_concat": session_memory_concat,
     "session_memory_convert_indentation": session_memory_convert_indentation,
     "session_memory_copy_rename": session_memory_copy_rename,
+    "session_memory_count_chars": session_memory_count_chars,
     "session_memory_count_lines": session_memory_count_lines,
     "session_memory_delete_lines": session_memory_delete_lines,
     "session_memory_delete_variable": session_memory_delete_variable,
@@ -99,6 +104,7 @@ _TOOL_MAP: dict[str, object] = {
     "session_memory_insert_lines": session_memory_insert_lines,
     "session_memory_list_variables": session_memory_list_variables,
     "session_memory_normalize_eol": session_memory_normalize_eol,
+    "session_memory_read_char_range": session_memory_read_char_range,
     "session_memory_read_lines": session_memory_read_lines,
     "session_memory_replace_lines": session_memory_replace_lines,
     "session_memory_search_by_regex": session_memory_search_by_regex,

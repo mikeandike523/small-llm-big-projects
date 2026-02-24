@@ -137,6 +137,22 @@ check_eol, check_indentation, convert_indentation) all require the key to hold
 a string value. The `text` parameter in append_to_variable and
 insert/replace_lines is the literal text to write.
 
+== Tool Return Value Stubs ==
+
+If a tool return value begins with "** STUBBED LONG RETURN VALUE **", the full result
+was too large to return inline. The second line shows the total character count and the
+session memory key where the full value is stored, e.g.:
+
+  ** STUBBED LONG RETURN VALUE **
+  (total 81967 chars, session_memory_key="stubs.a3f9c1b2")
+  Preview:
+  ...
+
+To read the full value, use session_memory_count_lines and session_memory_read_lines
+to page through it in chunks (preferred when the content is line-structured, e.g. code,
+logs, or web pages). In the rare case the content is not line-structured, use
+session_memory_count_chars and session_memory_read_char_range instead.
+
 == Custom Skills ==
 
 Custom skills are guides to solving certain
