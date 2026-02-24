@@ -119,6 +119,8 @@ preferable to leaving items open forever or looping indefinitely.
 
 == Crucial Tips ==
 
+ - In basic_web_request, if load_service_tokens has exactly one entry and no Authorization header
+   is provided, Bearer auth is injected automatically.
  - Prefer tool list_working_tree to list_dir when possible.
    - list_working_tree is valid in any git repo or subfolder of a git repo
    - assume, in most cases, the pwd is a git repo, but be ready to deal with any errors

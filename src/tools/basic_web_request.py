@@ -69,7 +69,9 @@ DEFINITION: dict = {
                         "to load for this request. "
                         "Use a service token in header item values, using the special "
                         "syntax service_token:<provider_name> "
-                        "for example, Authorization: Bearer service_token:<provider_name>"
+                        "for example, Authorization: Bearer service_token:<provider_name>. "
+                        "If exactly one token is loaded and no Authorization header is provided, "
+                        "Authorization: Bearer <token> is applied automatically."
                     ),
                     "items": {"type": "string"},
                 },
@@ -140,6 +142,9 @@ def execute(args, session_data):
             )
 
         headers = apply_service_tokens_to_headers(headers, tokens)
+
+        if len(tokens) == 1 and not any(k.lower() == "authorization" for k in headers):
+            headers["Authorization"] = f"Bearer {next(iter(tokens.values()))}"
 
     if target in ("session_memory", "project_memory") and not args.get("memory_key"):
         return "Error: 'memory_key' is required when target is 'session_memory' or 'project_memory'."
