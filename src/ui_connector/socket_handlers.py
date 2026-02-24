@@ -17,6 +17,8 @@ from src.utils.sql.kv_manager import KVManager
 from src.utils.llm.streaming import StreamingLLM
 from src.tools import ALL_TOOL_DEFINITIONS, execute_tool, check_needs_approval
 from src.logic.system_prompt import build_system_prompt
+from src.utils.request_error_formatting import format_http_error
+from src.utils.env_info import get_env_context, get_os, get_shell
 
 SYSTEM_PROMPT = build_system_prompt(
     use_custom_skills=os.environ.get("SLBP_LOAD_SKILLS") == "1"
@@ -35,8 +37,7 @@ if _skills_enabled:
     except (FileNotFoundError, OSError):
         _skills_count = 0
 
-from src.utils.request_error_formatting import format_http_error
-from src.utils.env_info import get_env_context, get_os, get_shell
+
 
 
 # ---------------------------------------------------------------------------
