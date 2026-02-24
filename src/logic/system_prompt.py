@@ -1,4 +1,7 @@
-SKILLS=[
+import os
+
+
+BUILT_IN_SKILLS=[
 
 """
 Browsing the Web:
@@ -60,7 +63,7 @@ use them directly as arguments to the edit tools.
 """
 ]
 
-SYSTEM_PROMPT = f"""\
+SYSTEM_PROMPT = """\
 You are a helpful assistant with access to tools
 that let you perform many useful actions.
 
@@ -139,6 +142,22 @@ insert/replace_lines is the literal text to write.
 Custom skills are guides to solving certain
 types problems using the tools you already have.
 
-{'\n\n'.join(SKILLS) if SKILLS else '(no custom skills yet)'}
+{custom_skills}
 
 """
+
+def build_system_prompt(use_custom_skills=False,
+                        custom_skills_path=None):
+    custom_skills = []
+    if use_custom_skills:
+        if not custom_skills_path:
+            custom_skills_path = os.path.join(os.getcwd(),"skills")
+        custom_skill_files = [
+            file for file in os.listdir(custom_skills_path)
+            if file.lower().endswith(".md")             
+                         ]
+        for skill_file in custom_skill_files:
+            with open(os.path.join(custom_skills_path, skill_file)) as fl:
+                custom_skills.append(fl.read().strip())
+    return SYSTEM_PROMPT.format(custom_skills=BUILT_IN_SKILLS+custom_skills)
+

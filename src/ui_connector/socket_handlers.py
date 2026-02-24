@@ -16,7 +16,11 @@ _USE_STREAMING = os.environ.get("SLBP_STREAMING", "1") != "0"
 from src.utils.sql.kv_manager import KVManager
 from src.utils.llm.streaming import StreamingLLM
 from src.tools import ALL_TOOL_DEFINITIONS, execute_tool, check_needs_approval
-from src.logic.system_prompt import SYSTEM_PROMPT
+from src.logic.system_prompt import build_system_prompt
+
+SYSTEM_PROMPT = build_system_prompt(
+    use_custom_skills=os.environ.get("SLBP_LOAD_SKILLS") == "1"
+)
 from src.utils.request_error_formatting import format_http_error
 from src.utils.env_info import get_env_context
 

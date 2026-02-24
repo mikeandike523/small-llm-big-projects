@@ -23,7 +23,11 @@ def ui():
     '--streaming', default=True, type=bool, show_default=True,
     help='Stream tokens from the LLM. Set false to receive the full response at once (useful for diagnosing vLLM garbled-character bugs).',
 )
-def ui_run(streaming):
+@click.option(
+    '--load-skills', is_flag=True, default=False,
+    help='Load custom skills from a skills/ directory in the current working directory.',
+)
+def ui_run(streaming, load_skills):
     """
     Start the web UI: launches the Vite dev server and the Flask/SocketIO
     backend concurrently, forwarding both streams to stdout.
@@ -37,8 +41,11 @@ def ui_run(streaming):
 
     print(bash)
 
+    flask_env = {}
     if not streaming:
-        os.environ["SLBP_STREAMING"] = "0"
+        flask_env["SLBP_STREAMING"] = "0"
+    if load_skills:
+        flask_env["SLBP_LOAD_SKILLS"] = "1"
 
     processes = [
         ManagedProcess(
@@ -50,6 +57,7 @@ def ui_run(streaming):
             label="flask",
             cmd=[bash, "-l", str(PROJECT_ROOT / "run_ui_connector.sh")],
             cwd=os.getcwd(),
+            env=flask_env if flask_env else None,
         ),
     ]
 

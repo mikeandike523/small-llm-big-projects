@@ -4,6 +4,7 @@ their stdout/stderr to the current terminal in real time.
 """
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import sys
@@ -18,6 +19,7 @@ class ManagedProcess:
     label: str
     cmd: Sequence[str]
     cwd: str | Path | None = None
+    env: dict | None = None
 
 
 def _stream_output(proc: subprocess.Popen, label: str) -> None:
@@ -42,12 +44,14 @@ def run_processes(processes: list[ManagedProcess]) -> None:
     threads: list[threading.Thread] = []
 
     for mp in processes:
+        proc_env = {**os.environ, **mp.env} if mp.env else None
         proc = subprocess.Popen(
             mp.cmd,
             cwd=mp.cwd,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,  # merge stderr into stdout
             bufsize=0,                 # unbuffered — get lines as they arrive
+            env=proc_env,
         )
         procs.append(proc)
 
