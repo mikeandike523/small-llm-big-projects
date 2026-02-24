@@ -774,7 +774,7 @@ export default function Chat() {
   const [busy, setBusy] = useState(false)
   const [modalContent, setModalContent] = useState<string | null>(null)
   const [pwd, setPwd] = useState<string>('')
-  const [skillsInfo, setSkillsInfo] = useState<{ enabled: boolean; count: number; path: string | null } | null>(null)
+  const [skillsInfo, setSkillsInfo] = useState<{ enabled: boolean; count: number; path: string | null; files: string[] } | null>(null)
   const [envInfo, setEnvInfo] = useState<{ os: string; shell: string } | null>(null)
   const [debugOpen, setDebugOpen] = useState(true)
   const [systemPrompt, setSystemPrompt] = useState<string | null>(null)
@@ -813,7 +813,7 @@ export default function Chat() {
     }
     function onDisconnect() { setConnected(false) }
     function onPwdUpdate({ path }: { path: string }) { setPwd(path) }
-    function onSkillsInfo(data: { enabled: boolean; count: number; path: string | null }) { setSkillsInfo(data) }
+    function onSkillsInfo(data: { enabled: boolean; count: number; path: string | null; files: string[] }) { setSkillsInfo(data) }
     function onEnvInfo(data: { os: string; shell: string }) { setEnvInfo(data) }
     function onSystemPrompt({ text }: { text: string }) { setSystemPrompt(text) }
 
