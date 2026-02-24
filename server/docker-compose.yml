@@ -14,6 +14,7 @@ services:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
       timeout: 5s
       retries: 10
+    restart: unless-stopped
 
   redis:
     image: redis:7-alpine
@@ -23,3 +24,4 @@ services:
       test: ["CMD", "redis-cli", "ping"]
       timeout: 5s
       retries: 10
+    restart: unless-stopped
