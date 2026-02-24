@@ -21,8 +21,22 @@ from src.logic.system_prompt import build_system_prompt
 SYSTEM_PROMPT = build_system_prompt(
     use_custom_skills=os.environ.get("SLBP_LOAD_SKILLS") == "1"
 )
+
+_env_os = get_os()
+_env_shell = get_shell()
+
+_skills_enabled = os.environ.get("SLBP_LOAD_SKILLS") == "1"
+_skills_dir: str | None = None
+_skills_count: int = 0
+if _skills_enabled:
+    _skills_dir = os.path.join(os.getcwd(), "skills").replace("\\", "/")
+    try:
+        _skills_count = len([f for f in os.listdir(_skills_dir) if f.lower().endswith(".md")])
+    except (FileNotFoundError, OSError):
+        _skills_count = 0
+
 from src.utils.request_error_formatting import format_http_error
-from src.utils.env_info import get_env_context
+from src.utils.env_info import get_env_context, get_os, get_shell
 
 
 # ---------------------------------------------------------------------------
@@ -329,6 +343,16 @@ def handle_disconnect():
 @socketio.on("get_pwd")
 def handle_get_pwd():
     emit("pwd_update", {"path": os.getcwd().replace("\\", "/")})
+
+
+@socketio.on("get_skills_info")
+def handle_get_skills_info():
+    emit("skills_info", {"enabled": _skills_enabled, "count": _skills_count, "path": _skills_dir})
+
+
+@socketio.on("get_env_info")
+def handle_get_env_info():
+    emit("env_info", {"os": _env_os, "shell": _env_shell})
 
 
 @socketio.on("approval_response")

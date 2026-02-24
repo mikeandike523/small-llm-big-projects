@@ -339,19 +339,26 @@ const headerBarCss = css`
 
 const statusCss = css`
   font-size: 11px;
-  color: #555;
+  color: #c8c8c8;
+  font-family: 'Consolas', monospace;
   white-space: nowrap;
 `
 
 const pwdCss = css`
   font-size: 11px;
-  color: #383838;
+  color: #c8c8c8;
   font-family: 'Consolas', monospace;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: 70%;
   text-align: right;
+`
+
+const headerLeftCss = css`
+  display: flex;
+  align-items: center;
+  gap: 12px;
 `
 
 // TurnContainer — UNCONSTRAINED; grows to fit all child regions
@@ -768,6 +775,8 @@ export default function Chat() {
   const [busy, setBusy] = useState(false)
   const [modalContent, setModalContent] = useState<string | null>(null)
   const [pwd, setPwd] = useState<string>('')
+  const [skillsInfo, setSkillsInfo] = useState<{ enabled: boolean; count: number; path: string | null } | null>(null)
+  const [envInfo, setEnvInfo] = useState<{ os: string; shell: string } | null>(null)
 
   const {
     containerRef: threadRef,
@@ -787,14 +796,22 @@ export default function Chat() {
 
   useEffect(() => {
     // Fetch current pwd immediately if already connected at mount time.
-    if (socket.connected) socket.emit('get_pwd')
+    if (socket.connected) {
+      socket.emit('get_pwd')
+      socket.emit('get_skills_info')
+      socket.emit('get_env_info')
+    }
 
     function onConnect() {
       setConnected(true)
       socket.emit('get_pwd')
+      socket.emit('get_skills_info')
+      socket.emit('get_env_info')
     }
     function onDisconnect() { setConnected(false) }
     function onPwdUpdate({ path }: { path: string }) { setPwd(path) }
+    function onSkillsInfo(data: { enabled: boolean; count: number; path: string | null }) { setSkillsInfo(data) }
+    function onEnvInfo(data: { os: string; shell: string }) { setEnvInfo(data) }
 
     function onToken({ type, text }: { type: 'reasoning' | 'content'; text: string }) {
       setThread(prev => {
@@ -922,6 +939,8 @@ export default function Chat() {
     socket.on('connect', onConnect)
     socket.on('disconnect', onDisconnect)
     socket.on('pwd_update', onPwdUpdate)
+    socket.on('skills_info', onSkillsInfo)
+    socket.on('env_info', onEnvInfo)
     socket.on('token', onToken)
     socket.on('begin_interim_stream', onBeginInterimStream)
     socket.on('begin_final_summary', onBeginFinalSummary)
@@ -938,6 +957,8 @@ export default function Chat() {
       socket.off('connect', onConnect)
       socket.off('disconnect', onDisconnect)
       socket.off('pwd_update', onPwdUpdate)
+      socket.off('skills_info', onSkillsInfo)
+      socket.off('env_info', onEnvInfo)
       socket.off('token', onToken)
       socket.off('begin_interim_stream', onBeginInterimStream)
       socket.off('begin_final_summary', onBeginFinalSummary)
@@ -1014,7 +1035,18 @@ export default function Chat() {
       </div>
 
       <div css={headerBarCss}>
-        <span css={statusCss}>{connected ? '●' : '○'} {connected ? 'connected' : 'disconnected'}</span>
+        <div css={headerLeftCss}>
+          <span css={statusCss}>{connected ? '●' : '○'} {connected ? 'connected' : 'disconnected'}</span>
+          {envInfo && (
+            <span css={statusCss}>{envInfo.os} / {envInfo.shell}</span>
+          )}
+          {skillsInfo?.enabled && (
+            <>
+              <span css={statusCss}>skills enabled</span>
+              <span css={statusCss}>{skillsInfo.count} skills from {skillsInfo.path}</span>
+            </>
+          )}
+        </div>
         {pwd && <span css={pwdCss}>{pwd}</span>}
       </div>
       <div css={threadCss} ref={threadRef} onScroll={handleScroll}>
