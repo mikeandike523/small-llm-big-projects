@@ -1,3 +1,4 @@
+import json
 import os
 from typing import Any
 
@@ -46,8 +47,13 @@ DEFINITION: dict = {
                     "additionalProperties": {"type": "string"},
                 },
                 "body": {
-                    "type": "string",
-                    "description": "Optional body data. Use stringified JSON for JSON requests.",
+                    "anyOf": [{"type": "string"}, {"type": "object"}],
+                    "description": (
+                        "Optional body data. Can be a plain string or an object. "
+                        "If content_type is JSON-like (e.g. application/json), "
+                        "objects are automatically serialized to JSON. "
+                        "Pass a raw string for exact body control."
+                    ),
                 },
                 "timeout": {
                     "type": "integer",
@@ -115,7 +121,13 @@ def execute(args, session_data):
     timeout: int = args["timeout"]
 
     headers: dict[str, str] = (args.get("headers") or {}).copy()
-    body: str | None = args.get("body")
+    body: str | dict | None = args.get("body")
+
+    if isinstance(body, dict):
+        if is_json_content_type(content_type):
+            body = json.dumps(body)
+        else:
+            return "Error: 'body' is an object but content_type is not JSON-like. Pass a string body or use a JSON content type."
     debug_show_bad_json: bool = bool(args.get("debug_show_bad_json", False))
 
     target = args.get("target", "return_value")
