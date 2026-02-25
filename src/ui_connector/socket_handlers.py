@@ -493,6 +493,14 @@ def handle_user_message(data: dict):
             continue
 
         if had_tool_calls and not final_reprompt_done:
+            todo_list = session["session_data"].get("todo_list") or []
+            all_closed = bool(todo_list) and not _get_open_items(todo_list)
+            has_content = bool(content_for_history and content_for_history.strip())
+            if all_closed and has_content:
+                # The interim wrap-up response is the summary — no reprompt needed.
+                emit("message_done", {"content": content_for_history})
+                turn_completed = True
+                break
             final_reprompt_done = True
             emit("final_reprompt", {})
             emit("begin_final_summary", {})

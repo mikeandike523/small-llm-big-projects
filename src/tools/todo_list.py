@@ -195,9 +195,12 @@ def execute(args: dict, session_data: dict | None = None) -> str:
             return json.dumps({"error": err})
         idx = item_number - 1
         items[idx]["status"] = "closed"
+        msg = f"Closed item {item_number}: \"{items[idx]['text']}\""
+        if items and all(it["status"] == "closed" for it in items):
+            msg += " — all todo list items completed"
         return json.dumps({
             "item": _fmt_item(items, idx),
-            "message": f"Closed item {item_number}: \"{items[idx]['text']}\"",
+            "message": msg,
         })
 
     # --- reopen_item ---
