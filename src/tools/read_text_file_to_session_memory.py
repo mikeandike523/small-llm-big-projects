@@ -6,6 +6,8 @@ from src.data import get_pool
 from src.utils.sql.kv_manager import KVManager
 from src.utils.text.line_numbers import add_line_numbers
 
+LEAVE_OUT = "PARAMS_ONLY"
+
 DEFINITION: dict = {
     "type": "function",
     "function": {

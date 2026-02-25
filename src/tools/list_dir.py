@@ -6,6 +6,9 @@ from pathlib import Path
 from src.data import get_pool
 from src.utils.sql.kv_manager import KVManager
 
+LEAVE_OUT = "SHORT"
+TOOL_SHORT_AMOUNT = 400
+
 DEFINITION: dict = {
     "type": "function",
     "function": {

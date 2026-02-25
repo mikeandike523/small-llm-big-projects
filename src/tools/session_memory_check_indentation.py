@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+LEAVE_OUT = "KEEP"
+
 DEFINITION: dict = {
     "type": "function",
     "function": {

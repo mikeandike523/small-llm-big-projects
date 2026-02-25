@@ -2,6 +2,9 @@ from __future__ import annotations
 import os
 from src.tools._subprocess import run_command
 
+LEAVE_OUT = "SHORT"
+TOOL_SHORT_AMOUNT = 600
+
 DEFINITION: dict = {
     "type": "function",
     "function": {

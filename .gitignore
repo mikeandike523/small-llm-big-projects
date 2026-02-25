@@ -12,3 +12,5 @@ ui/.env
 ui/.env.local
 
 scratchpad
+
+**/.claude

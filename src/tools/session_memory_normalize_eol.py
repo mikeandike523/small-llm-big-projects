@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from src.tools._eol import EOL_CHOICES
 
+LEAVE_OUT = "PARAMS_ONLY"
+
 DEFINITION: dict = {
     "type": "function",
     "function": {

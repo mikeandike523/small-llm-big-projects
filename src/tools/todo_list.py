@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 
+LEAVE_OUT = "KEEP"
+
 DEFINITION: dict = {
     "type": "function",
     "function": {

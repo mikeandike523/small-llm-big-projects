@@ -15,8 +15,9 @@ from src.data import get_pool
 _USE_STREAMING = os.environ.get("SLBP_STREAMING", "1") != "0"
 from src.utils.sql.kv_manager import KVManager
 from src.utils.llm.streaming import StreamingLLM
-from src.tools import ALL_TOOL_DEFINITIONS, execute_tool, check_needs_approval
+from src.tools import ALL_TOOL_DEFINITIONS, execute_tool, check_needs_approval, _TOOL_MAP
 from src.logic.system_prompt import build_system_prompt
+from src.utils.conversation_strip import strip_down_messages
 from src.utils.request_error_formatting import format_http_error
 from src.utils.env_info import get_env_context, get_os, get_shell
 from termcolor import colored
@@ -208,6 +209,48 @@ def _build_llm_payload(
 
 
 # ---------------------------------------------------------------------------
+# Context-limit / timeout detection helpers
+# ---------------------------------------------------------------------------
+
+_CONTEXT_LIMIT_KEYWORDS = (
+    "context length exceeded",
+    "context_length_exceeded",
+    "maximum context length",
+    "maximum token",
+    "context window",
+    "too many tokens",
+    "input is too long",
+    "prompt is too long",
+    "exceeds the maximum",
+)
+
+
+def _is_context_limit_error(exc: Exception) -> bool:
+    """Return True if exc is an HTTP error that indicates context-window overflow."""
+    try:
+        if not isinstance(exc, requests.exceptions.HTTPError):
+            return False
+        response = exc.response
+        if response is None:
+            return False
+        if response.status_code not in (400, 413, 422):
+            return False
+        body = response.text.lower()
+        return any(kw in body for kw in _CONTEXT_LIMIT_KEYWORDS)
+    except Exception:
+        return False
+
+
+def _is_timeout_error(exc: Exception) -> bool:
+    """Return True if exc is a network-level timeout."""
+    return isinstance(exc, requests.exceptions.Timeout)
+
+
+def _is_retryable_error(exc: Exception) -> bool:
+    return _is_context_limit_error(exc) or _is_timeout_error(exc)
+
+
+# ---------------------------------------------------------------------------
 # LLM call abstraction
 # ---------------------------------------------------------------------------
 
@@ -235,6 +278,38 @@ def _run_llm_call(streaming_llm: StreamingLLM, payload: list[dict]) -> tuple[obj
         if result.content:
             emit("token", {"type": "content", "text": result.content})
         return result, result.content or ""
+
+
+# ---------------------------------------------------------------------------
+# Retry wrapper
+# ---------------------------------------------------------------------------
+
+def _run_llm_call_with_retry(
+    streaming_llm: StreamingLLM,
+    payload: list[dict],
+    assistant_truncation_chars: int | None = None,
+) -> tuple[object, str]:
+    """
+    Run an LLM call; on timeout or context-limit error, strip the payload
+    down using each tool's LEAVE_OUT policy and retry once.
+    Raises on any non-retryable error or if the retry also fails.
+    """
+    try:
+        return _run_llm_call(streaming_llm, payload)
+    except Exception as exc:
+        if not _is_retryable_error(exc):
+            raise
+
+        reason = "timeout" if _is_timeout_error(exc) else "context limit exceeded"
+        _emit_backend_log(
+            colored(f"LLM call failed ({reason}), retrying with stripped context…", "yellow")
+        )
+
+        stripped = strip_down_messages(
+            payload, _TOOL_MAP,
+            assistant_truncation_chars=assistant_truncation_chars,
+        )
+        return _run_llm_call(streaming_llm, stripped)
 
 
 # ---------------------------------------------------------------------------
@@ -453,6 +528,7 @@ def handle_user_message(data: dict):
         llm_config["model_params"],
     )
     return_value_max_chars: int | None = llm_config["system_params"].get("return_value_max_chars")
+    assistant_truncation_chars: int | None = llm_config["system_params"].get("assistant_strip_truncation_chars")
 
     session = _load_session(sid)
     session["session_data"]["todo_list"] = []
@@ -477,7 +553,10 @@ def handle_user_message(data: dict):
         payload = _build_llm_payload(session["condensed_turns"], current_turn_slice)
 
         try:
-            result, content_for_history = _run_llm_call(streaming_llm, payload)
+            result, content_for_history = _run_llm_call_with_retry(
+                streaming_llm, payload,
+                assistant_truncation_chars=assistant_truncation_chars,
+            )
         except requests.exceptions.HTTPError as exc:
             emit("error", {"message": f"LLM stream error:\n\n{format_http_error(exc)}"})
             break

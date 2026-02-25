@@ -5,6 +5,8 @@ import os
 from src.data import get_pool
 from src.utils.sql.kv_manager import KVManager
 
+LEAVE_OUT = "KEEP"
+
 DEFINITION: dict = {
     "type": "function",
     "function": {

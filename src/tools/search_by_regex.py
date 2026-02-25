@@ -5,6 +5,9 @@ import re
 
 from python_ripgrep import search as _rg_search
 
+LEAVE_OUT = "SHORT"
+TOOL_SHORT_AMOUNT = 600
+
 DEFINITION: dict = {
     "type": "function",
     "function": {

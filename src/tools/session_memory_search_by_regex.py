@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import re
 
+LEAVE_OUT = "SHORT"
+TOOL_SHORT_AMOUNT = 500
+
 DEFINITION: dict = {
     "type": "function",
     "function": {

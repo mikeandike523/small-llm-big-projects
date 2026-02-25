@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+LEAVE_OUT = "PARAMS_ONLY"
+
 DEFINITION: dict = {
     "type": "function",
     "function": {

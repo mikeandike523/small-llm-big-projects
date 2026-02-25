@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from src.tools._indentation import INDENT_TARGET_CHOICES, DEFAULT_SPACES_PER_TAB
 
+LEAVE_OUT = "PARAMS_ONLY"
+
 DEFINITION: dict = {
     "type": "function",
     "function": {

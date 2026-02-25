@@ -18,7 +18,8 @@
       "mcp__ide__getDiagnostics",
       "Bash(cd:*)",
       "Bash(C:/Users/micha/Projects/small-llm-big-projects/.venv/Scripts/python.exe:*)",
-      "Bash(C:/Users/micha/Projects/small-llm-big-projects/.venv/Scripts/pip.exe install:*)"
+      "Bash(C:/Users/micha/Projects/small-llm-big-projects/.venv/Scripts/pip.exe install:*)",
+      "Bash(head:*)"
     ]
   }
 }

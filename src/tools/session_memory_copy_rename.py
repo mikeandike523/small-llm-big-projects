@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import copy
 
+LEAVE_OUT = "PARAMS_ONLY"
+
 DEFINITION: dict = {
     "type": "function",
     "function": {
