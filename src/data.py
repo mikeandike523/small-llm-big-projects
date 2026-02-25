@@ -39,7 +39,7 @@ def get_pool():
     global _pool
     if _pool is None:
         port = _get_mysql_host_port()
-        print
+        
         _pool = pooling.MySQLConnectionPool(
             pool_name="slbp_pool",
             pool_size=10,

@@ -28,7 +28,11 @@ def ui():
     '--load-skills', is_flag=True, default=False,
     help='Load custom skills from a skills/ directory in the current working directory.',
 )
-def ui_run(streaming, load_skills):
+@click.option(
+    '--load-tools', is_flag=True, default=False,
+    help='Load custom tools from a tools/ directory in the current working directory.',
+)
+def ui_run(streaming, load_skills, load_tools):
     """
     Start the web UI: launches the Vite dev server and the Flask/SocketIO
     backend concurrently, forwarding both streams to stdout.
@@ -47,8 +51,15 @@ def ui_run(streaming, load_skills):
         flask_env["SLBP_STREAMING"] = "0"
     if load_skills:
         flask_env["SLBP_LOAD_SKILLS"] = "1"
+    if load_tools:
+        flask_env["SLBP_LOAD_CUSTOM_TOOLS"] = "1"
 
     processes = [
+        ManagedProcess(
+            label="logging",
+            cmd=[bash, "-l", str(PROJECT_ROOT / "run_logging_server.sh")],
+            cwd=PROJECT_ROOT,
+        ),
         ManagedProcess(
             label="vite",
             cmd=[bash, "-l", "run_ui_server.sh"],
