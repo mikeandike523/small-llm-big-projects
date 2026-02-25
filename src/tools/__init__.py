@@ -8,6 +8,7 @@ from src.tools import delete_file
 from src.tools import get_pwd
 from src.tools import list_dir
 from src.tools import list_working_tree
+from src.tools import load_skill_files_from_url_to_session_memory
 from src.tools import read_text_file_to_session_memory
 from src.tools import remove_dir
 from src.tools import report_impossible
@@ -46,6 +47,7 @@ ALL_TOOL_DEFINITIONS: list[dict] = [
     get_pwd.DEFINITION,
     list_dir.DEFINITION,
     list_working_tree.DEFINITION,
+    load_skill_files_from_url_to_session_memory.DEFINITION,
     read_text_file_to_session_memory.DEFINITION,
     remove_dir.DEFINITION,
     report_impossible.DEFINITION,
@@ -85,6 +87,7 @@ _TOOL_MAP: dict[str, object] = {
     "get_pwd": get_pwd,
     "list_dir": list_dir,
     "list_working_tree": list_working_tree,
+    "load_skill_files_from_url_to_session_memory": load_skill_files_from_url_to_session_memory,
     "read_text_file": read_text_file_to_session_memory,
     "remove_dir": remove_dir,
     "report_impossible": report_impossible,
