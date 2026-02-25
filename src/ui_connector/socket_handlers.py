@@ -377,6 +377,7 @@ def _execute_tools(result, content_for_history: str, session: dict, sid: str, re
         if return_value_max_chars is not None and len(tool_result) > return_value_max_chars:
             tool_result = _stub_tool_result(tool_result, return_value_max_chars, session["session_data"])
         emit("tool_result", {"id": tc.id, "result": tool_result})
+        emit("session_memory_keys_update", {"keys": list(session["session_data"].get("memory", {}).keys())})
         if tc.name == "change_pwd":
             emit("pwd_update", {"path": os.getcwd().replace("\\", "/")})
         if tc.name == "todo_list":
@@ -494,6 +495,26 @@ def handle_get_system_prompt():
 @socketio.on("get_env_info")
 def handle_get_env_info():
     emit("env_info", {"os": _env_os, "shell": _env_shell})
+
+
+@socketio.on("get_session_memory_keys")
+def handle_get_session_memory_keys():
+    sid = request.sid
+    session = _load_session(sid)
+    keys = list(session["session_data"].get("memory", {}).keys())
+    emit("session_memory_keys_update", {"keys": keys})
+
+
+@socketio.on("get_session_memory_value")
+def handle_get_session_memory_value(data: dict):
+    sid = request.sid
+    key = data.get("key", "")
+    session = _load_session(sid)
+    memory = session["session_data"].get("memory", {})
+    if key in memory:
+        emit("session_memory_value", {"key": key, "value": memory[key], "found": True})
+    else:
+        emit("session_memory_value", {"key": key, "value": "", "found": False})
 
 
 @socketio.on("approval_response")

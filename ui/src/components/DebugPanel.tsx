@@ -3,6 +3,7 @@ import { css } from '@emotion/react'
 import { useState, useEffect } from 'react'
 import Ansi from 'ansi-to-react'
 import { useScrollToBottom } from '../hooks/useScrollToBottom'
+import { socket } from '../socket'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -273,6 +274,148 @@ const logLineCss = css`
 `
 
 // ---------------------------------------------------------------------------
+// Session Memory styles
+// ---------------------------------------------------------------------------
+
+const sessionToolbarCss = css`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+`
+
+const sessionKeyCountCss = css`
+  font-family: 'Consolas', monospace;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: #444;
+`
+
+const refreshButtonCss = css`
+  background: transparent;
+  border: 1px solid #2a2a2a;
+  color: #555;
+  cursor: pointer;
+  font-family: 'Consolas', monospace;
+  font-size: 9px;
+  padding: 2px 8px;
+  border-radius: 3px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  &:hover { color: #aaa; border-color: #444; }
+`
+
+const memKeyListCss = css`
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+`
+
+const memKeyRowCss = css`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 3px 6px;
+  border: 1px solid #1a1a1a;
+  border-radius: 3px;
+  &:hover { border-color: #2a2a2a; background: #111; }
+`
+
+const memKeyNameCss = css`
+  font-family: 'Consolas', monospace;
+  font-size: 10px;
+  color: #888;
+  word-break: break-all;
+  flex: 1;
+  min-width: 0;
+`
+
+const viewButtonCss = css`
+  background: transparent;
+  border: 1px solid #2a2a2a;
+  color: #555;
+  cursor: pointer;
+  font-family: 'Consolas', monospace;
+  font-size: 9px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  flex-shrink: 0;
+  margin-left: 6px;
+  &:hover { color: #aaa; border-color: #444; }
+`
+
+// ---------------------------------------------------------------------------
+// Modal styles
+// ---------------------------------------------------------------------------
+
+const modalOverlayCss = css`
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.75);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+`
+
+const modalCardCss = css`
+  background: #111;
+  border: 1px solid #2a2a2a;
+  border-radius: 6px;
+  display: flex;
+  flex-direction: column;
+  width: 600px;
+  max-width: 90vw;
+  max-height: 80vh;
+  overflow: hidden;
+`
+
+const modalHeaderCss = css`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid #1e1e1e;
+  flex-shrink: 0;
+  gap: 8px;
+`
+
+const modalTitleCss = css`
+  font-family: 'Consolas', monospace;
+  font-size: 11px;
+  color: #888;
+  word-break: break-all;
+  flex: 1;
+  min-width: 0;
+`
+
+const modalCloseButtonCss = css`
+  background: transparent;
+  border: none;
+  color: #555;
+  cursor: pointer;
+  font-size: 16px;
+  padding: 0 2px;
+  line-height: 1;
+  flex-shrink: 0;
+  &:hover { color: #aaa; }
+`
+
+const modalBodyCss = css`
+  flex: 1;
+  overflow-y: auto;
+  padding: 10px 12px;
+  font-family: 'Consolas', monospace;
+  font-size: 11px;
+  color: #888;
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.5;
+  ${scrollbarCss}
+`
+
+// ---------------------------------------------------------------------------
 // Sub-components
 // ---------------------------------------------------------------------------
 
@@ -323,6 +466,40 @@ function SystemTab({ pwd, envInfo, skillsInfo }: { pwd: string; envInfo: EnvInfo
   )
 }
 
+function SessionMemTab({
+  keys,
+  onRefresh,
+  onView,
+}: {
+  keys: string[]
+  onRefresh: () => void
+  onView: (key: string) => void
+}) {
+  return (
+    <>
+      <div css={sessionToolbarCss}>
+        <span css={sessionKeyCountCss}>
+          {keys.length} key{keys.length !== 1 ? 's' : ''}
+        </span>
+        <button css={refreshButtonCss} onClick={onRefresh}>Refresh</button>
+      </div>
+      {keys.length === 0
+        ? <div css={placeholderCss}>No memory keys.</div>
+        : (
+          <div css={memKeyListCss}>
+            {keys.map(key => (
+              <div key={key} css={memKeyRowCss}>
+                <span css={memKeyNameCss}>{key}</span>
+                <button css={viewButtonCss} onClick={() => onView(key)}>View</button>
+              </div>
+            ))}
+          </div>
+        )
+      }
+    </>
+  )
+}
+
 function BackendLogsTab({ logs, visible }: { logs: BackendLogEntry[]; visible: boolean }) {
   const { containerRef, scrollToBottomIfNeeded, onScroll } = useScrollToBottom<HTMLDivElement>()
 
@@ -348,8 +525,51 @@ function BackendLogsTab({ logs, visible }: { logs: BackendLogEntry[]; visible: b
 // DebugPanel
 // ---------------------------------------------------------------------------
 
+interface MemModal {
+  key: string
+  value: string
+  loading: boolean
+}
+
 export function DebugPanel({ open, onToggle, pwd, envInfo, skillsInfo, systemPrompt, backendLogs }: Props) {
   const [activeTab, setActiveTab] = useState<TabId>('system')
+  const [sessionMemKeys, setSessionMemKeys] = useState<string[]>([])
+  const [memModal, setMemModal] = useState<MemModal | null>(null)
+
+  // Listen for session memory socket events
+  useEffect(() => {
+    function onMemoryKeys({ keys }: { keys: string[] }) {
+      setSessionMemKeys(keys)
+    }
+    function onMemoryValue({ key, value, found }: { key: string; value: string; found: boolean }) {
+      setMemModal(prev => {
+        if (!prev || prev.key !== key) return prev
+        return { key, value: found ? value : '(key not found)', loading: false }
+      })
+    }
+    socket.on('session_memory_keys_update', onMemoryKeys)
+    socket.on('session_memory_value', onMemoryValue)
+    return () => {
+      socket.off('session_memory_keys_update', onMemoryKeys)
+      socket.off('session_memory_value', onMemoryValue)
+    }
+  }, [])
+
+  // Fetch keys when the session tab becomes active
+  useEffect(() => {
+    if (open && activeTab === 'session') {
+      socket.emit('get_session_memory_keys')
+    }
+  }, [open, activeTab])
+
+  function refreshMemoryKeys() {
+    socket.emit('get_session_memory_keys')
+  }
+
+  function viewMemoryValue(key: string) {
+    setMemModal({ key, value: '', loading: true })
+    socket.emit('get_session_memory_value', { key })
+  }
 
   if (!open) {
     return (
@@ -360,42 +580,62 @@ export function DebugPanel({ open, onToggle, pwd, envInfo, skillsInfo, systemPro
   }
 
   return (
-    <div css={panelCss}>
-      <div css={headerCss}>
-        <span css={headerTitleCss}>Debug</span>
-        <button css={toggleButtonCss} onClick={onToggle} title="Close debug panel">«</button>
-      </div>
+    <>
+      {memModal && (
+        <div css={modalOverlayCss} onClick={() => setMemModal(null)}>
+          <div css={modalCardCss} onClick={e => e.stopPropagation()}>
+            <div css={modalHeaderCss}>
+              <span css={modalTitleCss}>{memModal.key}</span>
+              <button css={modalCloseButtonCss} onClick={() => setMemModal(null)}>×</button>
+            </div>
+            <div css={modalBodyCss}>
+              {memModal.loading ? 'Loading...' : memModal.value}
+            </div>
+          </div>
+        </div>
+      )}
 
-      <div css={tabBarCss}>
-        {TABS.map(tab => (
-          <button
-            key={tab.id}
-            css={tabButtonCss(activeTab === tab.id)}
-            onClick={() => setActiveTab(tab.id)}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
+      <div css={panelCss}>
+        <div css={headerCss}>
+          <span css={headerTitleCss}>Debug</span>
+          <button css={toggleButtonCss} onClick={onToggle} title="Close debug panel">«</button>
+        </div>
 
-      <div css={tabContentAreaCss}>
-        <div css={tabPanelCss(activeTab === 'system')}>
-          <SystemTab pwd={pwd} envInfo={envInfo} skillsInfo={skillsInfo} />
+        <div css={tabBarCss}>
+          {TABS.map(tab => (
+            <button
+              key={tab.id}
+              css={tabButtonCss(activeTab === tab.id)}
+              onClick={() => setActiveTab(tab.id)}
+            >
+              {tab.label}
+            </button>
+          ))}
         </div>
-        <div css={tabPanelCss(activeTab === 'session')}>
-          <div css={placeholderCss}>Under construction.</div>
+
+        <div css={tabContentAreaCss}>
+          <div css={tabPanelCss(activeTab === 'system')}>
+            <SystemTab pwd={pwd} envInfo={envInfo} skillsInfo={skillsInfo} />
+          </div>
+          <div css={tabPanelCss(activeTab === 'session')}>
+            <SessionMemTab
+              keys={sessionMemKeys}
+              onRefresh={refreshMemoryKeys}
+              onView={viewMemoryValue}
+            />
+          </div>
+          <div css={tabPanelCss(activeTab === 'project')}>
+            <div css={placeholderCss}>Under construction.</div>
+          </div>
+          <div css={promptPanelCss(activeTab === 'prompt')}>
+            {systemPrompt !== null
+              ? systemPrompt
+              : <span css={placeholderCss}>Not yet received.</span>
+            }
+          </div>
+          <BackendLogsTab logs={backendLogs} visible={activeTab === 'logs'} />
         </div>
-        <div css={tabPanelCss(activeTab === 'project')}>
-          <div css={placeholderCss}>Under construction.</div>
-        </div>
-        <div css={promptPanelCss(activeTab === 'prompt')}>
-          {systemPrompt !== null
-            ? systemPrompt
-            : <span css={placeholderCss}>Not yet received.</span>
-          }
-        </div>
-        <BackendLogsTab logs={backendLogs} visible={activeTab === 'logs'} />
       </div>
-    </div>
+    </>
   )
 }
