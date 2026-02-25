@@ -15,7 +15,7 @@ from src.data import get_pool
 _USE_STREAMING = os.environ.get("SLBP_STREAMING", "1") != "0"
 from src.utils.sql.kv_manager import KVManager
 from src.utils.llm.streaming import StreamingLLM
-from src.tools import ALL_TOOL_DEFINITIONS, execute_tool, check_needs_approval, _TOOL_MAP
+from src.tools import ALL_TOOL_DEFINITIONS, execute_tool, check_needs_approval, _TOOL_MAP, _custom_tool_plugins
 from src.logic.system_prompt import build_system_prompt
 from src.utils.conversation_strip import strip_down_messages
 from src.utils.request_error_formatting import format_http_error
@@ -28,6 +28,13 @@ SYSTEM_PROMPT = build_system_prompt(
 
 _env_os = get_os()
 _env_shell = get_shell()
+_initial_cwd: str = os.getcwd()
+_pin_project_memory: bool = os.environ.get("SLBP_PIN_PROJECT_MEMORY", "1") != "0"
+
+
+def _get_default_project() -> str:
+    return _initial_cwd if _pin_project_memory else os.getcwd()
+
 
 _skills_enabled = os.environ.get("SLBP_LOAD_SKILLS") == "1"
 _skills_dir: str | None = None
@@ -40,6 +47,8 @@ if _skills_enabled:
         _skills_count = len(_skills_files)
     except (FileNotFoundError, OSError):
         pass
+
+_builtin_tool_count: int = len(ALL_TOOL_DEFINITIONS) - sum(p["count"] for p in _custom_tool_plugins)
 
 
 
@@ -373,6 +382,7 @@ def _execute_tools(result, content_for_history: str, session: dict, sid: str, re
                 session["session_data"]["_report_impossible"] = reason
                 return True, reason
 
+        session["session_data"]["__pinned_project__"] = _initial_cwd if _pin_project_memory else None
         tool_result = execute_tool(tc.name, tc.arguments, session["session_data"])
         if return_value_max_chars is not None and len(tool_result) > return_value_max_chars:
             tool_result = _stub_tool_result(tool_result, return_value_max_chars, session["session_data"])
@@ -494,7 +504,7 @@ def handle_get_system_prompt():
 
 @socketio.on("get_env_info")
 def handle_get_env_info():
-    emit("env_info", {"os": _env_os, "shell": _env_shell})
+    emit("env_info", {"os": _env_os, "shell": _env_shell, "initialCwd": _initial_cwd})
 
 
 @socketio.on("get_session_memory_keys")
@@ -515,6 +525,40 @@ def handle_get_session_memory_value(data: dict):
         emit("session_memory_value", {"key": key, "value": memory[key], "found": True})
     else:
         emit("session_memory_value", {"key": key, "value": "", "found": False})
+
+
+@socketio.on("get_project_memory_keys")
+def handle_get_project_memory_keys():
+    project = _get_default_project()
+    pool = get_pool()
+    with pool.get_connection() as conn:
+        keys = KVManager(conn).list_keys(project=project)
+    emit("project_memory_keys_update", {"keys": keys})
+
+
+@socketio.on("get_project_memory_value")
+def handle_get_project_memory_value(data: dict):
+    key = data.get("key", "")
+    project = _get_default_project()
+    pool = get_pool()
+    with pool.get_connection() as conn:
+        value = KVManager(conn).get_value(key, project=project)
+    if value is not None:
+        emit("project_memory_value", {"key": key, "value": value, "found": True})
+    else:
+        emit("project_memory_value", {"key": key, "value": "", "found": False})
+
+
+@socketio.on("get_tools_info")
+def handle_get_tools_info():
+    custom_enabled = os.environ.get("SLBP_LOAD_CUSTOM_TOOLS") == "1"
+    emit("tools_info", {
+        "totalCount": len(ALL_TOOL_DEFINITIONS),
+        "builtinCount": _builtin_tool_count,
+        "builtinPath": "src/tools/",
+        "names": [d["function"]["name"] for d in ALL_TOOL_DEFINITIONS],
+        "customPlugins": _custom_tool_plugins if custom_enabled else None,
+    })
 
 
 @socketio.on("approval_response")
@@ -554,7 +598,7 @@ def handle_user_message(data: dict):
     session = _load_session(sid)
     session["session_data"]["todo_list"] = []
     emit("todo_list_update", {"items": []})
-    user_content = f"{text}\n\n{get_env_context()}"
+    user_content = f"{text}\n\n{get_env_context(initial_cwd=_initial_cwd)}"
     session["message_history"].append({"role": "user", "content": user_content})
     turn_start_idx = len(session["message_history"]) - 1
 

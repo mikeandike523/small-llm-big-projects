@@ -19,6 +19,15 @@ interface SkillsInfo {
 interface EnvInfo {
   os: string
   shell: string
+  initialCwd: string
+}
+
+interface ToolsInfo {
+  totalCount: number
+  builtinCount: number
+  builtinPath: string
+  names: string[]
+  customPlugins: { name: string; count: number; path: string }[] | null
 }
 
 interface BackendLogEntry {
@@ -32,6 +41,7 @@ interface Props {
   pwd: string
   envInfo: EnvInfo | null
   skillsInfo: SkillsInfo | null
+  toolsInfo: ToolsInfo | null
   systemPrompt: string | null
   backendLogs: BackendLogEntry[]
 }
@@ -251,6 +261,33 @@ const skillsCardFileCss = css`
   color: #777;
 `
 
+const toolsCardPluginNameCss = css`
+  font-family: 'Consolas', monospace;
+  font-size: 10px;
+  color: #668;
+  margin-top: 3px;
+`
+
+const toolsCardPluginPathCss = css`
+  font-family: 'Consolas', monospace;
+  font-size: 9px;
+  color: #3a3a4a;
+  word-break: break-all;
+  margin-bottom: 2px;
+`
+
+const toolsCardNameCss = css`
+  font-family: 'Consolas', monospace;
+  font-size: 10px;
+  color: #777;
+`
+
+const toolsCardDividerCss = css`
+  border: none;
+  border-top: 1px solid #1e1e1e;
+  margin: 4px 0;
+`
+
 const logsPanelCss = (visible: boolean) => css`
   position: absolute;
   inset: 0;
@@ -448,20 +485,87 @@ function SkillsCard({ skillsInfo }: { skillsInfo: SkillsInfo }) {
   )
 }
 
-function SystemTab({ pwd, envInfo, skillsInfo }: { pwd: string; envInfo: EnvInfo | null; skillsInfo: SkillsInfo | null }) {
+function ToolsCard({ toolsInfo }: { toolsInfo: ToolsInfo }) {
+  return (
+    <div css={skillsCardCss}>
+      <div css={skillsCardHeaderCss}>
+        {toolsInfo.totalCount} tool{toolsInfo.totalCount !== 1 ? 's' : ''} loaded
+      </div>
+      <div css={skillsCardBodyCss}>
+        <div css={skillsCardPathCss}>{toolsInfo.builtinPath} ({toolsInfo.builtinCount} built-in)</div>
+        {toolsInfo.customPlugins && toolsInfo.customPlugins.length > 0 && (
+          <>
+            {toolsInfo.customPlugins.map(p => (
+              <div key={p.name}>
+                <div css={toolsCardPluginNameCss}>· {p.name}/ ({p.count} tools)</div>
+                <div css={toolsCardPluginPathCss}>{p.path}</div>
+              </div>
+            ))}
+          </>
+        )}
+        {toolsInfo.names.length > 0 && (
+          <>
+            <hr css={toolsCardDividerCss} />
+            {toolsInfo.names.map(name => (
+              <div key={name} css={toolsCardNameCss}>· {name}</div>
+            ))}
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function SystemTab({ pwd, envInfo, skillsInfo, toolsInfo }: { pwd: string; envInfo: EnvInfo | null; skillsInfo: SkillsInfo | null; toolsInfo: ToolsInfo | null }) {
   return (
     <>
       {envInfo && (
         <>
           <InfoRow label="OS" value={envInfo.os} />
           <InfoRow label="Shell" value={envInfo.shell} />
+          <InfoRow label="Initial CWD" value={envInfo.initialCwd} />
         </>
       )}
       {pwd && <InfoRow label="Working Directory" value={pwd} />}
       {skillsInfo && <SkillsCard skillsInfo={skillsInfo} />}
-      {!envInfo && !pwd && !skillsInfo && (
+      {toolsInfo && <ToolsCard toolsInfo={toolsInfo} />}
+      {!envInfo && !pwd && !skillsInfo && !toolsInfo && (
         <div css={placeholderCss}>No system info available.</div>
       )}
+    </>
+  )
+}
+
+function ProjectMemTab({
+  keys,
+  onRefresh,
+  onView,
+}: {
+  keys: string[]
+  onRefresh: () => void
+  onView: (key: string) => void
+}) {
+  return (
+    <>
+      <div css={sessionToolbarCss}>
+        <span css={sessionKeyCountCss}>
+          {keys.length} key{keys.length !== 1 ? 's' : ''}
+        </span>
+        <button css={refreshButtonCss} onClick={onRefresh}>Refresh</button>
+      </div>
+      {keys.length === 0
+        ? <div css={placeholderCss}>No project memory keys.</div>
+        : (
+          <div css={memKeyListCss}>
+            {keys.map(key => (
+              <div key={key} css={memKeyRowCss}>
+                <span css={memKeyNameCss}>{key}</span>
+                <button css={viewButtonCss} onClick={() => onView(key)}>View</button>
+              </div>
+            ))}
+          </div>
+        )
+      }
     </>
   )
 }
@@ -531,34 +635,52 @@ interface MemModal {
   loading: boolean
 }
 
-export function DebugPanel({ open, onToggle, pwd, envInfo, skillsInfo, systemPrompt, backendLogs }: Props) {
+export function DebugPanel({ open, onToggle, pwd, envInfo, skillsInfo, toolsInfo, systemPrompt, backendLogs }: Props) {
   const [activeTab, setActiveTab] = useState<TabId>('system')
   const [sessionMemKeys, setSessionMemKeys] = useState<string[]>([])
   const [memModal, setMemModal] = useState<MemModal | null>(null)
+  const [projectMemKeys, setProjectMemKeys] = useState<string[]>([])
+  const [projectMemModal, setProjectMemModal] = useState<MemModal | null>(null)
 
-  // Listen for session memory socket events
+  // Listen for session and project memory socket events
   useEffect(() => {
-    function onMemoryKeys({ keys }: { keys: string[] }) {
+    function onSessionMemoryKeys({ keys }: { keys: string[] }) {
       setSessionMemKeys(keys)
     }
-    function onMemoryValue({ key, value, found }: { key: string; value: string; found: boolean }) {
+    function onSessionMemoryValue({ key, value, found }: { key: string; value: string; found: boolean }) {
       setMemModal(prev => {
         if (!prev || prev.key !== key) return prev
         return { key, value: found ? value : '(key not found)', loading: false }
       })
     }
-    socket.on('session_memory_keys_update', onMemoryKeys)
-    socket.on('session_memory_value', onMemoryValue)
+    function onProjectMemoryKeys({ keys }: { keys: string[] }) {
+      setProjectMemKeys(keys)
+    }
+    function onProjectMemoryValue({ key, value, found }: { key: string; value: string; found: boolean }) {
+      setProjectMemModal(prev => {
+        if (!prev || prev.key !== key) return prev
+        return { key, value: found ? value : '(key not found)', loading: false }
+      })
+    }
+    socket.on('session_memory_keys_update', onSessionMemoryKeys)
+    socket.on('session_memory_value', onSessionMemoryValue)
+    socket.on('project_memory_keys_update', onProjectMemoryKeys)
+    socket.on('project_memory_value', onProjectMemoryValue)
     return () => {
-      socket.off('session_memory_keys_update', onMemoryKeys)
-      socket.off('session_memory_value', onMemoryValue)
+      socket.off('session_memory_keys_update', onSessionMemoryKeys)
+      socket.off('session_memory_value', onSessionMemoryValue)
+      socket.off('project_memory_keys_update', onProjectMemoryKeys)
+      socket.off('project_memory_value', onProjectMemoryValue)
     }
   }, [])
 
-  // Fetch keys when the session tab becomes active
+  // Fetch keys when tabs become active
   useEffect(() => {
     if (open && activeTab === 'session') {
       socket.emit('get_session_memory_keys')
+    }
+    if (open && activeTab === 'project') {
+      socket.emit('get_project_memory_keys')
     }
   }, [open, activeTab])
 
@@ -569,6 +691,15 @@ export function DebugPanel({ open, onToggle, pwd, envInfo, skillsInfo, systemPro
   function viewMemoryValue(key: string) {
     setMemModal({ key, value: '', loading: true })
     socket.emit('get_session_memory_value', { key })
+  }
+
+  function refreshProjectMemoryKeys() {
+    socket.emit('get_project_memory_keys')
+  }
+
+  function viewProjectMemoryValue(key: string) {
+    setProjectMemModal({ key, value: '', loading: true })
+    socket.emit('get_project_memory_value', { key })
   }
 
   if (!open) {
@@ -585,11 +716,25 @@ export function DebugPanel({ open, onToggle, pwd, envInfo, skillsInfo, systemPro
         <div css={modalOverlayCss} onClick={() => setMemModal(null)}>
           <div css={modalCardCss} onClick={e => e.stopPropagation()}>
             <div css={modalHeaderCss}>
-              <span css={modalTitleCss}>{memModal.key}</span>
+              <span css={modalTitleCss}>[session] {memModal.key}</span>
               <button css={modalCloseButtonCss} onClick={() => setMemModal(null)}>×</button>
             </div>
             <div css={modalBodyCss}>
               {memModal.loading ? 'Loading...' : memModal.value}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {projectMemModal && (
+        <div css={modalOverlayCss} onClick={() => setProjectMemModal(null)}>
+          <div css={modalCardCss} onClick={e => e.stopPropagation()}>
+            <div css={modalHeaderCss}>
+              <span css={modalTitleCss}>[project] {projectMemModal.key}</span>
+              <button css={modalCloseButtonCss} onClick={() => setProjectMemModal(null)}>×</button>
+            </div>
+            <div css={modalBodyCss}>
+              {projectMemModal.loading ? 'Loading...' : projectMemModal.value}
             </div>
           </div>
         </div>
@@ -615,7 +760,7 @@ export function DebugPanel({ open, onToggle, pwd, envInfo, skillsInfo, systemPro
 
         <div css={tabContentAreaCss}>
           <div css={tabPanelCss(activeTab === 'system')}>
-            <SystemTab pwd={pwd} envInfo={envInfo} skillsInfo={skillsInfo} />
+            <SystemTab pwd={pwd} envInfo={envInfo} skillsInfo={skillsInfo} toolsInfo={toolsInfo} />
           </div>
           <div css={tabPanelCss(activeTab === 'session')}>
             <SessionMemTab
@@ -625,7 +770,11 @@ export function DebugPanel({ open, onToggle, pwd, envInfo, skillsInfo, systemPro
             />
           </div>
           <div css={tabPanelCss(activeTab === 'project')}>
-            <div css={placeholderCss}>Under construction.</div>
+            <ProjectMemTab
+              keys={projectMemKeys}
+              onRefresh={refreshProjectMemoryKeys}
+              onView={viewProjectMemoryValue}
+            />
           </div>
           <div css={promptPanelCss(activeTab === 'prompt')}>
             {systemPrompt !== null

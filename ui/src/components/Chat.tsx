@@ -781,7 +781,14 @@ export default function Chat() {
   const [modalContent, setModalContent] = useState<string | null>(null)
   const [pwd, setPwd] = useState<string>('')
   const [skillsInfo, setSkillsInfo] = useState<{ enabled: boolean; count: number; path: string | null; files: string[] } | null>(null)
-  const [envInfo, setEnvInfo] = useState<{ os: string; shell: string } | null>(null)
+  const [envInfo, setEnvInfo] = useState<{ os: string; shell: string; initialCwd: string } | null>(null)
+  const [toolsInfo, setToolsInfo] = useState<{
+    totalCount: number
+    builtinCount: number
+    builtinPath: string
+    names: string[]
+    customPlugins: { name: string; count: number; path: string }[] | null
+  } | null>(null)
   const [debugOpen, setDebugOpen] = useState(true)
   const [systemPrompt, setSystemPrompt] = useState<string | null>(null)
   const [backendLogs, setBackendLogs] = useState<BackendLogEntry[]>([])
@@ -809,6 +816,7 @@ export default function Chat() {
       socket.emit('get_skills_info')
       socket.emit('get_env_info')
       socket.emit('get_system_prompt')
+      socket.emit('get_tools_info')
     }
 
     function onConnect() {
@@ -817,11 +825,13 @@ export default function Chat() {
       socket.emit('get_skills_info')
       socket.emit('get_env_info')
       socket.emit('get_system_prompt')
+      socket.emit('get_tools_info')
     }
     function onDisconnect() { setConnected(false) }
     function onPwdUpdate({ path }: { path: string }) { setPwd(path) }
     function onSkillsInfo(data: { enabled: boolean; count: number; path: string | null; files: string[] }) { setSkillsInfo(data) }
-    function onEnvInfo(data: { os: string; shell: string }) { setEnvInfo(data) }
+    function onEnvInfo(data: { os: string; shell: string; initialCwd: string }) { setEnvInfo(data) }
+    function onToolsInfo(data: { totalCount: number; builtinCount: number; builtinPath: string; names: string[]; customPlugins: { name: string; count: number; path: string }[] | null }) { setToolsInfo(data) }
     function onSystemPrompt({ text }: { text: string }) { setSystemPrompt(text) }
     function onBackendLog({ id, text }: { id: number; text: string }) {
       setBackendLogs(prev => {
@@ -958,6 +968,7 @@ export default function Chat() {
     socket.on('pwd_update', onPwdUpdate)
     socket.on('skills_info', onSkillsInfo)
     socket.on('env_info', onEnvInfo)
+    socket.on('tools_info', onToolsInfo)
     socket.on('system_prompt', onSystemPrompt)
     socket.on('backend_log', onBackendLog)
     socket.on('token', onToken)
@@ -978,6 +989,7 @@ export default function Chat() {
       socket.off('pwd_update', onPwdUpdate)
       socket.off('skills_info', onSkillsInfo)
       socket.off('env_info', onEnvInfo)
+      socket.off('tools_info', onToolsInfo)
       socket.off('system_prompt', onSystemPrompt)
       socket.off('backend_log', onBackendLog)
       socket.off('token', onToken)
@@ -1049,6 +1061,7 @@ export default function Chat() {
           pwd={pwd}
           envInfo={envInfo}
           skillsInfo={skillsInfo}
+          toolsInfo={toolsInfo}
           systemPrompt={systemPrompt}
           backendLogs={backendLogs}
         />

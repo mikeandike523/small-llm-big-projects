@@ -139,6 +139,19 @@ check_eol, check_indentation, convert_indentation) all require the key to hold
 a string value. The `text` parameter in append_to_variable and
 insert/replace_lines is the literal text to write.
 
+== Project Memory — Intentionally Minimal Tool Set ==
+
+Project memory tools (project_memory_get/set/list/delete/search) are intentionally
+a small set. They do not include line-editing, patching, or other text manipulation.
+
+For detailed manipulation of a project memory value:
+  1. Load it into session memory:
+       project_memory_get_variable(key="mykey", target_session_key="work_buf")
+  2. Edit using the full suite of session memory tools (read_lines, replace_lines,
+     apply_patch, search_by_regex, etc.)
+  3. Save back to project memory when done:
+       project_memory_set_variable(key="mykey", from_session_key="work_buf")
+
 == Tool Return Value Stubs ==
 
 If a tool return value begins with "** STUBBED LONG RETURN VALUE **", the full result

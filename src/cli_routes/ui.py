@@ -32,7 +32,14 @@ def ui():
     '--load-tools', is_flag=True, default=False,
     help='Load custom tools from a tools/ directory in the current working directory.',
 )
-def ui_run(streaming, load_skills, load_tools):
+@click.option(
+    '--pin-project-memory', default=True, type=bool, show_default=True,
+    help=(
+        'Pin the default project memory scope to the working directory at launch time. '
+        'When False, project memory defaults to os.getcwd() at the time of each call.'
+    ),
+)
+def ui_run(streaming, load_skills, load_tools, pin_project_memory):
     """
     Start the web UI: launches the Vite dev server and the Flask/SocketIO
     backend concurrently, forwarding both streams to stdout.
@@ -53,6 +60,7 @@ def ui_run(streaming, load_skills, load_tools):
         flask_env["SLBP_LOAD_SKILLS"] = "1"
     if load_tools:
         flask_env["SLBP_LOAD_CUSTOM_TOOLS"] = "1"
+    flask_env["SLBP_PIN_PROJECT_MEMORY"] = "1" if pin_project_memory else "0"
 
     processes = [
         ManagedProcess(
