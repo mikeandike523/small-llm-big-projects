@@ -1,5 +1,5 @@
 """
-Aggregate runner: imports and runs all search_by_regex test modules.
+Aggregate runner: imports and runs all search_filesystem_by_regex test modules.
 Exit code 0 = all pass, 1 = at least one failure.
 """
 from __future__ import annotations
@@ -13,7 +13,7 @@ _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__f
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
-import tests.search_by_regex.test_basic as test_basic
+import tests.search_filesystem_by_regex.test_basic as test_basic
 
 PASS = "\033[32mPASS\033[0m"
 FAIL = "\033[31mFAIL\033[0m"

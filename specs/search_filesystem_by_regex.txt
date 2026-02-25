@@ -1,5 +1,5 @@
-Tool: search_by_regex
-=====================
+Tool: search_filesystem_by_regex
+================================
 
 Purpose
 -------

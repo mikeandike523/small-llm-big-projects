@@ -134,7 +134,7 @@ CSV, code, or any other format. The memory system treats the value as an opaque
 string and never encodes or decodes it.
 
 Text-based operations (concat, append_to_variable, read_lines, count_lines,
-insert_lines, delete_lines, replace_lines, search_by_regex, normalize_eol,
+insert_lines, delete_lines, replace_lines, search_filesystem_by_regex, normalize_eol,
 check_eol, check_indentation, convert_indentation) all require the key to hold
 a string value. The `text` parameter in append_to_variable and
 insert/replace_lines is the literal text to write.

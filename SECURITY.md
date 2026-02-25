@@ -58,7 +58,7 @@ git check-ignore -q -- <dir>
 - Exit code 0 → the directory itself matches a gitignore rule → **approval required**
 - Exit code 1 → directory is not ignored → **auto-approved**
 
-Note: a non-ignored directory may still contain ignored files. Directory-listing tools (`list_dir`, `search_by_regex`) do not individually screen every file they enumerate — only the root target path is checked. File-reading tools (`read_text_file`, `count_text_file_lines`) check the individual file.
+Note: a non-ignored directory may still contain ignored files. Directory-listing tools (`list_dir`, `search_filesystem_by_regex`) do not individually screen every file they enumerate — only the root target path is checked. File-reading tools (`read_text_file`, `count_text_file_lines`) check the individual file.
 
 ---
 
@@ -106,7 +106,7 @@ needs_approval:
     information about the external directory structure.
 ```
 
-### `search_by_regex`
+### `search_filesystem_by_regex`
 Searches file contents recursively via ripgrep. Ripgrep is `.gitignore`-aware, but we do not rely on that for the approval decision.
 
 ```

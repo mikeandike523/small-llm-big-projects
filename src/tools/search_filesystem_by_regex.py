@@ -11,7 +11,7 @@ TOOL_SHORT_AMOUNT = 600
 DEFINITION: dict = {
     "type": "function",
     "function": {
-        "name": "search_by_regex",
+        "name": "search_filesystem_by_regex",
         "description": (
             "Search file contents under a given path using a regular expression. "
             "Powered by ripgrep — fast and .gitignore-aware. "

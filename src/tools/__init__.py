@@ -11,7 +11,7 @@ from src.tools import list_working_tree
 from src.tools import read_text_file_to_session_memory
 from src.tools import remove_dir
 from src.tools import report_impossible
-from src.tools import search_by_regex
+from src.tools import search_filesystem_by_regex
 from src.tools import session_memory_apply_patch
 from src.tools import session_memory_append_to_variable
 from src.tools import session_memory_check_eol
@@ -49,7 +49,7 @@ ALL_TOOL_DEFINITIONS: list[dict] = [
     read_text_file_to_session_memory.DEFINITION,
     remove_dir.DEFINITION,
     report_impossible.DEFINITION,
-    search_by_regex.DEFINITION,
+    search_filesystem_by_regex.DEFINITION,
     session_memory_apply_patch.DEFINITION,
     session_memory_append_to_variable.DEFINITION,
     session_memory_check_eol.DEFINITION,
@@ -88,7 +88,7 @@ _TOOL_MAP: dict[str, object] = {
     "read_text_file": read_text_file_to_session_memory,
     "remove_dir": remove_dir,
     "report_impossible": report_impossible,
-    "search_by_regex": search_by_regex,
+    "search_filesystem_by_regex": search_filesystem_by_regex,
     "session_memory_apply_patch": session_memory_apply_patch,
     "session_memory_append_to_variable": session_memory_append_to_variable,
     "session_memory_check_eol": session_memory_check_eol,

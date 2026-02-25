@@ -1,5 +1,5 @@
 """
-Basic tests for search_by_regex: pattern matching, output format, bold highlighting,
+Basic tests for search_filesystem_by_regex: pattern matching, output format, bold highlighting,
 no-match case, nonexistent path error.
 """
 from __future__ import annotations
@@ -37,7 +37,7 @@ def get_failures() -> list[str]:
 # ---------------------------------------------------------------------------
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-FIXTURE_ROOT = os.path.join(REPO_ROOT, "scratchpad", "search_by_regex_test")
+FIXTURE_ROOT = os.path.join(REPO_ROOT, "scratchpad", "search_filesystem_by_regex_test")
 ALPHA_PY = os.path.join(FIXTURE_ROOT, "alpha.py")
 BETA_TXT = os.path.join(FIXTURE_ROOT, "beta.txt")
 GAMMA_TXT = os.path.join(FIXTURE_ROOT, "gamma.txt")
@@ -47,7 +47,7 @@ _RESET = "\033[0m"
 
 
 def call_search(**kwargs):
-    from src.tools.search_by_regex import execute
+    from src.tools.search_filesystem_by_regex import execute
     return execute(kwargs, {})
 
 
