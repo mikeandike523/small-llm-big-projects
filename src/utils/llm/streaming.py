@@ -18,6 +18,7 @@ class ToolCall:
 @dataclass
 class StreamResult:
     tool_calls: list[ToolCall] = field(default_factory=list)
+    usage: dict | None = None
 
     @property
     def has_tool_calls(self) -> bool:
@@ -56,7 +57,8 @@ class StreamingLLM:
                max_tokens=None, parameters={},
                tools: Optional[list[dict]] = None) -> StreamResult:
         payload = {
-            "stream":True
+            "stream": True,
+            "stream_options": {"include_usage": True},
         }
         payload.update(self._default_parameters)
         if self._model:
@@ -83,6 +85,7 @@ class StreamingLLM:
             r.encoding = 'utf-8'
 
             _pending_tool_calls: dict[int, dict] = {}
+            _last_usage: dict | None = None
 
             for line in r.iter_lines(decode_unicode=True):
 
@@ -102,7 +105,17 @@ class StreamingLLM:
                 except json.JSONDecodeError:
                     continue
 
-                choice = obj.get("choices", [{}])[0]
+                # Capture top-level usage (present in the final usage-only chunk
+                # when stream_options.include_usage is True).
+                top_usage = obj.get("usage")
+                if top_usage:
+                    _last_usage = top_usage
+
+                choices = obj.get("choices") or []
+                if not choices:
+                    continue
+
+                choice = choices[0]
                 delta = choice.get("delta", {}) or {}
 
                 # Handle tool call deltas
@@ -144,7 +157,7 @@ class StreamingLLM:
                 arguments = {}
             tool_calls.append(ToolCall(id=entry["id"], name=entry["name"], arguments=arguments))
 
-        return StreamResult(tool_calls=tool_calls)
+        return StreamResult(tool_calls=tool_calls, usage=_last_usage)
 
     def fetch(self, messages, max_tokens=None, parameters={},
               tools: Optional[list[dict]] = None) -> FetchResult:

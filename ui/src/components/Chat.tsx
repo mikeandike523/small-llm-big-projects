@@ -12,6 +12,7 @@ import Ansi from 'ansi-to-react'
 // ---------------------------------------------------------------------------
 
 const MAX_TOOL_CHARS = 80
+const MAX_LOGS = 100
 
 // ---------------------------------------------------------------------------
 // Shared scrollbar styles
@@ -46,6 +47,11 @@ interface ApprovalItem {
   tool_name: string
   args: Record<string, unknown>
   resolved?: { approved: boolean }
+}
+
+interface BackendLogEntry {
+  id: number
+  text: string
 }
 
 interface UserEntry {
@@ -778,6 +784,7 @@ export default function Chat() {
   const [envInfo, setEnvInfo] = useState<{ os: string; shell: string } | null>(null)
   const [debugOpen, setDebugOpen] = useState(true)
   const [systemPrompt, setSystemPrompt] = useState<string | null>(null)
+  const [backendLogs, setBackendLogs] = useState<BackendLogEntry[]>([])
 
   const {
     containerRef: threadRef,
@@ -816,6 +823,12 @@ export default function Chat() {
     function onSkillsInfo(data: { enabled: boolean; count: number; path: string | null; files: string[] }) { setSkillsInfo(data) }
     function onEnvInfo(data: { os: string; shell: string }) { setEnvInfo(data) }
     function onSystemPrompt({ text }: { text: string }) { setSystemPrompt(text) }
+    function onBackendLog({ id, text }: { id: number; text: string }) {
+      setBackendLogs(prev => {
+        const next = [...prev, { id, text }]
+        return next.length > MAX_LOGS ? next.slice(next.length - MAX_LOGS) : next
+      })
+    }
 
     function onToken({ type, text }: { type: 'reasoning' | 'content'; text: string }) {
       setThread(prev => {
@@ -946,6 +959,7 @@ export default function Chat() {
     socket.on('skills_info', onSkillsInfo)
     socket.on('env_info', onEnvInfo)
     socket.on('system_prompt', onSystemPrompt)
+    socket.on('backend_log', onBackendLog)
     socket.on('token', onToken)
     socket.on('begin_interim_stream', onBeginInterimStream)
     socket.on('begin_final_summary', onBeginFinalSummary)
@@ -965,6 +979,7 @@ export default function Chat() {
       socket.off('skills_info', onSkillsInfo)
       socket.off('env_info', onEnvInfo)
       socket.off('system_prompt', onSystemPrompt)
+      socket.off('backend_log', onBackendLog)
       socket.off('token', onToken)
       socket.off('begin_interim_stream', onBeginInterimStream)
       socket.off('begin_final_summary', onBeginFinalSummary)
@@ -1035,6 +1050,7 @@ export default function Chat() {
           envInfo={envInfo}
           skillsInfo={skillsInfo}
           systemPrompt={systemPrompt}
+          backendLogs={backendLogs}
         />
       </div>
 

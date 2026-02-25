@@ -19,6 +19,7 @@ from src.tools import ALL_TOOL_DEFINITIONS, execute_tool, check_needs_approval
 from src.logic.system_prompt import build_system_prompt
 from src.utils.request_error_formatting import format_http_error
 from src.utils.env_info import get_env_context, get_os, get_shell
+from termcolor import colored
 
 SYSTEM_PROMPT = build_system_prompt(
     use_custom_skills=os.environ.get("SLBP_LOAD_SKILLS") == "1"
@@ -40,6 +41,19 @@ if _skills_enabled:
         pass
 
 
+
+
+# ---------------------------------------------------------------------------
+# Backend log emitter
+# ---------------------------------------------------------------------------
+
+_log_counter = 0
+
+
+def _emit_backend_log(text: str) -> None:
+    global _log_counter
+    _log_counter += 1
+    emit("backend_log", {"id": _log_counter, "text": text})
 
 
 # ---------------------------------------------------------------------------
@@ -372,6 +386,11 @@ def _build_condensed_turn(
 @socketio.on("connect")
 def handle_connect():
     print(f"[ui_connector] Client connected: {request.sid}")
+    skills_str = f"enabled ({_skills_count} files)" if _skills_enabled else "disabled"
+    _emit_backend_log(
+        colored("System started", "green") +
+        f": streaming={_USE_STREAMING}, skills={skills_str}, os={_env_os}, shell={_env_shell}"
+    )
 
 
 @socketio.on("disconnect")
@@ -465,6 +484,15 @@ def handle_user_message(data: dict):
         except Exception as exc:
             emit("error", {"message": f"LLM stream error:\n\n{exc}"})
             break
+
+        usage = getattr(result, "usage", None)
+        if usage:
+            _emit_backend_log(
+                colored("Usage: ", "cyan") +
+                f"prompt={usage.get('prompt_tokens', '?')}, "
+                f"completion={usage.get('completion_tokens', '?')}, "
+                f"total={usage.get('total_tokens', '?')}"
+            )
 
         last_assistant_content = content_for_history
 

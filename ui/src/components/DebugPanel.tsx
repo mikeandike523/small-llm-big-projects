@@ -1,6 +1,8 @@
 /** @jsxImportSource @emotion/react */
 import { css } from '@emotion/react'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import Ansi from 'ansi-to-react'
+import { useScrollToBottom } from '../hooks/useScrollToBottom'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -18,6 +20,11 @@ interface EnvInfo {
   shell: string
 }
 
+interface BackendLogEntry {
+  id: number
+  text: string
+}
+
 interface Props {
   open: boolean
   onToggle: () => void
@@ -25,19 +32,21 @@ interface Props {
   envInfo: EnvInfo | null
   skillsInfo: SkillsInfo | null
   systemPrompt: string | null
+  backendLogs: BackendLogEntry[]
 }
 
 // ---------------------------------------------------------------------------
 // Tab system
 // ---------------------------------------------------------------------------
 
-type TabId = 'system' | 'session' | 'project' | 'prompt'
+type TabId = 'system' | 'session' | 'project' | 'prompt' | 'logs'
 
 const TABS: { id: TabId; label: string }[] = [
   { id: 'system',  label: 'System Info' },
   { id: 'session', label: 'Session Mem' },
   { id: 'project', label: 'Project Mem' },
   { id: 'prompt',  label: 'Sys Prompt' },
+  { id: 'logs',    label: 'Backend Logs' },
 ]
 
 // ---------------------------------------------------------------------------
@@ -241,6 +250,28 @@ const skillsCardFileCss = css`
   color: #777;
 `
 
+const logsPanelCss = (visible: boolean) => css`
+  position: absolute;
+  inset: 0;
+  overflow-y: auto;
+  opacity: ${visible ? 1 : 0};
+  pointer-events: ${visible ? 'auto' : 'none'};
+  transition: opacity 0.18s ease;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  ${scrollbarCss}
+`
+
+const logLineCss = css`
+  font-family: 'Consolas', monospace;
+  font-size: 10px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-all;
+  padding: 1px 2px;
+`
+
 // ---------------------------------------------------------------------------
 // Sub-components
 // ---------------------------------------------------------------------------
@@ -292,11 +323,32 @@ function SystemTab({ pwd, envInfo, skillsInfo }: { pwd: string; envInfo: EnvInfo
   )
 }
 
+function BackendLogsTab({ logs, visible }: { logs: BackendLogEntry[]; visible: boolean }) {
+  const { containerRef, scrollToBottomIfNeeded, onScroll } = useScrollToBottom<HTMLDivElement>()
+
+  useEffect(() => {
+    scrollToBottomIfNeeded()
+  }, [logs, scrollToBottomIfNeeded])
+
+  return (
+    <div ref={containerRef} css={logsPanelCss(visible)} onScroll={onScroll}>
+      {logs.length === 0
+        ? <div css={placeholderCss}>No logs yet.</div>
+        : logs.map(entry => (
+            <div key={entry.id} css={logLineCss}>
+              <Ansi>{entry.text}</Ansi>
+            </div>
+          ))
+      }
+    </div>
+  )
+}
+
 // ---------------------------------------------------------------------------
 // DebugPanel
 // ---------------------------------------------------------------------------
 
-export function DebugPanel({ open, onToggle, pwd, envInfo, skillsInfo, systemPrompt }: Props) {
+export function DebugPanel({ open, onToggle, pwd, envInfo, skillsInfo, systemPrompt, backendLogs }: Props) {
   const [activeTab, setActiveTab] = useState<TabId>('system')
 
   if (!open) {
@@ -342,6 +394,7 @@ export function DebugPanel({ open, onToggle, pwd, envInfo, skillsInfo, systemPro
             : <span css={placeholderCss}>Not yet received.</span>
           }
         </div>
+        <BackendLogsTab logs={backendLogs} visible={activeTab === 'logs'} />
       </div>
     </div>
   )
