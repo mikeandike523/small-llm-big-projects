@@ -177,5 +177,5 @@ def build_system_prompt(use_custom_skills=False,
         for skill_file in custom_skill_files:
             with open(os.path.join(custom_skills_path, skill_file)) as fl:
                 custom_skills.append(fl.read().strip())
-    return SYSTEM_PROMPT.format(custom_skills="\n\n".join(BUILT_IN_SKILLS+custom_skills))
+    return SYSTEM_PROMPT.format(custom_skills="\n\n".join(skill_text.strip() for skill_text in(BUILT_IN_SKILLS+custom_skills)))
 
