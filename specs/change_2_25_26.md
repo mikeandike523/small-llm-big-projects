@@ -28,9 +28,12 @@ def _get_project(args: dict, session_data: dict) -> str:
 
 ### `project_memory_get_variable`
 
-- Args: `key` (required), `project` (optional), `target_session_key` (optional — if set, writes
-  the fetched value into `session_data["memory"][target_session_key]` and returns a confirmation
-  string instead of returning the value inline), `number_lines` (optional bool)
+- Args: `key` (required), `project` (optional), `target` (optional enum: `"return_value"` |
+  `"session_memory"`, default `"return_value"`), `target_session_key` (required when
+  `target="session_memory"` — the session memory key to write the value into),
+  `number_lines` (optional bool, only applies when `target="return_value"`)
+- When `target="session_memory"` and key is found, writes value into
+  `session_data["memory"][target_session_key]` and returns a confirmation string.
 - LEAVE_OUT: `SHORT`
 - TOOL_SHORT_AMOUNT: `500`
 

@@ -16,15 +16,16 @@ DEFINITION: dict = {
         "description": (
             "Get a persistent project memory value. "
             "Project memory persists across sessions and is scoped to a project path. "
-            "Optionally write the result directly into a session memory variable instead "
-            "of returning it inline (useful for large values)."
+            "Use target='return_value' (default) to get the value inline, or "
+            "target='session_memory' with a target_session_key to load it into session "
+            "memory for manipulation with session memory tools."
         ),
         "parameters": {
             "type": "object",
             "properties": {
                 "key": {
                     "type": "string",
-                    "description": "The memory key to fetch.",
+                    "description": "The project memory key to fetch.",
                 },
                 "project": {
                     "type": "string",
@@ -34,19 +35,28 @@ DEFINITION: dict = {
                         "working directory if pinning is disabled)."
                     ),
                 },
+                "target": {
+                    "type": "string",
+                    "enum": ["return_value", "session_memory"],
+                    "description": (
+                        "'return_value' (default): return the value inline. "
+                        "'session_memory': write the value into a session memory key "
+                        "(requires target_session_key). Useful for large values you want "
+                        "to manipulate with session memory tools before saving back."
+                    ),
+                },
                 "target_session_key": {
                     "type": "string",
                     "description": (
-                        "If provided, write the fetched value into this session memory key "
-                        "instead of returning it inline. Useful for large values that you "
-                        "want to manipulate with session memory tools."
+                        "Required when target='session_memory'. "
+                        "The session memory key to write the fetched value into."
                     ),
                 },
                 "number_lines": {
                     "type": "boolean",
                     "description": (
                         "If true, return a line-numbered view of the value. "
-                        "Ignored when target_session_key is set."
+                        "Only applies when target='return_value'."
                     ),
                 },
             },
@@ -85,6 +95,7 @@ def execute(args: dict, session_data: dict | None = None) -> str:
 
     key = args["key"]
     project = _get_project(args, session_data)
+    target = args.get("target", "return_value")
 
     pool = get_pool()
     with pool.get_connection() as conn:
@@ -93,11 +104,13 @@ def execute(args: dict, session_data: dict | None = None) -> str:
     if value is None:
         return f"(key {key!r} not found in project memory)"
 
-    target_session_key = args.get("target_session_key")
-    if target_session_key:
+    if target == "session_memory":
+        session_key = args.get("target_session_key")
+        if not session_key:
+            return "Error: target='session_memory' requires target_session_key."
         memory = _ensure_session_memory(session_data)
-        memory[target_session_key] = value
-        return f"Loaded project memory key {key!r} into session memory key {target_session_key!r}."
+        memory[session_key] = value
+        return f"Loaded project memory key {key!r} into session memory key {session_key!r}."
 
     if args.get("number_lines"):
         if not isinstance(value, str):

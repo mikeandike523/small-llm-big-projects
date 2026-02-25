@@ -146,7 +146,7 @@ a small set. They do not include line-editing, patching, or other text manipulat
 
 For detailed manipulation of a project memory value:
   1. Load it into session memory:
-       project_memory_get_variable(key="mykey", target_session_key="work_buf")
+       project_memory_get_variable(key="mykey", target="session_memory", target_session_key="work_buf")
   2. Edit using the full suite of session memory tools (read_lines, replace_lines,
      apply_patch, search_by_regex, etc.)
   3. Save back to project memory when done:
