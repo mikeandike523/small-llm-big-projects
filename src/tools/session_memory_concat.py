@@ -45,14 +45,6 @@ def _ensure_session_memory(session_data: dict) -> dict:
     return memory
 
 
-def _as_text(value: object) -> str:
-    if value is None:
-        return ""
-    if isinstance(value, str):
-        return value
-    return str(value)
-
-
 def execute(args: dict, session_data: dict | None = None) -> str:
     if session_data is None:
         session_data = {}
@@ -60,7 +52,11 @@ def execute(args: dict, session_data: dict | None = None) -> str:
     key_a = args["key_a"]
     key_b = args["key_b"]
     dest_key = args["dest_key"]
-    value_a = _as_text(memory.get(key_a))
-    value_b = _as_text(memory.get(key_b))
-    memory[dest_key] = value_a + value_b
+    value_a = memory.get(key_a)
+    value_b = memory.get(key_b)
+    if value_a is not None and not isinstance(value_a, str):
+        return f"Error: key {key_a!r} does not hold a text value."
+    if value_b is not None and not isinstance(value_b, str):
+        return f"Error: key {key_b!r} does not hold a text value."
+    memory[dest_key] = (value_a or "") + (value_b or "")
     return f"Concatted {key_a} and {key_b} and saved to {dest_key}"

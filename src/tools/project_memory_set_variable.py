@@ -91,6 +91,8 @@ def execute(args: dict, session_data: dict | None = None) -> str:
             return f"Error: session memory key {session_key!r} does not hold a text value."
     else:
         text = args["value"]
+        if not isinstance(text, str):
+            return f"Error: value must be a plain string, got {type(text).__name__}."
 
     pool = get_pool()
     with pool.get_connection() as conn:

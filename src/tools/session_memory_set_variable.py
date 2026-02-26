@@ -47,5 +47,8 @@ def execute(args: dict, session_data: dict | None = None) -> str:
         session_data = {}
     memory = _ensure_session_memory(session_data)
     key = args["key"]
-    memory[key] = args["value"]
+    value = args["value"]
+    if not isinstance(value, str):
+        return f"Error: value must be a plain string, got {type(value).__name__}."
+    memory[key] = value
     return f"Stored value at key {key!r}."

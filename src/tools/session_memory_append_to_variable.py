@@ -46,19 +46,14 @@ def _ensure_session_memory(session_data: dict) -> dict:
     return memory
 
 
-def _as_text(value: object) -> str:
-    if value is None:
-        return ""
-    if isinstance(value, str):
-        return value
-    return str(value)
-
-
 def execute(args: dict, session_data: dict | None = None) -> str:
     if session_data is None:
         session_data = {}
     memory = _ensure_session_memory(session_data)
     key = args["key"]
     text = args["text"]
-    memory[key] = _as_text(memory.get(key)) + text
+    existing = memory.get(key)
+    if existing is not None and not isinstance(existing, str):
+        return f"Error: key {key!r} does not hold a text value."
+    memory[key] = (existing or "") + text
     return f"Appended text to {key}"

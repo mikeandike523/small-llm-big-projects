@@ -522,7 +522,12 @@ def handle_get_session_memory_value(data: dict):
     session = _load_session(sid)
     memory = session["session_data"].get("memory", {})
     if key in memory:
-        emit("session_memory_value", {"key": key, "value": memory[key], "found": True})
+        raw = memory[key]
+        # Memory values are now always plain strings (enforced at write time by the tools).
+        # The non-string branch is kept only as a fallback for stale Redis sessions that
+        # were written before that constraint was introduced.
+        value_str = raw if isinstance(raw, str) else json.dumps(raw, indent=2, ensure_ascii=False)
+        emit("session_memory_value", {"key": key, "value": value_str, "found": True})
     else:
         emit("session_memory_value", {"key": key, "value": "", "found": False})
 
@@ -544,7 +549,11 @@ def handle_get_project_memory_value(data: dict):
     with pool.get_connection() as conn:
         value = KVManager(conn).get_value(key, project=project)
     if value is not None:
-        emit("project_memory_value", {"key": key, "value": value, "found": True})
+        # project_memory column is LONGTEXT and KVManager enforces strings on write,
+        # so value should always be a str here. The non-string branch is a safety net
+        # for any rows that existed before the JSON→LONGTEXT migration (v5.sql).
+        value_str = value if isinstance(value, str) else json.dumps(value, indent=2, ensure_ascii=False)
+        emit("project_memory_value", {"key": key, "value": value_str, "found": True})
     else:
         emit("project_memory_value", {"key": key, "value": "", "found": False})
 
