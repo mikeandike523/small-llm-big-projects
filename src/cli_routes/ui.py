@@ -39,7 +39,11 @@ def ui():
         'When False, project memory defaults to os.getcwd() at the time of each call.'
     ),
 )
-def ui_run(streaming, load_skills, load_tools, pin_project_memory):
+@click.option(
+    '--tool-tracebacks', is_flag=True, default=False,
+    help='When a tool raises an exception, return the full traceback instead of just the error message.',
+)
+def ui_run(streaming, load_skills, load_tools, pin_project_memory, tool_tracebacks):
     """
     Start the web UI: launches the Vite dev server and the Flask/SocketIO
     backend concurrently, forwarding both streams to stdout.
@@ -61,6 +65,8 @@ def ui_run(streaming, load_skills, load_tools, pin_project_memory):
     if load_tools:
         flask_env["SLBP_LOAD_CUSTOM_TOOLS"] = "1"
     flask_env["SLBP_PIN_PROJECT_MEMORY"] = "1" if pin_project_memory else "0"
+    if tool_tracebacks:
+        flask_env["SLBP_TOOL_TRACEBACKS"] = "1"
 
     processes = [
         ManagedProcess(

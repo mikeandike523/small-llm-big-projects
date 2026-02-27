@@ -4,6 +4,7 @@ import importlib.util
 import inspect
 import os
 import sys
+import traceback
 from src.tools import basic_web_request
 from src.tools import brave_web_search
 from src.tools import change_pwd
@@ -174,10 +175,10 @@ def execute_tool(
             return fn(args, session_data, special_resources)
         return fn(args, session_data)
     except Exception as e:
-        return f"""
-Failed to execute tool {name}:
-{e}
-""".strip()
+        if os.environ.get("SLBP_TOOL_TRACEBACKS") == "1":
+            tb = traceback.format_exc()
+            return f"Failed to execute tool {name}:\n{tb}".rstrip()
+        return f"Failed to execute tool {name}:\n{e}"
 
 
 # ---------------------------------------------------------------------------
