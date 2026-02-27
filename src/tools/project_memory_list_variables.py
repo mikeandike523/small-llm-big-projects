@@ -61,7 +61,7 @@ def _get_project(args: dict, session_data: dict) -> str:
     return os.getcwd()
 
 
-def execute(args: dict, session_data: dict | None = None) -> str:
+def execute(args: dict, session_data: dict | None = None, special_resources: dict | None = None) -> str:
     if session_data is None:
         session_data = {}
 

@@ -51,19 +51,23 @@ def _get_project(args: dict, session_data: dict) -> str:
     return os.getcwd()
 
 
-def execute(args: dict, session_data: dict | None = None) -> str:
+def execute(args: dict, session_data: dict | None = None, special_resources: dict | None = None) -> str:
     if session_data is None:
         session_data = {}
 
     key = args["key"]
     project = _get_project(args, session_data)
 
-    pool = get_pool()
-    with pool.get_connection() as conn:
-        manager = KVManager(conn)
-        existed = manager.exists(key, project=project)
-        manager.delete_value(key, project=project)
-        conn.commit()
+    emitting_kv = (special_resources or {}).get("emitting_kv_manager")
+    if emitting_kv:
+        existed = emitting_kv.delete_value(key, project=project)
+    else:
+        pool = get_pool()
+        with pool.get_connection() as conn:
+            manager = KVManager(conn)
+            existed = manager.exists(key, project=project)
+            manager.delete_value(key, project=project)
+            conn.commit()
 
     if existed:
         return f"Deleted project memory key {key!r}."

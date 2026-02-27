@@ -452,6 +452,24 @@ const modalBodyCss = css`
   ${scrollbarCss}
 `
 
+const modalFooterCss = css`
+  flex-shrink: 0;
+  border-top: 1px solid #1e1e1e;
+  padding: 5px 12px;
+  font-family: 'Consolas', monospace;
+  font-size: 10px;
+`
+
+const modalFooterModifiedCss = css`
+  color: #9a6020;
+  cursor: pointer;
+  &:hover { color: #c07828; }
+`
+
+const modalFooterDeletedCss = css`
+  color: #7a3030;
+`
+
 // ---------------------------------------------------------------------------
 // Sub-components
 // ---------------------------------------------------------------------------
@@ -633,6 +651,7 @@ interface MemModal {
   key: string
   value: string
   loading: boolean
+  notification: 'modified' | 'deleted' | null
 }
 
 export function DebugPanel({ open, onToggle, pwd, envInfo, skillsInfo, toolsInfo, systemPrompt, backendLogs }: Props) {
@@ -650,7 +669,7 @@ export function DebugPanel({ open, onToggle, pwd, envInfo, skillsInfo, toolsInfo
     function onSessionMemoryValue({ key, value, found }: { key: string; value: string; found: boolean }) {
       setMemModal(prev => {
         if (!prev || prev.key !== key) return prev
-        return { key, value: found ? value : '(key not found)', loading: false }
+        return { key, value: found ? value : '(key not found)', loading: false, notification: null }
       })
     }
     function onProjectMemoryKeys({ keys }: { keys: string[] }) {
@@ -659,18 +678,34 @@ export function DebugPanel({ open, onToggle, pwd, envInfo, skillsInfo, toolsInfo
     function onProjectMemoryValue({ key, value, found }: { key: string; value: string; found: boolean }) {
       setProjectMemModal(prev => {
         if (!prev || prev.key !== key) return prev
-        return { key, value: found ? value : '(key not found)', loading: false }
+        return { key, value: found ? value : '(key not found)', loading: false, notification: null }
+      })
+    }
+    function onSessionMemoryKeyEvent({ key, type }: { key: string; type: 'modified' | 'deleted' }) {
+      setMemModal(prev => {
+        if (!prev || prev.key !== key) return prev
+        return { ...prev, notification: type }
+      })
+    }
+    function onProjectMemoryKeyEvent({ key, type }: { key: string; type: 'modified' | 'deleted' }) {
+      setProjectMemModal(prev => {
+        if (!prev || prev.key !== key) return prev
+        return { ...prev, notification: type }
       })
     }
     socket.on('session_memory_keys_update', onSessionMemoryKeys)
     socket.on('session_memory_value', onSessionMemoryValue)
     socket.on('project_memory_keys_update', onProjectMemoryKeys)
     socket.on('project_memory_value', onProjectMemoryValue)
+    socket.on('session_memory_key_event', onSessionMemoryKeyEvent)
+    socket.on('project_memory_key_event', onProjectMemoryKeyEvent)
     return () => {
       socket.off('session_memory_keys_update', onSessionMemoryKeys)
       socket.off('session_memory_value', onSessionMemoryValue)
       socket.off('project_memory_keys_update', onProjectMemoryKeys)
       socket.off('project_memory_value', onProjectMemoryValue)
+      socket.off('session_memory_key_event', onSessionMemoryKeyEvent)
+      socket.off('project_memory_key_event', onProjectMemoryKeyEvent)
     }
   }, [])
 
@@ -689,7 +724,7 @@ export function DebugPanel({ open, onToggle, pwd, envInfo, skillsInfo, toolsInfo
   }
 
   function viewMemoryValue(key: string) {
-    setMemModal({ key, value: '', loading: true })
+    setMemModal({ key, value: '', loading: true, notification: null })
     socket.emit('get_session_memory_value', { key })
   }
 
@@ -698,7 +733,7 @@ export function DebugPanel({ open, onToggle, pwd, envInfo, skillsInfo, toolsInfo
   }
 
   function viewProjectMemoryValue(key: string) {
-    setProjectMemModal({ key, value: '', loading: true })
+    setProjectMemModal({ key, value: '', loading: true, notification: null })
     socket.emit('get_project_memory_value', { key })
   }
 
@@ -722,6 +757,20 @@ export function DebugPanel({ open, onToggle, pwd, envInfo, skillsInfo, toolsInfo
             <div css={modalBodyCss}>
               {memModal.loading ? 'Loading...' : memModal.value}
             </div>
+            {memModal.notification && (
+              <div css={modalFooterCss}>
+                {memModal.notification === 'deleted' ? (
+                  <span css={modalFooterDeletedCss}>Memory item deleted since modal opened</span>
+                ) : (
+                  <span css={modalFooterModifiedCss} onClick={() => {
+                    setMemModal(prev => prev ? { ...prev, loading: true, notification: null } : prev)
+                    socket.emit('get_session_memory_value', { key: memModal.key })
+                  }}>
+                    Memory item modified since modal opened — click to refetch
+                  </span>
+                )}
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -736,6 +785,20 @@ export function DebugPanel({ open, onToggle, pwd, envInfo, skillsInfo, toolsInfo
             <div css={modalBodyCss}>
               {projectMemModal.loading ? 'Loading...' : projectMemModal.value}
             </div>
+            {projectMemModal.notification && (
+              <div css={modalFooterCss}>
+                {projectMemModal.notification === 'deleted' ? (
+                  <span css={modalFooterDeletedCss}>Memory item deleted since modal opened</span>
+                ) : (
+                  <span css={modalFooterModifiedCss} onClick={() => {
+                    setProjectMemModal(prev => prev ? { ...prev, loading: true, notification: null } : prev)
+                    socket.emit('get_project_memory_value', { key: projectMemModal.key })
+                  }}>
+                    Memory item modified since modal opened — click to refetch
+                  </span>
+                )}
+              </div>
+            )}
           </div>
         </div>
       )}

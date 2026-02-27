@@ -72,7 +72,7 @@ def _highlight(line: str, pattern: str) -> str:
         return line
 
 
-def execute(args: dict, session_data: dict | None = None) -> str:
+def execute(args: dict, session_data: dict | None = None, special_resources: dict | None = None) -> str:
     if session_data is None:
         session_data = {}
 

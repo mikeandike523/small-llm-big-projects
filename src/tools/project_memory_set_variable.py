@@ -66,7 +66,7 @@ def _get_project(args: dict, session_data: dict) -> str:
     return os.getcwd()
 
 
-def execute(args: dict, session_data: dict | None = None) -> str:
+def execute(args: dict, session_data: dict | None = None, special_resources: dict | None = None) -> str:
     if session_data is None:
         session_data = {}
 
@@ -94,9 +94,13 @@ def execute(args: dict, session_data: dict | None = None) -> str:
         if not isinstance(text, str):
             return f"Error: value must be a plain string, got {type(text).__name__}."
 
-    pool = get_pool()
-    with pool.get_connection() as conn:
-        KVManager(conn).set_value(key, text, project=project)
-        conn.commit()
+    emitting_kv = (special_resources or {}).get("emitting_kv_manager")
+    if emitting_kv:
+        emitting_kv.set_value(key, text, project=project)
+    else:
+        pool = get_pool()
+        with pool.get_connection() as conn:
+            KVManager(conn).set_value(key, text, project=project)
+            conn.commit()
 
     return f"Stored value at project memory key {key!r}."

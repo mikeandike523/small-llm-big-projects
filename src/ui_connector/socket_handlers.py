@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 from typing import TypedDict
 
 import redis
@@ -18,6 +19,8 @@ from src.utils.llm.streaming import StreamingLLM
 from src.tools import ALL_TOOL_DEFINITIONS, execute_tool, check_needs_approval, _TOOL_MAP, _custom_tool_plugins
 from src.logic.system_prompt import build_system_prompt
 from src.utils.conversation_strip import strip_down_messages
+from src.utils.emitting_kv_manager import EmittingKVManager
+from src.utils.redis_dict import RedisDict
 from src.utils.request_error_formatting import format_http_error
 from src.utils.env_info import get_env_context, get_os, get_shell
 from termcolor import colored
@@ -58,19 +61,22 @@ _builtin_tool_count: int = len(ALL_TOOL_DEFINITIONS) - sum(p["count"] for p in _
 # ---------------------------------------------------------------------------
 
 _log_counter = 0
+_log_counter_lock = threading.Lock()
 
 
 def _emit_backend_log(text: str) -> None:
     global _log_counter
-    _log_counter += 1
-    emit("backend_log", {"id": _log_counter, "text": text})
+    with _log_counter_lock:
+        _log_counter += 1
+        n = _log_counter
+    emit("backend_log", {"id": n, "text": text})
 
 
 # ---------------------------------------------------------------------------
 # Approval gate
 # ---------------------------------------------------------------------------
 
-# Maps socket session ID to {"event": GreenEvent, "approved": bool | None}
+# Maps socket session ID to {"event": threading.Event, "approved": bool | None}
 _pending_approvals: dict[str, dict] = {}
 
 
@@ -79,11 +85,10 @@ def _request_approval(sid: str, tool_id: str, tool_name: str, args: dict) -> boo
     Emit an approval_request event and block until the user approves or denies.
     Returns True if approved, False if denied.
     """
-    import eventlet
-    ev = eventlet.event.Event()
+    ev = threading.Event()
     _pending_approvals[sid] = {"event": ev, "approved": None}
     emit("approval_request", {"id": tool_id, "tool_name": tool_name, "args": args})
-    ev.wait()  # yields green thread; unblocked by handle_approval_response
+    ev.wait()  # blocks this OS thread; other threads handle concurrent socket events
     entry = _pending_approvals.pop(sid, {})
     return bool(entry.get("approved", False))
 
@@ -120,22 +125,46 @@ def _load_session(sid: str) -> dict:
     if raw:
         session = json.loads(raw)
         session.setdefault("condensed_turns", [])
-        return session
-    return {
-        "message_history": [{"role": "system", "content": SYSTEM_PROMPT}],
-        "condensed_turns": [],
-        "session_data": {},
-    }
+    else:
+        session = {
+            "message_history": [{"role": "system", "content": SYSTEM_PROMPT}],
+            "condensed_turns": [],
+            "session_data": {},
+        }
+
+    mem_hash_key = f"session:{sid}:memory"
+
+    def _on_memory_change(key: str, event_type: str) -> None:
+        keys = r.hkeys(mem_hash_key)
+        socketio.emit("session_memory_keys_update", {"keys": keys}, room=sid)
+        socketio.emit("session_memory_key_event", {"key": key, "type": event_type}, room=sid)
+
+    # Memory lives in its own Redis hash, not the session blob.
+    # Always attach a live RedisDict so tools see Redis-backed storage.
+    # on_change fires on every write/delete, emitting live updates to the UI.
+    session["session_data"]["memory"] = RedisDict(r, mem_hash_key, on_change=_on_memory_change)
+    return session
 
 
 def _save_session(sid: str, session: dict) -> None:
     r = _get_redis()
-    r.setex(f"session:{sid}", 3600, json.dumps(session))
+    # Exclude "memory" from the blob — it lives in session:{sid}:memory Redis hash.
+    # Serialising a RedisDict via json.dumps would produce {} (empty internal dict).
+    session_data_to_save = {k: v for k, v in session["session_data"].items() if k != "memory"}
+    blob = {
+        "message_history": session["message_history"],
+        "condensed_turns": session["condensed_turns"],
+        "session_data": session_data_to_save,
+    }
+    r.setex(f"session:{sid}", 3600, json.dumps(blob))
+    # Keep the memory hash TTL in sync with the session blob TTL.
+    r.expire(f"session:{sid}:memory", 3600)
 
 
 def _delete_session(sid: str) -> None:
     r = _get_redis()
     r.delete(f"session:{sid}")
+    r.delete(f"session:{sid}:memory")
 
 
 # ---------------------------------------------------------------------------
@@ -356,6 +385,9 @@ def _execute_tools(result, content_for_history: str, session: dict, sid: str, re
     Returns (was_impossible, reason_or_none).
     """
     mh = session["message_history"]
+    special_resources = {
+        "emitting_kv_manager": EmittingKVManager(get_pool(), socketio, sid),
+    }
     mh.append({
         "role": "assistant",
         "content": content_for_history or None,
@@ -383,11 +415,10 @@ def _execute_tools(result, content_for_history: str, session: dict, sid: str, re
                 return True, reason
 
         session["session_data"]["__pinned_project__"] = _initial_cwd if _pin_project_memory else None
-        tool_result = execute_tool(tc.name, tc.arguments, session["session_data"])
+        tool_result = execute_tool(tc.name, tc.arguments, session["session_data"], special_resources)
         if return_value_max_chars is not None and len(tool_result) > return_value_max_chars:
             tool_result = _stub_tool_result(tool_result, return_value_max_chars, session["session_data"])
         emit("tool_result", {"id": tc.id, "result": tool_result})
-        emit("session_memory_keys_update", {"keys": list(session["session_data"].get("memory", {}).keys())})
         if tc.name == "change_pwd":
             emit("pwd_update", {"path": os.getcwd().replace("\\", "/")})
         if tc.name == "todo_list":
@@ -510,8 +541,7 @@ def handle_get_env_info():
 @socketio.on("get_session_memory_keys")
 def handle_get_session_memory_keys():
     sid = request.sid
-    session = _load_session(sid)
-    keys = list(session["session_data"].get("memory", {}).keys())
+    keys = _get_redis().hkeys(f"session:{sid}:memory")
     emit("session_memory_keys_update", {"keys": keys})
 
 
@@ -519,15 +549,11 @@ def handle_get_session_memory_keys():
 def handle_get_session_memory_value(data: dict):
     sid = request.sid
     key = data.get("key", "")
-    session = _load_session(sid)
-    memory = session["session_data"].get("memory", {})
-    if key in memory:
-        raw = memory[key]
-        # Memory values are now always plain strings (enforced at write time by the tools).
-        # The non-string branch is kept only as a fallback for stale Redis sessions that
-        # were written before that constraint was introduced.
-        value_str = raw if isinstance(raw, str) else json.dumps(raw, indent=2, ensure_ascii=False)
-        emit("session_memory_value", {"key": key, "value": value_str, "found": True})
+    # Read directly from the Redis hash — no session blob load needed.
+    # Values are always plain strings (decode_responses=True on the Redis client).
+    value = _get_redis().hget(f"session:{sid}:memory", key)
+    if value is not None:
+        emit("session_memory_value", {"key": key, "value": value, "found": True})
     else:
         emit("session_memory_value", {"key": key, "value": "", "found": False})
 
@@ -579,7 +605,7 @@ def handle_approval_response(data: dict):
     if pending:
         pending["approved"] = approved
         emit("approval_resolved", {"id": tool_id, "approved": approved})
-        pending["event"].send()
+        pending["event"].set()
 
 
 @socketio.on("user_message")

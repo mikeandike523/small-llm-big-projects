@@ -1,13 +1,6 @@
 """
 Entry point for the UI connector Flask/SocketIO server.
-
-eventlet.monkey_patch() MUST be called before any other imports that touch
-the standard library's socket/threading/etc so that eventlet can intercept
-them.  All other project imports therefore happen after the patch.
 """
-
-import eventlet
-eventlet.monkey_patch()
 
 import os
 from pathlib import Path

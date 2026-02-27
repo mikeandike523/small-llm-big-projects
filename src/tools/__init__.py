@@ -1,6 +1,7 @@
 from __future__ import annotations
 import copy
 import importlib.util
+import inspect
 import os
 import sys
 from src.tools import basic_web_request
@@ -147,7 +148,20 @@ def check_needs_approval(name: str, args: dict) -> bool:
     return bool(fn(args))
 
 
-def execute_tool(name: str, args: dict, session_data: dict | None = None) -> str:
+def _accepts_special_resources(fn) -> bool:
+    """Return True if the tool's execute function declares a third parameter."""
+    try:
+        return len(inspect.signature(fn).parameters) >= 3
+    except (ValueError, TypeError):
+        return False
+
+
+def execute_tool(
+    name: str,
+    args: dict,
+    session_data: dict | None = None,
+    special_resources: dict | None = None,
+) -> str:
     module = _TOOL_MAP.get(name)
     if module is None:
         return f"Unknown tool: {name!r}"
@@ -155,7 +169,10 @@ def execute_tool(name: str, args: dict, session_data: dict | None = None) -> str
         session_data = {}
     try:
         validate_tool_args(module.DEFINITION, args)
-        return module.execute(args, session_data)
+        fn = module.execute
+        if special_resources is not None and _accepts_special_resources(fn):
+            return fn(args, session_data, special_resources)
+        return fn(args, session_data)
     except Exception as e:
         return f"""
 Failed to execute tool {name}:
