@@ -135,9 +135,12 @@ def _load_session(sid: str) -> dict:
     mem_hash_key = f"session:{sid}:memory"
 
     def _on_memory_change(key: str, event_type: str) -> None:
-        keys = r.hkeys(mem_hash_key)
-        socketio.emit("session_memory_keys_update", {"keys": keys}, room=sid)
-        socketio.emit("session_memory_key_event", {"key": key, "type": event_type}, room=sid)
+        try:
+            keys = r.hkeys(mem_hash_key)
+            socketio.emit("session_memory_keys_update", {"keys": keys}, room=sid)
+            socketio.emit("session_memory_key_event", {"key": key, "type": event_type}, room=sid)
+        except Exception as exc:
+            print(f"[session_memory] _on_memory_change error (key={key!r}, sid={sid!r}): {exc}", flush=True)
 
     # Memory lives in its own Redis hash, not the session blob.
     # Always attach a live RedisDict so tools see Redis-backed storage.

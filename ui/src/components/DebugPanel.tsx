@@ -1,5 +1,5 @@
 /** @jsxImportSource @emotion/react */
-import { css } from '@emotion/react'
+import { css, keyframes } from '@emotion/react'
 import { useState, useEffect } from 'react'
 import Ansi from 'ansi-to-react'
 import { useScrollToBottom } from '../hooks/useScrollToBottom'
@@ -35,6 +35,11 @@ interface BackendLogEntry {
   text: string
 }
 
+interface MemKeyEvent {
+  key: string
+  type: 'modified' | 'deleted'
+}
+
 interface Props {
   open: boolean
   onToggle: () => void
@@ -59,6 +64,14 @@ const TABS: { id: TabId; label: string }[] = [
   { id: 'prompt',  label: 'Sys Prompt' },
   { id: 'logs',    label: 'Backend Logs' },
 ]
+
+// ---------------------------------------------------------------------------
+// Spinner animation
+// ---------------------------------------------------------------------------
+
+const _spin = keyframes`
+  to { transform: rotate(360deg); }
+`
 
 // ---------------------------------------------------------------------------
 // Styles
@@ -311,7 +324,7 @@ const logLineCss = css`
 `
 
 // ---------------------------------------------------------------------------
-// Session Memory styles
+// Session/Project Memory tab styles
 // ---------------------------------------------------------------------------
 
 const sessionToolbarCss = css`
@@ -340,7 +353,24 @@ const refreshButtonCss = css`
   border-radius: 3px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
+  min-width: 52px;
+  text-align: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   &:hover { color: #aaa; border-color: #444; }
+  &:disabled { opacity: 0.55; cursor: not-allowed; }
+  &:disabled:hover { color: #555; border-color: #2a2a2a; }
+`
+
+const refreshSpinnerCss = css`
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border: 1.5px solid rgba(85, 85, 85, 0.4);
+  border-top-color: #888;
+  border-radius: 50%;
+  animation: ${_spin} 0.7s linear infinite;
 `
 
 const memKeyListCss = css`
@@ -380,6 +410,52 @@ const viewButtonCss = css`
   flex-shrink: 0;
   margin-left: 6px;
   &:hover { color: #aaa; border-color: #444; }
+`
+
+// Memory tab layout: flex column with scrollable content + fixed footer
+const memTabContainerCss = (visible: boolean) => css`
+  position: absolute;
+  inset: 0;
+  opacity: ${visible ? 1 : 0};
+  pointer-events: ${visible ? 'auto' : 'none'};
+  transition: opacity 0.18s ease;
+  display: flex;
+  flex-direction: column;
+`
+
+const memTabScrollCss = css`
+  flex: 1;
+  overflow-y: auto;
+  padding: 10px;
+  ${scrollbarCss}
+`
+
+const memTabFooterCss = css`
+  flex-shrink: 0;
+  border-top: 1px solid #1a1a1a;
+  padding: 0 10px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  background: #0a0a0a;
+`
+
+const memEventLabelCss = (type: string) => css`
+  font-family: 'Consolas', monospace;
+  font-size: 9px;
+  color: ${type === 'deleted' ? '#8a3535' : '#8a6a20'};
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+`
+
+const memEventEmptyCss = css`
+  font-family: 'Consolas', monospace;
+  font-size: 9px;
+  color: #252525;
+  font-style: italic;
 `
 
 // ---------------------------------------------------------------------------
@@ -450,6 +526,22 @@ const modalBodyCss = css`
   word-break: break-word;
   line-height: 1.5;
   ${scrollbarCss}
+`
+
+const modalLoadingWrapCss = css`
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 28px 0;
+`
+
+const modalSpinnerCss = css`
+  width: 18px;
+  height: 18px;
+  border: 2px solid rgba(136, 136, 136, 0.2);
+  border-top-color: #777;
+  border-radius: 50%;
+  animation: ${_spin} 0.7s linear infinite;
 `
 
 const modalFooterCss = css`
@@ -558,10 +650,12 @@ function ProjectMemTab({
   keys,
   onRefresh,
   onView,
+  loading,
 }: {
   keys: string[]
   onRefresh: () => void
   onView: (key: string) => void
+  loading: boolean
 }) {
   return (
     <>
@@ -569,7 +663,9 @@ function ProjectMemTab({
         <span css={sessionKeyCountCss}>
           {keys.length} key{keys.length !== 1 ? 's' : ''}
         </span>
-        <button css={refreshButtonCss} onClick={onRefresh}>Refresh</button>
+        <button css={refreshButtonCss} onClick={onRefresh} disabled={loading}>
+          {loading ? <span css={refreshSpinnerCss} /> : 'Refresh'}
+        </button>
       </div>
       {keys.length === 0
         ? <div css={placeholderCss}>No project memory keys.</div>
@@ -592,10 +688,12 @@ function SessionMemTab({
   keys,
   onRefresh,
   onView,
+  loading,
 }: {
   keys: string[]
   onRefresh: () => void
   onView: (key: string) => void
+  loading: boolean
 }) {
   return (
     <>
@@ -603,7 +701,9 @@ function SessionMemTab({
         <span css={sessionKeyCountCss}>
           {keys.length} key{keys.length !== 1 ? 's' : ''}
         </span>
-        <button css={refreshButtonCss} onClick={onRefresh}>Refresh</button>
+        <button css={refreshButtonCss} onClick={onRefresh} disabled={loading}>
+          {loading ? <span css={refreshSpinnerCss} /> : 'Refresh'}
+        </button>
       </div>
       {keys.length === 0
         ? <div css={placeholderCss}>No memory keys.</div>
@@ -643,6 +743,18 @@ function BackendLogsTab({ logs, visible }: { logs: BackendLogEntry[]; visible: b
   )
 }
 
+function MemTabFooter({ event }: { event: MemKeyEvent | null }) {
+  if (!event) {
+    return <span css={memEventEmptyCss}>no events</span>
+  }
+  const label = event.type === 'deleted' ? 'deleted' : 'set'
+  return (
+    <span css={memEventLabelCss(event.type)} title={`${label}: "${event.key}"`}>
+      {label}: &quot;{event.key}&quot;
+    </span>
+  )
+}
+
 // ---------------------------------------------------------------------------
 // DebugPanel
 // ---------------------------------------------------------------------------
@@ -657,14 +769,19 @@ interface MemModal {
 export function DebugPanel({ open, onToggle, pwd, envInfo, skillsInfo, toolsInfo, systemPrompt, backendLogs }: Props) {
   const [activeTab, setActiveTab] = useState<TabId>('system')
   const [sessionMemKeys, setSessionMemKeys] = useState<string[]>([])
+  const [sessionMemLoading, setSessionMemLoading] = useState(false)
+  const [lastSessionMemEvent, setLastSessionMemEvent] = useState<MemKeyEvent | null>(null)
   const [memModal, setMemModal] = useState<MemModal | null>(null)
   const [projectMemKeys, setProjectMemKeys] = useState<string[]>([])
+  const [projectMemLoading, setProjectMemLoading] = useState(false)
+  const [lastProjectMemEvent, setLastProjectMemEvent] = useState<MemKeyEvent | null>(null)
   const [projectMemModal, setProjectMemModal] = useState<MemModal | null>(null)
 
   // Listen for session and project memory socket events
   useEffect(() => {
     function onSessionMemoryKeys({ keys }: { keys: string[] }) {
       setSessionMemKeys(keys)
+      setSessionMemLoading(false)
     }
     function onSessionMemoryValue({ key, value, found }: { key: string; value: string; found: boolean }) {
       setMemModal(prev => {
@@ -674,6 +791,7 @@ export function DebugPanel({ open, onToggle, pwd, envInfo, skillsInfo, toolsInfo
     }
     function onProjectMemoryKeys({ keys }: { keys: string[] }) {
       setProjectMemKeys(keys)
+      setProjectMemLoading(false)
     }
     function onProjectMemoryValue({ key, value, found }: { key: string; value: string; found: boolean }) {
       setProjectMemModal(prev => {
@@ -682,12 +800,16 @@ export function DebugPanel({ open, onToggle, pwd, envInfo, skillsInfo, toolsInfo
       })
     }
     function onSessionMemoryKeyEvent({ key, type }: { key: string; type: 'modified' | 'deleted' }) {
+      // Always update the last-event footer regardless of whether the modal is open
+      setLastSessionMemEvent({ key, type })
+      // Also notify the modal if it's showing this key
       setMemModal(prev => {
         if (!prev || prev.key !== key) return prev
         return { ...prev, notification: type }
       })
     }
     function onProjectMemoryKeyEvent({ key, type }: { key: string; type: 'modified' | 'deleted' }) {
+      setLastProjectMemEvent({ key, type })
       setProjectMemModal(prev => {
         if (!prev || prev.key !== key) return prev
         return { ...prev, notification: type }
@@ -709,17 +831,20 @@ export function DebugPanel({ open, onToggle, pwd, envInfo, skillsInfo, toolsInfo
     }
   }, [])
 
-  // Fetch keys when tabs become active
+  // Fetch keys (with loading state) when tabs become active
   useEffect(() => {
     if (open && activeTab === 'session') {
+      setSessionMemLoading(true)
       socket.emit('get_session_memory_keys')
     }
     if (open && activeTab === 'project') {
+      setProjectMemLoading(true)
       socket.emit('get_project_memory_keys')
     }
   }, [open, activeTab])
 
   function refreshMemoryKeys() {
+    setSessionMemLoading(true)
     socket.emit('get_session_memory_keys')
   }
 
@@ -729,6 +854,7 @@ export function DebugPanel({ open, onToggle, pwd, envInfo, skillsInfo, toolsInfo
   }
 
   function refreshProjectMemoryKeys() {
+    setProjectMemLoading(true)
     socket.emit('get_project_memory_keys')
   }
 
@@ -755,7 +881,10 @@ export function DebugPanel({ open, onToggle, pwd, envInfo, skillsInfo, toolsInfo
               <button css={modalCloseButtonCss} onClick={() => setMemModal(null)}>×</button>
             </div>
             <div css={modalBodyCss}>
-              {memModal.loading ? 'Loading...' : memModal.value}
+              {memModal.loading
+                ? <div css={modalLoadingWrapCss}><div css={modalSpinnerCss} /></div>
+                : memModal.value
+              }
             </div>
             {memModal.notification && (
               <div css={modalFooterCss}>
@@ -783,7 +912,10 @@ export function DebugPanel({ open, onToggle, pwd, envInfo, skillsInfo, toolsInfo
               <button css={modalCloseButtonCss} onClick={() => setProjectMemModal(null)}>×</button>
             </div>
             <div css={modalBodyCss}>
-              {projectMemModal.loading ? 'Loading...' : projectMemModal.value}
+              {projectMemModal.loading
+                ? <div css={modalLoadingWrapCss}><div css={modalSpinnerCss} /></div>
+                : projectMemModal.value
+              }
             </div>
             {projectMemModal.notification && (
               <div css={modalFooterCss}>
@@ -825,20 +957,37 @@ export function DebugPanel({ open, onToggle, pwd, envInfo, skillsInfo, toolsInfo
           <div css={tabPanelCss(activeTab === 'system')}>
             <SystemTab pwd={pwd} envInfo={envInfo} skillsInfo={skillsInfo} toolsInfo={toolsInfo} />
           </div>
-          <div css={tabPanelCss(activeTab === 'session')}>
-            <SessionMemTab
-              keys={sessionMemKeys}
-              onRefresh={refreshMemoryKeys}
-              onView={viewMemoryValue}
-            />
+
+          {/* Session memory tab: flex column with scrollable content + fixed footer */}
+          <div css={memTabContainerCss(activeTab === 'session')}>
+            <div css={memTabScrollCss}>
+              <SessionMemTab
+                keys={sessionMemKeys}
+                onRefresh={refreshMemoryKeys}
+                onView={viewMemoryValue}
+                loading={sessionMemLoading}
+              />
+            </div>
+            <div css={memTabFooterCss}>
+              <MemTabFooter event={lastSessionMemEvent} />
+            </div>
           </div>
-          <div css={tabPanelCss(activeTab === 'project')}>
-            <ProjectMemTab
-              keys={projectMemKeys}
-              onRefresh={refreshProjectMemoryKeys}
-              onView={viewProjectMemoryValue}
-            />
+
+          {/* Project memory tab: flex column with scrollable content + fixed footer */}
+          <div css={memTabContainerCss(activeTab === 'project')}>
+            <div css={memTabScrollCss}>
+              <ProjectMemTab
+                keys={projectMemKeys}
+                onRefresh={refreshProjectMemoryKeys}
+                onView={viewProjectMemoryValue}
+                loading={projectMemLoading}
+              />
+            </div>
+            <div css={memTabFooterCss}>
+              <MemTabFooter event={lastProjectMemEvent} />
+            </div>
           </div>
+
           <div css={promptPanelCss(activeTab === 'prompt')}>
             {systemPrompt !== null
               ? systemPrompt
