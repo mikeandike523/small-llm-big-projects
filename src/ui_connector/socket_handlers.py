@@ -33,6 +33,8 @@ _env_os = get_os()
 _env_shell = get_shell()
 _initial_cwd: str = os.getcwd()
 _pin_project_memory: bool = os.environ.get("SLBP_PIN_PROJECT_MEMORY", "1") != "0"
+_hotfix_bad_parser: bool = os.environ.get("SLBP_HOTFIX_GPT_OSS_20B_BAD_PARSER") == "1"
+_hotfix_void_call: bool = os.environ.get("SLBP_HOTFIX_GPT_OSS_20B_BAD_VOID_CALL") == "1"
 
 
 def _get_default_project() -> str:
@@ -391,6 +393,19 @@ def _execute_tools(result, content_for_history: str, session: dict, sid: str, re
     special_resources = {
         "emitting_kv_manager": EmittingKVManager(get_pool(), socketio, sid),
     }
+    if _hotfix_bad_parser:
+        for tc in result.tool_calls:
+            if "<|channel|>" in tc.name:
+                clean = tc.name.split("<|channel|>")[0]
+                if clean in _TOOL_MAP:
+                    tc.name = clean
+    if _hotfix_void_call:
+        for tc in result.tool_calls:
+            module = _TOOL_MAP.get(tc.name)
+            if module is not None:
+                props = getattr(module, "DEFINITION", {}).get("function", {}).get("parameters", {}).get("properties")
+                if not props and tc.arguments:
+                    tc.arguments = {}
     mh.append({
         "role": "assistant",
         "content": content_for_history or None,

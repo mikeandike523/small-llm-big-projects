@@ -43,7 +43,23 @@ def ui():
     '--tool-tracebacks', is_flag=True, default=False,
     help='When a tool raises an exception, return the full traceback instead of just the error message.',
 )
-def ui_run(streaming, load_skills, load_tools, pin_project_memory, tool_tracebacks):
+@click.option(
+    '--hotfix-gpt-oss-20b-bad-parser', is_flag=True, default=False,
+    help=(
+        'Hotfix for OpenRouter models that emit spurious <|channel|> tokens inside tool names. '
+        'Strips <|channel|> and everything after it from the tool name; if the remainder is a '
+        'valid tool, that tool is used.'
+    ),
+)
+@click.option(
+    '--hotfix-gpt-oss-20b-bad-void-call', is_flag=True, default=False,
+    help=(
+        'Hotfix for OpenRouter models that pass spurious arguments to void tools (tools with no '
+        'defined parameters). If a tool has no properties in its DEFINITION, any LLM-provided '
+        'arguments are discarded and the tool is called with an empty argument set.'
+    ),
+)
+def ui_run(streaming, load_skills, load_tools, pin_project_memory, tool_tracebacks, hotfix_gpt_oss_20b_bad_parser, hotfix_gpt_oss_20b_bad_void_call):
     """
     Start the web UI: launches the Vite dev server and the Flask/SocketIO
     backend concurrently, forwarding both streams to stdout.
@@ -67,6 +83,10 @@ def ui_run(streaming, load_skills, load_tools, pin_project_memory, tool_tracebac
     flask_env["SLBP_PIN_PROJECT_MEMORY"] = "1" if pin_project_memory else "0"
     if tool_tracebacks:
         flask_env["SLBP_TOOL_TRACEBACKS"] = "1"
+    if hotfix_gpt_oss_20b_bad_parser:
+        flask_env["SLBP_HOTFIX_GPT_OSS_20B_BAD_PARSER"] = "1"
+    if hotfix_gpt_oss_20b_bad_void_call:
+        flask_env["SLBP_HOTFIX_GPT_OSS_20B_BAD_VOID_CALL"] = "1"
 
     processes = [
         ManagedProcess(
