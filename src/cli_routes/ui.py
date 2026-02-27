@@ -59,7 +59,11 @@ def ui():
         'arguments are discarded and the tool is called with an empty argument set.'
     ),
 )
-def ui_run(streaming, load_skills, load_tools, pin_project_memory, tool_tracebacks, hotfix_gpt_oss_20b_bad_parser, hotfix_gpt_oss_20b_bad_void_call):
+@click.option(
+    '--hotfix-suite-gpt-oss-20b', is_flag=True, default=False,
+    help='Enable all gpt-oss-20b hotfixes at once (equivalent to --hotfix-gpt-oss-20b-bad-parser and --hotfix-gpt-oss-20b-bad-void-call).',
+)
+def ui_run(streaming, load_skills, load_tools, pin_project_memory, tool_tracebacks, hotfix_gpt_oss_20b_bad_parser, hotfix_gpt_oss_20b_bad_void_call, hotfix_suite_gpt_oss_20b):
     """
     Start the web UI: launches the Vite dev server and the Flask/SocketIO
     backend concurrently, forwarding both streams to stdout.
@@ -83,9 +87,9 @@ def ui_run(streaming, load_skills, load_tools, pin_project_memory, tool_tracebac
     flask_env["SLBP_PIN_PROJECT_MEMORY"] = "1" if pin_project_memory else "0"
     if tool_tracebacks:
         flask_env["SLBP_TOOL_TRACEBACKS"] = "1"
-    if hotfix_gpt_oss_20b_bad_parser:
+    if hotfix_gpt_oss_20b_bad_parser or hotfix_suite_gpt_oss_20b:
         flask_env["SLBP_HOTFIX_GPT_OSS_20B_BAD_PARSER"] = "1"
-    if hotfix_gpt_oss_20b_bad_void_call:
+    if hotfix_gpt_oss_20b_bad_void_call or hotfix_suite_gpt_oss_20b:
         flask_env["SLBP_HOTFIX_GPT_OSS_20B_BAD_VOID_CALL"] = "1"
 
     processes = [
