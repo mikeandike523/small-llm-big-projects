@@ -33,6 +33,14 @@ services:
       - "${PISTON_PORT:-2000}:2000"
     volumes:
       - piston_packages:/piston/packages
+    environment:
+      # Server-side caps — client run_timeout/run_cpu_time must be <= these values.
+      # Set to 120000ms to match the tool's MAX_ALLOWABLE_TIMEOUT (120s).
+      # Default is 3000ms which overrides any higher client-supplied timeout.
+      PISTON_RUN_TIMEOUT: "${PISTON_RUN_TIMEOUT:-120000}"
+      PISTON_RUN_CPU_TIME: "${PISTON_RUN_CPU_TIME:-120000}"
+      PISTON_COMPILE_TIMEOUT: "${PISTON_COMPILE_TIMEOUT:-10000}"
+      PISTON_COMPILE_CPU_TIME: "${PISTON_COMPILE_CPU_TIME:-10000}"
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:2000/api/v2/runtimes || exit 1"]
       interval: 5s

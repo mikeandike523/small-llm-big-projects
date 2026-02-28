@@ -21,7 +21,8 @@
       "Bash(C:/Users/micha/Projects/small-llm-big-projects/.venv/Scripts/pip.exe install:*)",
       "Bash(head:*)",
       "Bash(python:*)",
-      "Bash(bash:*)"
+      "Bash(bash:*)",
+      "WebFetch(domain:piston.readthedocs.io)"
     ]
   }
 }
