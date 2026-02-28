@@ -12,6 +12,8 @@ DEFINITION: dict = {
         "description": (
             "Manage the session todo list. "
             "The list is ordered and 1-indexed. "
+            "Items can contain nested sub-lists, making the structure infinitely hierarchical. "
+            "Use sub_list_path to target a specific sub-list. "
             "Use this to track concrete steps toward the user's current goal."
         ),
         "parameters": {
@@ -34,8 +36,8 @@ DEFINITION: dict = {
                     ],
                     "description": (
                         "The operation to perform. "
-                        "get_all: return all items as JSON. "
-                        "get_all_formatted: return all items as human-readable plain text. "
+                        "get_all: return items as JSON (full recursive tree, or subtree if sub_list_path given). "
+                        "get_all_formatted: return items as human-readable plain text (full tree, or subtree). "
                         "get_item: return one item by item_number. "
                         "add_item: append a new item (requires text). "
                         "add_multiple_items: append several items at once (requires texts). "
@@ -47,10 +49,19 @@ DEFINITION: dict = {
                         "reopen_item: mark item as open again (requires item_number)."
                     ),
                 },
+                "sub_list_path": {
+                    "type": "string",
+                    "description": (
+                        "Dot-delimited 1-indexed path selecting which sub-list to operate on. "
+                        "E.g. '2' targets the sub-list of root item 2; "
+                        "'2.3' targets the sub-list of item 3 within item 2's sub-list. "
+                        "Omit or leave empty to operate on the root list."
+                    ),
+                },
                 "item_number": {
                     "type": "integer",
                     "description": (
-                        "1-indexed position of the target item. "
+                        "1-indexed position of the target item within the resolved list. "
                         "Required for: get_item, insert_before, insert_after, "
                         "delete_item, modify_item, close_item, reopen_item."
                     ),
@@ -84,6 +95,7 @@ DEFINITION: dict = {
         },
     },
 }
+
 
 def needs_approval(args: dict) -> bool:
     return False
@@ -128,13 +140,84 @@ def _check_item_number(items: list, n: int) -> str | None:
     return None
 
 
+def _resolve_sub_list(root_items: list, sub_list_path: str) -> tuple[list | None, str | None]:
+    """Navigate sub_list_path and return the target sub-list.
+
+    sub_list_path is a dot-delimited string of 1-indexed integers, e.g. '2' or '2.3'.
+    Each number selects an item; the function descends into that item's sub_list.
+    Auto-creates sub_list on items as needed.
+    Returns (target_list, None) on success or (None, error_string) on failure.
+    """
+    if not sub_list_path:
+        return root_items, None
+
+    parts = sub_list_path.split(".")
+    current_list = root_items
+    path_so_far: list[str] = []
+
+    for part in parts:
+        try:
+            n = int(part)
+        except ValueError:
+            return None, f"sub_list_path segment '{part}' is not a valid integer"
+
+        err = _check_item_number(current_list, n)
+        if err:
+            path_label = ".".join(path_so_far) if path_so_far else "root"
+            return None, f"At path '{path_label}': {err}"
+
+        item = current_list[n - 1]
+        path_so_far.append(part)
+
+        if "sub_list" not in item:
+            item["sub_list"] = []
+        current_list = item["sub_list"]
+
+    return current_list, None
+
+
 def _fmt_item(items: list, idx: int) -> dict:
-    """Return a serialisable item dict with its 1-indexed item_number."""
-    return {
+    """Return a serialisable item dict, recursively including non-empty sub_lists."""
+    item = items[idx]
+    result: dict = {
         "item_number": idx + 1,
-        "text": items[idx]["text"],
-        "status": items[idx]["status"],
+        "text": item["text"],
+        "status": item["status"],
     }
+    sub = item.get("sub_list")
+    if sub:
+        result["sub_list"] = [_fmt_item(sub, j) for j in range(len(sub))]
+    return result
+
+
+def _format_tree(items: list, indent: str = "", path_prefix: list[int] | None = None) -> list[str]:
+    """Recursively format the todo tree as human-readable lines.
+
+    path_prefix: list of ancestor item numbers (1-indexed), used to build full path strings
+                 like '2.1.3.' for display.
+    """
+    lines = []
+    for i, item in enumerate(items):
+        item_num = i + 1
+        current_path = (path_prefix or []) + [item_num]
+        path_str = ".".join(str(n) for n in current_path)
+        checkbox = "[x]" if item["status"] == "closed" else "[ ]"
+        lines.append(f"{indent}{checkbox} {path_str}. {item['text']}")
+        sub = item.get("sub_list")
+        if sub:
+            lines.extend(_format_tree(sub, indent + "    ", current_path))
+    return lines
+
+
+def _all_closed(items: list) -> bool:
+    """Return True if all items (and their sub-items, recursively) are closed."""
+    for item in items:
+        if item["status"] != "closed":
+            return False
+        sub = item.get("sub_list")
+        if sub and not _all_closed(sub):
+            return False
+    return True
 
 
 def execute(args: dict, session_data: dict | None = None) -> str:
@@ -142,6 +225,7 @@ def execute(args: dict, session_data: dict | None = None) -> str:
         session_data = {}
 
     action = args.get("action", "")
+    sub_list_path = args.get("sub_list_path", "") or ""
     item_number = args.get("item_number")
     text = args.get("text")
     texts = args.get("texts")
@@ -161,21 +245,37 @@ def execute(args: dict, session_data: dict | None = None) -> str:
     if action in _NEEDS_TEXTS and not texts:
         return json.dumps({"error": f"action '{action}' requires 'texts' (a non-empty array of strings)"})
 
-    items = _get_list(session_data)
+    root_items = _get_list(session_data)
 
     # --- get_all ---
     if action == "get_all":
+        if sub_list_path:
+            items, err = _resolve_sub_list(root_items, sub_list_path)
+            if err:
+                return json.dumps({"error": err})
+        else:
+            items = root_items
         return json.dumps({"items": [_fmt_item(items, i) for i in range(len(items))]})
 
     # --- get_all_formatted ---
     if action == "get_all_formatted":
-        if not items:
-            return "(empty todo list)"
-        lines = []
-        for i, item in enumerate(items):
-            checkbox = "[x]" if item["status"] == "closed" else "[ ]"
-            lines.append(f"{checkbox} {i + 1}. {item['text']}")
-        return "\n".join(lines)
+        if sub_list_path:
+            items, err = _resolve_sub_list(root_items, sub_list_path)
+            if err:
+                return json.dumps({"error": err})
+            if not items:
+                return f"(empty sub-list at path {sub_list_path})"
+            path_nums = [int(p) for p in sub_list_path.split(".")]
+            return "\n".join(_format_tree(items, "", path_nums))
+        else:
+            if not root_items:
+                return "(empty todo list)"
+            return "\n".join(_format_tree(root_items))
+
+    # Resolve sub-list for all remaining actions
+    items, err = _resolve_sub_list(root_items, sub_list_path)
+    if err:
+        return json.dumps({"error": err})
 
     # --- get_item ---
     if action == "get_item":
@@ -223,10 +323,9 @@ def execute(args: dict, session_data: dict | None = None) -> str:
             return json.dumps({"error": err})
         idx = item_number  # inserting *after* item_number means index = item_number (0-based)
         items.insert(idx, {"text": text, "status": "open"})
-        new_number = idx + 1
         return json.dumps({
             "item": _fmt_item(items, idx),
-            "message": f"Inserted item {new_number}: \"{text}\"",
+            "message": f"Inserted item {idx + 1}: \"{text}\"",
         })
 
     # --- delete_item ---
@@ -261,7 +360,7 @@ def execute(args: dict, session_data: dict | None = None) -> str:
         idx = item_number - 1
         items[idx]["status"] = "closed"
         msg = f"Closed item {item_number}: \"{items[idx]['text']}\""
-        if items and all(it["status"] == "closed" for it in items):
+        if root_items and _all_closed(root_items):
             msg += " — all todo list items completed"
         return json.dumps({
             "item": _fmt_item(items, idx),

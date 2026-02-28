@@ -121,9 +121,15 @@ If you need any (more) tool calls:
   the system will reprompt you one more time to get the final summary or answer
   given the steps you took, tool results and previous context.
 
-  todo_list actions: get_all, get_item, add_item, insert_before, insert_after,
-  delete_item, modify_item, close_item, reopen_item.
-  item_number is always 1-indexed.
+  todo_list is hierarchical: each item can hold its own sub-list.
+  Use sub_list_path (dot-delimited 1-indexed numbers) to target a sub-list.
+  E.g. sub_list_path="2" operates on item 2's sub-list;
+       sub_list_path="2.3" operates on item 3 within item 2's sub-list.
+  Omit sub_list_path (or leave empty) to operate on the root list.
+  item_number is always 1-indexed within the resolved list.
+  todo_list actions: get_all, get_all_formatted, get_item, add_item,
+  add_multiple_items, insert_before, insert_after, delete_item, modify_item,
+  close_item, reopen_item.
 
 Otherwise:
 
