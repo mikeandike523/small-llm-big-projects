@@ -223,6 +223,36 @@ if os.environ.get("SLBP_LOAD_CUSTOM_TOOLS") == "1":
     _workspace_root = os.getcwd()
     sys.path.insert(0, _workspace_root)
 
+    # Load optional _exclude_builtin_tools.py from the custom tools root and apply
+    # any additional loading exclusions it declares (same format as src/tools/_exclude_builtin_tools.py).
+    _custom_exclude_file = os.path.join(_custom_tools_root, "_exclude_builtin_tools.py")
+    if os.path.isfile(_custom_exclude_file):
+        try:
+            _custom_excl_spec = importlib.util.spec_from_file_location(
+                "_custom_exclude_builtin_tools", _custom_exclude_file
+            )
+            _custom_excl_module = importlib.util.module_from_spec(_custom_excl_spec)
+            _custom_excl_spec.loader.exec_module(_custom_excl_module)
+            _custom_excl_map: dict = getattr(_custom_excl_module, "EXCLUDE", {})
+        except Exception as _e:
+            print(
+                f"[slbp] ERROR: Failed to load {_custom_exclude_file!r}: {_e}",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
+        _custom_load_excluded: set[str] = {
+            name for name, flags in _custom_excl_map.items()
+            if flags.get("loading") is True
+        }
+        if _custom_load_excluded:
+            ALL_TOOL_DEFINITIONS = [
+                d for d in ALL_TOOL_DEFINITIONS
+                if d.get("function", {}).get("name") not in _custom_load_excluded
+            ]
+            for _excl_name in _custom_load_excluded:
+                _TOOL_MAP.pop(_excl_name, None)
+
     # Enumerate plugin subdirectories
     try:
         _plugin_candidates = sorted(
