@@ -36,6 +36,7 @@ from src.tools import session_memory_count_chars
 from src.tools import session_memory_count_lines
 from src.tools import session_memory_delete_lines
 from src.tools import session_memory_delete_variable
+from src.tools import session_memory_extract_json_value
 from src.tools import session_memory_get_variable
 from src.tools import session_memory_insert_lines
 from src.tools import session_memory_list_variables
@@ -81,6 +82,7 @@ ALL_TOOL_DEFINITIONS: list[dict] = [
     session_memory_count_lines.DEFINITION,
     session_memory_delete_lines.DEFINITION,
     session_memory_delete_variable.DEFINITION,
+    session_memory_extract_json_value.DEFINITION,
     session_memory_get_variable.DEFINITION,
     session_memory_insert_lines.DEFINITION,
     session_memory_list_variables.DEFINITION,
@@ -126,6 +128,7 @@ _TOOL_MAP: dict[str, object] = {
     "session_memory_count_lines": session_memory_count_lines,
     "session_memory_delete_lines": session_memory_delete_lines,
     "session_memory_delete_variable": session_memory_delete_variable,
+    "session_memory_extract_json_value": session_memory_extract_json_value,
     "session_memory_get_variable": session_memory_get_variable,
     "session_memory_insert_lines": session_memory_insert_lines,
     "session_memory_list_variables": session_memory_list_variables,
