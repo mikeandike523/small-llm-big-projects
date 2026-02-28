@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import os
+import subprocess
 from pathlib import Path
 
 from src.tools._subprocess import run_command
+
+_APPROVAL_CMD_TIMEOUT = 5  # seconds; deny approval if git commands stall
 
 
 def _resolve(raw_path: str) -> str:
@@ -24,15 +27,22 @@ def _is_under_cwd(resolved: str) -> bool:
 
 def _git_file_is_included(resolved: str) -> bool:
     """True if the file is tracked or untracked+non-ignored (auto-approve)."""
-    r = run_command(
-        ["git", "ls-files", "--cached", "--others", "--exclude-standard", "--", resolved]
-    )
+    try:
+        r = run_command(
+            ["git", "ls-files", "--cached", "--others", "--exclude-standard", "--", resolved],
+            timeout=_APPROVAL_CMD_TIMEOUT,
+        )
+    except subprocess.TimeoutExpired:
+        return False  # deny approval on timeout (safer than hanging)
     return bool(r.stdout.strip())
 
 
 def _git_dir_is_ignored(resolved: str) -> bool:
     """True if git considers this directory ignored."""
-    r = run_command(["git", "check-ignore", "-q", "--", resolved])
+    try:
+        r = run_command(["git", "check-ignore", "-q", "--", resolved], timeout=_APPROVAL_CMD_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        return True  # deny approval on timeout (safer than hanging)
     return r.returncode == 0
 
 

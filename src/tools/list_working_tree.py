@@ -1,9 +1,13 @@
 from __future__ import annotations
 import os
+import subprocess
 from src.tools._subprocess import run_command
 
 LEAVE_OUT = "SHORT"
 TOOL_SHORT_AMOUNT = 600
+
+DEFAULT_TIMEOUT = 15  # seconds
+TIMEOUT_HINT = None
 
 DEFINITION: dict = {
     "type": "function",
@@ -44,7 +48,11 @@ def execute(args: dict, _session_data={}) -> str:
     if path is not None:
         resolved = os.path.abspath(path)
         cmd += ["--", resolved]
-    result = run_command(cmd)
+    try:
+        result = run_command(cmd, timeout=DEFAULT_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        from src.utils.exceptions import ToolTimeoutError
+        raise ToolTimeoutError("list_working_tree", DEFAULT_TIMEOUT)
     if not result.success:
         return f"Error (exit {result.returncode}): {result.stderr.strip()}"
     return result.stdout.strip()

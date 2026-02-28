@@ -1,3 +1,16 @@
+# NOTE: No timeout is enforced on this tool.
+#
+# python_ripgrep invokes ripgrep via a compiled Rust extension. There is no way to interrupt
+# a blocking C/Rust call from Python: ThreadPoolExecutor.future.result(timeout=N) only makes
+# the *caller* give up -- the extension thread keeps running, eating CPU and RAM, until ripgrep
+# finishes on its own. Worse, the ThreadPoolExecutor context manager blocks on __exit__
+# (shutdown(wait=True)), so the "timeout" would not even return early.
+#
+# TODO: once docker-based shell environments are implemented (sandboxed, with dirs mounted in),
+# replace python_ripgrep with a real subprocess call to the rg binary inside the container.
+# That gives us a PID we can kill(). Until then, no timeout is possible here without zombies.
+# Design goal: docker and git-bash are the only required host binaries -- no rg on the host.
+
 from __future__ import annotations
 
 import os

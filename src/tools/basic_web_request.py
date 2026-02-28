@@ -19,6 +19,9 @@ from src.data import get_pool
 LEAVE_OUT = "SHORT"
 TOOL_SHORT_AMOUNT = 800
 
+DEFAULT_TIMEOUT = 30  # informational; actual value comes from args
+TIMEOUT_HINT = None
+
 DEFINITION: dict = {
     "type": "function",
     "function": {
@@ -211,6 +214,9 @@ def execute(args, session_data):
                 text_value=resp_text,
             )
 
+    except httpx.TimeoutException:
+        from src.utils.exceptions import ToolTimeoutError
+        raise ToolTimeoutError("basic_web_request", timeout)
     except Exception as e:
         result = format_response(
             status_code=None,

@@ -8,6 +8,9 @@ from src.utils.http.helpers import ensure_session_memory
 
 LEAVE_OUT = "PARAMS_ONLY"
 
+DEFAULT_TIMEOUT = 30  # informational; actual value comes from args
+TIMEOUT_HINT = None
+
 DEFINITION: dict = {
     "type": "function",
     "function": {
@@ -89,13 +92,15 @@ def _get_by_path(obj: object, path: str | None, field_label: str) -> tuple[objec
 
 
 def _fetch_text(url: str, timeout: int) -> tuple[str | None, str | None]:
-    """Return (text, error). error is None on success."""
+    """Return (text, error). error is None on success. Propagates httpx.TimeoutException."""
     try:
         with httpx.Client(follow_redirects=True, timeout=timeout) as client:
             resp = client.get(url)
         if not (200 <= resp.status_code < 300):
             return None, f"HTTP {resp.status_code}"
         return resp.text, None
+    except httpx.TimeoutException:
+        raise  # let execute() convert to ToolTimeoutError
     except Exception as e:
         return None, f"{type(e).__name__}: {e}"
 
@@ -111,7 +116,11 @@ def execute(args: dict, session_data: dict | None = None) -> str:
     files_path: str | None = args.get("files_path") or None
 
     # --- Fetch and parse skill.json ---
-    raw, err = _fetch_text(url, timeout)
+    try:
+        raw, err = _fetch_text(url, timeout)
+    except httpx.TimeoutException:
+        from src.utils.exceptions import ToolTimeoutError
+        raise ToolTimeoutError("load_skill_files_from_url_to_session_memory", timeout)
     if err:
         return f"Error fetching skill.json from '{url}': {err}"
 
@@ -170,7 +179,11 @@ def execute(args: dict, session_data: dict | None = None) -> str:
     # --- Fetch each declared file ---
     loaded_keys: list[str] = []
     for file_name, file_url in files.items():
-        file_text, file_err = _fetch_text(file_url, timeout)
+        try:
+            file_text, file_err = _fetch_text(file_url, timeout)
+        except httpx.TimeoutException:
+            from src.utils.exceptions import ToolTimeoutError
+            raise ToolTimeoutError("load_skill_files_from_url_to_session_memory", timeout)
         if file_err:
             return (
                 f"Error fetching file '{file_name}' from '{file_url}': {file_err}"

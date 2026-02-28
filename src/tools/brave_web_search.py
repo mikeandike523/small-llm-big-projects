@@ -18,6 +18,9 @@ _ACCEPT = "application/json"
 LEAVE_OUT = "SHORT"
 TOOL_SHORT_AMOUNT = 800
 
+DEFAULT_TIMEOUT = 15  # seconds
+TIMEOUT_HINT = None
+
 DEFINITION: dict = {
     "type": "function",
     "function": {
@@ -138,7 +141,7 @@ def execute(args: dict, session_data: dict | None = None) -> str:
     json_error: str | None = None
 
     try:
-        with httpx.Client(follow_redirects=True, timeout=15) as client:
+        with httpx.Client(follow_redirects=True, timeout=DEFAULT_TIMEOUT) as client:
             resp = client.get(_BRAVE_SEARCH_URL, params=params, headers=headers)
 
         status_code = resp.status_code
@@ -149,6 +152,9 @@ def execute(args: dict, session_data: dict | None = None) -> str:
         except Exception as e:
             json_error = f"{type(e).__name__}: {e}"
 
+    except httpx.TimeoutException:
+        from src.utils.exceptions import ToolTimeoutError
+        raise ToolTimeoutError("brave_web_search", DEFAULT_TIMEOUT)
     except Exception as e:
         return format_response(
             status_code=None,

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import time
 from pathlib import Path
 
 from src.data import get_pool
@@ -8,6 +9,9 @@ from src.utils.sql.kv_manager import KVManager
 
 LEAVE_OUT = "SHORT"
 TOOL_SHORT_AMOUNT = 400
+
+DEFAULT_TIMEOUT = 30  # seconds
+TIMEOUT_HINT = "list_dir timed out; consider restricting traversal depth (use the 'depth' parameter)"
 
 DEFINITION: dict = {
     "type": "function",
@@ -253,6 +257,8 @@ def _traverse(
     visited_dirs: set,
     matchers: list,
     use_gitignore: bool,
+    start_time: float,
+    timeout: float,
 ) -> list:
     """
     Scan dir_path and return a list of entry dicts.
@@ -265,6 +271,10 @@ def _traverse(
         _is_dir_link (bool, internal — True for dir symlinks)
         _loop        (bool, internal — True for looped file symlinks)
     """
+    if time.monotonic() - start_time > timeout:
+        from src.utils.exceptions import ToolTimeoutError
+        raise ToolTimeoutError("list_dir", timeout, TIMEOUT_HINT)
+
     entries: list = []
 
     try:
@@ -323,6 +333,8 @@ def _traverse(
                             visited_dirs=visited_dirs,
                             matchers=child_matchers,
                             use_gitignore=use_gitignore,
+                            start_time=start_time,
+                            timeout=timeout,
                         )
                     entries.append(
                         {
@@ -354,6 +366,8 @@ def _traverse(
                         visited_dirs=visited_dirs,
                         matchers=child_matchers,
                         use_gitignore=use_gitignore,
+                        start_time=start_time,
+                        timeout=timeout,
                     )
                 entries.append(
                     {
@@ -552,6 +566,7 @@ def execute(args: dict, session_data: dict) -> str:
     visited_dirs: set = {os.path.realpath(path)}
 
     # --- Traverse ---
+    _start_time = time.monotonic()
     children = _traverse(
         dir_path=path,
         recursive=recursive,
@@ -561,6 +576,8 @@ def execute(args: dict, session_data: dict) -> str:
         visited_dirs=visited_dirs,
         matchers=effective_matchers,
         use_gitignore=use_gitignore,
+        start_time=_start_time,
+        timeout=DEFAULT_TIMEOUT,
     )
 
     root_name = Path(path).name or path
