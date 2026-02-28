@@ -14,3 +14,5 @@ ui/.env.local
 scratchpad
 
 **/.claude
+
+test_results/

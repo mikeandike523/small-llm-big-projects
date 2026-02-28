@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tool Test Results</title>
+  <style>
+    :root {
+      --bg:#0f1117; --surface:#1a1d27; --border:#2d3142;
+      --text:#e4e6f0; --muted:#6b7394;
+      --green:#22c55e; --red:#ef4444; --yellow:#f59e0b; --blue:#3b82f6;
+    }
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{background:var(--bg);color:var(--text);font-family:system-ui,sans-serif;font-size:14px}
+    header{padding:18px 24px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+    h1{font-size:18px;font-weight:700;white-space:nowrap}
+    .stats{display:flex;gap:8px;flex:1;flex-wrap:wrap}
+    .stat{padding:3px 10px;border-radius:5px;font-weight:700;font-size:12px}
+    .stat.pass{background:rgba(34,197,94,.15);color:var(--green)}
+    .stat.fail{background:rgba(239,68,68,.15);color:var(--red)}
+    .stat.skip{background:rgba(245,158,11,.15);color:var(--yellow)}
+    .stat.total{background:rgba(59,130,246,.15);color:var(--blue)}
+    #ts{color:var(--muted);font-size:12px;white-space:nowrap}
+    .hdr-btn{background:var(--surface);border:1px solid var(--border);color:var(--text);padding:6px 13px;border-radius:5px;cursor:pointer;font-size:12px;white-space:nowrap}
+    .hdr-btn:hover{background:var(--border)}
+    main{padding:14px 20px;max-width:920px;margin:0 auto}
+    .section{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1.2px;color:var(--muted);margin:18px 0 6px}
+    .card{background:var(--surface);border:1px solid var(--border);border-radius:7px;margin-bottom:6px}
+    .card-hdr{padding:10px 14px;display:flex;align-items:center;gap:9px;cursor:pointer;user-select:none;border-radius:7px}
+    .card-hdr:hover{background:rgba(255,255,255,.03)}
+    .badge{padding:2px 7px;border-radius:4px;font-size:10px;font-weight:800;letter-spacing:.4px}
+    .badge.pass{background:rgba(34,197,94,.15);color:var(--green)}
+    .badge.fail{background:rgba(239,68,68,.15);color:var(--red)}
+    .badge.skip{background:rgba(245,158,11,.15);color:var(--yellow)}
+    .badge.error{background:rgba(239,68,68,.25);color:var(--red)}
+    .tname{font-weight:600;flex:1;font-family:monospace;font-size:13px}
+    .cinfo{color:var(--muted);font-size:12px}
+    .chev{color:var(--muted);font-size:10px;transition:transform .2s;padding-left:4px}
+    .card.open .chev{transform:rotate(90deg)}
+    .card-body{display:none;padding:10px 14px;border-top:1px solid var(--border)}
+    .card.open .card-body{display:block}
+    .st{margin-bottom:7px;padding:7px 10px;border-radius:5px;border-left:3px solid}
+    .st.pass{border-color:var(--green);background:rgba(34,197,94,.05)}
+    .st.fail{border-color:var(--red);background:rgba(239,68,68,.05)}
+    .st.skip{border-color:var(--yellow);background:rgba(245,158,11,.05)}
+    .sn{font-weight:600;font-size:13px}
+    .sd{color:var(--muted);font-size:12px;margin-top:2px}
+    .sdtl{color:var(--yellow);font-size:12px;margin-top:4px;font-family:monospace;word-break:break-all}
+    .errbox{background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.2);border-radius:6px;padding:12px}
+    .emsg{color:var(--red);font-weight:600;font-size:13px}
+    .etb{color:#f97316;font-family:monospace;font-size:11px;white-space:pre-wrap;margin-top:8px;overflow-x:auto}
+    #spinner{display:none;text-align:center;padding:60px;color:var(--muted)}
+  </style>
+</head>
+<body>
+<header>
+  <h1>Tool Test Results</h1>
+  <div class="stats" id="stats"></div>
+  <button class="hdr-btn" onclick="doLoad()" title="Force-fetch latest results.json (bypasses cache)">&#8635; Refresh</button>
+  <span id="ts"></span>
+</header>
+<main id="root"><div id="spinner">Loading results&hellip;</div></main>
+<script>
+'use strict';
+
+function esc(s) {
+  return String(s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+async function doLoad() {
+  document.getElementById('spinner').style.display = 'block';
+  try {
+    const r = await fetch(`./results.json?t=${Date.now()}`, { cache: 'no-store' });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    render(await r.json());
+  } catch (e) {
+    document.getElementById('root').innerHTML =
+      `<p style="color:var(--red);padding:40px">Failed to load results.json: ${esc(String(e))}</p>`;
+  }
+}
+
+function render(d) {
+  const res     = d.results;
+  const failed  = res.filter(r => !r.success && !r.gracefully_skipped);
+  const skipped = res.filter(r =>  r.gracefully_skipped);
+  const passed  = res.filter(r =>  r.success && !r.gracefully_skipped);
+
+  document.getElementById('stats').innerHTML = [
+    `<span class="stat total">${res.length} total</span>`,
+    `<span class="stat pass">${passed.length} passed</span>`,
+    failed.length  ? `<span class="stat fail">${failed.length} failed</span>`   : '',
+    skipped.length ? `<span class="stat skip">${skipped.length} skipped</span>` : '',
+  ].join('');
+  document.getElementById('ts').textContent = `Run at ${d.timestamp}`;
+
+  const root = document.getElementById('root');
+  root.innerHTML = '';
+  if (failed.length)  root.appendChild(section(`Failed (${failed.length})`,           failed));
+  if (skipped.length) root.appendChild(section(`Gracefully Skipped (${skipped.length})`, skipped));
+  if (passed.length)  root.appendChild(section(`Passed (${passed.length})`,            passed));
+}
+
+function section(title, results) {
+  const div = document.createElement('div');
+  div.innerHTML = `<div class="section">${title}</div>`;
+  results.forEach(r => div.appendChild(card(r)));
+  return div;
+}
+
+function card(r) {
+  const status = r.gracefully_skipped ? 'skip' : (r.error ? 'error' : (r.success ? 'pass' : 'fail'));
+  const label  = r.gracefully_skipped ? 'SKIP' : (r.error ? 'ERROR' : (r.success ? 'PASS' : 'FAIL'));
+  const cinfo  = r.error ? '' : `${r.checks_passed}/${r.checks_run}`;
+  const div = document.createElement('div');
+  div.className = 'card';
+  div.innerHTML = `
+    <div class="card-hdr" onclick="this.parentElement.classList.toggle('open')">
+      <span class="badge ${status}">${label}</span>
+      <span class="tname">${esc(r.tool_name)}</span>
+      <span class="cinfo">${cinfo}</span>
+      <span class="chev">&#9654;</span>
+    </div>
+    <div class="card-body">${cardBody(r)}</div>`;
+  return div;
+}
+
+function cardBody(r) {
+  if (r.error) {
+    return `<div class="errbox">
+      <div class="emsg">${esc(r.error)}</div>
+      ${r.traceback ? `<pre class="etb">${esc(r.traceback)}</pre>` : ''}
+    </div>`;
+  }
+  return r.sub_tests.map(s => {
+    const cls = s.skipped ? 'skip' : (s.passed ? 'pass' : 'fail');
+    return `<div class="st ${cls}">
+      <div class="sn">${s.number}. ${esc(s.name)}</div>
+      <div class="sd">${esc(s.description)}</div>
+      ${s.detail ? `<div class="sdtl">detail: ${esc(s.detail)}</div>` : ''}
+    </div>`;
+  }).join('');
+}
+
+doLoad();
+</script>
+</body>
+</html>

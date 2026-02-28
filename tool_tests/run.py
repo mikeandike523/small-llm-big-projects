@@ -106,6 +106,13 @@ def _print_result(result: TestResult) -> None:
                 print(f"    {_c(line, 'yellow')}")
         return
 
+    if result.gracefully_skipped:
+        badge = _bold(_c("SKIP", "yellow"))
+        reasons = [s.description for s in result.sub_tests if result._is_skip(s)]
+        reason_str = reasons[0] if reasons else ""
+        print(f"  {badge} — {_c(reason_str, 'dark_grey')}")
+        return
+
     badge = _bold(_c("PASS", "green")) if result.success else _bold(_c("FAIL", "red"))
     print(f"  {badge} ({result.checks_passed}/{result.checks_run})")
 
@@ -120,8 +127,34 @@ def _print_result(result: TestResult) -> None:
             print(f"       {_c('  detail: ' + sub.detail, 'yellow')}")
 
 
+def _write_report(results: list[TestResult], results_dir: str) -> None:
+    """Write test_results/results.json and copy tool_tests/index.html."""
+    import datetime
+    import shutil
+
+    os.makedirs(results_dir, exist_ok=True)
+
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    payload = {
+        "timestamp": timestamp,
+        "total": len(results),
+        "passed": sum(1 for r in results if r.success and not r.gracefully_skipped),
+        "failed": sum(1 for r in results if not r.success and not r.gracefully_skipped),
+        "skipped": sum(1 for r in results if r.gracefully_skipped),
+        "results": [r.to_dict() for r in results],
+    }
+
+    json_path = os.path.join(results_dir, "results.json")
+    with open(json_path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=2)
+
+    src_html = os.path.join(os.path.dirname(__file__), "index.html")
+    shutil.copy2(src_html, os.path.join(results_dir, "index.html"))
+
+
 def main() -> int:
     log_dir = os.path.join(os.path.dirname(__file__), "log")
+    results_dir = os.path.join(_REPO_ROOT, "test_results")
     os.makedirs(log_dir, exist_ok=True)
 
     print(f"\n{_bold('Starting tool tests...')}")
@@ -137,6 +170,7 @@ def main() -> int:
 
     results: list[TestResult] = []
     failed_tools: list[str] = []
+    skipped_tools: list[str] = []
 
     import importlib
 
@@ -172,7 +206,9 @@ def main() -> int:
         results.append(result)
         _print_result(result)
 
-        if not result.success:
+        if result.gracefully_skipped:
+            skipped_tools.append(result.tool_name)
+        elif not result.success:
             failed_tools.append(result.tool_name)
             log_path = os.path.join(log_dir, f"{result.tool_name}.json")
             try:
@@ -188,16 +224,33 @@ def main() -> int:
         except Exception:
             pass
 
+    # Write static report
+    try:
+        _write_report(results, results_dir)
+        print(f"\n  {_c('Report written to', 'cyan')} {_c('test_results/', 'white')}  "
+              f"{_c('(run ./tool_tests/view.sh to open)', 'dark_grey')}")
+    except Exception as e:
+        print(f"  {_c('WARNING: could not write report: ' + str(e), 'yellow')}")
+
     # Summary
     total = len(results)
-    passed = sum(1 for r in results if r.success)
-    failed = total - passed
+    passed = sum(1 for r in results if r.success and not r.gracefully_skipped)
+    failed = len(failed_tools)
+    skipped = len(skipped_tools)
 
     print(f"\n\n{_bold('== Summary ==')}")
-    print(f"  Passed: {_c(str(passed), 'green')}/{total} tools   Failed: {_c(str(failed), 'red' if failed else 'green')}")
+    print(
+        f"  Passed:  {_c(str(passed), 'green')}/{total}   "
+        f"Failed: {_c(str(failed), 'red' if failed else 'green')}   "
+        f"Skipped: {_c(str(skipped), 'yellow' if skipped else 'green')}"
+    )
 
     if failed_tools:
         print(f"  Failures: {_c(', '.join(failed_tools), 'red')}")
+
+    if skipped_tools:
+        print(f"  Graceful skips: {_c(', '.join(skipped_tools), 'yellow')}")
+        print(f"  {_c('(skips may indicate missing mocking — consider adding stubs)', 'dark_grey')}")
 
     return 1 if failed_tools else 0
 
