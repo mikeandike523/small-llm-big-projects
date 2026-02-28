@@ -60,6 +60,35 @@ Use write_text_file_from_session_memory to write the result back to disk.
 Line numbers shown by session_memory_read_lines are 1-based and right-justified —
 use them directly as arguments to the edit tools.
 
+""",
+
+"""
+Running Code for Precision Operations:
+
+Use the code_interpreter tool to run Python from session memory. Args are JSON-decoded
+before calling main(); main()'s return value is automatically JSON-encoded (any
+JSON-serialisable type).
+
+Args: each element is a JSON-encoded string (e.g. "42", "\"hello\"", "[1,2,3]", "{\"k\":1}")
+or {"session_memory_key": "k"} to pull a JSON value from session memory.
+Target: "return_value" (default) returns the JSON result inline;
+        "session_memory" writes it to target_session_memory_key.
+
+  # Literal args, result inline:
+  code_interpreter(session_memory_key_code="my_code", args=["42", "\"world\""])
+  # main receives: int 42, str "world"; result returned as JSON
+
+  # Session memory input ("data" holds "[1,2,3]"), store result:
+  code_interpreter(
+    session_memory_key_code="my_code",
+    args=[{"session_memory_key": "data"}],
+    target="session_memory", target_session_memory_key="out"
+  )
+  # main receives: list [1,2,3]; result stored as JSON in "out"
+
+main() may return any JSON-serialisable value (str, int, list, dict, ...).
+Use return, not print().
+
 """
 ]
 
@@ -175,37 +204,12 @@ to page through it in chunks (preferred when the content is line-structured, e.g
 logs, or web pages). In the rare case the content is not line-structured, use
 session_memory_count_chars and session_memory_read_char_range instead.
 
-== code_interpreter ==
-
-Runs Python from session memory. Args are JSON-decoded before calling main();
-main()'s return value is automatically JSON-encoded (any JSON-serialisable type).
-
-Args: each element is a JSON-encoded string (e.g. "42", "\"hello\"", "[1,2,3]", "{\"k\":1}")
-or {"session_memory_key": "k"} to pull a JSON value from session memory.
-Target: "return_value" (default) returns the JSON result inline;
-        "session_memory" writes it to target_session_memory_key.
-
-  # Literal args, result inline:
-  code_interpreter(session_memory_key_code="my_code", args=["42", "\"world\""])
-  # main receives: int 42, str "world"; result returned as JSON
-
-  # Session memory input ("data" holds "[1,2,3]"), store result:
-  code_interpreter(
-    session_memory_key_code="my_code",
-    args=[{"session_memory_key": "data"}],
-    target="session_memory", target_session_memory_key="out"
-  )
-  # main receives: list [1,2,3]; result stored as JSON in "out"
-
-main() may return any JSON-serialisable value (str, int, list, dict, ...).
-Use return, not print().
-
 == Custom Skills ==
 
 Custom skills are guides to solving certain
 types problems using the tools you already have.
 
-{custom_skills}
+<<CUSTOM_SKILLS_TEXT>>
 
 """
 
@@ -217,10 +221,10 @@ def build_system_prompt(use_custom_skills=False,
             custom_skills_path = os.path.join(os.getcwd(),"skills")
         custom_skill_files = [
             file for file in os.listdir(custom_skills_path)
-            if file.lower().endswith(".md")             
+            if file.lower().endswith(".md")
                          ]
         for skill_file in custom_skill_files:
             with open(os.path.join(custom_skills_path, skill_file)) as fl:
                 custom_skills.append(fl.read().strip())
-    return SYSTEM_PROMPT.format(custom_skills="\n\n".join(skill_text.strip() for skill_text in(BUILT_IN_SKILLS+custom_skills)))
-
+    skills_text = "\n\n".join(skill_text.strip() for skill_text in (BUILT_IN_SKILLS + custom_skills))
+    return SYSTEM_PROMPT.replace("<<CUSTOM_SKILLS_TEXT>>", skills_text)
