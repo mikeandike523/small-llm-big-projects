@@ -170,25 +170,27 @@ session_memory_count_chars and session_memory_read_char_range instead.
 
 == code_interpreter ==
 
-The code_interpreter tool executes Python via a sandboxed Piston engine.
+Runs Python from session memory; result goes to a session memory key.
 
-STRICT RULES -- violating these means the tool will not work correctly:
+Code and args live in session memory. Write them there first, then call code_interpreter.
+All args and the return value are strings -- parse/convert explicitly as needed.
 
-- Your code MUST define a function named main(). No other entry point is used.
-- main() MUST return a plain Python str. This is a hard contract.
-  Returning a dict, list, int, float, bool, or any other type will result in
-  str() being called on it, producing Python repr output -- not useful data.
-  If you need to return structured data (JSON, CSV, etc.), call json.dumps()
-  or similar inside main() and return the resulting string.
-- All arguments passed to main() are strings. If you need numeric types,
-  parse them explicitly (e.g. int(x), float(x)).
-- You may define as many helper functions as needed. main() just has to exist.
-- Do NOT include 'if __name__ == "__main__"' -- it will not be executed.
-- Do NOT use print() for output -- only the return value of main() is captured.
+Example -- sum numbers stored in "my_data":
 
-Violating the return type contract is the most common mistake. Always ensure
-every code path in main() ends with return "<some string>". If in doubt,
-wrap the final value explicitly: return str(my_value).
+  Code in "my_code":
+    def main(data):
+        return str(sum(int(x) for x in data.split()))
+
+  Call:
+    code_interpreter(
+      session_memory_key_code="my_code",
+      args=["my_data"],
+      output_key="my_result"
+    )
+
+  Then read "my_result" for the answer.
+
+Return json.dumps(...) for structured data. Use return, not print().
 
 == Custom Skills ==
 

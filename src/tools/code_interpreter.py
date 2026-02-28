@@ -14,7 +14,6 @@ LEAVE_OUT = "SHORT"
 TOOL_SHORT_AMOUNT = 1000
 
 _PISTON_EXECUTE_PATH = "/api/v2/execute"
-_PISTON_RUNTIMES_PATH = "/api/v2/runtimes"
 
 # Appended after the user's code to invoke main() with args from stdin.
 # Uses private-ish names to avoid colliding with user-defined variables.
@@ -31,89 +30,39 @@ DEFINITION: dict = {
     "function": {
         "name": "code_interpreter",
         "description": (
-            "Execute Python code stored in session memory via a sandboxed Piston engine. "
-            "The code must define a function named main() — no other entry point is used. "
-            "main() MUST return a plain Python str. "
-            "Returning any other type (dict, list, int, etc.) will result in str() being "
-            "called on it, producing Python repr output which is almost certainly not useful. "
-            "To return structured data, call json.dumps() inside main() and return the string. "
-            "All arguments passed to main() are strings — parse explicitly if numeric types "
-            "are needed (e.g. int(x), float(x)). "
-            "Other helper functions may be defined alongside main(). "
-            "Do NOT include 'if __name__ == \"__main__\"' — it will not be executed. "
-            "Do NOT use print() for output — only the return value of main() is captured. "
-            "Requires Piston to be running (see server/docker-compose.yml) and the Python "
-            "runtime installed (run server/setup_piston.sh once). "
-            "Configure the Piston URL via the PISTON_URL environment variable "
-            "(default: http://localhost:2000)."
+            "Execute Python code from session memory. "
+            "The code must define main() returning a str. "
+            "Result is written to a session memory key."
         ),
         "parameters": {
             "type": "object",
             "properties": {
                 "session_memory_key_code": {
                     "type": "string",
-                    "description": (
-                        "Session memory key whose value is the Python code to execute. "
-                        "The code must define a main() function that returns a plain str."
-                    ),
+                    "description": "Session memory key containing the Python code.",
+                },
+                "output_key": {
+                    "type": "string",
+                    "description": "Session memory key to write the result to.",
                 },
                 "args": {
                     "type": "array",
+                    "items": {"type": "string"},
                     "description": (
-                        "Ordered list of arguments to pass to main(). "
-                        "Each element is either: "
-                        "(a) a plain string — passed directly as that string value, or "
-                        "(b) an object {\"session_memory_key\": \"<key>\"} — the value is "
-                        "loaded from session memory and passed as a string. "
-                        "All args arrive in main() as strings."
+                        "Session memory keys to pass as arguments to main(), in order."
                     ),
-                    "items": {
-                        "oneOf": [
-                            {
-                                "type": "string",
-                            },
-                            {
-                                "type": "object",
-                                "properties": {
-                                    "session_memory_key": {
-                                        "type": "string",
-                                        "description": "Session memory key to read the argument value from.",
-                                    },
-                                },
-                                "required": ["session_memory_key"],
-                                "additionalProperties": False,
-                            },
-                        ]
-                    },
                 },
                 "timeout": {
                     "type": "integer",
                     "description": (
-                        f"Execution timeout in seconds. "
-                        f"Must be an integer between 1 and {MAX_ALLOWABLE_TIMEOUT}. "
-                        f"Defaults to {DEFAULT_TIMEOUT}."
+                        f"Timeout in seconds (1-{MAX_ALLOWABLE_TIMEOUT}, "
+                        f"default {DEFAULT_TIMEOUT})."
                     ),
                     "minimum": 1,
                     "maximum": MAX_ALLOWABLE_TIMEOUT,
                 },
-                "target": {
-                    "type": "string",
-                    "enum": ["return_value", "session_memory"],
-                    "description": (
-                        "Where to send the result. "
-                        "'return_value' (default) returns it directly. "
-                        "'session_memory' writes it to a session memory key."
-                    ),
-                },
-                "memory_key": {
-                    "type": "string",
-                    "description": (
-                        "Session memory key to write the result to. "
-                        "Required when target is 'session_memory'."
-                    ),
-                },
             },
-            "required": ["session_memory_key_code"],
+            "required": ["session_memory_key_code", "output_key"],
             "additionalProperties": False,
         },
     },
@@ -164,11 +113,10 @@ def execute(args: dict, session_data: dict | None = None) -> str:
     if timeout_err:
         return timeout_err
 
-    # --- target / memory_key validation ---
-    target: str = args.get("target", "return_value")
-    memory_key: str | None = args.get("memory_key")
-    if target == "session_memory" and not memory_key:
-        return "Error: 'memory_key' is required when target is 'session_memory'."
+    # --- output_key validation ---
+    output_key: str | None = args.get("output_key")
+    if not output_key:
+        return "Error: 'output_key' is required."
 
     # --- load code from session memory ---
     code_key: str = args["session_memory_key_code"]
@@ -181,24 +129,13 @@ def execute(args: dict, session_data: dict | None = None) -> str:
     # --- resolve args list ---
     raw_args: list = args.get("args") or []
     resolved_args: list[str] = []
-    for i, item in enumerate(raw_args):
-        if isinstance(item, str):
-            resolved_args.append(item)
-        elif isinstance(item, dict):
-            sk = item.get("session_memory_key")
-            if not sk:
-                return (
-                    f"Error: args[{i}] is an object but is missing 'session_memory_key'."
-                )
-            val = memory.get(sk)
-            if val is None:
-                return f"Error: args[{i}] references session memory key {sk!r} which was not found."
-            resolved_args.append(val if isinstance(val, str) else str(val))
-        else:
-            return (
-                f"Error: args[{i}] has unsupported type {type(item).__name__!r}. "
-                "Each element must be a string or an object with 'session_memory_key'."
-            )
+    for i, key in enumerate(raw_args):
+        if not isinstance(key, str):
+            return f"Error: args[{i}] must be a string (session memory key), got {type(key).__name__!r}."
+        val = memory.get(key)
+        if val is None:
+            return f"Error: args[{i}] session memory key {key!r} not found."
+        resolved_args.append(val if isinstance(val, str) else str(val))
 
     # --- build the final code to send to Piston ---
     full_code = code.rstrip("\n") + "\n" + _WRAPPER
@@ -282,9 +219,5 @@ def execute(args: dict, session_data: dict | None = None) -> str:
     else:
         result = stdout
 
-    if target == "return_value":
-        return result
-
-    # target == "session_memory"
-    memory[memory_key] = result
-    return f"Code executed successfully. Result written to session memory key {memory_key!r}."
+    memory[output_key] = result
+    return f"Code executed. Result written to session memory key {output_key!r}."
