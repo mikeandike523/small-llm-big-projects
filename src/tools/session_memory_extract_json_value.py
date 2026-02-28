@@ -18,7 +18,11 @@ DEFINITION: dict = {
             "Use 'path_steps' (array of strings) only in the rare case that a key in the "
             "JSON object contains a period. Exactly one of 'path' or 'path_steps' must be provided. "
             "Use target='return_value' (default) to get the value inline, or "
-            "target='session_memory' with output_session_memory_key to store it."
+            "target='session_memory' with output_session_memory_key to store it. "
+            "enable_interpret_data (default true) returns plain strings as-is and formats "
+            "everything else as indented JSON — good for extracting single values or small objects. "
+            "Set it to false to always output raw JSON (strings get quoted and escaped), "
+            "which is useful when the extracted value will be embedded in a larger JSON document."
         ),
         "parameters": {
             "type": "object",
@@ -61,6 +65,16 @@ DEFINITION: dict = {
                         "The session memory key to store the extracted value into."
                     ),
                 },
+                "enable_interpret_data": {
+                    "type": "boolean",
+                    "description": (
+                        "Default true. When true, a string value is returned as plain text "
+                        "with no quoting or escaping; all other types are formatted as "
+                        "indented JSON (indent=2). When false, the extracted value is always "
+                        "serialized with json.dumps (strings are quoted and escaped, numbers "
+                        "and booleans appear as JSON literals)."
+                    ),
+                },
             },
             "required": ["input_session_memory_key"],
             "additionalProperties": False,
@@ -81,10 +95,10 @@ def _ensure_session_memory(session_data: dict) -> dict:
     return memory
 
 
-def _value_to_str(value) -> str:
-    if isinstance(value, str):
+def _value_to_str(value, interpret: bool) -> str:
+    if interpret and isinstance(value, str):
         return value
-    return json.dumps(value, ensure_ascii=False)
+    return json.dumps(value, ensure_ascii=False, indent=2)
 
 
 def _traverse(value, steps: list[str]) -> tuple[object, str | None]:
@@ -128,6 +142,7 @@ def execute(args: dict, session_data: dict | None = None) -> str:
     has_path = "path" in args and args["path"] is not None
     has_steps = "path_steps" in args and args["path_steps"] is not None
     target = args.get("target", "return_value")
+    interpret = args.get("enable_interpret_data", True)
 
     if has_path and has_steps:
         return "Error: provide either 'path' or 'path_steps', not both."
@@ -160,10 +175,10 @@ def execute(args: dict, session_data: dict | None = None) -> str:
         out_key = args.get("output_session_memory_key")
         if not out_key:
             return "Error: target='session_memory' requires output_session_memory_key."
-        memory[out_key] = _value_to_str(value)
+        memory[out_key] = _value_to_str(value, interpret)
         return (
             f"Extracted value from {input_key!r} at path {path_repr!r} "
             f"and stored it in session memory key {out_key!r}."
         )
 
-    return _value_to_str(value)
+    return _value_to_str(value, interpret)

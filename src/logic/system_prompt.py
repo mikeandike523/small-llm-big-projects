@@ -139,6 +139,13 @@ check_eol, check_indentation, convert_indentation) all require the key to hold
 a string value. The `text` parameter in append_to_variable and
 insert/replace_lines is the literal text to write.
 
+== Extracting Values from JSON in Session Memory ==
+
+Use session_memory_extract_json_value to read a value stored as JSON in session memory
+without loading and parsing it manually. Provide a dot-delimited 'path' (e.g. 'results.0.name')
+to traverse into the JSON structure. The extracted value can be returned inline or written
+to another session memory key (target='session_memory').
+
 == Project Memory — Intentionally Minimal Tool Set ==
 
 Project memory tools (project_memory_get/set/list/delete/search) are intentionally
