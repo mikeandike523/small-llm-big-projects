@@ -32,7 +32,7 @@ def run(env: TestEnv, server: MicroServer | None = None):
         # filter=files — should include the file, should not include the subdir name with trailing slash
         r3 = execute_tool("list_dir", {"path": env.tmp_dir, "filter": "files", "recursive": True}, env.session_data)
         cl.check("filter files includes file", "Files-only filter includes the top-level file", "list_test_file.txt" in r3, f"got: {r3!r}")
-        cl.check("filter files excludes folder", "Files-only filter excludes bare folder name with slash", "list_test_subdir/" not in r3, f"got: {r3!r}")
+        cl.check("filter files excludes folder", "Files-only filter excludes bare folder name with slash", "list_test_subdir/" not in r3.splitlines(), f"got: {r3!r}")
     except Exception as e:
         cl.record_exception(e)
     return cl.result()
