@@ -25,3 +25,20 @@ services:
       timeout: 5s
       retries: 10
     restart: unless-stopped
+
+  piston:
+    image: ghcr.io/engineer-man/piston
+    privileged: true
+    ports:
+      - "${PISTON_PORT:-2000}:2000"
+    volumes:
+      - piston_packages:/piston/packages
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:2000/api/v2/runtimes || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+    restart: unless-stopped
+
+volumes:
+  piston_packages:

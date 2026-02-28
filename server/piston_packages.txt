@@ -1,0 +1,7 @@
+# Python packages to pre-install into the Piston runtime.
+# One package per line. Comments (lines starting with #) and blank lines are ignored.
+# Run server/setup_piston.sh after editing this file to apply changes.
+
+numpy
+pandas
+requests
