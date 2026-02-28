@@ -177,27 +177,28 @@ session_memory_count_chars and session_memory_read_char_range instead.
 
 == code_interpreter ==
 
-Runs Python from session memory; result goes to a session memory key.
+Runs Python from session memory. Args are JSON-decoded before calling main();
+main()'s return value is automatically JSON-encoded (any JSON-serialisable type).
 
-Code and args live in session memory. Write them there first, then call code_interpreter.
-All args and the return value are strings -- parse/convert explicitly as needed.
+Args: each element is a JSON-encoded string (e.g. "42", "\"hello\"", "[1,2,3]", "{\"k\":1}")
+or {"session_memory_key": "k"} to pull a JSON value from session memory.
+Target: "return_value" (default) returns the JSON result inline;
+        "session_memory" writes it to target_session_memory_key.
 
-Example -- sum numbers stored in "my_data":
+  # Literal args, result inline:
+  code_interpreter(session_memory_key_code="my_code", args=["42", "\"world\""])
+  # main receives: int 42, str "world"; result returned as JSON
 
-  Code in "my_code":
-    def main(data):
-        return str(sum(int(x) for x in data.split()))
+  # Session memory input ("data" holds "[1,2,3]"), store result:
+  code_interpreter(
+    session_memory_key_code="my_code",
+    args=[{"session_memory_key": "data"}],
+    target="session_memory", target_session_memory_key="out"
+  )
+  # main receives: list [1,2,3]; result stored as JSON in "out"
 
-  Call:
-    code_interpreter(
-      session_memory_key_code="my_code",
-      args=["my_data"],
-      output_key="my_result"
-    )
-
-  Then read "my_result" for the answer.
-
-Return json.dumps(...) for structured data. Use return, not print().
+main() may return any JSON-serialisable value (str, int, list, dict, ...).
+Use return, not print().
 
 == Custom Skills ==
 

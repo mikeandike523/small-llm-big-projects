@@ -15,14 +15,15 @@ TOOL_SHORT_AMOUNT = 1000
 
 _PISTON_EXECUTE_PATH = "/api/v2/execute"
 
-# Appended after the user's code to invoke main() with args from stdin.
+# Appended after the user's code to invoke main() with JSON-decoded args from
+# stdin and print the JSON-encoded return value to stdout.
 # Uses private-ish names to avoid colliding with user-defined variables.
 _WRAPPER = """
 import json as _slbp_json, sys as _slbp_sys
 _slbp_raw = _slbp_sys.stdin.read()
 _slbp_args = _slbp_json.loads(_slbp_raw) if _slbp_raw.strip() else []
 _slbp_result = main(*_slbp_args)
-print(str(_slbp_result), end="")
+print(_slbp_json.dumps(_slbp_result, indent=2), end="")
 """
 
 DEFINITION: dict = {
@@ -30,9 +31,12 @@ DEFINITION: dict = {
     "function": {
         "name": "code_interpreter",
         "description": (
-            "Execute Python code from session memory. "
-            "The code must define main() returning a str. "
-            "Result is written to a session memory key."
+            "Execute Python code stored in session memory. "
+            "The code must define main(). "
+            "Each arg is a JSON-encoded string that is decoded before being passed to main(). "
+            "main()'s return value is automatically JSON-encoded. "
+            "Result is returned inline (target='return_value', default) "
+            "or stored in a session memory key (target='session_memory')."
         ),
         "parameters": {
             "type": "object",
@@ -41,15 +45,51 @@ DEFINITION: dict = {
                     "type": "string",
                     "description": "Session memory key containing the Python code.",
                 },
-                "output_key": {
-                    "type": "string",
-                    "description": "Session memory key to write the result to.",
-                },
                 "args": {
                     "type": "array",
-                    "items": {"type": "string"},
                     "description": (
-                        "Session memory keys to pass as arguments to main(), in order."
+                        "Arguments passed to main(), in order. "
+                        "Each element is either a JSON-encoded string "
+                        "(e.g. '\"hello\"' for a string, '42' for a number, '[1,2]' for a list) "
+                        "that is decoded before calling main(), "
+                        "or {\"session_memory_key\": \"key_name\"} to read a JSON value "
+                        "from session memory."
+                    ),
+                    "items": {
+                        "oneOf": [
+                            {
+                                "type": "string",
+                                "description": "A JSON-encoded value (decoded before passing to main()).",
+                            },
+                            {
+                                "type": "object",
+                                "description": "Read a JSON value from session memory.",
+                                "properties": {
+                                    "session_memory_key": {
+                                        "type": "string",
+                                        "description": "Session memory key whose JSON value is used as the argument.",
+                                    },
+                                },
+                                "required": ["session_memory_key"],
+                                "additionalProperties": False,
+                            },
+                        ],
+                    },
+                },
+                "target": {
+                    "type": "string",
+                    "enum": ["return_value", "session_memory"],
+                    "description": (
+                        "'return_value' (default): return the JSON-encoded result inline. "
+                        "'session_memory': write the JSON-encoded result to "
+                        "target_session_memory_key and return a confirmation message."
+                    ),
+                },
+                "target_session_memory_key": {
+                    "type": "string",
+                    "description": (
+                        "Required when target='session_memory'. "
+                        "The session memory key to write the JSON-encoded result into."
                     ),
                 },
                 "timeout": {
@@ -62,7 +102,7 @@ DEFINITION: dict = {
                     "maximum": MAX_ALLOWABLE_TIMEOUT,
                 },
             },
-            "required": ["session_memory_key_code", "output_key"],
+            "required": ["session_memory_key_code"],
             "additionalProperties": False,
         },
     },
@@ -113,10 +153,11 @@ def execute(args: dict, session_data: dict | None = None) -> str:
     if timeout_err:
         return timeout_err
 
-    # --- output_key validation ---
-    output_key: str | None = args.get("output_key")
-    if not output_key:
-        return "Error: 'output_key' is required."
+    # --- target validation ---
+    target = args.get("target", "return_value")
+    target_key: str | None = args.get("target_session_memory_key")
+    if target == "session_memory" and not target_key:
+        return "Error: target='session_memory' requires 'target_session_memory_key'."
 
     # --- load code from session memory ---
     code_key: str = args["session_memory_key_code"]
@@ -126,21 +167,43 @@ def execute(args: dict, session_data: dict | None = None) -> str:
     if not isinstance(code, str):
         return f"Error: session memory key {code_key!r} does not hold a text value."
 
-    # --- resolve args list ---
+    # --- resolve and JSON-decode args ---
+    # Each resolved arg is a Python object passed directly to main().
     raw_args: list = args.get("args") or []
-    resolved_args: list[str] = []
-    for i, key in enumerate(raw_args):
-        if not isinstance(key, str):
-            return f"Error: args[{i}] must be a string (session memory key), got {type(key).__name__!r}."
-        val = memory.get(key)
-        if val is None:
-            return f"Error: args[{i}] session memory key {key!r} not found."
-        resolved_args.append(val if isinstance(val, str) else str(val))
+    resolved_args: list = []
+    for i, item in enumerate(raw_args):
+        if isinstance(item, str):
+            # Literal JSON-encoded string — decode it.
+            try:
+                resolved_args.append(json.loads(item))
+            except json.JSONDecodeError as e:
+                return f"Error: args[{i}] is not valid JSON: {e}"
+        elif isinstance(item, dict):
+            # Read from session memory and JSON-decode the stored value.
+            key = item.get("session_memory_key")
+            if not key:
+                return f"Error: args[{i}] object must have a 'session_memory_key' field."
+            val = memory.get(key)
+            if val is None:
+                return f"Error: args[{i}] session memory key {key!r} not found."
+            if not isinstance(val, str):
+                return f"Error: args[{i}] session memory key {key!r} does not hold a text value."
+            try:
+                resolved_args.append(json.loads(val))
+            except json.JSONDecodeError as e:
+                return f"Error: args[{i}] session memory key {key!r} does not contain valid JSON: {e}"
+        else:
+            return (
+                f"Error: args[{i}] must be a JSON string or a "
+                f"{{'session_memory_key': ...}} object, got {type(item).__name__!r}."
+            )
 
     # --- build the final code to send to Piston ---
     full_code = code.rstrip("\n") + "\n" + _WRAPPER
 
     # --- build Piston request payload ---
+    # resolved_args contains Python objects; json.dumps produces the JSON array
+    # that the wrapper will json.loads back into the same objects.
     piston_url = os.environ.get("PISTON_URL", "http://localhost:2000").rstrip("/")
     stdin_data = json.dumps(resolved_args)
 
@@ -179,7 +242,6 @@ def execute(args: dict, session_data: dict | None = None) -> str:
 
     # --- parse response ---
     if resp.status_code != 200:
-        # Common cause: Python runtime not installed in Piston.
         body = resp.text[:500]
         if resp.status_code in (400, 404, 422) and "language" in body.lower():
             return (
@@ -209,15 +271,16 @@ def execute(args: dict, session_data: dict | None = None) -> str:
             parts.append(f"Stderr:\n{stderr}")
         if stdout:
             parts.append(f"Stdout:\n{stdout}")
-        result = "\n".join(parts)
-    elif stderr:
-        # Non-zero exit already handled above; non-empty stderr with exit 0
-        # means warnings/deprecations — include but don't treat as failure.
-        result = stdout
-        if stderr.strip():
-            result = f"{stdout}\n[stderr]\n{stderr}".strip()
+        return "\n".join(parts)
+
+    # stdout is the JSON-encoded return value produced by the wrapper's json.dumps call.
+    if stderr.strip():
+        result = f"{stdout}\n[stderr]\n{stderr}".strip()
     else:
         result = stdout
 
-    memory[output_key] = result
-    return f"Code executed. Result written to session memory key {output_key!r}."
+    if target == "session_memory":
+        memory[target_key] = result
+        return f"Code executed. Result written to session memory key {target_key!r}."
+
+    return result

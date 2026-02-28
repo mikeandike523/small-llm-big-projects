@@ -59,6 +59,7 @@ _TEST_MODULES = [
     "tool_tests.individual.test_session_memory_check_indentation",
     "tool_tests.individual.test_session_memory_convert_indentation",
     "tool_tests.individual.test_session_memory_search_by_regex",
+    "tool_tests.individual.test_session_memory_extract_json_value",
     # Filesystem tools
     "tool_tests.individual.test_get_pwd",
     "tool_tests.individual.test_change_pwd",
