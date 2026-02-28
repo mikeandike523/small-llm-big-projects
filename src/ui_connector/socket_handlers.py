@@ -55,6 +55,18 @@ if _skills_enabled:
 
 _builtin_tool_count: int = len(ALL_TOOL_DEFINITIONS) - sum(p["count"] for p in _custom_tool_plugins)
 
+_startup_tool_calls: list[dict] = []
+if os.environ.get("SLBP_LOAD_STARTUP_TOOL_CALLS") == "1":
+    _startup_path = os.path.join(_initial_cwd, "startup_tool_calls.json")
+    try:
+        with open(_startup_path, "r", encoding="utf-8") as _f:
+            _startup_tool_calls = json.load(_f)
+        print(f"[ui_connector] Loaded {len(_startup_tool_calls)} startup tool call(s) from {_startup_path}", flush=True)
+    except FileNotFoundError:
+        print(f"[ui_connector] startup_tool_calls.json not found at {_startup_path}", flush=True)
+    except Exception as _exc:
+        print(f"[ui_connector] Failed to load startup_tool_calls.json: {_exc}", flush=True)
+
 
 
 
@@ -526,6 +538,40 @@ def handle_connect():
         colored("System started", "green") +
         f": streaming={_USE_STREAMING}, skills={skills_str}, os={_env_os}, shell={_env_shell}"
     )
+
+
+@socketio.on("run_startup_tool_calls")
+def handle_run_startup_tool_calls():
+    sid = request.sid
+    if not _startup_tool_calls:
+        emit("startup_tool_calls_done", {"count": 0})
+        return
+
+    session = _load_session(sid)
+    special_resources = {
+        "emitting_kv_manager": EmittingKVManager(get_pool(), socketio, sid),
+    }
+
+    for i, tc_spec in enumerate(_startup_tool_calls):
+        name = tc_spec.get("name", "")
+        args = tc_spec.get("args", {})
+        tc_id = f"startup-{i}"
+
+        emit("startup_tool_call", {"id": tc_id, "name": name, "args": args})
+
+        session["session_data"]["__pinned_project__"] = _initial_cwd if _pin_project_memory else None
+        try:
+            result = execute_tool(name, args, session["session_data"], special_resources)
+        except Exception as exc:
+            result = f"Error executing '{name}': {exc}"
+
+        emit("startup_tool_result", {"id": tc_id, "result": result})
+
+        if name == "change_pwd":
+            emit("pwd_update", {"path": os.getcwd().replace("\\", "/")})
+
+    _save_session(sid, session)
+    emit("startup_tool_calls_done", {"count": len(_startup_tool_calls)})
 
 
 @socketio.on("disconnect")

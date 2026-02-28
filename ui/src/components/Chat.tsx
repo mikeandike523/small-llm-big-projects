@@ -350,6 +350,52 @@ const toolCallsGroupCss = css`
   gap: 10px;
 `
 
+// ---------------------------------------------------------------------------
+// Startup tool calls card styles
+// ---------------------------------------------------------------------------
+
+const startupCardCss = css`
+  border: 1px solid #2a3a2a;
+  border-radius: 12px;
+  background: #0d150d;
+  box-shadow: 0 3px 16px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+`
+
+const startupCardHeaderCss = css`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  background: #111a11;
+  border-bottom: 1px solid #1e2e1e;
+  font-size: 12px;
+  color: #70a070;
+  font-family: 'Consolas', monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+`
+
+const startupCardBodyCss = css`
+  padding: 12px;
+`
+
+const inlineSpinnerCss = css`
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border: 2px solid rgba(100, 180, 100, 0.3);
+  border-top-color: #70c870;
+  border-radius: 50%;
+  animation: ${_spin} 0.7s linear infinite;
+  vertical-align: middle;
+`
+
+const startupDoneBadgeCss = css`
+  font-size: 11px;
+  color: #50a050;
+`
+
 const headerBarCss = css`
   display: flex;
   align-items: center;
@@ -623,6 +669,70 @@ const modalBodyCss = css`
 `
 
 // ---------------------------------------------------------------------------
+// StartupToolCallsCard
+// ---------------------------------------------------------------------------
+
+function StartupToolCallsCard({
+  toolCalls,
+  done,
+  onViewFull,
+}: {
+  toolCalls: ToolCallEntry[]
+  done: boolean
+  onViewFull: (content: string) => void
+}) {
+  const { containerRef, scrollToBottomIfNeeded, onScroll } = useScrollToBottom<HTMLDivElement>()
+
+  useEffect(() => {
+    if (!done) scrollToBottomIfNeeded()
+  }, [toolCalls, done, scrollToBottomIfNeeded])
+
+  return (
+    <div css={startupCardCss}>
+      <div css={startupCardHeaderCss}>
+        <span>Startup Tool Calls</span>
+        {done
+          ? <span css={startupDoneBadgeCss}>done ({toolCalls.length})</span>
+          : <span css={inlineSpinnerCss} />
+        }
+      </div>
+      <div css={startupCardBodyCss}>
+        <div css={toolCallsGroupCss} ref={containerRef} onScroll={onScroll}>
+          {toolCalls.map(tc => {
+            const hasResult = tc.result !== undefined
+            const truncated = hasResult && tc.result!.length > MAX_TOOL_CHARS
+            const displayResult = hasResult
+              ? truncated
+                ? tc.result!.slice(0, MAX_TOOL_CHARS) + `... (${tc.result!.length - MAX_TOOL_CHARS} more)`
+                : tc.result!
+              : undefined
+
+            return (
+              <div key={tc.id} css={toolCallCss}>
+                <div css={toolHeaderCss}>
+                  <span>⚙ {tc.name}</span>
+                  {truncated && (
+                    <button css={viewFullButtonCss} onClick={() => onViewFull(tc.result!)}>
+                      view full
+                    </button>
+                  )}
+                </div>
+                {Object.keys(tc.args).length > 0 && (
+                  <div css={toolArgsCss}>{JSON.stringify(tc.args, null, 2)}</div>
+                )}
+                {hasResult && (
+                  <div css={toolResultCss}><Ansi>{displayResult}</Ansi></div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // TurnContainer
 // ---------------------------------------------------------------------------
 
@@ -775,6 +885,8 @@ function TurnContainer({
 
 export default function Chat() {
   const [thread, setThread] = useState<Turn[]>([])
+  const [startupToolCalls, setStartupToolCalls] = useState<ToolCallEntry[]>([])
+  const [startupDone, setStartupDone] = useState(false)
   const [inputText, setInputText] = useState('')
   const [connected, setConnected] = useState(socket.connected)
   const [busy, setBusy] = useState(false)
@@ -812,6 +924,7 @@ export default function Chat() {
   useEffect(() => {
     // Fetch current pwd immediately if already connected at mount time.
     if (socket.connected) {
+      socket.emit('run_startup_tool_calls')
       socket.emit('get_pwd')
       socket.emit('get_skills_info')
       socket.emit('get_env_info')
@@ -821,6 +934,9 @@ export default function Chat() {
 
     function onConnect() {
       setConnected(true)
+      setStartupToolCalls([])
+      setStartupDone(false)
+      socket.emit('run_startup_tool_calls')
       socket.emit('get_pwd')
       socket.emit('get_skills_info')
       socket.emit('get_env_info')
@@ -838,6 +954,18 @@ export default function Chat() {
         const next = [...prev, { id, text }]
         return next.length > MAX_LOGS ? next.slice(next.length - MAX_LOGS) : next
       })
+    }
+
+    function onStartupToolCall({ id, name, args }: { id: string; name: string; args: Record<string, unknown> }) {
+      setStartupToolCalls(prev => [...prev, { id, name, args }])
+    }
+
+    function onStartupToolResult({ id, result }: { id: string; result: string }) {
+      setStartupToolCalls(prev => prev.map(tc => tc.id === id ? { ...tc, result } : tc))
+    }
+
+    function onStartupToolCallsDone() {
+      setStartupDone(true)
     }
 
     function onToken({ type, text }: { type: 'reasoning' | 'content'; text: string }) {
@@ -971,6 +1099,9 @@ export default function Chat() {
     socket.on('tools_info', onToolsInfo)
     socket.on('system_prompt', onSystemPrompt)
     socket.on('backend_log', onBackendLog)
+    socket.on('startup_tool_call', onStartupToolCall)
+    socket.on('startup_tool_result', onStartupToolResult)
+    socket.on('startup_tool_calls_done', onStartupToolCallsDone)
     socket.on('token', onToken)
     socket.on('begin_interim_stream', onBeginInterimStream)
     socket.on('begin_final_summary', onBeginFinalSummary)
@@ -992,6 +1123,9 @@ export default function Chat() {
       socket.off('tools_info', onToolsInfo)
       socket.off('system_prompt', onSystemPrompt)
       socket.off('backend_log', onBackendLog)
+      socket.off('startup_tool_call', onStartupToolCall)
+      socket.off('startup_tool_result', onStartupToolResult)
+      socket.off('startup_tool_calls_done', onStartupToolCallsDone)
       socket.off('token', onToken)
       socket.off('begin_interim_stream', onBeginInterimStream)
       socket.off('begin_final_summary', onBeginFinalSummary)
@@ -1087,6 +1221,13 @@ export default function Chat() {
           <span css={statusCss}>{connected ? '●' : '○'} {connected ? 'connected' : 'disconnected'}</span>
         </div>
         <div css={threadCss} ref={threadRef} onScroll={handleScroll}>
+          {startupToolCalls.length > 0 && (
+            <StartupToolCallsCard
+              toolCalls={startupToolCalls}
+              done={startupDone}
+              onViewFull={setModalContent}
+            />
+          )}
           {thread.map(turn => (
             <TurnContainer
               key={turn.id}
