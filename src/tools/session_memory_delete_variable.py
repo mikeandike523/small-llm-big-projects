@@ -39,8 +39,7 @@ def execute(args: dict, session_data: dict | None = None) -> str:
         session_data = {}
     memory = _ensure_session_memory(session_data)
     key = args["key"]
-    deleted = key in memory
-    if deleted:
-        del memory[key]
-        return f"Deleted key {key!r}."
-    return f"Key {key!r} was not in session memory."
+    if key not in memory:
+        raise ValueError(f"Key {key!r} does not exist in session memory.")
+    del memory[key]
+    return f"Deleted key {key!r}."

@@ -69,6 +69,6 @@ def execute(args: dict, session_data: dict | None = None, special_resources: dic
             manager.delete_value(key, project=project)
             conn.commit()
 
-    if existed:
-        return f"Deleted project memory key {key!r}."
-    return f"Key {key!r} was not found in project memory."
+    if not existed:
+        raise ValueError(f"Key {key!r} does not exist in project memory.")
+    return f"Deleted project memory key {key!r}."

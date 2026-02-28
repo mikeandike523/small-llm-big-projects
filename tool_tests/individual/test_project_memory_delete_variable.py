@@ -16,9 +16,9 @@ def run(env: TestEnv, server: MicroServer | None = None):
         r2 = execute_tool("project_memory_get_variable", {"key": "delme"}, env.session_data)
         cl.check("key gone after delete", "Getting deleted key returns not-found message", "not found" in r2, f"got: {r2!r}")
 
-        # delete non-existent key - check if graceful (not an exception)
+        # delete non-existent key - execute_tool wraps the raised ValueError into an error string
         r3 = execute_tool("project_memory_delete_variable", {"key": "nosuchkey"}, env.session_data)
-        cl.check("delete non-existent graceful", "Deleting missing key responds gracefully without crashing", isinstance(r3, str) and len(r3) > 0, f"got: {r3!r}")
+        cl.check("delete non-existent raises", "Deleting missing key returns error string with 'does not exist'", "Failed" in r3 and "does not exist" in r3, f"got: {r3!r}")
     except Exception as e:
         cl.record_exception(e)
     return cl.result()
