@@ -137,6 +137,28 @@ _TOOL_MAP: dict[str, object] = {
     "read_text_file_to_session_memory": read_text_file_to_session_memory,
 }
 
+# ---------------------------------------------------------------------------
+# Load exclusions (_exclude_builtin_tools.py)
+# ---------------------------------------------------------------------------
+
+try:
+    from src.tools._exclude_builtin_tools import EXCLUDE as _load_exclusions
+except ImportError:
+    _load_exclusions = {}
+
+_load_excluded: set[str] = {
+    name for name, flags in _load_exclusions.items()
+    if flags.get("loading") is True
+}
+
+if _load_excluded:
+    ALL_TOOL_DEFINITIONS = [
+        d for d in ALL_TOOL_DEFINITIONS
+        if d.get("function", {}).get("name") not in _load_excluded
+    ]
+    for _excl_name in _load_excluded:
+        _TOOL_MAP.pop(_excl_name, None)
+
 
 def check_needs_approval(name: str, args: dict) -> bool:
     """Return True if this tool call requires user approval before executing."""

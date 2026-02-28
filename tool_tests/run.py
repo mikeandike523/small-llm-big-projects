@@ -95,6 +95,24 @@ def _tool_name_from_module(module_path: str) -> str:
     return stem
 
 
+# Apply test exclusions declared in src/tools/_exclude_builtin_tools.py.
+try:
+    from src.tools._exclude_builtin_tools import EXCLUDE as _test_exclusions
+except ImportError:
+    _test_exclusions = {}
+
+_testing_excluded: set[str] = {
+    name for name, flags in _test_exclusions.items()
+    if flags.get("testing") is True
+}
+
+if _testing_excluded:
+    _TEST_MODULES = [
+        m for m in _TEST_MODULES
+        if _tool_name_from_module(m) not in _testing_excluded
+    ]
+
+
 def _print_result(result: TestResult) -> None:
     tool = result.tool_name
     print(f"\n  {_bold(_c(tool, 'white'))}")
