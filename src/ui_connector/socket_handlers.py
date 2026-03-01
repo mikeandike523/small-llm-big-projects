@@ -453,12 +453,16 @@ def _execute_tools(result, content_for_history: str, session: dict, sid: str, re
             emit("pwd_update", {"path": os.getcwd().replace("\\", "/")})
         if tc.name == "todo_list":
             _raw = session["session_data"].get("todo_list") or []
-            emit("todo_list_update", {
-                "items": [
-                    {"item_number": i + 1, "text": it["text"], "status": it["status"]}
-                    for i, it in enumerate(_raw)
-                ]
-            })
+            def _build_todo_items(lst):
+                result = []
+                for i, it in enumerate(lst):
+                    entry = {"item_number": i + 1, "text": it["text"], "status": it["status"]}
+                    sub = it.get("sub_list")
+                    if sub:
+                        entry["sub_list"] = _build_todo_items(sub)
+                    result.append(entry)
+                return result
+            emit("todo_list_update", {"items": _build_todo_items(_raw)})
         mh.append({
             "role": "tool",
             "tool_call_id": tc.id,

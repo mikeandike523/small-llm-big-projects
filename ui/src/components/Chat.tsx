@@ -40,6 +40,7 @@ interface TodoItem {
   item_number: number
   text: string
   status: 'open' | 'closed'
+  sub_list?: TodoItem[]
 }
 
 interface ApprovalItem {
@@ -415,7 +416,7 @@ const statusCss = css`
 // TurnContainer — UNCONSTRAINED; grows to fit all child regions
 const turnContainerCss = css`
   display: grid;
-  grid-template-columns: 3fr 2fr 1.5fr 1.5fr;
+  grid-template-columns: 3fr 2fr 2fr 1.5fr;
   gap: 24px;
   padding: 20px 24px;
   border: 1px solid #3a3a3a;
@@ -457,14 +458,21 @@ const todoHeaderCss = css`
   margin-bottom: 4px;
 `
 
+const todoListScrollCss = css`
+  overflow: auto;
+  max-height: 320px;
+  &::-webkit-scrollbar { width: 6px; height: 6px; }
+  &::-webkit-scrollbar-track { background: #0a0a0a; }
+  &::-webkit-scrollbar-thumb { background: #3a3a3a; border-radius: 3px; }
+  &::-webkit-scrollbar-thumb:hover { background: #555; }
+`
+
 const todoItemOpenCss = css`
   font-size: 12px;
   color: #c0c0c0;
   font-family: 'Consolas', monospace;
   padding: 2px 0;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 `
 
 const todoItemClosedCss = css`
@@ -474,8 +482,6 @@ const todoItemClosedCss = css`
   padding: 2px 0;
   text-decoration: line-through;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 `
 
 const todoEmptyCss = css`
@@ -733,6 +739,32 @@ function StartupToolCallsCard({
 }
 
 // ---------------------------------------------------------------------------
+// Hierarchical todo renderer
+// ---------------------------------------------------------------------------
+
+function renderTodoItems(items: TodoItem[], pathNums: number[] = []): React.ReactNode[] {
+  return items.flatMap(item => {
+    const path = [...pathNums, item.item_number]
+    const pathStr = path.join('.') + '.'
+    const depth = pathNums.length
+    const rows: React.ReactNode[] = [
+      <div
+        key={pathStr}
+        css={item.status === 'closed' ? todoItemClosedCss : todoItemOpenCss}
+        style={{ paddingLeft: depth * 14 }}
+        title={item.text}
+      >
+        {pathStr} {item.text}
+      </div>
+    ]
+    if (item.sub_list && item.sub_list.length > 0) {
+      rows.push(...renderTodoItems(item.sub_list, path))
+    }
+    return rows
+  })
+}
+
+// ---------------------------------------------------------------------------
 // TurnContainer
 // ---------------------------------------------------------------------------
 
@@ -837,15 +869,9 @@ function TurnContainer({
         <div css={todoHeaderCss}>Todo</div>
         {todoItems.length === 0
           ? <div css={todoEmptyCss}>empty</div>
-          : todoItems.map(item => (
-              <div
-                key={item.item_number}
-                css={item.status === 'closed' ? todoItemClosedCss : todoItemOpenCss}
-                title={item.text}
-              >
-                {item.item_number}. {item.text}
-              </div>
-            ))
+          : <div css={todoListScrollCss}>
+              {renderTodoItems(todoItems)}
+            </div>
         }
       </div>
 
