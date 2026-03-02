@@ -16,8 +16,6 @@ import type { Turn, ToolCallEntry, TodoItem, ApprovalItem } from '../types'
 
 const MAX_TOOL_CHARS = 80
 const MAX_LOGS = 100
-const REPLAY_EVENT_DELAY = 64          // ms between events during animated replay
-const REPLAY_ANIMATION_MAX_TIME = 2000 // ms — if replay would take longer, skip animation
 
 // ---------------------------------------------------------------------------
 // Shared scrollbar styles
@@ -1233,9 +1231,9 @@ export default function Chat() {
       currentTurn?: unknown
       schemaInvalid?: boolean
     }) {
-      setIsLoadingBackendState(false)
       if (data.schemaInvalid) {
-        // Schema mismatch — treat as a fresh session
+        // Schema mismatch — no event_replay will follow, so clear loading now
+        setIsLoadingBackendState(false)
         setThread([])
         setStartupToolCalls([])
         setStartupDone(false)
@@ -1273,37 +1271,21 @@ export default function Chat() {
       }
     }
 
-    // Event replay (missed events since last disconnect)
+    // Event replay (always emitted after session_state, possibly with empty list)
     function onEventReplay({ events }: { events: { id: string; type: string; data: Record<string, unknown> }[] }) {
-      if (!events || events.length === 0) return
+      if (events && events.length > 0) {
+        // Clear interrupted state on any streaming turns before replaying
+        setThread(prev => prev.map(t => t.interrupted ? { ...t, interrupted: false, streaming: true } : t))
 
-      // Clear interrupted state on any streaming turns before replaying
-      setThread(prev => prev.map(t => t.interrupted ? { ...t, interrupted: false, streaming: true } : t))
-
-      const applyOne = (ev: { id: string; type: string; data: Record<string, unknown> }) => {
-        if (ev.data.event_id) updateLastEventId(ev.data.event_id as string)
-        applyReplayEvent(ev.type, ev.data)
+        for (const ev of events) {
+          if (ev.data.event_id) updateLastEventId(ev.data.event_id as string)
+          applyReplayEvent(ev.type, ev.data)
+        }
+        updateLastEventId(events[events.length - 1].id)
       }
 
-      const threshold = Math.floor(REPLAY_ANIMATION_MAX_TIME / REPLAY_EVENT_DELAY)
-
-      if (events.length > threshold) {
-        // Too many events for animation — show loading modal and replay all at once
-        setIsLoadingBackendState(true)
-        setTimeout(() => {
-          for (const ev of events) applyOne(ev)
-          updateLastEventId(events[events.length - 1].id)
-          setIsLoadingBackendState(false)
-        }, 16)
-      } else {
-        // Animated replay: process one event per REPLAY_EVENT_DELAY ms
-        events.forEach((ev, i) => {
-          setTimeout(() => {
-            applyOne(ev)
-            if (i === events.length - 1) updateLastEventId(ev.id)
-          }, i * REPLAY_EVENT_DELAY)
-        })
-      }
+      // Replay complete — safe to show UI now
+      setIsLoadingBackendState(false)
     }
 
     // Live event handlers (mirror replay logic but also track lastEventId)

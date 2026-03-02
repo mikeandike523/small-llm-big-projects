@@ -616,14 +616,14 @@ def handle_resume_session(data: dict):
         "currentTurn": current_turn_data,
     })
 
-    # Replay missed events
+    # Always emit event_replay (even if empty) — frontend uses it as the "restore done" signal
     try:
         r = _get_redis()
         events = get_events_since(r, session_id, last_event_id)
-        if events:
-            emit("event_replay", {"events": events})
     except Exception as exc:
         print(f"[ui_connector] Event replay error for session {session_id}: {exc}", flush=True)
+        events = []
+    emit("event_replay", {"events": events})
 
 
 @socketio.on("disconnect")
