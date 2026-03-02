@@ -605,23 +605,23 @@ def handle_resume_session(data: dict):
     )
 
     if session.schema_version != CURRENT_SCHEMA_VERSION:
-        socketio.emit("session_state", {"schemaInvalid": True}, room=session_id)
+        emit("session_state", {"schemaInvalid": True})
         return
 
     completed_turns_data = [turn_to_dict(t) for t in session.completed_turns]
     current_turn_data = turn_to_dict(session.current_turn) if session.current_turn else None
-    socketio.emit("session_state", {
+    emit("session_state", {
         "startupDone": session.startup_done,
         "completedTurns": completed_turns_data,
         "currentTurn": current_turn_data,
-    }, room=session_id)
+    })
 
     # Replay missed events
     try:
         r = _get_redis()
         events = get_events_since(r, session_id, last_event_id)
         if events:
-            socketio.emit("event_replay", {"events": events}, room=session_id)
+            emit("event_replay", {"events": events})
     except Exception as exc:
         print(f"[ui_connector] Event replay error for session {session_id}: {exc}", flush=True)
 
