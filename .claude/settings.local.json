@@ -22,7 +22,8 @@
       "Bash(head:*)",
       "Bash(python:*)",
       "Bash(bash:*)",
-      "WebFetch(domain:piston.readthedocs.io)"
+      "WebFetch(domain:piston.readthedocs.io)",
+      "Bash(rm:*)"
     ]
   }
 }

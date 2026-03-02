@@ -22,8 +22,9 @@ showing the preview again wastes tokens.
 from __future__ import annotations
 
 import copy
+import json
 
-from src.tools._leave_out import LeaveOut, get_leave_out, get_short_amount
+from src.tools._leave_out import LeaveOut, get_leave_out_for_args
 
 _STUB_MARKER = "** STUBBED LONG RETURN VALUE **"
 
@@ -60,12 +61,19 @@ def strip_down_messages(
                 tc_id: str = tc.get("id", "")
                 name: str = tc.get("function", {}).get("name", "")
                 module = tool_map.get(name)
-                policy = get_leave_out(module) if module is not None else LeaveOut.KEEP
+                raw_args = tc.get("function", {}).get("arguments", "") or ""
+                try:
+                    call_args = json.loads(raw_args)
+                except (json.JSONDecodeError, TypeError):
+                    call_args = {}
+                policy, short_amt = (
+                    get_leave_out_for_args(module, call_args)
+                    if module is not None
+                    else (LeaveOut.KEEP, 500)
+                )
                 tool_call_policies[tc_id] = policy
                 if policy == LeaveOut.SHORT:
-                    tool_call_short_amounts[tc_id] = (
-                        get_short_amount(module) if module is not None else 500
-                    )
+                    tool_call_short_amounts[tc_id] = short_amt
 
     omit_ids = {tid for tid, p in tool_call_policies.items() if p == LeaveOut.OMIT}
 

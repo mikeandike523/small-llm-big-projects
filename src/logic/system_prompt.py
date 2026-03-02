@@ -7,10 +7,10 @@ BUILT_IN_SKILLS=[
 Browsing the Web:
 
 Load brave_web_search and basic_web_request results into session memory.
-Then use session_memory_count_lines and session_memory_read_lines (with number_lines=true)
-to read pages in chunks.
-Use session_memory_search_by_regex to find relevant sections without reading everything.
-Use session_memory_list_variables and session_memory_set_variable to save and recall snippets.
+Then use session_memory_text_editor(action="count_lines") and
+session_memory_text_editor(action="read_lines", number_lines=true) to read pages in chunks.
+Use session_memory_text_editor(action="search") to find relevant sections without reading everything.
+Use session_memory(action="list") and session_memory(action="set") to save and recall snippets.
 
 AVOID returning large web content directly — always load into session memory first
 and use chunked reading strategies.
@@ -23,42 +23,42 @@ In-Memory Text Editing:
  -- Use when writing or editing code, stories, documents, or other text. --
 
 Use read_text_file_to_session_memory to load a file into session memory.
-Use session_memory_count_lines to check total size before reading.
-Use session_memory_read_lines (with number_lines=true) to inspect specific line ranges.
-Use session_memory_search_by_regex to locate relevant lines without reading the whole buffer.
+Use session_memory_text_editor(action="count_lines") to check total size before reading.
+Use session_memory_text_editor(action="read_lines", number_lines=true) to inspect specific line ranges.
+Use session_memory_text_editor(action="search") to locate relevant lines without reading the whole buffer.
 
 Edit operations (all require the key to hold a text value):
-  - session_memory_insert_lines  — insert text before a given line number
-  - session_memory_delete_lines  — remove an inclusive line range
-  - session_memory_replace_lines — atomically swap a line range (preferred over delete+insert)
-  - session_memory_append_to_variable — append text to the end
-  - session_memory_apply_patch   — apply a unified diff patch (alternative to line-based edits;
+  - session_memory_text_editor(action="insert_lines")  — insert text before a given line number
+  - session_memory_text_editor(action="delete_lines")  — remove an inclusive line range
+  - session_memory_text_editor(action="replace_lines") — atomically swap a line range (preferred over delete+insert)
+  - session_memory(action="append")                   — append text to the end
+  - session_memory_text_editor(action="apply_patch")   — apply a unified diff patch (alternative to line-based edits;
                                    auto-detects CRLF/LF, tolerates small line-number offsets;
                                    output ONLY raw unified diff text — no 'begin patch'/'end patch'
                                    wrappers or any other surrounding formatting)
 
 Before making large or risky changes to a buffer, snapshot the current state:
-  Use session_memory_copy_rename (rename=false) to copy the key to a versioned name such as
+  Use session_memory(action="copy") to copy the key to a versioned name such as
   "myfile.version1", "myfile.version2", etc., incrementing the number each time.
   If a patch produces garbled output, or any edit leaves the buffer in a bad state,
-  revert by copying the snapshot back over the working key with session_memory_copy_rename
-  (rename=false, force_overwrite=true) and then retry the edit.
+  revert by copying the snapshot back over the working key with session_memory(action="copy",
+  force_overwrite=true) and then retry the edit.
 
 After each patch or edit operation, verify correctness:
-  Read the affected region back with session_memory_read_lines (number_lines=true) and confirm
-  the result looks right before moving on to the next edit. Catching mistakes early is far
-  cheaper than untangling a file that has accumulated several bad edits.
+  Read the affected region back with session_memory_text_editor(action="read_lines", number_lines=true)
+  and confirm the result looks right before moving on to the next edit. Catching mistakes early is
+  far cheaper than untangling a file that has accumulated several bad edits.
 
 Once editing is complete for a file — meaning the todo list is done, all planned changes have
 been applied, or you are otherwise finished with the file — do a full-file review:
-  Read the entire buffer with session_memory_read_lines (number_lines=true), working through
-  it in chunks if necessary, and verify the file is coherent and correct as a whole before
-  writing it back to disk.
+  Read the entire buffer with session_memory_text_editor(action="read_lines", number_lines=true),
+  working through it in chunks if necessary, and verify the file is coherent and correct as a
+  whole before writing it back to disk.
 
 Use write_text_file_from_session_memory to write the result back to disk.
 
-Line numbers shown by session_memory_read_lines are 1-based and right-justified —
-use them directly as arguments to the edit tools.
+Line numbers shown by session_memory_text_editor(action="read_lines") are 1-based and
+right-justified — use them directly as arguments to the edit tools.
 
 """,
 
@@ -164,35 +164,36 @@ preferable to leaving items open forever or looping indefinitely.
 == Memory — Plain Text Values ==
 
 Session and project memory values are plain text strings.
-Use session_memory_set_variable to store any text you like — prose, JSON, TOML,
+Use session_memory(action="set") to store any text you like — prose, JSON, TOML,
 CSV, code, or any other format. The memory system treats the value as an opaque
 string and never encodes or decodes it.
 
-Text-based operations (concat, append_to_variable, read_lines, count_lines,
-insert_lines, delete_lines, replace_lines, search_filesystem_by_regex, normalize_eol,
-check_eol, check_indentation, convert_indentation) all require the key to hold
-a string value. The `text` parameter in append_to_variable and
-insert/replace_lines is the literal text to write.
+Text-based operations (session_memory: append, concat; session_memory_text_editor:
+read_lines, count_lines, insert_lines, delete_lines, replace_lines, search,
+normalize_eol, check_eol, check_indentation, convert_indentation) all require the
+key to hold a string value. The `text` parameter in session_memory(action="append")
+and session_memory_text_editor(action="insert_lines"/"replace_lines") is the literal
+text to write.
 
 == Extracting Values from JSON in Session Memory ==
 
-Use session_memory_extract_json_value to read a value stored as JSON in session memory
+Use session_memory(action="extract_json") to read a value stored as JSON in session memory
 without loading and parsing it manually. Provide a dot-delimited 'path' (e.g. 'results.0.name')
 to traverse into the JSON structure. The extracted value can be returned inline or written
 to another session memory key (target='session_memory').
 
 == Project Memory — Intentionally Minimal Tool Set ==
 
-Project memory tools (project_memory_get/set/list/delete/search) are intentionally
-a small set. They do not include line-editing, patching, or other text manipulation.
+project_memory (actions: get/set/list/delete/search) is intentionally a small set.
+It does not include line-editing, patching, or other text manipulation.
 
 For detailed manipulation of a project memory value:
   1. Load it into session memory:
-       project_memory_get_variable(key="mykey", target="session_memory", target_session_key="work_buf")
-  2. Edit using the full suite of session memory tools (read_lines, replace_lines,
-     apply_patch, search_by_regex, etc.)
+       project_memory(action="get", key="mykey", target="session_memory", target_session_key="work_buf")
+  2. Edit using the full suite of session_memory and session_memory_text_editor tools
+     (read_lines, replace_lines, apply_patch, search, etc.)
   3. Save back to project memory when done:
-       project_memory_set_variable(key="mykey", from_session_key="work_buf")
+       project_memory(action="set", key="mykey", from_session_key="work_buf")
 
 == Tool Return Value Stubs ==
 
@@ -205,10 +206,11 @@ session memory key where the full value is stored, e.g.:
   Preview:
   ...
 
-To read the full value, use session_memory_count_lines and session_memory_read_lines
-to page through it in chunks (preferred when the content is line-structured, e.g. code,
-logs, or web pages). In the rare case the content is not line-structured, use
-session_memory_count_chars and session_memory_read_char_range instead.
+To read the full value, use session_memory_text_editor(action="count_lines") and
+session_memory_text_editor(action="read_lines") to page through it in chunks (preferred
+when the content is line-structured, e.g. code, logs, or web pages). In the rare case the
+content is not line-structured, use session_memory_text_editor(action="count_chars") and
+session_memory_text_editor(action="read_char_range") instead.
 
 == Custom Skills ==
 

@@ -39,27 +39,8 @@ def _bold(text: str) -> str:
 
 _TEST_MODULES = [
     # Session memory tools
-    "tool_tests.individual.test_session_memory_set_variable",
-    "tool_tests.individual.test_session_memory_get_variable",
-    "tool_tests.individual.test_session_memory_list_variables",
-    "tool_tests.individual.test_session_memory_delete_variable",
-    "tool_tests.individual.test_session_memory_append_to_variable",
-    "tool_tests.individual.test_session_memory_concat",
-    "tool_tests.individual.test_session_memory_copy_rename",
-    "tool_tests.individual.test_session_memory_count_chars",
-    "tool_tests.individual.test_session_memory_count_lines",
-    "tool_tests.individual.test_session_memory_read_lines",
-    "tool_tests.individual.test_session_memory_read_char_range",
-    "tool_tests.individual.test_session_memory_insert_lines",
-    "tool_tests.individual.test_session_memory_delete_lines",
-    "tool_tests.individual.test_session_memory_replace_lines",
-    "tool_tests.individual.test_session_memory_apply_patch",
-    "tool_tests.individual.test_session_memory_check_eol",
-    "tool_tests.individual.test_session_memory_normalize_eol",
-    "tool_tests.individual.test_session_memory_check_indentation",
-    "tool_tests.individual.test_session_memory_convert_indentation",
-    "tool_tests.individual.test_session_memory_search_by_regex",
-    "tool_tests.individual.test_session_memory_extract_json_value",
+    "tool_tests.individual.test_session_memory",
+    "tool_tests.individual.test_session_memory_text_editor",
     # Filesystem tools
     "tool_tests.individual.test_get_pwd",
     "tool_tests.individual.test_change_pwd",
@@ -76,11 +57,7 @@ _TEST_MODULES = [
     "tool_tests.individual.test_basic_web_request",
     "tool_tests.individual.test_brave_web_search",
     # Project memory tools
-    "tool_tests.individual.test_project_memory_set_variable",
-    "tool_tests.individual.test_project_memory_get_variable",
-    "tool_tests.individual.test_project_memory_list_variables",
-    "tool_tests.individual.test_project_memory_delete_variable",
-    "tool_tests.individual.test_project_memory_search_by_regex",
+    "tool_tests.individual.test_project_memory",
     # Other tools
     "tool_tests.individual.test_code_interpreter",
     "tool_tests.individual.test_report_impossible",
