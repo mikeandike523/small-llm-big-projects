@@ -25,6 +25,7 @@ from src.tools import search_filesystem_by_regex
 from src.tools import session_memory
 from src.tools import session_memory_text_editor
 from src.tools import todo_list
+from src.tools import wikipedia
 from src.tools import write_text_file_from_session_memory
 from src.utils.tool_calling.arguments import validate_tool_args
 
@@ -49,6 +50,7 @@ ALL_TOOL_DEFINITIONS: list[dict] = [
     session_memory.DEFINITION,
     session_memory_text_editor.DEFINITION,
     todo_list.DEFINITION,
+    wikipedia.DEFINITION,
     write_text_file_from_session_memory.DEFINITION,
 ]
 
@@ -73,6 +75,7 @@ _TOOL_MAP: dict[str, object] = {
     "session_memory": session_memory,
     "session_memory_text_editor": session_memory_text_editor,
     "todo_list": todo_list,
+    "wikipedia": wikipedia,
     "write_text_file_from_session_memory": write_text_file_from_session_memory,
     "read_text_file_to_session_memory": read_text_file_to_session_memory,
 }

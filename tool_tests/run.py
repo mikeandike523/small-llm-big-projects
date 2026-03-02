@@ -61,6 +61,7 @@ _TEST_MODULES = [
     # Other tools
     "tool_tests.individual.test_code_interpreter",
     "tool_tests.individual.test_scrape_web_page",
+    "tool_tests.individual.test_wikipedia",
     "tool_tests.individual.test_report_impossible",
     "tool_tests.individual.test_todo_list",
     "tool_tests.individual.test_load_skill_files_from_url_to_session_memory",

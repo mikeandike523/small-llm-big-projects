@@ -20,6 +20,12 @@ use scrape_web_page with target="session_memory". It pairs well with brave_web_s
 search first to find URLs, then scrape the most relevant ones. Robots.txt failures
 are fail-open (the request still proceeds).
 
+When brave_web_search returns a result URL on wikipedia.org, prefer the wikipedia tool
+over scrape_web_page. Pass the URL directly — it extracts the language and title
+automatically and returns clean plain text via the Wikimedia API (no key needed).
+Use mode='intro' for a quick overview, mode='full' with target='session_memory'
+for the complete article.
+
 """,
 
 """
