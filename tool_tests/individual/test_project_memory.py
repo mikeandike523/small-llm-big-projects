@@ -53,14 +53,17 @@ def run(env: TestEnv, server: MicroServer | None = None):
         r10 = execute_tool("project_memory", {"action": "delete", "key": "nosuchkey"}, env.session_data)
         cl.check("delete: non-existent raises", "Deleting missing key returns error string with 'does not exist'", "Failed" in r10 and "does not exist" in r10, f"got: {r10!r}")
 
-        # --- search ---
-        execute_tool("project_memory", {"action": "set", "key": "searchme", "value": "hello world foo"}, env.session_data)
+        # --- search_by_regex ---
+        execute_tool("project_memory", {"action": "set", "key": "searchme", "value": "hello world\nfoo bar\nbaz qux"}, env.session_data)
 
-        r11 = execute_tool("project_memory", {"action": "search", "key": "searchme", "pattern": "foo"}, env.session_data)
-        cl.check("search: pattern matches", "Returns matching lines when pattern is found", "foo" in r11, f"got: {r11!r}")
+        r11 = execute_tool("project_memory", {"action": "search_by_regex", "key": "searchme", "pattern": "foo"}, env.session_data)
+        cl.check("search_by_regex: pattern matches", "Returns matching lines when pattern is found", "foo" in r11, f"got: {r11!r}")
 
-        r12 = execute_tool("project_memory", {"action": "search", "key": "searchme", "pattern": "xyz"}, env.session_data)
-        cl.check("search: no matches", "Returns no-match message when pattern is not found", "No matches" in r12, f"got: {r12!r}")
+        r12 = execute_tool("project_memory", {"action": "search_by_regex", "key": "searchme", "pattern": "xyz"}, env.session_data)
+        cl.check("search_by_regex: no matches", "Returns no-match message when pattern is not found", "No matches" in r12, f"got: {r12!r}")
+
+        r13 = execute_tool("project_memory", {"action": "search_by_regex", "key": "searchme"}, env.session_data)
+        cl.check("search_by_regex: no pattern returns all lines numbered", "Without pattern, returns all lines with line numbers and pipes", "|" in r13 and "hello world" in r13, f"got: {r13!r}")
 
     except Exception as e:
         cl.record_exception(e)

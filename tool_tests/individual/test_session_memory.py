@@ -12,6 +12,7 @@ from tool_tests.individual.session_memory import (
     checks_copy,
     checks_rename,
     checks_extract_json,
+    checks_search_by_regex,
 )
 
 
@@ -27,6 +28,7 @@ def run(env: TestEnv, server: MicroServer | None = None):
         checks_copy.add_checks(cl, env)
         checks_rename.add_checks(cl, env)
         checks_extract_json.add_checks(cl, env)
+        checks_search_by_regex.add_checks(cl, env)
     except Exception as e:
         cl.record_exception(e)
     return cl.result()

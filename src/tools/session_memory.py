@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import json
+import re
 
 from src.tools._memory import ensure_session_memory
 from src.utils.text.line_numbers import add_line_numbers
@@ -9,15 +10,16 @@ from src.utils.text.line_numbers import add_line_numbers
 LEAVE_OUT = "KEEP"  # module-level fallback; per-action policy takes precedence
 
 LEAVE_OUT_PER_ACTION = {
-    "get":          ("SHORT",       500),
-    "set":          ("PARAMS_ONLY", 0),
-    "delete":       ("PARAMS_ONLY", 0),
-    "list":         ("KEEP",        0),
-    "append":       ("PARAMS_ONLY", 0),
-    "concat":       ("PARAMS_ONLY", 0),
-    "copy":         ("PARAMS_ONLY", 0),
-    "rename":       ("PARAMS_ONLY", 0),
-    "extract_json": ("SHORT",       500),
+    "get":              ("SHORT",       500),
+    "set":              ("PARAMS_ONLY", 0),
+    "delete":           ("PARAMS_ONLY", 0),
+    "list":             ("KEEP",        0),
+    "append":           ("PARAMS_ONLY", 0),
+    "concat":           ("PARAMS_ONLY", 0),
+    "copy":             ("PARAMS_ONLY", 0),
+    "rename":           ("PARAMS_ONLY", 0),
+    "extract_json":     ("SHORT",       500),
+    "search_by_regex":  ("SHORT",       500),
 }
 
 DEFINITION: dict = {
@@ -26,7 +28,7 @@ DEFINITION: dict = {
         "name": "session_memory",
         "description": (
             "Manage session-scoped key-value memory. "
-            "Actions: get, set, delete, list, append, concat, copy, rename, extract_json."
+            "Actions: get, set, delete, list, append, concat, copy, rename, extract_json, search_by_regex."
         ),
         "parameters": {
             "type": "object",
@@ -36,23 +38,25 @@ DEFINITION: dict = {
                     "enum": [
                         "get", "set", "delete", "list",
                         "append", "concat", "copy", "rename", "extract_json",
+                        "search_by_regex",
                     ],
                     "description": (
                         "The operation to perform:\n"
-                        "  get           -- retrieve a value (optionally line-numbered).\n"
-                        "  set           -- store a text value.\n"
-                        "  delete        -- remove a key.\n"
-                        "  list          -- list keys (optional prefix/limit/offset filter).\n"
-                        "  append        -- append text to an existing key (creates if absent).\n"
-                        "  concat        -- concatenate two keys into a destination key.\n"
-                        "  copy          -- copy source_key to dest_key (source preserved).\n"
-                        "  rename        -- move source_key to dest_key (source deleted).\n"
-                        "  extract_json  -- parse a key as JSON and traverse a path."
+                        "  get              -- retrieve a value (optionally line-numbered).\n"
+                        "  set              -- store a text value.\n"
+                        "  delete           -- remove a key.\n"
+                        "  list             -- list keys (optional prefix/limit/offset filter).\n"
+                        "  append           -- append text to an existing key (creates if absent).\n"
+                        "  concat           -- concatenate two keys into a destination key.\n"
+                        "  copy             -- copy source_key to dest_key (source preserved).\n"
+                        "  rename           -- move source_key to dest_key (source deleted).\n"
+                        "  extract_json     -- parse a key as JSON and traverse a path.\n"
+                        "  search_by_regex  -- search a key's value for lines matching a regex."
                     ),
                 },
                 "key": {
                     "type": "string",
-                    "description": "Memory key. Used by: get, set, delete, append, extract_json.",
+                    "description": "Memory key. Used by: get, set, delete, append, extract_json, search_by_regex.",
                 },
                 "value": {
                     "type": "string",
@@ -142,6 +146,10 @@ DEFINITION: dict = {
                         "other types as indented JSON. When false, always raw json.dumps. "
                         "Used by: extract_json."
                     ),
+                },
+                "pattern": {
+                    "type": "string",
+                    "description": "Python regular expression to search for. Used by: search_by_regex.",
                 },
             },
             "required": ["action"],
@@ -364,6 +372,55 @@ def _do_extract_json(args: dict, memory: dict) -> str:
     return _value_to_str(value, interpret)
 
 
+_BOLD = "\033[1m"
+_RESET = "\033[0m"
+
+
+def _highlight(line: str, pattern: str) -> str:
+    try:
+        return re.sub(pattern, lambda m: f"{_BOLD}{m.group(0)}{_RESET}", line)
+    except re.error:
+        return line
+
+
+def _do_search_by_regex(args: dict, memory: dict) -> str:
+    key = args.get("key")
+    if not key:
+        return "Error: 'key' is required for action 'search_by_regex'."
+    pattern = args.get("pattern")
+    if not pattern:
+        return "Error: 'pattern' is required for action 'search_by_regex'."
+    value = memory.get(key)
+    if value is None:
+        return f"(key {key!r} not found)"
+    if not isinstance(value, str):
+        return f"Error: key {key!r} does not hold a text value."
+
+    try:
+        compiled = re.compile(pattern)
+    except re.error as e:
+        return f"Error: invalid regex pattern: {e}"
+
+    lines = value.splitlines(keepends=False)
+    total = len(lines)
+    if total == 0:
+        return f"Key {key!r} is empty -- no matches."
+
+    line_no_width = len(str(total))
+    matches: list[str] = []
+
+    for i, line in enumerate(lines, start=1):
+        if compiled.search(line):
+            lineno = str(i).rjust(line_no_width)
+            highlighted = _highlight(line, pattern)
+            matches.append(f"{lineno} | {highlighted}")
+
+    if not matches:
+        return f"No matches found in {key!r}."
+
+    return f"{len(matches)} match(es) in {key!r}:\n" + "\n".join(matches)
+
+
 # ---- dispatch ---------------------------------------------------------------
 
 _ACTION_MAP = {
@@ -376,6 +433,7 @@ _ACTION_MAP = {
     "copy": _do_copy,
     "rename": _do_rename,
     "extract_json": _do_extract_json,
+    "search_by_regex": _do_search_by_regex,
 }
 
 

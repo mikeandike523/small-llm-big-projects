@@ -10,11 +10,11 @@ from src.utils.text.line_numbers import add_line_numbers
 LEAVE_OUT = "KEEP"  # module-level fallback; per-action policy takes precedence
 
 LEAVE_OUT_PER_ACTION = {
-    "get":    ("SHORT",       500),
-    "set":    ("PARAMS_ONLY", 0),
-    "delete": ("PARAMS_ONLY", 0),
-    "list":   ("KEEP",        0),
-    "search": ("SHORT",       500),
+    "get":              ("SHORT",       500),
+    "set":              ("PARAMS_ONLY", 0),
+    "delete":           ("PARAMS_ONLY", 0),
+    "list":             ("KEEP",        0),
+    "search_by_regex":  ("SHORT",       500),
 }
 
 DEFINITION: dict = {
@@ -24,26 +24,27 @@ DEFINITION: dict = {
         "description": (
             "Manage persistent project-scoped key-value memory. "
             "Project memory persists across sessions and is scoped to a project path. "
-            "Actions: get, set, delete, list, search."
+            "Actions: get, set, delete, list, search_by_regex."
         ),
         "parameters": {
             "type": "object",
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": ["get", "set", "delete", "list", "search"],
+                    "enum": ["get", "set", "delete", "list", "search_by_regex"],
                     "description": (
                         "The operation to perform:\n"
-                        "  get    -- retrieve a value (inline or into session memory).\n"
-                        "  set    -- store a value (literal string or from session memory).\n"
-                        "  delete -- remove a key.\n"
-                        "  list   -- list keys (optional prefix/limit/offset filter).\n"
-                        "  search -- search a value for lines matching a regex."
+                        "  get              -- retrieve a value (inline or into session memory).\n"
+                        "  set              -- store a value (literal string or from session memory).\n"
+                        "  delete           -- remove a key.\n"
+                        "  list             -- list keys (optional prefix/limit/offset filter).\n"
+                        "  search_by_regex  -- search a value for lines matching a regex; "
+                        "omit pattern to return all lines numbered."
                     ),
                 },
                 "key": {
                     "type": "string",
-                    "description": "Project memory key. Used by: get, set, delete, search.",
+                    "description": "Project memory key. Used by: get, set, delete, search_by_regex.",
                 },
                 "project": {
                     "type": "string",
@@ -96,7 +97,11 @@ DEFINITION: dict = {
                 },
                 "pattern": {
                     "type": "string",
-                    "description": "Python regular expression to search for. Used by: search.",
+                    "description": (
+                        "Python regular expression to search for. "
+                        "Optional for search_by_regex: if omitted, all lines are returned numbered. "
+                        "Used by: search_by_regex."
+                    ),
                 },
                 "prefix": {
                     "type": "string",
@@ -270,13 +275,11 @@ def _do_list(args: dict, session_data: dict, special_resources: dict) -> str:
     return "\n".join(keys)
 
 
-def _do_search(args: dict, session_data: dict, special_resources: dict) -> str:
+def _do_search_by_regex(args: dict, session_data: dict, special_resources: dict) -> str:
     key = args.get("key")
     if not key:
-        return "Error: 'key' is required for action 'search'."
+        return "Error: 'key' is required for action 'search_by_regex'."
     pattern = args.get("pattern")
-    if not pattern:
-        return "Error: 'pattern' is required for action 'search'."
     project = _get_project(args, session_data)
 
     pool = get_pool()
@@ -288,17 +291,22 @@ def _do_search(args: dict, session_data: dict, special_resources: dict) -> str:
     if not isinstance(value, str):
         return f"Error: key {key!r} does not hold a text value."
 
+    lines = value.splitlines(keepends=False)
+    total = len(lines)
+    if total == 0:
+        return f"Key {key!r} is empty."
+
+    line_no_width = len(str(total))
+
+    if not pattern:
+        numbered = [f"{str(i).rjust(line_no_width)} | {line}" for i, line in enumerate(lines, start=1)]
+        return "\n".join(numbered)
+
     try:
         compiled = re.compile(pattern)
     except re.error as e:
         return f"Error: invalid regex pattern: {e}"
 
-    lines = value.splitlines(keepends=False)
-    total = len(lines)
-    if total == 0:
-        return f"Key {key!r} is empty -- no matches."
-
-    line_no_width = len(str(total))
     matches: list[str] = []
 
     for i, line in enumerate(lines, start=1):
@@ -320,7 +328,7 @@ _ACTION_MAP = {
     "set": _do_set,
     "delete": _do_delete,
     "list": _do_list,
-    "search": _do_search,
+    "search_by_regex": _do_search_by_regex,
 }
 
 

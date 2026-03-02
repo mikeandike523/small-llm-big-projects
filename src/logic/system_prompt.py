@@ -9,7 +9,7 @@ Browsing the Web:
 Load brave_web_search and basic_web_request results into session memory.
 Then use session_memory_text_editor(action="count_lines") and
 session_memory_text_editor(action="read_lines", number_lines=true) to read pages in chunks.
-Use session_memory_text_editor(action="search") to find relevant sections without reading everything.
+Use session_memory(action="search_by_regex") to find relevant sections without reading everything.
 Use session_memory(action="list") and session_memory(action="set") to save and recall snippets.
 
 AVOID returning large web content directly — always load into session memory first
@@ -36,7 +36,7 @@ In-Memory Text Editing:
 Use read_text_file_to_session_memory to load a file into session memory.
 Use session_memory_text_editor(action="count_lines") to check total size before reading.
 Use session_memory_text_editor(action="read_lines", number_lines=true) to inspect specific line ranges.
-Use session_memory_text_editor(action="search") to locate relevant lines without reading the whole buffer.
+Use session_memory(action="search_by_regex") to locate relevant lines by regex without reading the whole buffer.
 
 Edit operations (all require the key to hold a text value):
   - session_memory_text_editor(action="insert_lines")  — insert text before a given line number
@@ -179,11 +179,12 @@ Use session_memory(action="set") to store any text you like — prose, JSON, TOM
 CSV, code, or any other format. The memory system treats the value as an opaque
 string and never encodes or decodes it.
 
-Text-based operations (session_memory: append, concat; session_memory_text_editor:
-read_lines, count_lines, insert_lines, delete_lines, replace_lines, search,
-normalize_eol, check_eol, check_indentation, convert_indentation) all require the
-key to hold a string value. The `text` parameter in session_memory(action="append")
-and session_memory_text_editor(action="insert_lines"/"replace_lines") is the literal
+Text-based operations (session_memory: append, concat, search_by_regex;
+session_memory_text_editor: read_lines, count_lines, insert_lines, delete_lines,
+replace_lines, normalize_eol, check_eol, check_indentation, convert_indentation)
+all require the key to hold a string value. The `text` parameter in
+session_memory(action="append") and
+session_memory_text_editor(action="insert_lines"/"replace_lines") is the literal
 text to write.
 
 == Extracting Values from JSON in Session Memory ==
@@ -195,14 +196,15 @@ to another session memory key (target='session_memory').
 
 == Project Memory — Intentionally Minimal Tool Set ==
 
-project_memory (actions: get/set/list/delete/search) is intentionally a small set.
+project_memory (actions: get/set/list/delete/search_by_regex) is intentionally a small set.
 It does not include line-editing, patching, or other text manipulation.
+search_by_regex with pattern omitted returns all lines numbered -- useful for browsing.
 
 For detailed manipulation of a project memory value:
   1. Load it into session memory:
        project_memory(action="get", key="mykey", target="session_memory", target_session_key="work_buf")
   2. Edit using the full suite of session_memory and session_memory_text_editor tools
-     (read_lines, replace_lines, apply_patch, search, etc.)
+     (read_lines, replace_lines, apply_patch, search_by_regex, etc.)
   3. Save back to project memory when done:
        project_memory(action="set", key="mykey", from_session_key="work_buf")
 

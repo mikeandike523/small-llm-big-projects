@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 from io import StringIO
 from typing import List, Optional, Tuple
 
@@ -22,7 +21,6 @@ LEAVE_OUT_PER_ACTION = {
     "insert_lines":        ("PARAMS_ONLY", 0),
     "replace_lines":       ("PARAMS_ONLY", 0),
     "delete_lines":        ("PARAMS_ONLY", 0),
-    "search":              ("SHORT",       500),
     "count_chars":         ("OMIT",        0),
     "count_lines":         ("OMIT",        0),
     "check_eol":           ("KEEP",        0),
@@ -37,11 +35,11 @@ DEFINITION: dict = {
     "function": {
         "name": "session_memory_text_editor",
         "description": (
-            "Text-editor style operations on session memory string values. "
+            "Structural text-editor operations on session memory string values. "
             "Part of the in-memory text editor toolkit: "
             "read_text_file_to_session_memory -> edit -> write_text_file_from_session_memory. "
             "Actions: read_lines, read_char_range, insert_lines, replace_lines, delete_lines, "
-            "search, count_chars, count_lines, check_eol, normalize_eol, "
+            "count_chars, count_lines, check_eol, normalize_eol, "
             "check_indentation, convert_indentation, apply_patch."
         ),
         "parameters": {
@@ -52,7 +50,7 @@ DEFINITION: dict = {
                     "enum": [
                         "read_lines", "read_char_range",
                         "insert_lines", "replace_lines", "delete_lines",
-                        "search", "count_chars", "count_lines",
+                        "count_chars", "count_lines",
                         "check_eol", "normalize_eol",
                         "check_indentation", "convert_indentation",
                         "apply_patch",
@@ -64,7 +62,6 @@ DEFINITION: dict = {
                         "  insert_lines        -- insert text before a 1-based line number.\n"
                         "  replace_lines       -- replace a 1-based inclusive line range with new text.\n"
                         "  delete_lines        -- delete a 1-based inclusive line range.\n"
-                        "  search              -- search for regex matches with line numbers and ANSI highlighting.\n"
                         "  count_chars         -- count total characters.\n"
                         "  count_lines         -- count total lines.\n"
                         "  check_eol           -- report line-ending style statistics.\n"
@@ -133,10 +130,6 @@ DEFINITION: dict = {
                         "Used by: insert_lines, replace_lines."
                     ),
                 },
-                "pattern": {
-                    "type": "string",
-                    "description": "Python regular expression to search for. Used by: search.",
-                },
                 "eol": {
                     "type": "string",
                     "enum": EOL_CHOICES,
@@ -181,10 +174,6 @@ def needs_approval(args: dict) -> bool:
 
 # ---- helper utilities -------------------------------------------------------
 
-_BOLD = "\033[1m"
-_RESET = "\033[0m"
-
-
 def _read_lines_range(text: str, start_line: int | None, end_line: int | None) -> str:
     if start_line is None and end_line is None:
         return text
@@ -206,13 +195,6 @@ def _count_lines(text: str) -> int:
     if text.endswith("\n"):
         return newline_count
     return newline_count + 1
-
-
-def _highlight(line: str, pattern: str) -> str:
-    try:
-        return re.sub(pattern, lambda m: f"{_BOLD}{m.group(0)}{_RESET}", line)
-    except re.error:
-        return line
 
 
 def _detect_newline_style(text: str) -> str:
@@ -426,36 +408,6 @@ def _do_delete_lines(args: dict, key: str, value: str, memory: dict) -> str:
     return f"Deleted {deleted_count} line(s) ({start_line}-{clamped_end}) from {key!r}."
 
 
-def _do_search(args: dict, key: str, value: str) -> str:
-    pattern = args.get("pattern")
-    if not pattern:
-        return "Error: 'pattern' is required for action 'search'."
-
-    try:
-        compiled = re.compile(pattern)
-    except re.error as e:
-        return f"Error: invalid regex pattern: {e}"
-
-    lines = value.splitlines(keepends=False)
-    total = len(lines)
-    if total == 0:
-        return f"Key {key!r} is empty -- no matches."
-
-    line_no_width = len(str(total))
-    matches: list[str] = []
-
-    for i, line in enumerate(lines, start=1):
-        if compiled.search(line):
-            lineno = str(i).rjust(line_no_width)
-            highlighted = _highlight(line, pattern)
-            matches.append(f"{lineno} | {highlighted}")
-
-    if not matches:
-        return f"No matches found in {key!r}."
-
-    return f"{len(matches)} match(es) in {key!r}:\n" + "\n".join(matches)
-
-
 def _do_count_chars(args: dict, key: str, value: str) -> str:
     return str(len(value))
 
@@ -519,7 +471,6 @@ def _do_apply_patch(args: dict, key: str, value: str, memory: dict) -> str:
 _READ_ONLY_ACTIONS = {
     "read_lines": _do_read_lines,
     "read_char_range": _do_read_char_range,
-    "search": _do_search,
     "count_chars": _do_count_chars,
     "count_lines": _do_count_lines,
     "check_eol": _do_check_eol,
