@@ -101,6 +101,17 @@ DEFINITION: dict = {
                     "minimum": 1,
                     "maximum": MAX_ALLOWABLE_TIMEOUT,
                 },
+                "enable_tracebacks": {
+                    "type": "boolean",
+                    "description": (
+                        "When true (default), the full Python traceback is included in "
+                        "the error output when code raises an exception, showing file "
+                        "names, line numbers, and stack frames. When false, only the "
+                        "final exception line (e.g. 'ValueError: bad input') is shown. "
+                        "Set to true when debugging — the traceback pinpoints exactly "
+                        "which line failed."
+                    ),
+                },
             },
             "required": ["session_memory_key_code"],
             "additionalProperties": False,
@@ -111,6 +122,31 @@ DEFINITION: dict = {
 
 def needs_approval(args: dict) -> bool:
     return False
+
+
+def _strip_traceback(stderr: str) -> str:
+    """Return only the final exception line(s), stripping traceback frames.
+
+    Handles chained exceptions (multiple "Traceback ..." blocks) by skipping
+    every block header and its indented frame lines, keeping only the bare
+    exception-type lines (e.g. "ValueError: bad input").
+    """
+    result: list[str] = []
+    in_traceback = False
+    for line in stderr.splitlines():
+        if line.startswith("Traceback (most recent call last):"):
+            in_traceback = True
+            continue
+        if in_traceback:
+            # Indented lines are frame/context lines — skip them.
+            if line.startswith("  ") or line.startswith("\t"):
+                continue
+            # Non-indented line ends the traceback block (it's the exception summary).
+            in_traceback = False
+            result.append(line)
+        else:
+            result.append(line)
+    return "\n".join(result).strip()
 
 
 def _ensure_session_memory(session_data: dict) -> dict:
@@ -152,6 +188,9 @@ def execute(args: dict, session_data: dict | None = None) -> str:
     timeout_val, timeout_err = _validate_timeout(args.get("timeout"))
     if timeout_err:
         return timeout_err
+
+    # --- enable_tracebacks ---
+    enable_tracebacks: bool = args.get("enable_tracebacks", True)
 
     # --- target validation ---
     target = args.get("target", "return_value")
@@ -268,7 +307,9 @@ def execute(args: dict, session_data: dict | None = None) -> str:
     if exit_code != 0:
         parts = [f"Error: code exited with code {exit_code}."]
         if stderr:
-            parts.append(f"Stderr:\n{stderr}")
+            displayed_stderr = stderr if enable_tracebacks else _strip_traceback(stderr)
+            if displayed_stderr:
+                parts.append(f"Stderr:\n{displayed_stderr}")
         if stdout:
             parts.append(f"Stdout:\n{stdout}")
         return "\n".join(parts)

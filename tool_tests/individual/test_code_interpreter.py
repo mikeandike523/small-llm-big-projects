@@ -270,6 +270,42 @@ def run(env: TestEnv, server: MicroServer | None = None):
             f"got: {r!r}",
         )
 
+        # enable_tracebacks=True (default): full traceback with "Traceback" and "line" markers
+        r = execute_tool("code_interpreter", {
+            "session_memory_key_code": "code_crash",
+            "enable_tracebacks": True,
+        }, env.session_data)
+        cl.check(
+            "enable_tracebacks shows Traceback header",
+            "With enable_tracebacks=True the output contains 'Traceback (most recent call last):'",
+            "Traceback (most recent call last):" in r,
+            f"got: {r!r}",
+        )
+        cl.check(
+            "enable_tracebacks shows line reference",
+            "With enable_tracebacks=True the output contains a 'line <N>' frame reference",
+            "line " in r,
+            f"got: {r!r}",
+        )
+
+        # enable_tracebacks=False: traceback frames stripped, only exception summary kept
+        r_no_tb = execute_tool("code_interpreter", {
+            "session_memory_key_code": "code_crash",
+            "enable_tracebacks": False,
+        }, env.session_data)
+        cl.check(
+            "enable_tracebacks=False strips traceback",
+            "With enable_tracebacks=False the output does NOT contain 'Traceback (most recent call last):'",
+            "Traceback (most recent call last):" not in r_no_tb,
+            f"got: {r_no_tb!r}",
+        )
+        cl.check(
+            "enable_tracebacks=False keeps exception summary",
+            "With enable_tracebacks=False the output still contains the exception type",
+            "ValueError" in r_no_tb,
+            f"got: {r_no_tb!r}",
+        )
+
     except Exception as e:
         cl.record_exception(e)
     return cl.result()
