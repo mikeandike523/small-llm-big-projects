@@ -15,6 +15,11 @@ Use session_memory(action="list") and session_memory(action="set") to save and r
 AVOID returning large web content directly — always load into session memory first
 and use chunked reading strategies.
 
+To fetch the HTML of a specific page politely (respecting robots.txt and rate limits),
+use scrape_web_page with target="session_memory". It pairs well with brave_web_search:
+search first to find URLs, then scrape the most relevant ones. Robots.txt failures
+are fail-open (the request still proceeds).
+
 """,
 
 """

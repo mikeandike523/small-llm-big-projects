@@ -12,3 +12,4 @@ gitignore-parser
 python-ripgrep
 httpx
 unidiff
+protego
