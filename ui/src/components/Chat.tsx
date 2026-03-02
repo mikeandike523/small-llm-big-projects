@@ -1,8 +1,9 @@
 /** @jsxImportSource @emotion/react */
 import React from 'react'
 import { css, keyframes } from '@emotion/react'
-import { useEffect, useState, useCallback } from 'react'
-import { socket } from '../socket'
+import { useEffect, useRef, useState, useCallback } from 'react'
+import { type Socket } from 'socket.io-client'
+import { createSocket } from '../socket'
 import { useScrollToBottom } from '../hooks/useScrollToBottom'
 import { TextPresenter } from './TextPresenter'
 import { DebugPanel } from './DebugPanel'
@@ -15,6 +16,8 @@ import type { Turn, ToolCallEntry, TodoItem, ApprovalItem } from '../types'
 
 const MAX_TOOL_CHARS = 80
 const MAX_LOGS = 100
+const REPLAY_EVENT_DELAY = 64          // ms between events during animated replay
+const REPLAY_ANIMATION_MAX_TIME = 2000 // ms — if replay would take longer, skip animation
 
 // ---------------------------------------------------------------------------
 // Shared scrollbar styles
@@ -586,6 +589,43 @@ const approvalTimedOutCss = css`
   word-break: break-all;
 `
 
+const loadingOverlayCss = css`
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+`
+
+const loadingCardCss = css`
+  background: #ffffff;
+  border-radius: 16px;
+  padding: 36px 52px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.25);
+`
+
+const loadingTextCss = css`
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  font-size: 15px;
+  color: #444;
+  font-weight: 500;
+`
+
+const loadingSpinnerCss = css`
+  width: 32px;
+  height: 32px;
+  border: 3px solid rgba(37, 99, 235, 0.2);
+  border-top-color: #2563eb;
+  border-radius: 50%;
+  animation: ${_spin} 0.8s linear infinite;
+`
+
 const modalOverlayBaseCss = css`
   position: fixed;
   inset: 0;
@@ -940,11 +980,30 @@ function TurnContainer({
 // ---------------------------------------------------------------------------
 
 export default function Chat() {
+  // Session ID: read from sessionStorage on mount (idempotent — repeated mounts
+  // return the same ID; only generates a new UUID the very first time).
+  const [sessionId] = useState<string>(() => {
+    let id = sessionStorage.getItem('session_id')
+    if (!id) {
+      id = crypto.randomUUID()
+      sessionStorage.setItem('session_id', id)
+    }
+    return id
+  })
+
+  // Socket: created once per component instance with the stable sessionId.
+  // autoConnect:false means it does not connect until socket.connect() is called.
+  const socketRef = useRef<Socket | null>(null)
+  if (!socketRef.current) {
+    socketRef.current = createSocket(sessionId)
+  }
+  const socket = socketRef.current
+
   const [thread, setThread] = useState<Turn[]>([])
   const [startupToolCalls, setStartupToolCalls] = useState<ToolCallEntry[]>([])
   const [startupDone, setStartupDone] = useState(false)
   const [inputText, setInputText] = useState('')
-  const [connected, setConnected] = useState(socket.connected)
+  const [connected, setConnected] = useState(false)
   const [busy, setBusy] = useState(false)
   const [modalContent, setModalContent] = useState<string | null>(null)
   const [pwd, setPwd] = useState<string>('')
@@ -960,6 +1019,7 @@ export default function Chat() {
   const [debugOpen, setDebugOpen] = useState(true)
   const [systemPrompt, setSystemPrompt] = useState<string | null>(null)
   const [backendLogs, setBackendLogs] = useState<BackendLogEntry[]>([])
+  const [isLoadingBackendState, setIsLoadingBackendState] = useState(false)
 
   const {
     containerRef: threadRef,
@@ -1128,19 +1188,11 @@ export default function Chat() {
   // ---------------------------------------------------------------------------
 
   useEffect(() => {
-    if (socket.connected) {
-      socket.emit('resume_session', { lastEventId: getLastEventId() })
-      socket.emit('get_pwd')
-      socket.emit('get_skills_info')
-      socket.emit('get_env_info')
-      socket.emit('get_system_prompt')
-      socket.emit('get_tools_info')
-    }
-
     function onConnect() {
       setConnected(true)
       setBusy(false)
-      // Mark any streaming turns as interrupted
+      setIsLoadingBackendState(true)
+      // Mark any streaming turns as interrupted (they'll be cleared by event replay if still running)
       setThread(prev => prev.map(t =>
         t.streaming ? { ...t, streaming: false, interrupted: true } : t
       ))
@@ -1178,33 +1230,80 @@ export default function Chat() {
     function onSessionState(data: {
       startupDone?: boolean
       completedTurns?: unknown[]
+      currentTurn?: unknown
       schemaInvalid?: boolean
     }) {
+      setIsLoadingBackendState(false)
       if (data.schemaInvalid) {
-        // Fresh session — clear everything
+        // Schema mismatch — treat as a fresh session
         setThread([])
         setStartupToolCalls([])
         setStartupDone(false)
+        socket.emit('run_startup_tool_calls')
         return
       }
-      if (data.completedTurns) {
-        setThread((data.completedTurns as Parameters<typeof backendTurnToFrontendTurn>[0][]).map(backendTurnToFrontendTurn))
+
+      // Rebuild thread from completed turns
+      const turns: Turn[] = data.completedTurns
+        ? (data.completedTurns as Parameters<typeof backendTurnToFrontendTurn>[0][]).map(backendTurnToFrontendTurn)
+        : []
+
+      // If there is an in-progress turn at restore time, append it as streaming.
+      // Event replay will fill in any content/tool-calls that arrived since lastEventId.
+      // If the agent already finished, the replayed message_done will mark it completed.
+      if (data.currentTurn) {
+        const inProgress = backendTurnToFrontendTurn(
+          data.currentTurn as Parameters<typeof backendTurnToFrontendTurn>[0]
+        )
+        inProgress.streaming = true
+        inProgress.isInterimStreaming = false
+        inProgress.interimCharCount = 0
+        turns.push(inProgress)
+        setBusy(true)
       }
+
+      setThread(turns)
+
       if (data.startupDone !== undefined) {
         setStartupDone(data.startupDone)
+        if (!data.startupDone) {
+          // First-ever session: run startup tools now that we know they haven't run yet
+          socket.emit('run_startup_tool_calls')
+        }
       }
     }
 
     // Event replay (missed events since last disconnect)
     function onEventReplay({ events }: { events: { id: string; type: string; data: Record<string, unknown> }[] }) {
       if (!events || events.length === 0) return
+
       // Clear interrupted state on any streaming turns before replaying
       setThread(prev => prev.map(t => t.interrupted ? { ...t, interrupted: false, streaming: true } : t))
-      for (const ev of events) {
+
+      const applyOne = (ev: { id: string; type: string; data: Record<string, unknown> }) => {
         if (ev.data.event_id) updateLastEventId(ev.data.event_id as string)
         applyReplayEvent(ev.type, ev.data)
       }
-      updateLastEventId(events[events.length - 1].id)
+
+      const threshold = Math.floor(REPLAY_ANIMATION_MAX_TIME / REPLAY_EVENT_DELAY)
+
+      if (events.length > threshold) {
+        // Too many events for animation — show loading modal and replay all at once
+        setIsLoadingBackendState(true)
+        setTimeout(() => {
+          for (const ev of events) applyOne(ev)
+          updateLastEventId(events[events.length - 1].id)
+          setIsLoadingBackendState(false)
+        }, 16)
+      } else {
+        // Animated replay: process one event per REPLAY_EVENT_DELAY ms
+        events.forEach((ev, i) => {
+          setTimeout(() => {
+            applyOne(ev)
+            if (i === events.length - 1) updateLastEventId(ev.id)
+          }, i * REPLAY_EVENT_DELAY)
+        })
+      }
     }
 
     // Live event handlers (mirror replay logic but also track lastEventId)
@@ -1394,6 +1493,9 @@ export default function Chat() {
     socket.on('approval_resolved', onApprovalResolved)
     socket.on('approval_timeout', onApprovalTimeout)
 
+    // Connect after all handlers are registered so we never miss the connect event
+    socket.connect()
+
     return () => {
       socket.off('connect', onConnect)
       socket.off('disconnect', onDisconnect)
@@ -1421,9 +1523,10 @@ export default function Chat() {
       socket.off('approval_request', onApprovalRequest)
       socket.off('approval_resolved', onApprovalResolved)
       socket.off('approval_timeout', onApprovalTimeout)
+      socket.disconnect()
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [applyReplayEvent, updateTurn])
+  }, [socket, applyReplayEvent, updateTurn])
 
   // ---------------------------------------------------------------------------
   // Approval actions
@@ -1465,6 +1568,16 @@ export default function Chat() {
 
   return (
     <div css={appLayoutCss}>
+      {/* Loading backdrop — shown while waiting for session_state or during large event replays */}
+      {isLoadingBackendState && (
+        <div css={loadingOverlayCss}>
+          <div css={loadingCardCss}>
+            <div css={loadingSpinnerCss} />
+            <span css={loadingTextCss}>loading backend state...</span>
+          </div>
+        </div>
+      )}
+
       {/* Debug panel */}
       <div css={debugPanelWrapperCss(debugOpen)}>
         <DebugPanel
@@ -1476,6 +1589,7 @@ export default function Chat() {
           toolsInfo={toolsInfo}
           systemPrompt={systemPrompt}
           backendLogs={backendLogs}
+          socket={socket}
         />
       </div>
 

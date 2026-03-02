@@ -609,9 +609,11 @@ def handle_resume_session(data: dict):
         return
 
     completed_turns_data = [turn_to_dict(t) for t in session.completed_turns]
+    current_turn_data = turn_to_dict(session.current_turn) if session.current_turn else None
     socketio.emit("session_state", {
         "startupDone": session.startup_done,
         "completedTurns": completed_turns_data,
+        "currentTurn": current_turn_data,
     }, room=session_id)
 
     # Replay missed events

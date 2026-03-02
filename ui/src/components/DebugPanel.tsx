@@ -1,9 +1,9 @@
 /** @jsxImportSource @emotion/react */
 import { css, keyframes } from '@emotion/react'
 import { useState, useEffect } from 'react'
+import { type Socket } from 'socket.io-client'
 import Ansi from 'ansi-to-react'
 import { useScrollToBottom } from '../hooks/useScrollToBottom'
-import { socket } from '../socket'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -49,6 +49,7 @@ interface Props {
   toolsInfo: ToolsInfo | null
   systemPrompt: string | null
   backendLogs: BackendLogEntry[]
+  socket: Socket
 }
 
 // ---------------------------------------------------------------------------
@@ -766,7 +767,7 @@ interface MemModal {
   notification: 'modified' | 'deleted' | null
 }
 
-export function DebugPanel({ open, onToggle, pwd, envInfo, skillsInfo, toolsInfo, systemPrompt, backendLogs }: Props) {
+export function DebugPanel({ open, onToggle, pwd, envInfo, skillsInfo, toolsInfo, systemPrompt, backendLogs, socket }: Props) {
   const [activeTab, setActiveTab] = useState<TabId>('system')
   const [sessionMemKeys, setSessionMemKeys] = useState<string[]>([])
   const [sessionMemLoading, setSessionMemLoading] = useState(false)
