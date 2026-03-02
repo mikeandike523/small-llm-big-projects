@@ -23,7 +23,7 @@ DEFAULT_MIN_DELAY = 1.0    # politeness delay before fetching
 _JITTER = (0.05, 0.35)     # random seconds added on top of min_delay
 
 _USER_AGENT = (
-    "Mozilla/5.0 (compatible; slbp-agent/1.0; +https://github.com/slbp)"
+    "Mozilla/5.0 (compatible; slbp-agent/1.0; +https://github.com/mikeandike523/slbp)"
 )
 _HEADERS = {
     "User-Agent": _USER_AGENT,
