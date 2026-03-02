@@ -3,11 +3,11 @@ from __future__ import annotations
 import json
 import os
 import threading
-from typing import TypedDict
+from typing import Any
 
 import redis
 from flask import request
-from flask_socketio import emit
+from flask_socketio import emit, join_room
 import requests
 
 from src.ui_connector.app import socketio
@@ -23,6 +23,12 @@ from src.utils.emitting_kv_manager import EmittingKVManager
 from src.utils.redis_dict import RedisDict
 from src.utils.request_error_formatting import format_http_error
 from src.utils.env_info import get_env_context, get_os, get_shell
+from src.utils.session_model import (
+    Session, Turn, LLMExchange, ToolCallRecord,
+    session_to_dict, session_from_dict, turn_to_dict, turn_from_dict,
+    CURRENT_SCHEMA_VERSION,
+)
+from src.utils.event_log import log_event, get_events_since, REPLAY_EXCLUDED_EVENTS
 from termcolor import colored
 
 SYSTEM_PROMPT = build_system_prompt(
@@ -68,6 +74,11 @@ if os.environ.get("SLBP_LOAD_STARTUP_TOOL_CALLS") == "1":
         print(f"[ui_connector] Failed to load startup_tool_calls.json: {_exc}", flush=True)
 
 
+# ---------------------------------------------------------------------------
+# SID → session_id mapping (cleaned up on disconnect, NOT on session end)
+# ---------------------------------------------------------------------------
+
+_sid_to_session_id: dict[str, str] = {}
 
 
 # ---------------------------------------------------------------------------
@@ -78,12 +89,28 @@ _log_counter = 0
 _log_counter_lock = threading.Lock()
 
 
-def _emit_backend_log(text: str) -> None:
+def _emit_backend_log(session_id: str, text: str) -> None:
     global _log_counter
     with _log_counter_lock:
         _log_counter += 1
         n = _log_counter
-    emit("backend_log", {"id": n, "text": text})
+    socketio.emit("backend_log", {"id": n, "text": text}, room=session_id)
+
+
+# ---------------------------------------------------------------------------
+# Event log + emit helper
+# ---------------------------------------------------------------------------
+
+def _emit_and_log(session_id: str, event_type: str, data: dict) -> None:
+    """Emit a socket event to the session room and log it to Redis Streams (if not excluded)."""
+    if event_type not in REPLAY_EXCLUDED_EVENTS:
+        try:
+            r = _get_redis()
+            event_id = log_event(r, session_id, event_type, data)
+            data = {**data, "event_id": event_id}
+        except Exception as exc:
+            print(f"[event_log] Failed to log event {event_type!r}: {exc}", flush=True)
+    socketio.emit(event_type, data, room=session_id)
 
 
 # ---------------------------------------------------------------------------
@@ -93,31 +120,27 @@ def _emit_backend_log(text: str) -> None:
 # Maps socket session ID to {"event": threading.Event, "approved": bool | None}
 _pending_approvals: dict[str, dict] = {}
 
+_APPROVAL_TIMEOUT = 60  # seconds
 
-def _request_approval(sid: str, tool_id: str, tool_name: str, args: dict) -> bool:
+
+def _request_approval(sid: str, session_id: str, tool_id: str, tool_name: str, args: dict) -> bool:
     """
-    Emit an approval_request event and block until the user approves or denies.
-    Returns True if approved, False if denied.
+    Emit an approval_request event and block until approved, denied, or timed out.
+    Returns True if approved, False otherwise.
     """
     ev = threading.Event()
     _pending_approvals[sid] = {"event": ev, "approved": None}
-    emit("approval_request", {"id": tool_id, "tool_name": tool_name, "args": args})
-    ev.wait()  # blocks this OS thread; other threads handle concurrent socket events
+    _emit_and_log(session_id, "approval_request", {"id": tool_id, "tool_name": tool_name, "args": args})
+    timed_out = not ev.wait(timeout=_APPROVAL_TIMEOUT)
     entry = _pending_approvals.pop(sid, {})
+    if timed_out:
+        _emit_and_log(session_id, "approval_timeout", {"id": tool_id, "tool_name": tool_name})
+        return False
     return bool(entry.get("approved", False))
 
 
 # ---------------------------------------------------------------------------
-# Data structures
-# ---------------------------------------------------------------------------
-
-class CondensedTurn(TypedDict):
-    user: str
-    assistant: str
-
-
-# ---------------------------------------------------------------------------
-# Redis session helpers
+# Redis helpers
 # ---------------------------------------------------------------------------
 
 _redis_client: redis.Redis | None = None
@@ -133,59 +156,57 @@ def _get_redis() -> redis.Redis:
     return _redis_client
 
 
-def _load_session(sid: str) -> dict:
-    r = _get_redis()
-    raw = r.get(f"session:{sid}")
-    if raw:
-        session = json.loads(raw)
-        session.setdefault("condensed_turns", [])
-    else:
-        session = {
-            "message_history": [{"role": "system", "content": SYSTEM_PROMPT}],
-            "condensed_turns": [],
-            "session_data": {},
-        }
+_SESSION_TTL = 3600
 
-    mem_hash_key = f"session:{sid}:memory"
+
+def _load_session(session_id: str) -> Session:
+    r = _get_redis()
+    raw = r.get(f"session:{session_id}")
+    if raw:
+        try:
+            d = json.loads(raw)
+            if d.get("schema_version", 0) != CURRENT_SCHEMA_VERSION:
+                # Schema mismatch — start fresh
+                session = Session(session_id=session_id)
+            else:
+                session = session_from_dict(d)
+        except Exception:
+            session = Session(session_id=session_id)
+    else:
+        session = Session(session_id=session_id)
+
+    mem_hash_key = f"session:{session_id}:memory"
 
     def _on_memory_change(key: str, event_type: str) -> None:
         try:
             keys = r.hkeys(mem_hash_key)
-            socketio.emit("session_memory_keys_update", {"keys": keys}, room=sid)
-            socketio.emit("session_memory_key_event", {"key": key, "type": event_type}, room=sid)
+            socketio.emit("session_memory_keys_update", {"keys": keys}, room=session_id)
+            socketio.emit("session_memory_key_event", {"key": key, "type": event_type}, room=session_id)
         except Exception as exc:
-            print(f"[session_memory] _on_memory_change error (key={key!r}, sid={sid!r}): {exc}", flush=True)
+            print(f"[session_memory] _on_memory_change error (key={key!r}, session_id={session_id!r}): {exc}", flush=True)
 
-    # Memory lives in its own Redis hash, not the session blob.
-    # Always attach a live RedisDict so tools see Redis-backed storage.
-    # on_change fires on every write/delete, emitting live updates to the UI.
-    session["session_data"]["memory"] = RedisDict(r, mem_hash_key, on_change=_on_memory_change)
+    session.session_data["memory"] = RedisDict(r, mem_hash_key, on_change=_on_memory_change)
     return session
 
 
-def _save_session(sid: str, session: dict) -> None:
+def _save_session(session_id: str, session: Session) -> None:
     r = _get_redis()
-    # Exclude "memory" from the blob — it lives in session:{sid}:memory Redis hash.
-    # Serialising a RedisDict via json.dumps would produce {} (empty internal dict).
-    session_data_to_save = {k: v for k, v in session["session_data"].items() if k != "memory"}
-    blob = {
-        "message_history": session["message_history"],
-        "condensed_turns": session["condensed_turns"],
-        "session_data": session_data_to_save,
-    }
-    r.setex(f"session:{sid}", 3600, json.dumps(blob))
-    # Keep the memory hash TTL in sync with the session blob TTL.
-    r.expire(f"session:{sid}:memory", 3600)
+    blob = session_to_dict(session)
+    r.setex(f"session:{session_id}", _SESSION_TTL, json.dumps(blob))
+    r.expire(f"session:{session_id}:memory", _SESSION_TTL)
+    r.expire(f"session:{session_id}:events", _SESSION_TTL)
 
 
-def _delete_session(sid: str) -> None:
+def _delete_session(session_id: str) -> None:
+    """Only called from CLI/test utilities, not from handle_disconnect."""
     r = _get_redis()
-    r.delete(f"session:{sid}")
-    r.delete(f"session:{sid}:memory")
+    r.delete(f"session:{session_id}")
+    r.delete(f"session:{session_id}:memory")
+    r.delete(f"session:{session_id}:events")
 
 
 # ---------------------------------------------------------------------------
-# LLM config loader (reads from the DB the same way chat.py does)
+# LLM config loader
 # ---------------------------------------------------------------------------
 
 def _load_llm_config() -> dict | None:
@@ -250,16 +271,13 @@ def _load_llm_config() -> dict | None:
 # Payload construction
 # ---------------------------------------------------------------------------
 
-def _build_llm_payload(
-    condensed_turns: list[CondensedTurn],
-    current_turn_slice: list[dict],
-) -> list[dict]:
+def _build_llm_payload(session: Session, current_turn: Turn) -> list[dict]:
     """Assemble the message list actually sent to the LLM endpoint."""
     messages: list[dict] = [{"role": "system", "content": SYSTEM_PROMPT}]
-    for turn in condensed_turns:
-        messages.append({"role": "user", "content": turn["user"]})
-        messages.append({"role": "assistant", "content": turn["assistant"]})
-    messages.extend(current_turn_slice)
+    for turn in session.completed_turns:
+        messages.append({"role": "user", "content": turn.condensed_user})
+        messages.append({"role": "assistant", "content": turn.condensed_assistant})
+    messages.extend(current_turn.to_messages())
     return messages
 
 
@@ -281,7 +299,6 @@ _CONTEXT_LIMIT_KEYWORDS = (
 
 
 def _is_context_limit_error(exc: Exception) -> bool:
-    """Return True if exc is an HTTP error that indicates context-window overflow."""
     try:
         if not isinstance(exc, requests.exceptions.HTTPError):
             return False
@@ -297,7 +314,6 @@ def _is_context_limit_error(exc: Exception) -> bool:
 
 
 def _is_timeout_error(exc: Exception) -> bool:
-    """Return True if exc is a network-level timeout."""
     return isinstance(exc, requests.exceptions.Timeout)
 
 
@@ -309,30 +325,74 @@ def _is_retryable_error(exc: Exception) -> bool:
 # LLM call abstraction
 # ---------------------------------------------------------------------------
 
-def _run_llm_call(streaming_llm: StreamingLLM, payload: list[dict]) -> tuple[object, str]:
+def _run_llm_call(
+    streaming_llm: StreamingLLM,
+    payload: list[dict],
+    session_id: str,
+    turn_id: str,
+    exchange_idx: int,
+) -> tuple[object, str, str]:
     """
     Run one LLM call (streaming or non-streaming) and emit token events.
-    Returns (result, content_for_history). Raises on HTTP/network errors.
+    Returns (result, content_for_history, reasoning_accumulated).
+    Raises on HTTP/network errors.
     """
     if _USE_STREAMING:
-        acc: dict[str, str] = {"content": ""}
+        acc: dict[str, str] = {"content": "", "reasoning": ""}
+        token_count = 0
 
         def on_data(chunk: dict) -> None:
+            nonlocal token_count
             if chunk.get("reasoning"):
-                emit("token", {"type": "reasoning", "text": chunk["reasoning"]})
+                acc["reasoning"] += chunk["reasoning"]
+                socketio.emit("token", {
+                    "type": "reasoning", "text": chunk["reasoning"],
+                    "turn_id": turn_id,
+                }, room=session_id)
             if chunk.get("content"):
                 acc["content"] += chunk["content"]
-                emit("token", {"type": "content", "text": chunk["content"]})
+                socketio.emit("token", {
+                    "type": "content", "text": chunk["content"],
+                    "turn_id": turn_id,
+                }, room=session_id)
+                token_count += 1
+                if token_count % 50 == 0:
+                    _emit_content_snapshot(session_id, turn_id, exchange_idx, acc["content"], acc["reasoning"])
 
         result = streaming_llm.stream(payload, on_data, tools=ALL_TOOL_DEFINITIONS)
-        return result, acc["content"]
+        # Emit final snapshot
+        _emit_content_snapshot(session_id, turn_id, exchange_idx, acc["content"], acc["reasoning"])
+        return result, acc["content"], acc["reasoning"]
     else:
+        acc_r: dict[str, str] = {"reasoning": ""}
         result = streaming_llm.fetch(payload, tools=ALL_TOOL_DEFINITIONS)
         if result.reasoning:
-            emit("token", {"type": "reasoning", "text": result.reasoning})
+            socketio.emit("token", {
+                "type": "reasoning", "text": result.reasoning,
+                "turn_id": turn_id,
+            }, room=session_id)
+            acc_r["reasoning"] = result.reasoning
         if result.content:
-            emit("token", {"type": "content", "text": result.content})
-        return result, result.content or ""
+            socketio.emit("token", {
+                "type": "content", "text": result.content,
+                "turn_id": turn_id,
+            }, room=session_id)
+        content = result.content or ""
+        _emit_content_snapshot(session_id, turn_id, exchange_idx, content, acc_r["reasoning"])
+        return result, content, acc_r["reasoning"]
+
+
+def _emit_content_snapshot(
+    session_id: str, turn_id: str, exchange_idx: int,
+    assistant_content: str, reasoning: str,
+) -> None:
+    """Emit a replay_content_snapshot event (logged to Redis Streams for replay)."""
+    _emit_and_log(session_id, "replay_content_snapshot", {
+        "turn_id": turn_id,
+        "exchange_idx": exchange_idx,
+        "assistant_content": assistant_content,
+        "reasoning": reasoning,
+    })
 
 
 # ---------------------------------------------------------------------------
@@ -342,21 +402,25 @@ def _run_llm_call(streaming_llm: StreamingLLM, payload: list[dict]) -> tuple[obj
 def _run_llm_call_with_retry(
     streaming_llm: StreamingLLM,
     payload: list[dict],
+    session_id: str,
+    turn_id: str,
+    exchange_idx: int,
     assistant_truncation_chars: int | None = None,
-) -> tuple[object, str]:
+) -> tuple[object, str, str]:
     """
     Run an LLM call; on timeout or context-limit error, strip the payload
-    down using each tool's LEAVE_OUT policy and retry once.
-    Raises on any non-retryable error or if the retry also fails.
+    and retry once.
+    Returns (result, content_for_history, reasoning).
     """
     try:
-        return _run_llm_call(streaming_llm, payload)
+        return _run_llm_call(streaming_llm, payload, session_id, turn_id, exchange_idx)
     except Exception as exc:
         if not _is_retryable_error(exc):
             raise
 
         reason = "timeout" if _is_timeout_error(exc) else "context limit exceeded"
         _emit_backend_log(
+            session_id,
             colored(f"LLM call failed ({reason}), retrying with stripped context…", "yellow")
         )
 
@@ -364,7 +428,7 @@ def _run_llm_call_with_retry(
             payload, _TOOL_MAP,
             assistant_truncation_chars=assistant_truncation_chars,
         )
-        return _run_llm_call(streaming_llm, stripped)
+        return _run_llm_call(streaming_llm, stripped, session_id, turn_id, exchange_idx)
 
 
 # ---------------------------------------------------------------------------
@@ -372,12 +436,8 @@ def _run_llm_call_with_retry(
 # ---------------------------------------------------------------------------
 
 def _stub_tool_result(full_result: str, max_chars: int, session_data: dict) -> str:
-    """
-    Store full_result in session memory under a unique stubs.* key and return
-    a truncated stub string the LLM can use to identify and retrieve it.
-    """
     import secrets
-    memory = session_data.setdefault("memory", {})
+    memory = session_data.get("memory", {})
     while True:
         code = secrets.token_hex(4)
         key = f"stubs.{code}"
@@ -395,16 +455,25 @@ def _stub_tool_result(full_result: str, max_chars: int, session_data: dict) -> s
     )
 
 
-def _execute_tools(result, content_for_history: str, session: dict, sid: str, return_value_max_chars: int | None = None) -> tuple[bool, str | None]:
+def _execute_tools(
+    result: Any,
+    content_for_history: str,
+    session: Session,
+    sid: str,
+    session_id: str,
+    current_turn: Turn,
+    return_value_max_chars: int | None = None,
+) -> tuple[bool, str | None, LLMExchange]:
     """
-    Append the assistant tool-call message, execute all tools, emit events,
-    and append tool result messages to message_history.
-    Returns (was_impossible, reason_or_none).
+    Execute all tool calls in result, emit events, and build an LLMExchange record.
+    Returns (was_impossible, reason_or_none, exchange).
+    Always pops _report_impossible from session_data before returning.
     """
-    mh = session["message_history"]
     special_resources = {
-        "emitting_kv_manager": EmittingKVManager(get_pool(), socketio, sid),
+        "emitting_kv_manager": EmittingKVManager(get_pool(), socketio, session_id),
     }
+    turn_id = current_turn.id
+
     if _hotfix_bad_parser:
         for tc in result.tool_calls:
             if "<|channel|>" in tc.name:
@@ -418,61 +487,75 @@ def _execute_tools(result, content_for_history: str, session: dict, sid: str, re
                 props = getattr(module, "DEFINITION", {}).get("function", {}).get("parameters", {}).get("properties")
                 if not props and tc.arguments:
                     tc.arguments = {}
-    mh.append({
-        "role": "assistant",
-        "content": content_for_history or None,
-        "tool_calls": [
-            {
-                "id": tc.id,
-                "type": "function",
-                "function": {"name": tc.name, "arguments": json.dumps(tc.arguments)},
-            }
-            for tc in result.tool_calls
-        ],
-    })
 
-    for tc in result.tool_calls:
-        emit("tool_call", {"id": tc.id, "name": tc.name, "args": tc.arguments})
+    exchange = LLMExchange(
+        assistant_content=content_for_history,
+        is_final=False,
+    )
 
-        if check_needs_approval(tc.name, tc.arguments):
-            approved = _request_approval(sid, tc.id, tc.name, tc.arguments)
-            if not approved:
-                denial = f"DENIED: User did not approve this action."
-                mh.append({"role": "tool", "tool_call_id": tc.id, "content": denial})
-                emit("tool_result", {"id": tc.id, "result": denial})
-                reason = f"User denied approval to run '{tc.name}'."
-                session["session_data"]["_report_impossible"] = reason
-                return True, reason
+    was_impossible = False
+    reason: str | None = None
 
-        session["session_data"]["__pinned_project__"] = _initial_cwd if _pin_project_memory else None
-        tool_result = execute_tool(tc.name, tc.arguments, session["session_data"], special_resources)
-        if return_value_max_chars is not None and len(tool_result) > return_value_max_chars:
-            tool_result = _stub_tool_result(tool_result, return_value_max_chars, session["session_data"])
-        emit("tool_result", {"id": tc.id, "result": tool_result})
-        if tc.name == "change_pwd":
-            emit("pwd_update", {"path": os.getcwd().replace("\\", "/")})
-        if tc.name == "todo_list":
-            _raw = session["session_data"].get("todo_list") or []
-            def _build_todo_items(lst):
-                result = []
-                for i, it in enumerate(lst):
-                    entry = {"item_number": i + 1, "text": it["text"], "status": it["status"]}
-                    sub = it.get("sub_list")
-                    if sub:
-                        entry["sub_list"] = _build_todo_items(sub)
-                    result.append(entry)
-                return result
-            emit("todo_list_update", {"items": _build_todo_items(_raw)})
-        mh.append({
-            "role": "tool",
-            "tool_call_id": tc.id,
-            "content": tool_result,
-        })
+    try:
+        for tc in result.tool_calls:
+            _emit_and_log(session_id, "tool_call", {
+                "id": tc.id, "name": tc.name, "args": tc.arguments,
+                "turn_id": turn_id,
+            })
 
-    if session["session_data"].get("_report_impossible"):
-        reason = session["session_data"].pop("_report_impossible")
-        return True, reason
-    return False, None
+            tool_record = ToolCallRecord(id=tc.id, name=tc.name, args=tc.arguments)
+
+            if check_needs_approval(tc.name, tc.arguments):
+                approved = _request_approval(sid, session_id, tc.id, tc.name, tc.arguments)
+                if not approved:
+                    denial = "DENIED: User did not approve this action."
+                    tool_record.result = denial
+                    exchange.tool_calls.append(tool_record)
+                    _emit_and_log(session_id, "tool_result", {
+                        "id": tc.id, "result": denial, "turn_id": turn_id,
+                    })
+                    reason = f"User denied approval to run '{tc.name}'."
+                    session.session_data["_report_impossible"] = reason
+                    was_impossible = True
+                    return was_impossible, reason, exchange
+
+            session.session_data["__pinned_project__"] = _initial_cwd if _pin_project_memory else None
+            tool_result = execute_tool(tc.name, tc.arguments, session.session_data, special_resources)
+            if return_value_max_chars is not None and len(tool_result) > return_value_max_chars:
+                tool_result = _stub_tool_result(tool_result, return_value_max_chars, session.session_data)
+                tool_record.was_stubbed = True
+
+            tool_record.result = tool_result
+            exchange.tool_calls.append(tool_record)
+
+            _emit_and_log(session_id, "tool_result", {
+                "id": tc.id, "result": tool_result, "turn_id": turn_id,
+            })
+            if tc.name == "change_pwd":
+                _emit_and_log(session_id, "pwd_update", {"path": os.getcwd().replace("\\", "/")})
+            if tc.name == "todo_list":
+                _raw = session.session_data.get("todo_list") or []
+                def _build_todo_items(lst: list) -> list:
+                    result_items = []
+                    for i, it in enumerate(lst):
+                        entry = {"item_number": i + 1, "text": it["text"], "status": it["status"]}
+                        sub = it.get("sub_list")
+                        if sub:
+                            entry["sub_list"] = _build_todo_items(sub)
+                        result_items.append(entry)
+                    return result_items
+                _emit_and_log(session_id, "todo_list_update", {
+                    "items": _build_todo_items(_raw), "turn_id": turn_id,
+                })
+
+        if session.session_data.get("_report_impossible"):
+            reason = session.session_data.get("_report_impossible")
+            was_impossible = True
+
+        return was_impossible, reason, exchange
+
+    finally:
+        session.session_data.pop("_report_impossible", None)
 
 
 # ---------------------------------------------------------------------------
@@ -487,73 +570,199 @@ def _get_open_items(todo_list: list) -> list[str]:
     return [it["text"] for it in todo_list if it.get("status") != "closed"]
 
 
-def _count_tool_messages(messages: list[dict]) -> int:
-    return sum(1 for m in messages if m.get("role") == "tool")
-
-
-# ---------------------------------------------------------------------------
-# Condensed turn builder
-# ---------------------------------------------------------------------------
-
-def _build_condensed_turn(
-    user_text: str,
-    had_tool_calls: bool,
-    was_impossible: bool,
-    n_tools: int,
-    session_data: dict,
-    final_content: str,
-    impossible_reason: str | None,
-) -> CondensedTurn:
-    if not had_tool_calls:
-        return {"user": user_text, "assistant": final_content}
-
-    todo_list = session_data.get("todo_list") or []
-    m = len(_get_closed_items(todo_list))
-    open_items = _get_open_items(todo_list)
-
-    if was_impossible:
-        failed_text = ", ".join(open_items) if open_items else "none"
-        thoughts = impossible_reason or final_content or ""
-        assistant = (
-            f"Hi, I could not complete your request. "
-            f"I called {n_tools} tools, completed {m} todo items, "
-            f"and could not complete: {failed_text}. "
-            f"My final thoughts: {thoughts}"
-        )
-    else:
-        assistant = (
-            f"Hi. To complete your request, I called {n_tools} tools, "
-            f"completed {m} todo items, and arrived at this answer/summary: "
-            f"{final_content}"
-        )
-
-    return {"user": user_text, "assistant": assistant}
-
-
 # ---------------------------------------------------------------------------
 # Socket event handlers
 # ---------------------------------------------------------------------------
 
 @socketio.on("connect")
 def handle_connect():
-    print(f"[ui_connector] Client connected: {request.sid}")
+    sid = request.sid
+    session_id = request.args.get("sessionId", "")
+    if not session_id:
+        print(f"[ui_connector] Client connected without sessionId: {sid}", flush=True)
+        return
+    print(f"[ui_connector] Client connected: {sid} -> session {session_id}", flush=True)
+    _sid_to_session_id[sid] = session_id
+    join_room(session_id)
+
+
+@socketio.on("resume_session")
+def handle_resume_session(data: dict):
+    sid = request.sid
+    session_id = _sid_to_session_id.get(sid)
+    if not session_id:
+        return
+
+    last_event_id = data.get("lastEventId", "0-0")
+    session = _load_session(session_id)
+
+    # Emit startup log after session is loaded
     skills_str = f"enabled ({_skills_count} files)" if _skills_enabled else "disabled"
     _emit_backend_log(
+        session_id,
         colored("System started", "green") +
         f": streaming={_USE_STREAMING}, skills={skills_str}, os={_env_os}, shell={_env_shell}"
     )
+
+    if session.schema_version != CURRENT_SCHEMA_VERSION:
+        socketio.emit("session_state", {"schemaInvalid": True}, room=session_id)
+        return
+
+    completed_turns_data = [turn_to_dict(t) for t in session.completed_turns]
+    socketio.emit("session_state", {
+        "startupDone": session.startup_done,
+        "completedTurns": completed_turns_data,
+    }, room=session_id)
+
+    # Replay missed events
+    try:
+        r = _get_redis()
+        events = get_events_since(r, session_id, last_event_id)
+        if events:
+            socketio.emit("event_replay", {"events": events}, room=session_id)
+    except Exception as exc:
+        print(f"[ui_connector] Event replay error for session {session_id}: {exc}", flush=True)
+
+
+@socketio.on("disconnect")
+def handle_disconnect():
+    sid = request.sid
+    session_id = _sid_to_session_id.pop(sid, None)
+    print(f"[ui_connector] Client disconnected: {sid} (session={session_id})", flush=True)
+    # Release any pending approval for this SID
+    pending = _pending_approvals.pop(sid, None)
+    if pending and not pending["event"].is_set():
+        pending["approved"] = False
+        pending["event"].set()
+    # Do NOT delete the session — it persists for reconnect
+
+
+@socketio.on("get_pwd")
+def handle_get_pwd():
+    sid = request.sid
+    session_id = _sid_to_session_id.get(sid, sid)
+    socketio.emit("pwd_update", {"path": os.getcwd().replace("\\", "/")}, room=session_id)
+
+
+@socketio.on("get_skills_info")
+def handle_get_skills_info():
+    sid = request.sid
+    session_id = _sid_to_session_id.get(sid, sid)
+    socketio.emit("skills_info", {
+        "enabled": _skills_enabled, "count": _skills_count,
+        "path": _skills_dir, "files": _skills_files,
+    }, room=session_id)
+
+
+@socketio.on("get_system_prompt")
+def handle_get_system_prompt():
+    sid = request.sid
+    session_id = _sid_to_session_id.get(sid, sid)
+    socketio.emit("system_prompt", {"text": SYSTEM_PROMPT}, room=session_id)
+
+
+@socketio.on("get_env_info")
+def handle_get_env_info():
+    sid = request.sid
+    session_id = _sid_to_session_id.get(sid, sid)
+    socketio.emit("env_info", {
+        "os": _env_os, "shell": _env_shell, "initialCwd": _initial_cwd,
+    }, room=session_id)
+
+
+@socketio.on("get_session_memory_keys")
+def handle_get_session_memory_keys():
+    sid = request.sid
+    session_id = _sid_to_session_id.get(sid, sid)
+    keys = _get_redis().hkeys(f"session:{session_id}:memory")
+    socketio.emit("session_memory_keys_update", {"keys": keys}, room=session_id)
+
+
+@socketio.on("get_session_memory_value")
+def handle_get_session_memory_value(data: dict):
+    sid = request.sid
+    session_id = _sid_to_session_id.get(sid, sid)
+    key = data.get("key", "")
+    value = _get_redis().hget(f"session:{session_id}:memory", key)
+    if value is not None:
+        socketio.emit("session_memory_value", {"key": key, "value": value, "found": True}, room=session_id)
+    else:
+        socketio.emit("session_memory_value", {"key": key, "value": "", "found": False}, room=session_id)
+
+
+@socketio.on("get_project_memory_keys")
+def handle_get_project_memory_keys():
+    sid = request.sid
+    session_id = _sid_to_session_id.get(sid, sid)
+    project = _get_default_project()
+    pool = get_pool()
+    with pool.get_connection() as conn:
+        keys = KVManager(conn).list_keys(project=project)
+    socketio.emit("project_memory_keys_update", {"keys": keys}, room=session_id)
+
+
+@socketio.on("get_project_memory_value")
+def handle_get_project_memory_value(data: dict):
+    sid = request.sid
+    session_id = _sid_to_session_id.get(sid, sid)
+    key = data.get("key", "")
+    project = _get_default_project()
+    pool = get_pool()
+    with pool.get_connection() as conn:
+        value = KVManager(conn).get_value(key, project=project)
+    if value is not None:
+        value_str = value if isinstance(value, str) else json.dumps(value, indent=2, ensure_ascii=False)
+        socketio.emit("project_memory_value", {"key": key, "value": value_str, "found": True}, room=session_id)
+    else:
+        socketio.emit("project_memory_value", {"key": key, "value": "", "found": False}, room=session_id)
+
+
+@socketio.on("get_tools_info")
+def handle_get_tools_info():
+    sid = request.sid
+    session_id = _sid_to_session_id.get(sid, sid)
+    custom_enabled = os.environ.get("SLBP_LOAD_CUSTOM_TOOLS") == "1"
+    socketio.emit("tools_info", {
+        "totalCount": len(ALL_TOOL_DEFINITIONS),
+        "builtinCount": _builtin_tool_count,
+        "builtinPath": "src/tools/",
+        "names": [d["function"]["name"] for d in ALL_TOOL_DEFINITIONS],
+        "customPlugins": _custom_tool_plugins if custom_enabled else None,
+    }, room=session_id)
+
+
+@socketio.on("approval_response")
+def handle_approval_response(data: dict):
+    sid = request.sid
+    session_id = _sid_to_session_id.get(sid, sid)
+    tool_id = data.get("id")
+    approved = bool(data.get("approved"))
+    pending = _pending_approvals.get(sid)
+    if pending:
+        pending["approved"] = approved
+        _emit_and_log(session_id, "approval_resolved", {"id": tool_id, "approved": approved})
+        pending["event"].set()
 
 
 @socketio.on("run_startup_tool_calls")
 def handle_run_startup_tool_calls():
     sid = request.sid
-    if not _startup_tool_calls:
+    session_id = _sid_to_session_id.get(sid)
+    if not session_id:
         emit("startup_tool_calls_done", {"count": 0})
         return
 
-    session = _load_session(sid)
+    if not _startup_tool_calls:
+        socketio.emit("startup_tool_calls_done", {"count": 0}, room=session_id)
+        return
+
+    session = _load_session(session_id)
+    if session.startup_done:
+        socketio.emit("startup_tool_calls_done", {"count": 0, "skipped": True}, room=session_id)
+        return
+
     special_resources = {
-        "emitting_kv_manager": EmittingKVManager(get_pool(), socketio, sid),
+        "emitting_kv_manager": EmittingKVManager(get_pool(), socketio, session_id),
     }
 
     for i, tc_spec in enumerate(_startup_tool_calls):
@@ -561,131 +770,47 @@ def handle_run_startup_tool_calls():
         args = tc_spec.get("args", {})
         tc_id = f"startup-{i}"
 
-        emit("startup_tool_call", {"id": tc_id, "name": name, "args": args})
+        socketio.emit("startup_tool_call", {"id": tc_id, "name": name, "args": args}, room=session_id)
 
-        session["session_data"]["__pinned_project__"] = _initial_cwd if _pin_project_memory else None
+        session.session_data["__pinned_project__"] = _initial_cwd if _pin_project_memory else None
         try:
-            result = execute_tool(name, args, session["session_data"], special_resources)
+            result = execute_tool(name, args, session.session_data, special_resources)
         except Exception as exc:
             result = f"Error executing '{name}': {exc}"
 
-        emit("startup_tool_result", {"id": tc_id, "result": result})
+        socketio.emit("startup_tool_result", {"id": tc_id, "result": result}, room=session_id)
 
         if name == "change_pwd":
-            emit("pwd_update", {"path": os.getcwd().replace("\\", "/")})
+            socketio.emit("pwd_update", {"path": os.getcwd().replace("\\", "/")}, room=session_id)
 
-    _save_session(sid, session)
-    emit("startup_tool_calls_done", {"count": len(_startup_tool_calls)})
-
-
-@socketio.on("disconnect")
-def handle_disconnect():
-    sid = request.sid
-    print(f"[ui_connector] Client disconnected: {sid}")
-    _pending_approvals.pop(sid, None)
-    _delete_session(sid)
-
-
-@socketio.on("get_pwd")
-def handle_get_pwd():
-    emit("pwd_update", {"path": os.getcwd().replace("\\", "/")})
-
-
-@socketio.on("get_skills_info")
-def handle_get_skills_info():
-    emit("skills_info", {"enabled": _skills_enabled, "count": _skills_count, "path": _skills_dir, "files": _skills_files})
-
-
-@socketio.on("get_system_prompt")
-def handle_get_system_prompt():
-    emit("system_prompt", {"text": SYSTEM_PROMPT})
-
-
-@socketio.on("get_env_info")
-def handle_get_env_info():
-    emit("env_info", {"os": _env_os, "shell": _env_shell, "initialCwd": _initial_cwd})
-
-
-@socketio.on("get_session_memory_keys")
-def handle_get_session_memory_keys():
-    sid = request.sid
-    keys = _get_redis().hkeys(f"session:{sid}:memory")
-    emit("session_memory_keys_update", {"keys": keys})
-
-
-@socketio.on("get_session_memory_value")
-def handle_get_session_memory_value(data: dict):
-    sid = request.sid
-    key = data.get("key", "")
-    # Read directly from the Redis hash — no session blob load needed.
-    # Values are always plain strings (decode_responses=True on the Redis client).
-    value = _get_redis().hget(f"session:{sid}:memory", key)
-    if value is not None:
-        emit("session_memory_value", {"key": key, "value": value, "found": True})
-    else:
-        emit("session_memory_value", {"key": key, "value": "", "found": False})
-
-
-@socketio.on("get_project_memory_keys")
-def handle_get_project_memory_keys():
-    project = _get_default_project()
-    pool = get_pool()
-    with pool.get_connection() as conn:
-        keys = KVManager(conn).list_keys(project=project)
-    emit("project_memory_keys_update", {"keys": keys})
-
-
-@socketio.on("get_project_memory_value")
-def handle_get_project_memory_value(data: dict):
-    key = data.get("key", "")
-    project = _get_default_project()
-    pool = get_pool()
-    with pool.get_connection() as conn:
-        value = KVManager(conn).get_value(key, project=project)
-    if value is not None:
-        # project_memory column is LONGTEXT and KVManager enforces strings on write,
-        # so value should always be a str here. The non-string branch is a safety net
-        # for any rows that existed before the JSON→LONGTEXT migration (v5.sql).
-        value_str = value if isinstance(value, str) else json.dumps(value, indent=2, ensure_ascii=False)
-        emit("project_memory_value", {"key": key, "value": value_str, "found": True})
-    else:
-        emit("project_memory_value", {"key": key, "value": "", "found": False})
-
-
-@socketio.on("get_tools_info")
-def handle_get_tools_info():
-    custom_enabled = os.environ.get("SLBP_LOAD_CUSTOM_TOOLS") == "1"
-    emit("tools_info", {
-        "totalCount": len(ALL_TOOL_DEFINITIONS),
-        "builtinCount": _builtin_tool_count,
-        "builtinPath": "src/tools/",
-        "names": [d["function"]["name"] for d in ALL_TOOL_DEFINITIONS],
-        "customPlugins": _custom_tool_plugins if custom_enabled else None,
-    })
-
-
-@socketio.on("approval_response")
-def handle_approval_response(data: dict):
-    sid = request.sid
-    tool_id = data.get("id")
-    approved = bool(data.get("approved"))
-    pending = _pending_approvals.get(sid)
-    if pending:
-        pending["approved"] = approved
-        emit("approval_resolved", {"id": tool_id, "approved": approved})
-        pending["event"].set()
+    session.startup_done = True
+    _save_session(session_id, session)
+    socketio.emit("startup_tool_calls_done", {"count": len(_startup_tool_calls)}, room=session_id)
 
 
 @socketio.on("user_message")
 def handle_user_message(data: dict):
     sid = request.sid
+    session_id = _sid_to_session_id.get(sid)
+    if not session_id:
+        emit("error", {"message": "No session_id — reconnect required."})
+        return
+
     text = (data.get("text") or "").strip()
     if not text:
         return
 
+    turn_id: str = data.get("clientTurnId") or ""
+    if not turn_id:
+        import uuid
+        turn_id = str(uuid.uuid4())
+
     llm_config = _load_llm_config()
     if llm_config is None:
-        emit("error", {"message": "No active token/endpoint configured. Run `slbp token use` first."})
+        _emit_and_log(session_id, "error", {
+            "message": "No active token/endpoint configured. Run `slbp token use` first.",
+            "turn_id": turn_id,
+        })
         return
 
     streaming_llm = StreamingLLM(
@@ -698,12 +823,19 @@ def handle_user_message(data: dict):
     return_value_max_chars: int | None = llm_config["system_params"].get("return_value_max_chars")
     assistant_truncation_chars: int | None = llm_config["system_params"].get("assistant_strip_truncation_chars")
 
-    session = _load_session(sid)
-    session["session_data"]["todo_list"] = []
-    emit("todo_list_update", {"items": []})
-    user_content = f"{text}\n\n{get_env_context(initial_cwd=_initial_cwd)}"
-    session["message_history"].append({"role": "user", "content": user_content})
-    turn_start_idx = len(session["message_history"]) - 1
+    session = _load_session(session_id)
+    session.session_data["todo_list"] = []
+    _emit_and_log(session_id, "todo_list_update", {"items": [], "turn_id": turn_id})
+
+    user_text_with_context = f"{text}\n\n{get_env_context(initial_cwd=_initial_cwd)}"
+    current_turn = Turn(
+        id=turn_id,
+        user_text=text,
+        user_text_with_context=user_text_with_context,
+    )
+    session.current_turn = current_turn
+
+    _emit_and_log(session_id, "turn_start", {"turn_id": turn_id, "user_text": text})
 
     had_tool_calls = False
     final_reprompt_done = False
@@ -713,28 +845,37 @@ def handle_user_message(data: dict):
     turn_completed = False
 
     while True:
-        # Emit a signal so the frontend knows this is an interim (pre-summary) stream
         if had_tool_calls and not final_reprompt_done:
-            emit("begin_interim_stream", {})
+            _emit_and_log(session_id, "begin_interim_stream", {"turn_id": turn_id})
 
-        current_turn_slice = session["message_history"][turn_start_idx:]
-        payload = _build_llm_payload(session["condensed_turns"], current_turn_slice)
+        exchange_idx = len(current_turn.exchanges)
+        payload = _build_llm_payload(session, current_turn)
 
         try:
-            result, content_for_history = _run_llm_call_with_retry(
+            result, content_for_history, reasoning = _run_llm_call_with_retry(
                 streaming_llm, payload,
+                session_id=session_id,
+                turn_id=turn_id,
+                exchange_idx=exchange_idx,
                 assistant_truncation_chars=assistant_truncation_chars,
             )
         except requests.exceptions.HTTPError as exc:
-            emit("error", {"message": f"LLM stream error:\n\n{format_http_error(exc)}"})
+            _emit_and_log(session_id, "error", {
+                "message": f"LLM stream error:\n\n{format_http_error(exc)}",
+                "turn_id": turn_id,
+            })
             break
         except Exception as exc:
-            emit("error", {"message": f"LLM stream error:\n\n{exc}"})
+            _emit_and_log(session_id, "error", {
+                "message": f"LLM stream error:\n\n{exc}",
+                "turn_id": turn_id,
+            })
             break
 
         usage = getattr(result, "usage", None)
         if usage:
             _emit_backend_log(
+                session_id,
                 colored("Usage: ", "cyan") +
                 f"prompt={usage.get('prompt_tokens', '?')}, "
                 f"completion={usage.get('completion_tokens', '?')}, "
@@ -744,66 +885,101 @@ def handle_user_message(data: dict):
         last_assistant_content = content_for_history
 
         if result.has_tool_calls:
-            impossible, reason = _execute_tools(result, content_for_history, session, sid, return_value_max_chars)
+            impossible, reason, exchange = _execute_tools(
+                result, content_for_history, session, sid, session_id, current_turn,
+                return_value_max_chars,
+            )
+            exchange.reasoning = reasoning
             had_tool_calls = True
+            current_turn.exchanges.append(exchange)
+            # Save in-progress turn state to Redis after each tool batch
+            _save_session(session_id, session)
+
             if impossible:
                 was_impossible = True
                 impossible_reason = reason
-                emit("report_impossible", {"reason": reason})
-                emit("message_done", {"content": None})
+                _emit_and_log(session_id, "report_impossible", {
+                    "reason": reason, "turn_id": turn_id,
+                })
+                _emit_and_log(session_id, "message_done", {
+                    "content": None, "turn_id": turn_id,
+                })
                 turn_completed = True
                 break
             continue
 
         # No tool calls — this is a non-tool assistant response
-        session["message_history"].append({"role": "assistant", "content": content_for_history})
-
-        unclosed = _get_open_items(session["session_data"].get("todo_list") or [])
+        # Check for unclosed todos
+        unclosed = _get_open_items(session.session_data.get("todo_list") or [])
         if unclosed:
             items_text = "\n".join(f"  {i + 1}. {item}" for i, item in enumerate(unclosed))
-            session["message_history"].append({
-                "role": "user",
-                "content": f"You still have {len(unclosed)} unclosed todo item(s). Please continue:\n{items_text}",
-            })
+            continuation = f"You still have {len(unclosed)} unclosed todo item(s). Please continue:\n{items_text}"
+            interim_exchange = LLMExchange(
+                assistant_content=content_for_history,
+                reasoning=reasoning,
+                is_final=False,
+                user_continuation=continuation,
+            )
+            current_turn.exchanges.append(interim_exchange)
+            _save_session(session_id, session)
             continue
 
         if had_tool_calls and not final_reprompt_done:
-            todo_list = session["session_data"].get("todo_list") or []
+            todo_list = session.session_data.get("todo_list") or []
             all_closed = bool(todo_list) and not _get_open_items(todo_list)
             has_content = bool(content_for_history and content_for_history.strip())
             if all_closed and has_content:
-                # The interim wrap-up response is the summary — no reprompt needed.
-                emit("message_done", {"content": content_for_history})
+                # Interim wrap-up is the summary — no reprompt needed
+                final_exchange = LLMExchange(
+                    assistant_content=content_for_history,
+                    reasoning=reasoning,
+                    is_final=True,
+                )
+                current_turn.exchanges.append(final_exchange)
+                _emit_and_log(session_id, "message_done", {
+                    "content": content_for_history, "turn_id": turn_id,
+                })
                 turn_completed = True
                 break
             final_reprompt_done = True
-            emit("final_reprompt", {})
-            emit("begin_final_summary", {})
-            session["message_history"].append({
-                "role": "user",
-                "content": (
-                    "All action items are complete. "
-                    "Please provide your final summary or answer based on the steps "
-                    "you took, the tool results, and the previous context."
-                ),
-            })
+            # Add the interim exchange with a continuation asking for final summary
+            continuation = (
+                "All action items are complete. "
+                "Please provide your final summary or answer based on the steps "
+                "you took, the tool results, and the previous context."
+            )
+            interim_exchange = LLMExchange(
+                assistant_content=content_for_history,
+                reasoning=reasoning,
+                is_final=False,
+                user_continuation=continuation,
+            )
+            current_turn.exchanges.append(interim_exchange)
+            _emit_and_log(session_id, "final_reprompt", {"turn_id": turn_id})
+            _emit_and_log(session_id, "begin_final_summary", {"turn_id": turn_id})
+            _save_session(session_id, session)
             continue
 
-        emit("message_done", {"content": content_for_history})
+        # Final response
+        final_exchange = LLMExchange(
+            assistant_content=content_for_history,
+            reasoning=reasoning,
+            is_final=True,
+        )
+        current_turn.exchanges.append(final_exchange)
+        _emit_and_log(session_id, "message_done", {
+            "content": content_for_history, "turn_id": turn_id,
+        })
         turn_completed = True
         break
 
     if turn_completed:
-        n_tools = _count_tool_messages(session["message_history"][turn_start_idx:])
-        condensed = _build_condensed_turn(
-            user_text=text,
-            had_tool_calls=had_tool_calls,
-            was_impossible=was_impossible,
-            n_tools=n_tools,
-            session_data=session["session_data"],
-            final_content=last_assistant_content,
-            impossible_reason=impossible_reason,
-        )
-        session["condensed_turns"].append(condensed)
+        current_turn.was_impossible = was_impossible
+        current_turn.impossible_reason = impossible_reason
+        current_turn.completed = True
+        current_turn.todo_snapshot = session.session_data.get("todo_list") or []
+        current_turn.finalize(session.session_data, last_assistant_content)
+        session.completed_turns.append(current_turn)
+        session.current_turn = None
 
-    _save_session(sid, session)
+    _save_session(session_id, session)

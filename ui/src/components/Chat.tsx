@@ -1,4 +1,5 @@
 /** @jsxImportSource @emotion/react */
+import React from 'react'
 import { css, keyframes } from '@emotion/react'
 import { useEffect, useState, useCallback } from 'react'
 import { socket } from '../socket'
@@ -6,6 +7,7 @@ import { useScrollToBottom } from '../hooks/useScrollToBottom'
 import { TextPresenter } from './TextPresenter'
 import { DebugPanel } from './DebugPanel'
 import Ansi from 'ansi-to-react'
+import type { Turn, ToolCallEntry, TodoItem, ApprovalItem } from '../types'
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -26,67 +28,67 @@ const scrollbarCss = css`
 `
 
 // ---------------------------------------------------------------------------
-// Types
+// Types (local-only)
 // ---------------------------------------------------------------------------
-
-interface ToolCallEntry {
-  id: string
-  name: string
-  args: Record<string, unknown>
-  result?: string
-}
-
-interface TodoItem {
-  item_number: number
-  text: string
-  status: 'open' | 'closed'
-  sub_list?: TodoItem[]
-}
-
-interface ApprovalItem {
-  id: string
-  tool_name: string
-  args: Record<string, unknown>
-  resolved?: { approved: boolean }
-}
 
 interface BackendLogEntry {
   id: number
   text: string
 }
 
-interface UserEntry {
-  type: 'user'
+// ---------------------------------------------------------------------------
+// Turn helpers
+// ---------------------------------------------------------------------------
+
+function newTurn(id: string, userText: string): Turn {
+  return {
+    id,
+    userText,
+    exchanges: [],
+    todoItems: [],
+    completed: false,
+    streaming: true,
+    isInterimStreaming: false,
+    interimCharCount: 0,
+  }
+}
+
+function backendTurnToFrontendTurn(d: {
   id: string
-  text: string
-}
-
-interface AssistantEntry {
-  type: 'assistant'
-  id: string
-  reasoning: string
-  content: string
-  toolCalls: ToolCallEntry[]
-  streaming: boolean
-  interimCharCount: number
-  isInterimStreaming: boolean
-}
-
-interface Turn {
-  id: string
-  user: UserEntry
-  assistant: AssistantEntry
-  todoItems: TodoItem[]
-  approvalItem?: ApprovalItem
-  impossible?: string
-}
-
-function makeId() {
-  return Math.random().toString(36).slice(2)
-}
-
-function newAssistant(streaming = true): AssistantEntry {
-  return { type: 'assistant', id: makeId(), reasoning: '', content: '', toolCalls: [], streaming, interimCharCount: 0, isInterimStreaming: false }
+  user_text: string
+  exchanges: {
+    assistant_content: string
+    reasoning: string
+    tool_calls: { id: string; name: string; args: Record<string, unknown>; result?: string; was_stubbed?: boolean }[]
+    is_final: boolean
+  }[]
+  todo_snapshot: TodoItem[]
+  was_impossible: boolean
+  impossible_reason?: string
+  completed: boolean
+}): Turn {
+  return {
+    id: d.id,
+    userText: d.user_text,
+    exchanges: d.exchanges.map(ex => ({
+      assistantContent: ex.assistant_content,
+      reasoning: ex.reasoning,
+      toolCalls: ex.tool_calls.map(tc => ({
+        id: tc.id,
+        name: tc.name,
+        args: tc.args,
+        result: tc.result,
+        wasStubbed: tc.was_stubbed,
+      })),
+      isFinal: ex.is_final,
+    })),
+    todoItems: d.todo_snapshot ?? [],
+    impossible: d.was_impossible ? (d.impossible_reason ?? 'Task was impossible') : undefined,
+    completed: d.completed,
+    streaming: false,
+    isInterimStreaming: false,
+    interimCharCount: 0,
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -189,7 +191,6 @@ const spinnerCss = css`
   animation: ${_spin} 0.7s linear infinite;
 `
 
-// User bubble — constrained + auto-scroll (one of the 4 regions)
 const userBubbleCss = css`
   ${scrollbarCss}
   background: #1d4ed8;
@@ -205,7 +206,6 @@ const userBubbleCss = css`
   box-shadow: 0 2px 10px rgba(29, 78, 216, 0.3);
 `
 
-// Assistant bubble — wraps TextPresenter which handles its own scroll (one of the 4 regions)
 const assistantBubbleCss = css`
   background: #1c1c1c;
   border: 1px solid #303030;
@@ -235,7 +235,6 @@ const interimBubbleCss = css`
   font-style: italic;
 `
 
-// Impossible bubble — shown below assistant content
 const impossibleBubbleCss = css`
   background: #1a0a00;
   border: 1px solid #7a3000;
@@ -261,7 +260,16 @@ const impossibleReasonCss = css`
   word-break: break-word;
 `
 
-// Reasoning wrapper — wraps TextPresenter which handles its own scroll (one of the 4 regions)
+const interruptedBubbleCss = css`
+  background: #1a1020;
+  border: 1px solid #4a2a6a;
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 11px;
+  color: #8060a0;
+  font-style: italic;
+`
+
 const reasoningWrapperCss = css`
   color: #7aa2e0;
   font-size: 13px;
@@ -273,7 +281,6 @@ const reasoningWrapperCss = css`
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
 `
 
-// Individual tool call card — NO scroll, NO max-height; fixed height by design (truncated result)
 const toolCallCss = css`
   flex-shrink: 0;
   border: 1px solid #3d2f5a;
@@ -312,7 +319,6 @@ const viewFullButtonCss = css`
   }
 `
 
-// Args — no max-height, no scroll; typically short JSON
 const toolArgsCss = css`
   background: #16162a;
   color: #a0a0c0;
@@ -323,7 +329,6 @@ const toolArgsCss = css`
   border-top: 1px solid #252545;
 `
 
-// Result — no max-height, no scroll; content is truncated to MAX_TOOL_CHARS
 const toolResultCss = css`
   background: #0a1a0a;
   color: #7ec87e;
@@ -341,7 +346,6 @@ const toolResultCss = css`
   }
 `
 
-// Tool calls GROUP — constrained + auto-scroll (one of the 4 regions)
 const toolCallsGroupCss = css`
   ${scrollbarCss}
   max-height: 420px;
@@ -350,10 +354,6 @@ const toolCallsGroupCss = css`
   flex-direction: column;
   gap: 10px;
 `
-
-// ---------------------------------------------------------------------------
-// Startup tool calls card styles
-// ---------------------------------------------------------------------------
 
 const startupCardCss = css`
   border: 1px solid #2a3a2a;
@@ -413,7 +413,6 @@ const statusCss = css`
   white-space: nowrap;
 `
 
-// TurnContainer — UNCONSTRAINED; grows to fit all child regions
 const turnContainerCss = css`
   display: grid;
   grid-template-columns: 3fr 2fr 2fr 1.5fr;
@@ -436,10 +435,6 @@ const rightColumnCss = css`
   flex-direction: column;
   gap: 12px;
 `
-
-// ---------------------------------------------------------------------------
-// Todo column styles
-// ---------------------------------------------------------------------------
 
 const todoColumnCss = css`
   display: flex;
@@ -489,10 +484,6 @@ const todoEmptyCss = css`
   color: #3a3a3a;
   font-style: italic;
 `
-
-// ---------------------------------------------------------------------------
-// Approval column styles
-// ---------------------------------------------------------------------------
 
 const approvalColumnCss = css`
   display: flex;
@@ -587,9 +578,13 @@ const approvalResolvedCss = (approved: boolean) => css`
   word-break: break-all;
 `
 
-// ---------------------------------------------------------------------------
-// Modal styles
-// ---------------------------------------------------------------------------
+const approvalTimedOutCss = css`
+  font-family: 'Consolas', monospace;
+  font-size: 12px;
+  color: #888840;
+  padding: 4px 0;
+  word-break: break-all;
+`
 
 const modalOverlayBaseCss = css`
   position: fixed;
@@ -687,7 +682,9 @@ function StartupToolCallsCard({
   done: boolean
   onViewFull: (content: string) => void
 }) {
-  const { containerRef, scrollToBottomIfNeeded, onScroll } = useScrollToBottom<HTMLDivElement>()
+  const { containerRef, scrollToBottomIfNeeded, onScroll } = useScrollToBottom<HTMLDivElement>({
+    persistId: 'startup-tools',
+  })
 
   useEffect(() => {
     if (!done) scrollToBottomIfNeeded()
@@ -765,6 +762,39 @@ function renderTodoItems(items: TodoItem[], pathNums: number[] = []): React.Reac
 }
 
 // ---------------------------------------------------------------------------
+// ToolCallCard
+// ---------------------------------------------------------------------------
+
+function ToolCallCard({ tc, onViewFull }: { tc: ToolCallEntry; onViewFull: (c: string) => void }) {
+  const hasResult = tc.result !== undefined
+  const truncated = hasResult && tc.result!.length > MAX_TOOL_CHARS
+  const displayResult = hasResult
+    ? truncated
+      ? tc.result!.slice(0, MAX_TOOL_CHARS) + `... (${tc.result!.length - MAX_TOOL_CHARS} more)`
+      : tc.result!
+    : undefined
+
+  return (
+    <div css={toolCallCss}>
+      <div css={toolHeaderCss}>
+        <span>⚙ {tc.name}</span>
+        {truncated && (
+          <button css={viewFullButtonCss} onClick={() => onViewFull(tc.result!)}>
+            view full
+          </button>
+        )}
+      </div>
+      {Object.keys(tc.args).length > 0 && (
+        <div css={toolArgsCss}>{JSON.stringify(tc.args, null, 2)}</div>
+      )}
+      {hasResult && (
+        <div css={toolResultCss}><Ansi>{displayResult}</Ansi></div>
+      )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // TurnContainer
 // ---------------------------------------------------------------------------
 
@@ -779,34 +809,52 @@ function TurnContainer({
   onApprove: (id: string) => void
   onDeny: (id: string) => void
 }) {
-  const { user, assistant, todoItems, approvalItem, impossible } = turn
+  const { todoItems, approvalItem, impossible, exchanges, streaming, isInterimStreaming, interimCharCount, interrupted } = turn
+
   const { containerRef: toolsRef, scrollToBottomIfNeeded: scrollTools, onScroll: onToolsScroll } =
-    useScrollToBottom<HTMLDivElement>()
+    useScrollToBottom<HTMLDivElement>({ persistId: `tools-${turn.id}` })
+
+  // Collect all tool calls from all exchanges (for the tool calls panel)
+  const allToolCalls = exchanges.flatMap(ex => ex.toolCalls)
+
+  // Display content: final exchange's content, or last exchange's content if it has no tool calls (live streaming)
+  const lastExchange = exchanges[exchanges.length - 1]
+  const finalExchange = exchanges.find(ex => ex.isFinal)
+  const liveContent = streaming && lastExchange && !lastExchange.isFinal && lastExchange.toolCalls.length === 0
+    ? lastExchange.assistantContent
+    : undefined
+  const displayContent = finalExchange?.assistantContent ?? liveContent ?? ''
+
+  // Reasoning from the latest exchange that has any reasoning
+  const reasoning = [...exchanges].reverse().find(ex => ex.reasoning)?.reasoning ?? ''
+
+  const isStreamingFinal = streaming && !isInterimStreaming
+  const showPlaceholder = streaming && !displayContent && !isInterimStreaming && allToolCalls.length === 0
 
   useEffect(() => {
-    if (assistant.streaming) scrollTools()
-  }, [assistant.toolCalls, assistant.streaming, scrollTools])
+    if (streaming) scrollTools()
+  }, [allToolCalls.length, streaming, scrollTools])
 
   return (
     <div css={turnContainerCss}>
       {/* Left column: user message + AI content + impossible notice */}
       <div css={leftColumnCss}>
-        <div css={userBubbleCss}>{user.text}</div>
-        {(assistant.interimCharCount > 0 || assistant.isInterimStreaming) && (
+        <div css={userBubbleCss}>{turn.userText}</div>
+        {(interimCharCount > 0 || isInterimStreaming) && (
           <div css={interimBubbleCss}>
-            AI interim response: {assistant.interimCharCount} chars
+            AI interim response: {interimCharCount} chars
           </div>
         )}
-        {assistant.content ? (
+        {displayContent ? (
           <div css={assistantBubbleCss}>
             <TextPresenter
-              content={assistant.content}
+              content={displayContent}
               maxHeight={600}
-              streaming={assistant.streaming}
+              streaming={isStreamingFinal}
             />
           </div>
         ) : null}
-        {assistant.streaming && !assistant.content && !assistant.isInterimStreaming && assistant.toolCalls.length === 0 && (
+        {showPlaceholder && (
           <div css={streamingPlaceholderCss}>…</div>
         )}
         {impossible && (
@@ -815,51 +863,29 @@ function TurnContainer({
             <span css={impossibleReasonCss}>{impossible}</span>
           </div>
         )}
+        {interrupted && (
+          <div css={interruptedBubbleCss}>Connection interrupted</div>
+        )}
       </div>
 
       {/* Right column: reasoning + tool calls */}
       <div css={rightColumnCss}>
-        {assistant.reasoning ? (
+        {reasoning ? (
           <div css={reasoningWrapperCss}>
             <TextPresenter
-              content={assistant.reasoning}
+              content={reasoning}
               maxHeight={200}
-              streaming={assistant.streaming}
+              streaming={streaming}
               initialMode="plain"
               showToggle={false}
             />
           </div>
         ) : null}
-        {assistant.toolCalls.length > 0 && (
+        {allToolCalls.length > 0 && (
           <div css={toolCallsGroupCss} ref={toolsRef} onScroll={onToolsScroll}>
-            {assistant.toolCalls.map(tc => {
-              const hasResult = tc.result !== undefined
-              const truncated = hasResult && tc.result!.length > MAX_TOOL_CHARS
-              const displayResult = hasResult
-                ? truncated
-                  ? tc.result!.slice(0, MAX_TOOL_CHARS) + `... (${tc.result!.length - MAX_TOOL_CHARS} more)`
-                  : tc.result!
-                : undefined
-
-              return (
-                <div key={tc.id} css={toolCallCss}>
-                  <div css={toolHeaderCss}>
-                    <span>⚙ {tc.name}</span>
-                    {truncated && (
-                      <button css={viewFullButtonCss} onClick={() => onViewFull(tc.result!)}>
-                        view full
-                      </button>
-                    )}
-                  </div>
-                  {Object.keys(tc.args).length > 0 && (
-                    <div css={toolArgsCss}>{JSON.stringify(tc.args, null, 2)}</div>
-                  )}
-                  {hasResult && (
-                    <div css={toolResultCss}><Ansi>{displayResult}</Ansi></div>
-                  )}
-                </div>
-              )
-            })}
+            {allToolCalls.map(tc => (
+              <ToolCallCard key={tc.id} tc={tc} onViewFull={onViewFull} />
+            ))}
           </div>
         )}
       </div>
@@ -880,6 +906,10 @@ function TurnContainer({
         <div css={approvalHeaderCss}>Approval</div>
         {!approvalItem ? (
           <div css={approvalEmptyCss}>—</div>
+        ) : approvalItem.timedOut ? (
+          <div css={approvalTimedOutCss}>
+            timed out: {approvalItem.tool_name}
+          </div>
         ) : approvalItem.resolved ? (
           <div css={approvalResolvedCss(approvalItem.resolved.approved)}>
             {approvalItem.resolved.approved ? '✓' : '✗'} {approvalItem.tool_name}
@@ -936,21 +966,170 @@ export default function Chat() {
     isAtBottom,
     scrollToBottomIfNeeded,
     onScroll: handleScroll,
-  } = useScrollToBottom<HTMLDivElement>()
+  } = useScrollToBottom<HTMLDivElement>({ persistId: 'thread' })
 
-  // Scroll to bottom on thread updates only when already at the bottom.
   useEffect(() => {
     scrollToBottomIfNeeded()
   }, [thread, scrollToBottomIfNeeded])
+
+  // ---------------------------------------------------------------------------
+  // lastEventId — persisted to sessionStorage
+  // ---------------------------------------------------------------------------
+
+  const getLastEventId = () => sessionStorage.getItem('lastEventId') ?? '0-0'
+  const updateLastEventId = (id: string) => {
+    sessionStorage.setItem('lastEventId', id)
+  }
+
+  // ---------------------------------------------------------------------------
+  // Thread helpers
+  // ---------------------------------------------------------------------------
+
+  const updateTurn = useCallback((turnId: string, updater: (t: Turn) => Turn) => {
+    setThread(prev => prev.map(t => t.id === turnId ? updater(t) : t))
+  }, [])
+
+  // ---------------------------------------------------------------------------
+  // Replay processor
+  // ---------------------------------------------------------------------------
+
+  const applyReplayEvent = useCallback((type: string, data: Record<string, unknown>) => {
+    const turnId = (data.turn_id as string | undefined) ?? ''
+
+    switch (type) {
+      case 'turn_start': {
+        const id = data.turn_id as string
+        const userText = data.user_text as string
+        setThread(prev => {
+          if (prev.some(t => t.id === id)) return prev
+          return [...prev, { ...newTurn(id, userText), streaming: false }]
+        })
+        break
+      }
+      case 'replay_content_snapshot': {
+        const exchangeIdx = data.exchange_idx as number
+        const assistantContent = (data.assistant_content as string) ?? ''
+        const reasoning = (data.reasoning as string) ?? ''
+        updateTurn(turnId, t => {
+          const exchanges = [...t.exchanges]
+          while (exchanges.length <= exchangeIdx) {
+            exchanges.push({ assistantContent: '', reasoning: '', toolCalls: [], isFinal: false })
+          }
+          exchanges[exchangeIdx] = { ...exchanges[exchangeIdx], assistantContent, reasoning }
+          return { ...t, exchanges }
+        })
+        break
+      }
+      case 'tool_call': {
+        const tc: ToolCallEntry = {
+          id: data.id as string,
+          name: data.name as string,
+          args: data.args as Record<string, unknown>,
+        }
+        updateTurn(turnId, t => {
+          // Find or create the current exchange (last non-final)
+          const exchanges = [...t.exchanges]
+          const idx = exchanges.findIndex((ex, i) => !ex.isFinal && i === exchanges.length - 1)
+          if (idx >= 0) {
+            if (!exchanges[idx].toolCalls.some(e => e.id === tc.id)) {
+              exchanges[idx] = { ...exchanges[idx], toolCalls: [...exchanges[idx].toolCalls, tc] }
+            }
+          } else {
+            exchanges.push({ assistantContent: '', reasoning: '', toolCalls: [tc], isFinal: false })
+          }
+          return { ...t, exchanges }
+        })
+        break
+      }
+      case 'tool_result': {
+        const id = data.id as string
+        const result = data.result as string
+        updateTurn(turnId, t => ({
+          ...t,
+          exchanges: t.exchanges.map(ex => ({
+            ...ex,
+            toolCalls: ex.toolCalls.map(tc => tc.id === id ? { ...tc, result } : tc),
+          })),
+        }))
+        break
+      }
+      case 'begin_interim_stream':
+        updateTurn(turnId, t => ({ ...t, isInterimStreaming: true }))
+        break
+      case 'begin_final_summary':
+        updateTurn(turnId, t => ({ ...t, isInterimStreaming: false }))
+        break
+      case 'todo_list_update':
+        updateTurn(turnId, t => ({ ...t, todoItems: data.items as TodoItem[] }))
+        break
+      case 'report_impossible':
+        updateTurn(turnId, t => ({ ...t, impossible: data.reason as string }))
+        break
+      case 'approval_request': {
+        const item: ApprovalItem = {
+          id: data.id as string,
+          tool_name: data.tool_name as string,
+          args: data.args as Record<string, unknown>,
+        }
+        updateTurn(turnId, t => ({ ...t, approvalItem: item }))
+        break
+      }
+      case 'approval_resolved': {
+        const approved = data.approved as boolean
+        const id = data.id as string
+        updateTurn(turnId, t => {
+          if (!t.approvalItem || t.approvalItem.id !== id) return t
+          return { ...t, approvalItem: { ...t.approvalItem, resolved: { approved } } }
+        })
+        break
+      }
+      case 'approval_timeout': {
+        const id = data.id as string
+        updateTurn(turnId, t => {
+          if (!t.approvalItem || t.approvalItem.id !== id) return t
+          return { ...t, approvalItem: { ...t.approvalItem, timedOut: true } }
+        })
+        break
+      }
+      case 'message_done': {
+        const content = data.content as string | null
+        updateTurn(turnId, t => {
+          const exchanges = [...t.exchanges]
+          if (content !== null && exchanges.length > 0) {
+            const last = exchanges[exchanges.length - 1]
+            exchanges[exchanges.length - 1] = { ...last, assistantContent: content, isFinal: true }
+          }
+          return { ...t, completed: true, streaming: false, isInterimStreaming: false, exchanges }
+        })
+        break
+      }
+      case 'error': {
+        const message = data.message as string
+        updateTurn(turnId, t => {
+          const exchanges = [...t.exchanges]
+          if (exchanges.length === 0) {
+            exchanges.push({ assistantContent: `⚠ ${message}`, reasoning: '', toolCalls: [], isFinal: true })
+          } else {
+            const last = exchanges[exchanges.length - 1]
+            exchanges[exchanges.length - 1] = { ...last, assistantContent: `⚠ ${message}`, isFinal: true }
+          }
+          return { ...t, completed: true, streaming: false, exchanges }
+        })
+        break
+      }
+      case 'pwd_update':
+        setPwd(data.path as string)
+        break
+    }
+  }, [updateTurn])
 
   // ---------------------------------------------------------------------------
   // Socket wiring
   // ---------------------------------------------------------------------------
 
   useEffect(() => {
-    // Fetch current pwd immediately if already connected at mount time.
     if (socket.connected) {
-      socket.emit('run_startup_tool_calls')
+      socket.emit('resume_session', { lastEventId: getLastEventId() })
       socket.emit('get_pwd')
       socket.emit('get_skills_info')
       socket.emit('get_env_info')
@@ -960,9 +1139,12 @@ export default function Chat() {
 
     function onConnect() {
       setConnected(true)
-      setStartupToolCalls([])
-      setStartupDone(false)
-      socket.emit('run_startup_tool_calls')
+      setBusy(false)
+      // Mark any streaming turns as interrupted
+      setThread(prev => prev.map(t =>
+        t.streaming ? { ...t, streaming: false, interrupted: true } : t
+      ))
+      socket.emit('resume_session', { lastEventId: getLastEventId() })
       socket.emit('get_pwd')
       socket.emit('get_skills_info')
       socket.emit('get_env_info')
@@ -985,135 +1167,203 @@ export default function Chat() {
     function onStartupToolCall({ id, name, args }: { id: string; name: string; args: Record<string, unknown> }) {
       setStartupToolCalls(prev => [...prev, { id, name, args }])
     }
-
     function onStartupToolResult({ id, result }: { id: string; result: string }) {
       setStartupToolCalls(prev => prev.map(tc => tc.id === id ? { ...tc, result } : tc))
     }
-
     function onStartupToolCallsDone() {
       setStartupDone(true)
     }
 
-    function onToken({ type, text }: { type: 'reasoning' | 'content'; text: string }) {
+    // Session state (response to resume_session)
+    function onSessionState(data: {
+      startupDone?: boolean
+      completedTurns?: unknown[]
+      schemaInvalid?: boolean
+    }) {
+      if (data.schemaInvalid) {
+        // Fresh session — clear everything
+        setThread([])
+        setStartupToolCalls([])
+        setStartupDone(false)
+        return
+      }
+      if (data.completedTurns) {
+        setThread((data.completedTurns as Parameters<typeof backendTurnToFrontendTurn>[0][]).map(backendTurnToFrontendTurn))
+      }
+      if (data.startupDone !== undefined) {
+        setStartupDone(data.startupDone)
+      }
+    }
+
+    // Event replay (missed events since last disconnect)
+    function onEventReplay({ events }: { events: { id: string; type: string; data: Record<string, unknown> }[] }) {
+      if (!events || events.length === 0) return
+      // Clear interrupted state on any streaming turns before replaying
+      setThread(prev => prev.map(t => t.interrupted ? { ...t, interrupted: false, streaming: true } : t))
+      for (const ev of events) {
+        if (ev.data.event_id) updateLastEventId(ev.data.event_id as string)
+        applyReplayEvent(ev.type, ev.data)
+      }
+      updateLastEventId(events[events.length - 1].id)
+    }
+
+    // Live event handlers (mirror replay logic but also track lastEventId)
+    function onTurnStart(data: { event_id?: string; turn_id: string; user_text: string }) {
+      if (data.event_id) updateLastEventId(data.event_id)
+      const id = data.turn_id
       setThread(prev => {
-        if (prev.length === 0) return prev
-        const last = prev[prev.length - 1]
-        const a = last.assistant
-        if (!a.streaming) return prev
-        if (a.isInterimStreaming && type === 'content') {
-          return [...prev.slice(0, -1), { ...last, assistant: { ...a, interimCharCount: a.interimCharCount + text.length } }]
+        if (prev.some(t => t.id === id)) return prev
+        return [...prev, newTurn(id, data.user_text)]
+      })
+      isAtBottom.current = true
+    }
+
+    function onToken(data: { type: 'reasoning' | 'content'; text: string; turn_id?: string }) {
+      const turnId = data.turn_id ?? ''
+      if (!turnId) return
+      updateTurn(turnId, t => {
+        if (!t.streaming) return t
+        if (t.isInterimStreaming && data.type === 'content') {
+          return { ...t, interimCharCount: t.interimCharCount + data.text.length }
         }
-        const updated: AssistantEntry = {
-          ...a,
-          reasoning: type === 'reasoning' ? a.reasoning + text : a.reasoning,
-          content:   type === 'content'   ? a.content   + text : a.content,
+        const exchanges = [...t.exchanges]
+        const lastEx = exchanges[exchanges.length - 1]
+        // If no exchange yet, or last exchange has tool calls (meaning a new LLM call started), create a new one
+        if (!lastEx || lastEx.toolCalls.length > 0) {
+          exchanges.push({
+            assistantContent: data.type === 'content' ? data.text : '',
+            reasoning: data.type === 'reasoning' ? data.text : '',
+            toolCalls: [],
+            isFinal: false,
+          })
+        } else {
+          const idx = exchanges.length - 1
+          exchanges[idx] = {
+            ...exchanges[idx],
+            assistantContent: data.type === 'content'
+              ? exchanges[idx].assistantContent + data.text
+              : exchanges[idx].assistantContent,
+            reasoning: data.type === 'reasoning'
+              ? exchanges[idx].reasoning + data.text
+              : exchanges[idx].reasoning,
+          }
         }
-        return [...prev.slice(0, -1), { ...last, assistant: updated }]
+        return { ...t, exchanges }
       })
     }
 
-    function onBeginInterimStream() {
-      setThread(prev => {
-        if (prev.length === 0) return prev
-        const last = prev[prev.length - 1]
-        return [...prev.slice(0, -1), { ...last, assistant: { ...last.assistant, isInterimStreaming: true } }]
-      })
+    function onBeginInterimStream(data: { event_id?: string; turn_id?: string }) {
+      if (data.event_id) updateLastEventId(data.event_id)
+      const turnId = data.turn_id ?? ''
+      updateTurn(turnId, t => ({ ...t, isInterimStreaming: true }))
     }
 
-    function onBeginFinalSummary() {
-      setThread(prev => {
-        if (prev.length === 0) return prev
-        const last = prev[prev.length - 1]
-        return [...prev.slice(0, -1), { ...last, assistant: { ...last.assistant, isInterimStreaming: false } }]
-      })
+    function onBeginFinalSummary(data: { event_id?: string; turn_id?: string }) {
+      if (data.event_id) updateLastEventId(data.event_id)
+      const turnId = data.turn_id ?? ''
+      // Just clear the interim streaming flag; the next token event will create the new exchange
+      updateTurn(turnId, t => ({ ...t, isInterimStreaming: false }))
     }
 
-    function onToolCall({ id, name, args }: { id: string; name: string; args: Record<string, unknown> }) {
-      setThread(prev => {
-        if (prev.length === 0) return prev
-        const last = prev[prev.length - 1]
-        const a = last.assistant
-        const updated: AssistantEntry = {
-          ...a,
-          toolCalls: [...a.toolCalls, { id, name, args }],
+    function onToolCall(data: { event_id?: string; turn_id?: string; id: string; name: string; args: Record<string, unknown> }) {
+      if (data.event_id) updateLastEventId(data.event_id)
+      const turnId = data.turn_id ?? ''
+      const tc: ToolCallEntry = { id: data.id, name: data.name, args: data.args }
+      updateTurn(turnId, t => {
+        const exchanges = [...t.exchanges]
+        const lastIdx = exchanges.length - 1
+        if (lastIdx >= 0 && !exchanges[lastIdx].isFinal) {
+          exchanges[lastIdx] = { ...exchanges[lastIdx], toolCalls: [...exchanges[lastIdx].toolCalls, tc] }
+        } else {
+          exchanges.push({ assistantContent: '', reasoning: '', toolCalls: [tc], isFinal: false })
         }
-        return [...prev.slice(0, -1), { ...last, assistant: updated }]
+        return { ...t, exchanges }
       })
     }
 
-    function onToolResult({ id, result }: { id: string; result: string }) {
-      setThread(prev => {
-        if (prev.length === 0) return prev
-        const last = prev[prev.length - 1]
-        const a = last.assistant
-        const updated: AssistantEntry = {
-          ...a,
-          toolCalls: a.toolCalls.map(tc => tc.id === id ? { ...tc, result } : tc),
-        }
-        return [...prev.slice(0, -1), { ...last, assistant: updated }]
-      })
+    function onToolResult(data: { event_id?: string; turn_id?: string; id: string; result: string }) {
+      if (data.event_id) updateLastEventId(data.event_id)
+      const turnId = data.turn_id ?? ''
+      const { id, result } = data
+      updateTurn(turnId, t => ({
+        ...t,
+        exchanges: t.exchanges.map(ex => ({
+          ...ex,
+          toolCalls: ex.toolCalls.map(tc => tc.id === id ? { ...tc, result } : tc),
+        })),
+      }))
     }
 
-    function onMessageDone({ content }: { content: string | null }) {
-      setThread(prev => {
-        if (prev.length === 0) return prev
-        const last = prev[prev.length - 1]
-        const updatedAssistant: AssistantEntry = {
-          ...last.assistant,
-          streaming: false,
-          ...(content !== null ? { content } : {}),
+    function onMessageDone(data: { event_id?: string; turn_id?: string; content: string | null }) {
+      if (data.event_id) updateLastEventId(data.event_id)
+      const turnId = data.turn_id ?? ''
+      const content = data.content
+      updateTurn(turnId, t => {
+        const exchanges = [...t.exchanges]
+        if (content !== null && exchanges.length > 0) {
+          const last = exchanges[exchanges.length - 1]
+          exchanges[exchanges.length - 1] = { ...last, assistantContent: content, isFinal: true }
+        } else if (content !== null) {
+          exchanges.push({ assistantContent: content, reasoning: '', toolCalls: [], isFinal: true })
         }
-        return [...prev.slice(0, -1), { ...last, assistant: updatedAssistant }]
+        return { ...t, completed: true, streaming: false, isInterimStreaming: false, exchanges }
       })
       setBusy(false)
     }
 
-    function onError({ message }: { message: string }) {
-      setThread(prev => {
-        if (prev.length === 0) return prev
-        const last = prev[prev.length - 1]
-        return [...prev.slice(0, -1), {
-          ...last,
-          assistant: { ...last.assistant, content: `⚠ ${message}`, streaming: false },
-        }]
-      })
+    function onError(data: { event_id?: string; turn_id?: string; message: string }) {
+      if (data.event_id) updateLastEventId(data.event_id)
+      const turnId = data.turn_id ?? ''
+      const message = data.message
+      if (turnId) {
+        updateTurn(turnId, t => {
+          const exchanges = [...t.exchanges]
+          if (exchanges.length === 0) {
+            exchanges.push({ assistantContent: `⚠ ${message}`, reasoning: '', toolCalls: [], isFinal: true })
+          } else {
+            const last = exchanges[exchanges.length - 1]
+            exchanges[exchanges.length - 1] = { ...last, assistantContent: `⚠ ${message}`, isFinal: true }
+          }
+          return { ...t, completed: true, streaming: false, exchanges }
+        })
+      }
       setBusy(false)
     }
 
-    function onReportImpossible({ reason }: { reason: string }) {
-      setThread(prev => {
-        if (prev.length === 0) return prev
-        const last = prev[prev.length - 1]
-        return [...prev.slice(0, -1), { ...last, impossible: reason }]
-      })
-      // busy is cleared by the subsequent message_done event
+    function onReportImpossible(data: { event_id?: string; turn_id?: string; reason: string }) {
+      if (data.event_id) updateLastEventId(data.event_id)
+      const turnId = data.turn_id ?? ''
+      updateTurn(turnId, t => ({ ...t, impossible: data.reason }))
     }
 
-    function onTodoListUpdate({ items }: { items: TodoItem[] }) {
-      setThread(prev => {
-        if (prev.length === 0) return prev
-        const last = prev[prev.length - 1]
-        return [...prev.slice(0, -1), { ...last, todoItems: items }]
+    function onTodoListUpdate(data: { event_id?: string; turn_id?: string; items: TodoItem[] }) {
+      if (data.event_id) updateLastEventId(data.event_id)
+      const turnId = data.turn_id ?? ''
+      updateTurn(turnId, t => ({ ...t, todoItems: data.items }))
+    }
+
+    function onApprovalRequest(data: { event_id?: string; turn_id?: string; id: string; tool_name: string; args: Record<string, unknown> }) {
+      if (data.event_id) updateLastEventId(data.event_id)
+      const turnId = data.turn_id ?? ''
+      const item: ApprovalItem = { id: data.id, tool_name: data.tool_name, args: data.args }
+      updateTurn(turnId, t => ({ ...t, approvalItem: item }))
+    }
+
+    function onApprovalResolved(data: { event_id?: string; turn_id?: string; id: string; approved: boolean }) {
+      if (data.event_id) updateLastEventId(data.event_id)
+      const turnId = data.turn_id ?? ''
+      updateTurn(turnId, t => {
+        if (!t.approvalItem || t.approvalItem.id !== data.id) return t
+        return { ...t, approvalItem: { ...t.approvalItem, resolved: { approved: data.approved } } }
       })
     }
 
-    function onApprovalRequest({ id, tool_name, args }: { id: string; tool_name: string; args: Record<string, unknown> }) {
-      setThread(prev => {
-        if (prev.length === 0) return prev
-        const last = prev[prev.length - 1]
-        return [...prev.slice(0, -1), { ...last, approvalItem: { id, tool_name, args } }]
-      })
-    }
-
-    function onApprovalResolved({ id, approved }: { id: string; approved: boolean }) {
-      setThread(prev => {
-        if (prev.length === 0) return prev
-        const last = prev[prev.length - 1]
-        if (!last.approvalItem || last.approvalItem.id !== id) return prev
-        return [...prev.slice(0, -1), {
-          ...last,
-          approvalItem: { ...last.approvalItem, resolved: { approved } },
-        }]
+    function onApprovalTimeout(data: { event_id?: string; turn_id?: string; id: string; tool_name: string }) {
+      if (data.event_id) updateLastEventId(data.event_id)
+      const turnId = data.turn_id ?? ''
+      updateTurn(turnId, t => {
+        if (!t.approvalItem || t.approvalItem.id !== data.id) return t
+        return { ...t, approvalItem: { ...t.approvalItem, timedOut: true } }
       })
     }
 
@@ -1128,6 +1378,9 @@ export default function Chat() {
     socket.on('startup_tool_call', onStartupToolCall)
     socket.on('startup_tool_result', onStartupToolResult)
     socket.on('startup_tool_calls_done', onStartupToolCallsDone)
+    socket.on('session_state', onSessionState)
+    socket.on('event_replay', onEventReplay)
+    socket.on('turn_start', onTurnStart)
     socket.on('token', onToken)
     socket.on('begin_interim_stream', onBeginInterimStream)
     socket.on('begin_final_summary', onBeginFinalSummary)
@@ -1139,6 +1392,7 @@ export default function Chat() {
     socket.on('todo_list_update', onTodoListUpdate)
     socket.on('approval_request', onApprovalRequest)
     socket.on('approval_resolved', onApprovalResolved)
+    socket.on('approval_timeout', onApprovalTimeout)
 
     return () => {
       socket.off('connect', onConnect)
@@ -1152,6 +1406,9 @@ export default function Chat() {
       socket.off('startup_tool_call', onStartupToolCall)
       socket.off('startup_tool_result', onStartupToolResult)
       socket.off('startup_tool_calls_done', onStartupToolCallsDone)
+      socket.off('session_state', onSessionState)
+      socket.off('event_replay', onEventReplay)
+      socket.off('turn_start', onTurnStart)
       socket.off('token', onToken)
       socket.off('begin_interim_stream', onBeginInterimStream)
       socket.off('begin_final_summary', onBeginFinalSummary)
@@ -1163,8 +1420,10 @@ export default function Chat() {
       socket.off('todo_list_update', onTodoListUpdate)
       socket.off('approval_request', onApprovalRequest)
       socket.off('approval_resolved', onApprovalResolved)
+      socket.off('approval_timeout', onApprovalTimeout)
     }
-  }, [])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [applyReplayEvent, updateTurn])
 
   // ---------------------------------------------------------------------------
   // Approval actions
@@ -1186,18 +1445,11 @@ export default function Chat() {
     const text = inputText.trim()
     if (!text || busy || !connected) return
 
-    setThread(prev => [...prev, {
-      id: makeId(),
-      user: { type: 'user', id: makeId(), text },
-      assistant: newAssistant(true),
-      todoItems: [],
-    }])
+    const clientTurnId = crypto.randomUUID()
+    socket.emit('user_message', { text, clientTurnId })
     setBusy(true)
     setInputText('')
-
-    // Re-enable autoscroll so the incoming response is followed.
     isAtBottom.current = true
-    socket.emit('user_message', { text })
   }, [inputText, busy, connected, isAtBottom])
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {

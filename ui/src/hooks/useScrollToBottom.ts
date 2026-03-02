@@ -1,6 +1,8 @@
-import { useRef, useCallback, useMemo, useEffect } from 'react'
+import { useRef, useCallback, useMemo, useEffect, useLayoutEffect } from 'react'
 import throttle from 'lodash.throttle'
 import { SCROLL_BOTTOM_THRESHOLD, SCROLL_THROTTLE_MS } from '../constants'
+
+const SCROLL_PERSIST_DEBOUNCE_MS = 200
 
 /**
  * Manages scroll-to-bottom behaviour for a scrollable container.
@@ -12,11 +14,43 @@ import { SCROLL_BOTTOM_THRESHOLD, SCROLL_THROTTLE_MS } from '../constants'
  * - Direction-aware: upward scrolls immediately disengage autoscroll and cancel
  *   any pending throttled scroll; downward scrolls re-engage only when the user
  *   reaches the bottom threshold.
+ * - Optional `persistId`: if set, restores scroll position from sessionStorage on
+ *   mount and saves it (debounced) on scroll.
  */
-export function useScrollToBottom<T extends HTMLElement = HTMLDivElement>() {
+export function useScrollToBottom<T extends HTMLElement = HTMLDivElement>({
+  persistId,
+}: { persistId?: string } = {}) {
   const containerRef = useRef<T>(null)
   const isAtBottom = useRef(true)
   const lastScrollTopRef = useRef(0)
+  const persistDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Restore scroll position from sessionStorage on mount (if persistId set)
+  useLayoutEffect(() => {
+    if (!persistId) return
+    const el = containerRef.current
+    if (!el) return
+    const stored = sessionStorage.getItem(`scroll:${persistId}`)
+    if (stored !== null) {
+      const savedTop = parseInt(stored, 10)
+      if (!isNaN(savedTop)) {
+        el.scrollTop = savedTop
+        const dist = el.scrollHeight - savedTop - el.clientHeight
+        isAtBottom.current = dist <= SCROLL_BOTTOM_THRESHOLD
+        lastScrollTopRef.current = savedTop
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [persistId])
+
+  // Cancel debounced write on unmount
+  useEffect(() => {
+    return () => {
+      if (persistDebounceRef.current !== null) {
+        clearTimeout(persistDebounceRef.current)
+      }
+    }
+  }, [])
 
   const _scroll = useCallback(() => {
     const el = containerRef.current
@@ -51,7 +85,18 @@ export function useScrollToBottom<T extends HTMLElement = HTMLDivElement>() {
         isAtBottom.current = true
       }
     }
-  }, [scrollToBottomIfNeeded])
+
+    // Persist scroll position (debounced)
+    if (persistId) {
+      if (persistDebounceRef.current !== null) {
+        clearTimeout(persistDebounceRef.current)
+      }
+      persistDebounceRef.current = setTimeout(() => {
+        sessionStorage.setItem(`scroll:${persistId}`, String(currentScrollTop))
+        persistDebounceRef.current = null
+      }, SCROLL_PERSIST_DEBOUNCE_MS)
+    }
+  }, [scrollToBottomIfNeeded, persistId])
 
   return { containerRef, isAtBottom, scrollToBottomIfNeeded, onScroll }
 }

@@ -24,10 +24,10 @@ class EmittingKVManager:
     object can be constructed cheaply (no connection held open between calls).
     """
 
-    def __init__(self, pool, socketio, sid: str) -> None:
+    def __init__(self, pool, socketio, session_id: str) -> None:
         self._pool = pool
         self._socketio = socketio
-        self._sid = sid
+        self._session_id = session_id
 
     # ------------------------------------------------------------------
     # Internal emit helper
@@ -35,7 +35,7 @@ class EmittingKVManager:
 
     def _emit(self, event: str, data: dict) -> None:
         if self._socketio:
-            self._socketio.emit(event, data, room=self._sid)
+            self._socketio.emit(event, data, room=self._session_id)
 
     # ------------------------------------------------------------------
     # Mutating operations  (emit after success)
