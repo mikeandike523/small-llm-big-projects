@@ -37,6 +37,7 @@ export interface Turn {
   todoItems: TodoItem[]
   approvalItem?: ApprovalItem
   impossible?: string
+  cancelled?: string
   completed: boolean
   // Live state (only meaningful on current/in-progress turn):
   streaming: boolean

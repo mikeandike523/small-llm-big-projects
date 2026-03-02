@@ -80,6 +80,9 @@ if os.environ.get("SLBP_LOAD_STARTUP_TOOL_CALLS") == "1":
 
 _sid_to_session_id: dict[str, str] = {}
 
+# Maps session_id -> Event; set by handle_cancel_turn to signal the running agentic loop
+_cancel_flags: dict[str, threading.Event] = {}
+
 
 # ---------------------------------------------------------------------------
 # Backend log emitter
@@ -331,6 +334,7 @@ def _run_llm_call(
     session_id: str,
     turn_id: str,
     exchange_idx: int,
+    is_cancelled: Any = None,
 ) -> tuple[object, str, str]:
     """
     Run one LLM call (streaming or non-streaming) and emit token events.
@@ -359,7 +363,7 @@ def _run_llm_call(
                 if token_count % 50 == 0:
                     _emit_content_snapshot(session_id, turn_id, exchange_idx, acc["content"], acc["reasoning"])
 
-        result = streaming_llm.stream(payload, on_data, tools=ALL_TOOL_DEFINITIONS)
+        result = streaming_llm.stream(payload, on_data, tools=ALL_TOOL_DEFINITIONS, is_cancelled=is_cancelled)
         # Emit final snapshot
         _emit_content_snapshot(session_id, turn_id, exchange_idx, acc["content"], acc["reasoning"])
         return result, acc["content"], acc["reasoning"]
@@ -406,6 +410,7 @@ def _run_llm_call_with_retry(
     turn_id: str,
     exchange_idx: int,
     assistant_truncation_chars: int | None = None,
+    is_cancelled: Any = None,
 ) -> tuple[object, str, str]:
     """
     Run an LLM call; on timeout or context-limit error, strip the payload
@@ -413,7 +418,7 @@ def _run_llm_call_with_retry(
     Returns (result, content_for_history, reasoning).
     """
     try:
-        return _run_llm_call(streaming_llm, payload, session_id, turn_id, exchange_idx)
+        return _run_llm_call(streaming_llm, payload, session_id, turn_id, exchange_idx, is_cancelled=is_cancelled)
     except Exception as exc:
         if not _is_retryable_error(exc):
             raise
@@ -428,7 +433,7 @@ def _run_llm_call_with_retry(
             payload, _TOOL_MAP,
             assistant_truncation_chars=assistant_truncation_chars,
         )
-        return _run_llm_call(streaming_llm, stripped, session_id, turn_id, exchange_idx)
+        return _run_llm_call(streaming_llm, stripped, session_id, turn_id, exchange_idx, is_cancelled=is_cancelled)
 
 
 # ---------------------------------------------------------------------------
@@ -639,6 +644,18 @@ def handle_disconnect():
     # Do NOT delete the session — it persists for reconnect
 
 
+@socketio.on("cancel_turn")
+def handle_cancel_turn():
+    sid = request.sid
+    session_id = _sid_to_session_id.get(sid)
+    if not session_id:
+        return
+    flag = _cancel_flags.get(session_id)
+    if flag:
+        flag.set()
+    print(f"[ui_connector] Cancel requested for session {session_id}", flush=True)
+
+
 @socketio.on("get_pwd")
 def handle_get_pwd():
     sid = request.sid
@@ -839,14 +856,22 @@ def handle_user_message(data: dict):
 
     _emit_and_log(session_id, "turn_start", {"turn_id": turn_id, "user_text": text})
 
+    cancel_event = threading.Event()
+    _cancel_flags[session_id] = cancel_event
+
     had_tool_calls = False
     final_reprompt_done = False
     was_impossible = False
     impossible_reason: str | None = None
+    was_cancelled = False
     last_assistant_content = ""
     turn_completed = False
 
     while True:
+        if cancel_event.is_set():
+            was_cancelled = True
+            break
+
         if had_tool_calls and not final_reprompt_done:
             _emit_and_log(session_id, "begin_interim_stream", {"turn_id": turn_id})
 
@@ -860,14 +885,21 @@ def handle_user_message(data: dict):
                 turn_id=turn_id,
                 exchange_idx=exchange_idx,
                 assistant_truncation_chars=assistant_truncation_chars,
+                is_cancelled=cancel_event.is_set,
             )
         except requests.exceptions.HTTPError as exc:
+            if cancel_event.is_set():
+                was_cancelled = True
+                break
             _emit_and_log(session_id, "error", {
                 "message": f"LLM stream error:\n\n{format_http_error(exc)}",
                 "turn_id": turn_id,
             })
             break
         except Exception as exc:
+            if cancel_event.is_set():
+                was_cancelled = True
+                break
             _emit_and_log(session_id, "error", {
                 "message": f"LLM stream error:\n\n{exc}",
                 "turn_id": turn_id,
@@ -885,6 +917,10 @@ def handle_user_message(data: dict):
             )
 
         last_assistant_content = content_for_history
+
+        if cancel_event.is_set():
+            was_cancelled = True
+            break
 
         if result.has_tool_calls:
             impossible, reason, exchange = _execute_tools(
@@ -907,6 +943,9 @@ def handle_user_message(data: dict):
                     "content": None, "turn_id": turn_id,
                 })
                 turn_completed = True
+                break
+            if cancel_event.is_set():
+                was_cancelled = True
                 break
             continue
 
@@ -975,7 +1014,16 @@ def handle_user_message(data: dict):
         turn_completed = True
         break
 
-    if turn_completed:
+    if was_cancelled:
+        current_turn.was_cancelled = True
+        current_turn.completed = True
+        current_turn.todo_snapshot = session.session_data.get("todo_list") or []
+        current_turn.finalize(session.session_data, last_assistant_content)
+        session.completed_turns.append(current_turn)
+        session.current_turn = None
+        _emit_and_log(session_id, "turn_cancelled", {"turn_id": turn_id})
+        _emit_and_log(session_id, "message_done", {"content": None, "turn_id": turn_id})
+    elif turn_completed:
         current_turn.was_impossible = was_impossible
         current_turn.impossible_reason = impossible_reason
         current_turn.completed = True
@@ -984,4 +1032,5 @@ def handle_user_message(data: dict):
         session.completed_turns.append(current_turn)
         session.current_turn = None
 
+    _cancel_flags.pop(session_id, None)
     _save_session(session_id, session)

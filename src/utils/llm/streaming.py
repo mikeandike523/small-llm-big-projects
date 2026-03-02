@@ -55,7 +55,8 @@ class StreamingLLM:
 
     def stream(self, messages, on_data: Callable[[dict], None],
                max_tokens=None, parameters={},
-               tools: Optional[list[dict]] = None) -> StreamResult:
+               tools: Optional[list[dict]] = None,
+               is_cancelled: Optional[Callable[[], bool]] = None) -> StreamResult:
         payload = {
             "stream": True,
             "stream_options": {"include_usage": True},
@@ -74,7 +75,8 @@ class StreamingLLM:
         headers = {"Authorization": f"Bearer {self._token}"}
 
         with requests.post(
-            self._endpoint.rstrip("/") + "/chat/completions", json=payload, stream=True, timeout=60, headers=headers
+            self._endpoint.rstrip("/") + "/chat/completions", json=payload, stream=True,
+            timeout=(60, 60), headers=headers
         ) as r:
             
             if r.status_code!=200:
@@ -88,6 +90,8 @@ class StreamingLLM:
             _last_usage: dict | None = None
 
             for line in r.iter_lines(decode_unicode=True):
+                if is_cancelled and is_cancelled():
+                    break
 
                 if not line:
                     continue

@@ -66,6 +66,7 @@ function backendTurnToFrontendTurn(d: {
   todo_snapshot: TodoItem[]
   was_impossible: boolean
   impossible_reason?: string
+  was_cancelled?: boolean
   completed: boolean
 }): Turn {
   return {
@@ -85,6 +86,7 @@ function backendTurnToFrontendTurn(d: {
     })),
     todoItems: d.todo_snapshot ?? [],
     impossible: d.was_impossible ? (d.impossible_reason ?? 'Task was impossible') : undefined,
+    cancelled: d.was_cancelled ? 'Turn was cancelled' : undefined,
     completed: d.completed,
     streaming: false,
     isInterimStreaming: false,
@@ -269,6 +271,45 @@ const interruptedBubbleCss = css`
   font-size: 11px;
   color: #8060a0;
   font-style: italic;
+`
+
+const cancelledBubbleCss = css`
+  background: #0a1020;
+  border: 1px solid #2a3a60;
+  border-radius: 10px;
+  padding: 8px 14px;
+`
+
+const cancelledLabelCss = css`
+  font-size: 12px;
+  color: #4a6090;
+  font-weight: 500;
+`
+
+const cancelButtonCss = css`
+  background: #2a1010;
+  color: #c06060;
+  border: 1px solid #5a2020;
+  border-radius: 8px;
+  padding: 0 14px;
+  font-size: 13px;
+  cursor: pointer;
+  align-self: flex-end;
+  height: 40px;
+  font-family: inherit;
+  transition: background 0.15s;
+  &:hover { background: #3a1515; }
+`
+
+const cancellingLabelCss = css`
+  align-self: flex-end;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  font-size: 13px;
+  color: #666;
+  font-style: italic;
+  white-space: nowrap;
 `
 
 const reasoningWrapperCss = css`
@@ -847,7 +888,7 @@ function TurnContainer({
   onApprove: (id: string) => void
   onDeny: (id: string) => void
 }) {
-  const { todoItems, approvalItem, impossible, exchanges, streaming, isInterimStreaming, interimCharCount, interrupted } = turn
+  const { todoItems, approvalItem, impossible, cancelled, exchanges, streaming, isInterimStreaming, interimCharCount, interrupted } = turn
 
   const { containerRef: toolsRef, scrollToBottomIfNeeded: scrollTools, onScroll: onToolsScroll } =
     useScrollToBottom<HTMLDivElement>({ persistId: `tools-${turn.id}` })
@@ -899,6 +940,11 @@ function TurnContainer({
           <div css={impossibleBubbleCss}>
             <span css={impossibleLabelCss}>Task impossible</span>
             <span css={impossibleReasonCss}>{impossible}</span>
+          </div>
+        )}
+        {cancelled && (
+          <div css={cancelledBubbleCss}>
+            <span css={cancelledLabelCss}>Turn cancelled</span>
           </div>
         )}
         {interrupted && (
@@ -1003,6 +1049,7 @@ export default function Chat() {
   const [inputText, setInputText] = useState('')
   const [connected, setConnected] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [cancelling, setCancelling] = useState(false)
   const [modalContent, setModalContent] = useState<string | null>(null)
   const [pwd, setPwd] = useState<string>('')
   const [skillsInfo, setSkillsInfo] = useState<{ enabled: boolean; count: number; path: string | null; files: string[] } | null>(null)
@@ -1123,6 +1170,9 @@ export default function Chat() {
       case 'report_impossible':
         updateTurn(turnId, t => ({ ...t, impossible: data.reason as string }))
         break
+      case 'turn_cancelled':
+        updateTurn(turnId, t => ({ ...t, cancelled: 'Turn was cancelled' }))
+        break
       case 'approval_request': {
         const item: ApprovalItem = {
           id: data.id as string,
@@ -1189,6 +1239,7 @@ export default function Chat() {
     function onConnect() {
       setConnected(true)
       setBusy(false)
+      setCancelling(false)
       setIsLoadingBackendState(true)
       // Mark any streaming turns as interrupted (they'll be cleared by event replay if still running)
       setThread(prev => prev.map(t =>
@@ -1390,6 +1441,7 @@ export default function Chat() {
         return { ...t, completed: true, streaming: false, isInterimStreaming: false, exchanges }
       })
       setBusy(false)
+      setCancelling(false)
     }
 
     function onError(data: { event_id?: string; turn_id?: string; message: string }) {
@@ -1415,6 +1467,12 @@ export default function Chat() {
       if (data.event_id) updateLastEventId(data.event_id)
       const turnId = data.turn_id ?? ''
       updateTurn(turnId, t => ({ ...t, impossible: data.reason }))
+    }
+
+    function onTurnCancelled(data: { event_id?: string; turn_id?: string }) {
+      if (data.event_id) updateLastEventId(data.event_id)
+      const turnId = data.turn_id ?? ''
+      updateTurn(turnId, t => ({ ...t, cancelled: 'Turn was cancelled' }))
     }
 
     function onTodoListUpdate(data: { event_id?: string; turn_id?: string; items: TodoItem[] }) {
@@ -1470,6 +1528,7 @@ export default function Chat() {
     socket.on('message_done', onMessageDone)
     socket.on('error', onError)
     socket.on('report_impossible', onReportImpossible)
+    socket.on('turn_cancelled', onTurnCancelled)
     socket.on('todo_list_update', onTodoListUpdate)
     socket.on('approval_request', onApprovalRequest)
     socket.on('approval_resolved', onApprovalResolved)
@@ -1501,6 +1560,7 @@ export default function Chat() {
       socket.off('message_done', onMessageDone)
       socket.off('error', onError)
       socket.off('report_impossible', onReportImpossible)
+      socket.off('turn_cancelled', onTurnCancelled)
       socket.off('todo_list_update', onTodoListUpdate)
       socket.off('approval_request', onApprovalRequest)
       socket.off('approval_resolved', onApprovalResolved)
@@ -1521,6 +1581,11 @@ export default function Chat() {
   const deny = useCallback((id: string) => {
     socket.emit('approval_response', { id, approved: false })
   }, [])
+
+  const cancelTurn = useCallback(() => {
+    socket.emit('cancel_turn')
+    setCancelling(true)
+  }, [socket])
 
   // ---------------------------------------------------------------------------
   // Send
@@ -1622,6 +1687,12 @@ export default function Chat() {
             onKeyDown={onKeyDown}
             disabled={busy || !connected}
           />
+          {busy && !cancelling && (
+            <button css={cancelButtonCss} onClick={cancelTurn}>Cancel</button>
+          )}
+          {busy && cancelling && (
+            <span css={cancellingLabelCss}>cancelling turn...</span>
+          )}
           <button css={sendButtonCss} onClick={send} disabled={busy || !connected}>
             <span css={busy ? css`visibility: hidden` : undefined}>Send</span>
             {busy && <span css={spinnerCss} />}

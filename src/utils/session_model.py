@@ -66,6 +66,7 @@ class Turn:
     todo_snapshot: list = field(default_factory=list)
     was_impossible: bool = False
     impossible_reason: str | None = None
+    was_cancelled: bool = False
     completed: bool = False
     condensed_user: str = ""
     condensed_assistant: str = ""
@@ -180,6 +181,7 @@ def turn_to_dict(turn: Turn) -> dict:
         "todo_snapshot": turn.todo_snapshot,
         "was_impossible": turn.was_impossible,
         "impossible_reason": turn.impossible_reason,
+        "was_cancelled": turn.was_cancelled,
         "completed": turn.completed,
         "condensed_user": turn.condensed_user,
         "condensed_assistant": turn.condensed_assistant,
@@ -195,6 +197,7 @@ def turn_from_dict(d: dict) -> Turn:
         todo_snapshot=d.get("todo_snapshot", []),
         was_impossible=d.get("was_impossible", False),
         impossible_reason=d.get("impossible_reason"),
+        was_cancelled=d.get("was_cancelled", False),
         completed=d.get("completed", False),
         condensed_user=d.get("condensed_user", ""),
         condensed_assistant=d.get("condensed_assistant", ""),
