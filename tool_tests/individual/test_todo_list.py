@@ -6,242 +6,438 @@ from tool_tests.helpers.http_server import MicroServer
 from src.tools import execute_tool
 
 
+def _j(r: str) -> dict:
+    """Parse JSON result, return empty dict on failure."""
+    try:
+        return json.loads(r)
+    except Exception:
+        return {}
+
+
 def run(env: TestEnv, server: MicroServer | None = None):
     cl = CheckList("todo_list")
     try:
         # ----------------------------------------------------------------
-        # Basic root-level operations
+        # list / list_formatted — empty
         # ----------------------------------------------------------------
 
-        # get_all on empty list
-        r = execute_tool("todo_list", {"action": "get_all"}, env.session_data)
-        data = json.loads(r)
-        cl.check("get_all empty", "Empty list returns items=[]", data.get("items") == [], f"got: {r!r}")
+        r = execute_tool("todo_list", {"action": "list"}, env.session_data)
+        cl.check("list empty", "Empty list returns items=[]",
+                 _j(r).get("items") == [], f"got: {r!r}")
 
-        # get_all_formatted on empty list
-        r_fmt_empty = execute_tool("todo_list", {"action": "get_all_formatted"}, env.session_data)
-        cl.check("get_all_formatted empty", "Empty list returns '(empty todo list)'", r_fmt_empty == "(empty todo list)", f"got: {r_fmt_empty!r}")
-
-        # add_item "step one" -> item_number=1
-        r2 = execute_tool("todo_list", {"action": "add_item", "text": "step one"}, env.session_data)
-        data2 = json.loads(r2)
-        item2 = data2.get("item", {})
-        cl.check("add_item first", "Adding first item returns item_number=1", item2.get("item_number") == 1, f"got: {r2!r}")
-        cl.check("add_item first status", "Newly added item has status 'open'", item2.get("status") == "open", f"got: {r2!r}")
-
-        # add_item "step two" -> item_number=2
-        r3 = execute_tool("todo_list", {"action": "add_item", "text": "step two"}, env.session_data)
-        data3 = json.loads(r3)
-        item3 = data3.get("item", {})
-        cl.check("add_item second", "Adding second item returns item_number=2", item3.get("item_number") == 2, f"got: {r3!r}")
-
-        # get_all -> 2 items
-        r4 = execute_tool("todo_list", {"action": "get_all"}, env.session_data)
-        data4 = json.loads(r4)
-        cl.check("get_all two items", "List has 2 items after adding two", len(data4.get("items", [])) == 2, f"got: {r4!r}")
-
-        # get_all_formatted on non-empty list
-        r_fmt = execute_tool("todo_list", {"action": "get_all_formatted"}, env.session_data)
-        cl.check("get_all_formatted non-empty has items", "Formatted output contains both items", "step one" in r_fmt and "step two" in r_fmt, f"got: {r_fmt!r}")
-        cl.check("get_all_formatted checkboxes", "Formatted output uses [ ] for open items", "[ ]" in r_fmt, f"got: {r_fmt!r}")
-
-        # get_item item_number=1 -> text="step one"
-        r5 = execute_tool("todo_list", {"action": "get_item", "item_number": 1}, env.session_data)
-        data5 = json.loads(r5)
-        cl.check("get_item 1 text", "Item 1 has text 'step one'", data5.get("item", {}).get("text") == "step one", f"got: {r5!r}")
-
-        # modify_item item_number=1, text="step ONE"
-        r6 = execute_tool("todo_list", {"action": "modify_item", "item_number": 1, "text": "step ONE"}, env.session_data)
-        data6 = json.loads(r6)
-        cl.check("modify_item", "Modify updates item text", data6.get("item", {}).get("text") == "step ONE", f"got: {r6!r}")
-
-        # close_item item_number=1 -> status "closed"
-        r7 = execute_tool("todo_list", {"action": "close_item", "item_number": 1}, env.session_data)
-        data7 = json.loads(r7)
-        cl.check("close_item status", "Closed item has status 'closed'", data7.get("item", {}).get("status") == "closed", f"got: {r7!r}")
-
-        # get_all_formatted after close -> closed item shows [x]
-        r_fmt2 = execute_tool("todo_list", {"action": "get_all_formatted"}, env.session_data)
-        cl.check("get_all_formatted closed item", "Closed item shows [x] checkbox", "[x]" in r_fmt2, f"got: {r_fmt2!r}")
-
-        # reopen_item item_number=1 -> status back to "open"
-        r_reopen = execute_tool("todo_list", {"action": "reopen_item", "item_number": 1}, env.session_data)
-        data_reopen = json.loads(r_reopen)
-        cl.check("reopen_item", "Reopened item has status 'open'", data_reopen.get("item", {}).get("status") == "open", f"got: {r_reopen!r}")
-
-        # delete_item item_number=2 -> list has 1 item
-        execute_tool("todo_list", {"action": "delete_item", "item_number": 2}, env.session_data)
-        r8 = execute_tool("todo_list", {"action": "get_all"}, env.session_data)
-        data8 = json.loads(r8)
-        cl.check("delete_item leaves one", "List has 1 item after deleting item 2", len(data8.get("items", [])) == 1, f"got: {r8!r}")
-
-        # add_multiple_items
-        r_multi = execute_tool("todo_list", {"action": "add_multiple_items", "texts": ["alpha", "beta", "gamma"]}, env.session_data)
-        data_multi = json.loads(r_multi)
-        cl.check("add_multiple_items count", "add_multiple_items returns 3 items", len(data_multi.get("items", [])) == 3, f"got: {r_multi!r}")
-        cl.check("add_multiple_items message", "add_multiple_items message mentions 3 items", "3" in data_multi.get("message", ""), f"got: {r_multi!r}")
-        r_all_multi = execute_tool("todo_list", {"action": "get_all"}, env.session_data)
-        data_all_multi = json.loads(r_all_multi)
-        cl.check("add_multiple_items total", "Total list has 4 items after adding 3 more", len(data_all_multi.get("items", [])) == 4, f"got: {r_all_multi!r}")
-
-        # insert_before item_number=2 -> inserts at position 2, shifts rest
-        r_ins_before = execute_tool("todo_list", {"action": "insert_before", "item_number": 2, "text": "inserted before 2"}, env.session_data)
-        data_ins_before = json.loads(r_ins_before)
-        cl.check("insert_before item_number", "insert_before returns item_number=2", data_ins_before.get("item", {}).get("item_number") == 2, f"got: {r_ins_before!r}")
-        r_check_before = execute_tool("todo_list", {"action": "get_item", "item_number": 2}, env.session_data)
-        data_check_before = json.loads(r_check_before)
-        cl.check("insert_before text", "Item at position 2 is now the inserted item", data_check_before.get("item", {}).get("text") == "inserted before 2", f"got: {r_check_before!r}")
-
-        # insert_after item_number=1 -> new item at position 2
-        r_ins_after = execute_tool("todo_list", {"action": "insert_after", "item_number": 1, "text": "inserted after 1"}, env.session_data)
-        data_ins_after = json.loads(r_ins_after)
-        cl.check("insert_after item_number", "insert_after returns item_number=2", data_ins_after.get("item", {}).get("item_number") == 2, f"got: {r_ins_after!r}")
-        r_check_after = execute_tool("todo_list", {"action": "get_item", "item_number": 2}, env.session_data)
-        data_check_after = json.loads(r_check_after)
-        cl.check("insert_after text", "Item at position 2 is the inserted-after item", data_check_after.get("item", {}).get("text") == "inserted after 1", f"got: {r_check_after!r}")
-
-        # auto_strip_leading_numbers (default True) strips "1. " prefix
-        r_strip = execute_tool("todo_list", {"action": "add_item", "text": "1. numbered item"}, env.session_data)
-        data_strip = json.loads(r_strip)
-        cl.check("auto_strip leading number", "Leading '1. ' stripped from item text", data_strip.get("item", {}).get("text") == "numbered item", f"got: {r_strip!r}")
-
-        # auto_strip_leading_numbers=False preserves "2) " prefix
-        r_no_strip = execute_tool("todo_list", {"action": "add_item", "text": "2) keep prefix", "auto_strip_leading_numbers": False}, env.session_data)
-        data_no_strip = json.loads(r_no_strip)
-        cl.check("no auto_strip preserves prefix", "Prefix '2) ' preserved when auto_strip=False", data_no_strip.get("item", {}).get("text") == "2) keep prefix", f"got: {r_no_strip!r}")
-
-        # auto_strip_leading_numbers with add_multiple_items
-        r_strip_multi = execute_tool("todo_list", {"action": "add_multiple_items", "texts": ["1. first", "2. second"]}, env.session_data)
-        data_strip_multi = json.loads(r_strip_multi)
-        stripped_texts = [it["text"] for it in data_strip_multi.get("items", [])]
-        cl.check("auto_strip in add_multiple_items", "Leading numbers stripped from all texts in add_multiple_items", stripped_texts == ["first", "second"], f"got: {stripped_texts!r}")
+        r = execute_tool("todo_list", {"action": "list_formatted"}, env.session_data)
+        cl.check("list_formatted empty", "Empty list returns '(empty todo list)'",
+                 r == "(empty todo list)", f"got: {r!r}")
 
         # ----------------------------------------------------------------
-        # Error cases
+        # add_item to root
         # ----------------------------------------------------------------
 
-        r_oob = execute_tool("todo_list", {"action": "get_item", "item_number": 9999}, env.session_data)
-        data_oob = json.loads(r_oob)
-        cl.check("get_item out of range", "get_item with out-of-range number returns error", "error" in data_oob, f"got: {r_oob!r}")
+        r = execute_tool("todo_list", {"action": "add_item", "parent_path": "", "text": "step one"}, env.session_data)
+        d = _j(r)
+        cl.check("add_item first path", "First item has item_path='1'",
+                 d.get("item_path") == "1", f"got: {r!r}")
 
-        r_no_num = execute_tool("todo_list", {"action": "get_item"}, env.session_data)
-        data_no_num = json.loads(r_no_num)
-        cl.check("get_item missing item_number", "get_item without item_number returns error", "error" in data_no_num, f"got: {r_no_num!r}")
+        r = execute_tool("todo_list", {"action": "add_item", "parent_path": "", "text": "step two"}, env.session_data)
+        d = _j(r)
+        cl.check("add_item second path", "Second item has item_path='2'",
+                 d.get("item_path") == "2", f"got: {r!r}")
 
-        r_no_text = execute_tool("todo_list", {"action": "add_item"}, env.session_data)
-        data_no_text = json.loads(r_no_text)
-        cl.check("add_item missing text", "add_item without text returns error", "error" in data_no_text, f"got: {r_no_text!r}")
-
-        r_no_texts = execute_tool("todo_list", {"action": "add_multiple_items"}, env.session_data)
-        data_no_texts = json.loads(r_no_texts)
-        cl.check("add_multiple_items missing texts", "add_multiple_items without texts returns error", "error" in data_no_texts, f"got: {r_no_texts!r}")
-
-        r_del_oob = execute_tool("todo_list", {"action": "delete_item", "item_number": 9999}, env.session_data)
-        data_del_oob = json.loads(r_del_oob)
-        cl.check("delete_item out of range", "delete_item with out-of-range number returns error", "error" in data_del_oob, f"got: {r_del_oob!r}")
-
-        r_unknown = execute_tool("todo_list", {"action": "unknown_action"}, env.session_data)
-        cl.check("unknown action", "Unknown action returns an error string", "Failed" in r_unknown or "error" in r_unknown.lower(), f"got: {r_unknown!r}")
-
-        # close_item all-done message
-        fresh_session: dict = {}
-        execute_tool("todo_list", {"action": "add_item", "text": "only task"}, fresh_session)
-        r_all_done = execute_tool("todo_list", {"action": "close_item", "item_number": 1}, fresh_session)
-        data_all_done = json.loads(r_all_done)
-        msg_all_done = data_all_done.get("message", "")
-        cl.check("close_item all done message", "Closing last open item includes all-completed note", "all todo list items completed" in msg_all_done, f"got: {r_all_done!r}")
+        r = execute_tool("todo_list", {"action": "add_item", "parent_path": "", "text": "step three"}, env.session_data)
+        cl.check("add_item third path", "Third item has item_path='3'",
+                 _j(r).get("item_path") == "3", f"got: {r!r}")
 
         # ----------------------------------------------------------------
-        # Hierarchical: sub_list_path operations
+        # list / list_formatted — non-empty
         # ----------------------------------------------------------------
 
-        hs: dict = {}  # fresh session for hierarchy tests
-        execute_tool("todo_list", {"action": "add_item", "text": "Root 1"}, hs)
-        execute_tool("todo_list", {"action": "add_item", "text": "Root 2"}, hs)
+        r = execute_tool("todo_list", {"action": "list"}, env.session_data)
+        items = _j(r).get("items", [])
+        cl.check("list three items count", "list returns 3 items", len(items) == 3, f"got: {r!r}")
+        cl.check("list item_path field", "Items have item_path field",
+                 items[0].get("item_path") == "1" and items[2].get("item_path") == "3",
+                 f"got: {items!r}")
+        cl.check("list status open", "Newly added items have status 'open'",
+                 all(it.get("status") == "open" for it in items), f"got: {items!r}")
 
-        # add to sub-list of item 1
-        execute_tool("todo_list", {"action": "add_item", "text": "Child A", "sub_list_path": "1"}, hs)
-        execute_tool("todo_list", {"action": "add_item", "text": "Child B", "sub_list_path": "1"}, hs)
-        r_sub_all = execute_tool("todo_list", {"action": "get_all", "sub_list_path": "1"}, hs)
-        data_sub_all = json.loads(r_sub_all)
-        sub_items = data_sub_all.get("items", [])
-        cl.check("sub_list add_item count", "sub-list of item 1 has 2 children", len(sub_items) == 2, f"got: {r_sub_all!r}")
-        cl.check("sub_list add_item text", "First child has correct text", sub_items[0].get("text") == "Child A", f"got: {sub_items!r}")
+        r = execute_tool("todo_list", {"action": "list_formatted"}, env.session_data)
+        cl.check("list_formatted has items", "Formatted output contains both items",
+                 "step one" in r and "step two" in r, f"got: {r!r}")
+        cl.check("list_formatted checkboxes", "Formatted output uses [ ] for open items",
+                 "[ ]" in r, f"got: {r!r}")
+        cl.check("list_formatted path notation", "Formatted output uses dot-path notation",
+                 "1." in r and "2." in r, f"got: {r!r}")
 
-        # get_all at root includes sub_list in JSON
-        r_root_all = execute_tool("todo_list", {"action": "get_all"}, hs)
-        data_root_all = json.loads(r_root_all)
-        root_item_1 = data_root_all["items"][0]
-        cl.check("get_all root includes sub_list", "Root get_all includes sub_list on item 1", "sub_list" in root_item_1, f"got: {root_item_1!r}")
-        cl.check("get_all root sub_list length", "sub_list on item 1 has 2 entries", len(root_item_1.get("sub_list", [])) == 2, f"got: {root_item_1!r}")
+        # ----------------------------------------------------------------
+        # get_item — returns raw text, not JSON
+        # ----------------------------------------------------------------
 
-        # get_all_formatted shows hierarchical paths
-        r_fmt_hier = execute_tool("todo_list", {"action": "get_all_formatted"}, hs)
-        cl.check("get_all_formatted hierarchical paths", "Formatted output uses path notation like '1.1.'", "1.1." in r_fmt_hier, f"got: {r_fmt_hier!r}")
-        cl.check("get_all_formatted root items present", "Formatted output shows root items", "Root 1" in r_fmt_hier and "Root 2" in r_fmt_hier, f"got: {r_fmt_hier!r}")
+        r = execute_tool("todo_list", {"action": "get_item", "item_path": "1"}, env.session_data)
+        cl.check("get_item raw text", "get_item returns raw text 'step one'",
+                 r == "step one", f"got: {r!r}")
 
-        # get_all_formatted with sub_list_path shows subtree with full path prefix
-        r_fmt_sub = execute_tool("todo_list", {"action": "get_all_formatted", "sub_list_path": "1"}, hs)
-        cl.check("get_all_formatted subtree prefix", "Subtree formatted with correct path prefix '1.1.'", "1.1." in r_fmt_sub, f"got: {r_fmt_sub!r}")
-        cl.check("get_all_formatted subtree excludes root", "Subtree view does not include Root 2", "Root 2" not in r_fmt_sub, f"got: {r_fmt_sub!r}")
+        r = execute_tool("todo_list", {"action": "get_item", "item_path": "2"}, env.session_data)
+        cl.check("get_item item 2", "get_item item 2 returns 'step two'",
+                 r == "step two", f"got: {r!r}")
 
-        # close a sub-item
-        execute_tool("todo_list", {"action": "close_item", "item_number": 1, "sub_list_path": "1"}, hs)
-        r_sub_item = execute_tool("todo_list", {"action": "get_item", "item_number": 1, "sub_list_path": "1"}, hs)
-        data_sub_item = json.loads(r_sub_item)
-        cl.check("sub_list close_item", "Closed sub-item has status 'closed'", data_sub_item.get("item", {}).get("status") == "closed", f"got: {r_sub_item!r}")
+        # ----------------------------------------------------------------
+        # update_item
+        # ----------------------------------------------------------------
 
-        # closing sub-item should NOT trigger all-done (root item 2 still open)
-        cl.check("sub_list close_item no all-done", "Closing sub-item does not trigger all-done when root items remain open",
-                 "all todo list items completed" not in json.loads(
-                     execute_tool("todo_list", {"action": "close_item", "item_number": 2, "sub_list_path": "1"}, hs)
-                 ).get("message", ""), "unexpected all-done message")
+        r = execute_tool("todo_list", {"action": "update_item", "item_path": "1", "text": "step ONE"}, env.session_data)
+        cl.check("update_item success", "update_item returns updated text",
+                 _j(r).get("text") == "step ONE", f"got: {r!r}")
 
-        # deeply nested: grandchild
-        execute_tool("todo_list", {"action": "add_item", "text": "Grandchild", "sub_list_path": "1.1"}, hs)
-        r_grand = execute_tool("todo_list", {"action": "get_all", "sub_list_path": "1.1"}, hs)
-        data_grand = json.loads(r_grand)
-        cl.check("grandchild add", "Grandchild added at depth 2", len(data_grand.get("items", [])) == 1, f"got: {r_grand!r}")
-        cl.check("grandchild text", "Grandchild has correct text", data_grand["items"][0].get("text") == "Grandchild", f"got: {r_grand!r}")
+        r = execute_tool("todo_list", {"action": "get_item", "item_path": "1"}, env.session_data)
+        cl.check("update_item persisted", "Updated text persists via get_item",
+                 r == "step ONE", f"got: {r!r}")
 
-        # grandchild visible in full formatted tree
-        r_fmt_full = execute_tool("todo_list", {"action": "get_all_formatted"}, hs)
-        cl.check("grandchild in full tree", "Full formatted tree shows grandchild at path 1.1.1.", "1.1.1." in r_fmt_full, f"got: {r_fmt_full!r}")
+        # ----------------------------------------------------------------
+        # close_item / reopen_item — leaf
+        # ----------------------------------------------------------------
 
-        # invalid sub_list_path returns error
-        r_bad_path = execute_tool("todo_list", {"action": "add_item", "text": "X", "sub_list_path": "99"}, hs)
-        data_bad_path = json.loads(r_bad_path)
-        cl.check("invalid sub_list_path error", "Out-of-range sub_list_path returns error", "error" in data_bad_path, f"got: {r_bad_path!r}")
+        r = execute_tool("todo_list", {"action": "close_item", "item_path": "1"}, env.session_data)
+        d = _j(r)
+        cl.check("close_item status", "close_item returns status='closed'",
+                 d.get("status") == "closed", f"got: {r!r}")
 
-        r_bad_seg = execute_tool("todo_list", {"action": "add_item", "text": "X", "sub_list_path": "abc"}, hs)
-        data_bad_seg = json.loads(r_bad_seg)
-        cl.check("non-integer sub_list_path error", "Non-integer sub_list_path segment returns error", "error" in data_bad_seg, f"got: {r_bad_seg!r}")
+        r = execute_tool("todo_list", {"action": "list"}, env.session_data)
+        items = _j(r).get("items", [])
+        cl.check("close_item reflected in list", "Closed item shows status='closed' in list",
+                 items[0].get("status") == "closed", f"got: {items!r}")
 
-        # delete sub-item
-        execute_tool("todo_list", {"action": "add_item", "text": "Extra Child", "sub_list_path": "2"}, hs)
-        execute_tool("todo_list", {"action": "delete_item", "item_number": 1, "sub_list_path": "2"}, hs)
-        r_sub2 = execute_tool("todo_list", {"action": "get_all", "sub_list_path": "2"}, hs)
-        data_sub2 = json.loads(r_sub2)
-        cl.check("sub_list delete_item", "Deleted sub-item leaves empty sub-list", len(data_sub2.get("items", [])) == 0, f"got: {r_sub2!r}")
+        r = execute_tool("todo_list", {"action": "list_formatted"}, env.session_data)
+        cl.check("list_formatted closed checkbox", "Closed item shows [x] in formatted output",
+                 "[x]" in r, f"got: {r!r}")
 
-        # all-done triggers when ALL items (recursively) are closed
-        done_session: dict = {}
-        execute_tool("todo_list", {"action": "add_item", "text": "Parent task"}, done_session)
-        execute_tool("todo_list", {"action": "add_item", "text": "Sub task", "sub_list_path": "1"}, done_session)
-        execute_tool("todo_list", {"action": "close_item", "item_number": 1, "sub_list_path": "1"}, done_session)
-        r_done = execute_tool("todo_list", {"action": "close_item", "item_number": 1}, done_session)
-        data_done = json.loads(r_done)
-        cl.check("all_closed recursive triggers message", "all-done message fires when root and sub-items all closed",
-                 "all todo list items completed" in data_done.get("message", ""), f"got: {r_done!r}")
+        r = execute_tool("todo_list", {"action": "reopen_item", "item_path": "1"}, env.session_data)
+        cl.check("reopen_item status", "reopen_item returns status='open'",
+                 _j(r).get("status") == "open", f"got: {r!r}")
 
-        # all-done does NOT trigger when a sub-item is still open
-        partial_session: dict = {}
-        execute_tool("todo_list", {"action": "add_item", "text": "Parent"}, partial_session)
-        execute_tool("todo_list", {"action": "add_item", "text": "Open sub", "sub_list_path": "1"}, partial_session)
-        r_partial = execute_tool("todo_list", {"action": "close_item", "item_number": 1}, partial_session)
-        data_partial = json.loads(r_partial)
-        cl.check("all_closed recursive no trigger with open sub", "all-done does not fire when a sub-item is still open",
-                 "all todo list items completed" not in data_partial.get("message", ""), f"got: {r_partial!r}")
+        # ----------------------------------------------------------------
+        # delete_item — leaf
+        # ----------------------------------------------------------------
+
+        execute_tool("todo_list", {"action": "delete_item", "item_path": "3"}, env.session_data)
+        r = execute_tool("todo_list", {"action": "list"}, env.session_data)
+        items = _j(r).get("items", [])
+        cl.check("delete_item leaf", "List has 2 items after deleting item 3",
+                 len(items) == 2, f"got: {r!r}")
+
+        # ----------------------------------------------------------------
+        # add_item with before / after
+        # ----------------------------------------------------------------
+
+        # list is now: 1=step ONE, 2=step two
+        r = execute_tool("todo_list", {"action": "add_item", "parent_path": "", "before": 2, "text": "inserted before 2"}, env.session_data)
+        d = _j(r)
+        cl.check("add_item before path", "Insert before 2 gives item_path='2'",
+                 d.get("item_path") == "2", f"got: {r!r}")
+        r = execute_tool("todo_list", {"action": "get_item", "item_path": "2"}, env.session_data)
+        cl.check("add_item before text", "Item at position 2 is the newly inserted item",
+                 r == "inserted before 2", f"got: {r!r}")
+
+        # list is now: 1=step ONE, 2=inserted before 2, 3=step two
+        r = execute_tool("todo_list", {"action": "add_item", "parent_path": "", "after": 1, "text": "inserted after 1"}, env.session_data)
+        d = _j(r)
+        cl.check("add_item after path", "Insert after 1 gives item_path='2'",
+                 d.get("item_path") == "2", f"got: {r!r}")
+        r = execute_tool("todo_list", {"action": "get_item", "item_path": "2"}, env.session_data)
+        cl.check("add_item after text", "Item at position 2 is the after-inserted item",
+                 r == "inserted after 1", f"got: {r!r}")
+
+        # ----------------------------------------------------------------
+        # add_many_items
+        # ----------------------------------------------------------------
+
+        ms: dict = {}
+        execute_tool("todo_list", {"action": "add_item", "parent_path": "", "text": "A"}, ms)
+        execute_tool("todo_list", {"action": "add_item", "parent_path": "", "text": "B"}, ms)
+
+        r = execute_tool("todo_list", {"action": "add_many_items", "parent_path": "", "texts": ["X", "Y", "Z"]}, ms)
+        d = _j(r)
+        added = d.get("items", [])
+        cl.check("add_many_items count", "add_many_items returns 3 items",
+                 len(added) == 3, f"got: {r!r}")
+        cl.check("add_many_items paths", "add_many_items items have correct paths",
+                 [it["item_path"] for it in added] == ["3", "4", "5"], f"got: {added!r}")
+
+        r = execute_tool("todo_list", {"action": "add_many_items", "parent_path": "", "before": 1, "texts": ["first", "second"]}, ms)
+        d = _j(r)
+        added = d.get("items", [])
+        cl.check("add_many_items before paths", "add_many_items before=1 gives paths 1 and 2",
+                 [it["item_path"] for it in added] == ["1", "2"], f"got: {added!r}")
+        r = execute_tool("todo_list", {"action": "get_item", "item_path": "1"}, ms)
+        cl.check("add_many_items before text", "First item is now 'first'",
+                 r == "first", f"got: {r!r}")
+
+        # ----------------------------------------------------------------
+        # Promotion: add child to leaf
+        # ----------------------------------------------------------------
+
+        ps: dict = {}
+        execute_tool("todo_list", {"action": "add_item", "parent_path": "", "text": "parent task"}, ps)
+        execute_tool("todo_list", {"action": "add_item", "parent_path": "", "text": "sibling"}, ps)
+
+        # Promote item 1 by adding a child
+        r = execute_tool("todo_list", {"action": "add_item", "parent_path": "1", "text": "child A"}, ps)
+        d = _j(r)
+        cl.check("promotion child path", "First child of promoted item has path '1.1'",
+                 d.get("item_path") == "1.1", f"got: {r!r}")
+
+        r = execute_tool("todo_list", {"action": "add_item", "parent_path": "1", "text": "child B"}, ps)
+        cl.check("promotion second child path", "Second child has path '1.2'",
+                 _j(r).get("item_path") == "1.2", f"got: {r!r}")
+
+        # Item 1 text unchanged after promotion
+        r = execute_tool("todo_list", {"action": "get_item", "item_path": "1"}, ps)
+        cl.check("promotion text preserved", "Promoted item keeps its original text",
+                 r == "parent task", f"got: {r!r}")
+
+        # update_item on promoted item (renames the group)
+        r = execute_tool("todo_list", {"action": "update_item", "item_path": "1", "text": "renamed group"}, ps)
+        cl.check("update promoted item", "update_item works on promoted item",
+                 _j(r).get("text") == "renamed group", f"got: {r!r}")
+
+        # ----------------------------------------------------------------
+        # list / list_formatted with item_path (subtree)
+        # ----------------------------------------------------------------
+
+        r = execute_tool("todo_list", {"action": "list", "item_path": "1"}, ps)
+        sub_items = _j(r).get("items", [])
+        cl.check("list subtree count", "list(item_path='1') returns 2 children",
+                 len(sub_items) == 2, f"got: {r!r}")
+        cl.check("list subtree paths", "Children have paths 1.1 and 1.2",
+                 [it["item_path"] for it in sub_items] == ["1.1", "1.2"],
+                 f"got: {sub_items!r}")
+
+        r = execute_tool("todo_list", {"action": "list_formatted", "item_path": "1"}, ps)
+        cl.check("list_formatted subtree has children", "Subtree formatted output shows children",
+                 "child A" in r and "child B" in r, f"got: {r!r}")
+        cl.check("list_formatted subtree excludes sibling", "Subtree does not include sibling",
+                 "sibling" not in r, f"got: {r!r}")
+        cl.check("list_formatted subtree paths", "Subtree shows 1.1. and 1.2. path notation",
+                 "1.1." in r and "1.2." in r, f"got: {r!r}")
+
+        # ----------------------------------------------------------------
+        # close_item / reopen_item — promoted item errors
+        # ----------------------------------------------------------------
+
+        r = execute_tool("todo_list", {"action": "close_item", "item_path": "1"}, ps)
+        d = _j(r)
+        cl.check("close_item promoted error", "close_item on promoted item returns error",
+                 "error" in d, f"got: {r!r}")
+        cl.check("close_item promoted directive", "Error message is informative about auto-close",
+                 "children" in d.get("error", "").lower() or "sub-list" in d.get("error", "").lower(),
+                 f"got: {d.get('error')!r}")
+
+        r = execute_tool("todo_list", {"action": "reopen_item", "item_path": "1"}, ps)
+        d = _j(r)
+        cl.check("reopen_item promoted error", "reopen_item on promoted item returns error",
+                 "error" in d, f"got: {r!r}")
+
+        # ----------------------------------------------------------------
+        # Derived closed state for promoted items
+        # ----------------------------------------------------------------
+
+        dc: dict = {}
+        execute_tool("todo_list", {"action": "add_item", "parent_path": "", "text": "parent"}, dc)
+        execute_tool("todo_list", {"action": "add_item", "parent_path": "1", "text": "child 1"}, dc)
+        execute_tool("todo_list", {"action": "add_item", "parent_path": "1", "text": "child 2"}, dc)
+
+        # Close one child — parent stays open
+        execute_tool("todo_list", {"action": "close_item", "item_path": "1.1"}, dc)
+        r = execute_tool("todo_list", {"action": "list"}, dc)
+        root_item = _j(r).get("items", [{}])[0]
+        cl.check("promoted partial close stays open", "Promoted item is open when only one child closed",
+                 root_item.get("status") == "open", f"got: {root_item!r}")
+
+        # Close second child — parent becomes closed
+        execute_tool("todo_list", {"action": "close_item", "item_path": "1.2"}, dc)
+        r = execute_tool("todo_list", {"action": "list"}, dc)
+        root_item = _j(r).get("items", [{}])[0]
+        cl.check("promoted all children closed", "Promoted item is closed when all children closed",
+                 root_item.get("status") == "closed", f"got: {root_item!r}")
+
+        # ----------------------------------------------------------------
+        # all-done notification
+        # ----------------------------------------------------------------
+
+        ad: dict = {}
+        execute_tool("todo_list", {"action": "add_item", "parent_path": "", "text": "only task"}, ad)
+        r = execute_tool("todo_list", {"action": "close_item", "item_path": "1"}, ad)
+        msg = _j(r).get("message", "")
+        cl.check("all done message", "Closing last item triggers all-done notice",
+                 "all todo list items are now complete" in msg, f"got: {r!r}")
+
+        # all-done requires ALL closed (including promoted items via children)
+        ad2: dict = {}
+        execute_tool("todo_list", {"action": "add_item", "parent_path": "", "text": "parent"}, ad2)
+        execute_tool("todo_list", {"action": "add_item", "parent_path": "1", "text": "child"}, ad2)
+        r = execute_tool("todo_list", {"action": "close_item", "item_path": "1.1"}, ad2)
+        msg = _j(r).get("message", "")
+        cl.check("all done via promoted item", "Closing last leaf triggers all-done when parent auto-closes",
+                 "all todo list items are now complete" in msg, f"got: {r!r}")
+
+        # all-done does NOT fire when other items remain open
+        ad3: dict = {}
+        execute_tool("todo_list", {"action": "add_item", "parent_path": "", "text": "task 1"}, ad3)
+        execute_tool("todo_list", {"action": "add_item", "parent_path": "", "text": "task 2"}, ad3)
+        r = execute_tool("todo_list", {"action": "close_item", "item_path": "1"}, ad3)
+        msg = _j(r).get("message", "")
+        cl.check("no all-done with open items", "all-done does not fire when other items remain open",
+                 "all todo list items are now complete" not in msg, f"got: {r!r}")
+
+        # ----------------------------------------------------------------
+        # delete_item — with children
+        # ----------------------------------------------------------------
+
+        dh: dict = {}
+        execute_tool("todo_list", {"action": "add_item", "parent_path": "", "text": "parent"}, dh)
+        execute_tool("todo_list", {"action": "add_item", "parent_path": "1", "text": "child"}, dh)
+
+        r = execute_tool("todo_list", {"action": "delete_item", "item_path": "1"}, dh)
+        d = _j(r)
+        cl.check("delete_item with children no cascade", "delete_item on item with children errors without cascade",
+                 "error" in d, f"got: {r!r}")
+        cl.check("delete_item directive", "Error message mentions cascade_delete=true",
+                 "cascade_delete" in d.get("error", ""), f"got: {d.get('error')!r}")
+
+        r = execute_tool("todo_list", {"action": "delete_item", "item_path": "1", "cascade_delete": True}, dh)
+        cl.check("delete_item cascade success", "cascade_delete=true removes item and children",
+                 "error" not in _j(r), f"got: {r!r}")
+        r = execute_tool("todo_list", {"action": "list"}, dh)
+        cl.check("delete_item cascade list empty", "List is empty after cascade delete",
+                 _j(r).get("items") == [], f"got: {r!r}")
+
+        # ----------------------------------------------------------------
+        # Deeply nested: grandchild
+        # ----------------------------------------------------------------
+
+        gn: dict = {}
+        execute_tool("todo_list", {"action": "add_item", "parent_path": "", "text": "root"}, gn)
+        execute_tool("todo_list", {"action": "add_item", "parent_path": "1", "text": "child"}, gn)
+        execute_tool("todo_list", {"action": "add_item", "parent_path": "1.1", "text": "grandchild"}, gn)
+
+        r = execute_tool("todo_list", {"action": "get_item", "item_path": "1.1.1"}, gn)
+        cl.check("grandchild get_item", "Grandchild text is 'grandchild'",
+                 r == "grandchild", f"got: {r!r}")
+
+        r = execute_tool("todo_list", {"action": "list_formatted"}, gn)
+        cl.check("grandchild in formatted tree", "Full tree shows grandchild at path 1.1.1.",
+                 "1.1.1." in r, f"got: {r!r}")
+
+        # ----------------------------------------------------------------
+        # auto_strip_leading_numbers — including dot-delimited patterns
+        # ----------------------------------------------------------------
+
+        as_: dict = {}
+        r = execute_tool("todo_list", {"action": "add_item", "parent_path": "", "text": "1. numbered item"}, as_)
+        cl.check("auto_strip simple", "Leading '1. ' stripped",
+                 _j(r).get("text") == "numbered item", f"got: {r!r}")
+
+        r = execute_tool("todo_list", {"action": "add_item", "parent_path": "", "text": "1.2. dot-delimited"}, as_)
+        cl.check("auto_strip dot-delimited", "Leading '1.2. ' stripped",
+                 _j(r).get("text") == "dot-delimited", f"got: {r!r}")
+
+        r = execute_tool("todo_list", {"action": "add_item", "parent_path": "", "text": "3) paren style"}, as_)
+        cl.check("auto_strip paren", "Leading '3) ' stripped",
+                 _j(r).get("text") == "paren style", f"got: {r!r}")
+
+        r = execute_tool("todo_list", {"action": "add_item", "parent_path": "", "text": "2) keep prefix", "auto_strip_leading_numbers": False}, as_)
+        cl.check("auto_strip disabled", "Prefix preserved when auto_strip=False",
+                 _j(r).get("text") == "2) keep prefix", f"got: {r!r}")
+
+        r = execute_tool("todo_list", {"action": "add_many_items", "parent_path": "", "texts": ["1. first", "1.2. second"]}, as_)
+        stripped = [it["text"] for it in _j(r).get("items", [])]
+        cl.check("auto_strip in add_many_items", "Leading numbers stripped from all texts in add_many_items",
+                 stripped == ["first", "second"], f"got: {stripped!r}")
+
+        # ----------------------------------------------------------------
+        # Error cases — all must be informative
+        # ----------------------------------------------------------------
+
+        err_s: dict = {}
+        execute_tool("todo_list", {"action": "add_item", "parent_path": "", "text": "item 1"}, err_s)
+
+        # item_path doesn't exist
+        r = execute_tool("todo_list", {"action": "get_item", "item_path": "99"}, err_s)
+        d = _j(r)
+        cl.check("error item not found", "get_item with bad path returns error",
+                 "error" in d, f"got: {r!r}")
+        cl.check("error item not found directive", "Error message is informative",
+                 "does not exist" in d.get("error", "") or "list" in d.get("error", "").lower(),
+                 f"got: {d.get('error')!r}")
+
+        # parent_path doesn't exist
+        r = execute_tool("todo_list", {"action": "add_item", "parent_path": "5", "text": "x"}, err_s)
+        d = _j(r)
+        cl.check("error parent not found", "add_item with bad parent_path returns error",
+                 "error" in d, f"got: {r!r}")
+
+        # before out of range
+        r = execute_tool("todo_list", {"action": "add_item", "parent_path": "", "before": 99, "text": "x"}, err_s)
+        d = _j(r)
+        cl.check("error before out of range", "before out of range returns error",
+                 "error" in d, f"got: {r!r}")
+        cl.check("error before directive", "before error mentions range",
+                 "out of range" in d.get("error", "") or "range" in d.get("error", ""),
+                 f"got: {d.get('error')!r}")
+
+        # after out of range
+        r = execute_tool("todo_list", {"action": "add_item", "parent_path": "", "after": 99, "text": "x"}, err_s)
+        d = _j(r)
+        cl.check("error after out of range", "after out of range returns error",
+                 "error" in d, f"got: {r!r}")
+
+        # before and after both given
+        r = execute_tool("todo_list", {"action": "add_item", "parent_path": "", "before": 1, "after": 1, "text": "x"}, err_s)
+        d = _j(r)
+        cl.check("error before and after", "Both before and after returns error",
+                 "error" in d, f"got: {r!r}")
+        cl.check("error before and after directive", "Error mentions mutually exclusive",
+                 "mutually exclusive" in d.get("error", ""),
+                 f"got: {d.get('error')!r}")
+
+        # before on empty list
+        empty_s: dict = {}
+        r = execute_tool("todo_list", {"action": "add_item", "parent_path": "", "before": 1, "text": "x"}, empty_s)
+        d = _j(r)
+        cl.check("error before empty list", "before on empty list returns error",
+                 "error" in d, f"got: {r!r}")
+
+        # Missing required args
+        r = execute_tool("todo_list", {"action": "add_item"}, err_s)
+        cl.check("error add_item missing text", "add_item without text returns error",
+                 "error" in _j(r), f"got: {r!r}")
+
+        r = execute_tool("todo_list", {"action": "add_many_items", "parent_path": ""}, err_s)
+        cl.check("error add_many_items missing texts", "add_many_items without texts returns error",
+                 "error" in _j(r), f"got: {r!r}")
+
+        r = execute_tool("todo_list", {"action": "get_item"}, err_s)
+        cl.check("error get_item missing path", "get_item without item_path returns error",
+                 "error" in _j(r), f"got: {r!r}")
+
+        r = execute_tool("todo_list", {"action": "update_item", "item_path": "1"}, err_s)
+        cl.check("error update_item missing text", "update_item without text returns error",
+                 "error" in _j(r), f"got: {r!r}")
+
+        # Navigate through leaf (no sub_list)
+        nav_s: dict = {}
+        execute_tool("todo_list", {"action": "add_item", "parent_path": "", "text": "leaf"}, nav_s)
+        r = execute_tool("todo_list", {"action": "get_item", "item_path": "1.1"}, nav_s)
+        d = _j(r)
+        cl.check("error navigate through leaf", "Navigating through a leaf returns error",
+                 "error" in d, f"got: {r!r}")
+        cl.check("error navigate directive", "Error mentions no children",
+                 "no children" in d.get("error", "").lower(),
+                 f"got: {d.get('error')!r}")
+
+        # Unknown action (schema validation rejects removed actions before execution)
+        r = execute_tool("todo_list", {"action": "get_all"}, err_s)
+        cl.check("unknown action", "Old action 'get_all' is rejected",
+                 "error" in _j(r) or "fail" in r.lower() or "error" in r.lower(), f"got: {r!r}")
 
     except Exception as e:
         cl.record_exception(e)

@@ -132,15 +132,28 @@ If you need any (more) tool calls:
   the system will reprompt you one more time to get the final summary or answer
   given the steps you took, tool results and previous context.
 
-  todo_list is hierarchical: each item can hold its own sub-list.
-  Use sub_list_path (dot-delimited 1-indexed numbers) to target a sub-list.
-  E.g. sub_list_path="2" operates on item 2's sub-list;
-       sub_list_path="2.3" operates on item 3 within item 2's sub-list.
-  Omit sub_list_path (or leave empty) to operate on the root list.
-  item_number is always 1-indexed within the resolved list.
-  todo_list actions: get_all, get_all_formatted, get_item, add_item,
-  add_multiple_items, insert_before, insert_after, delete_item, modify_item,
-  close_item, reopen_item.
+  todo_list is hierarchical. Items are addressed by dot-delimited 1-indexed paths:
+  '1', '1.1', '2.3.1', etc. Each segment is a 1-indexed position within that level.
+
+  Adding a child to a plain item promotes it to a sub-list parent — its text becomes
+  the group name. Sub-list parents close automatically when all their descendants are
+  closed; they cannot be closed or reopened directly.
+
+  Key parameters:
+    parent_path  dot-delimited path to the parent whose child list to add to.
+                 Empty string or omit for root.
+    item_path    dot-delimited path to a specific item. Required for get_item,
+                 update_item, delete_item, close_item, reopen_item.
+                 Optional for list/list_formatted to view a subtree.
+    before / after  1-indexed integers controlling insertion position within the
+                    resolved list. Omit both to append.
+    cascade_delete  set true on delete_item to remove an item and all its descendants.
+
+  get_item returns the item's raw text only (no subtree).
+  Call list(item_path='...') if you need to inspect an item's children.
+
+  todo_list actions: list, list_formatted, get_item, add_item, add_many_items,
+  update_item, delete_item, close_item, reopen_item.
 
 Otherwise:
 
@@ -154,7 +167,7 @@ preferable to leaving items open forever or looping indefinitely.
 
 == Working rules ==
 
-- Review and update the todo list throughout your work (get_all, close_item, etc.)
+- Review and update the todo list throughout your work (list, close_item, etc.)
 - If a tool is relevant, use it. You may call multiple tools in sequence.
 - After receiving tool results, synthesize them into a clear answer or continue with
   the next step.
