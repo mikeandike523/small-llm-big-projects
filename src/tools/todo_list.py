@@ -125,6 +125,14 @@ def needs_approval(args: dict) -> bool:
     return False
 
 
+def format_items_for_ui(items: list, path_prefix: list[int] | None = None) -> list:
+    """Return items in the UI wire format (item_path, text, derived status, children).
+
+    Used by socket_handlers to build todo_list_update payloads and todo_snapshot.
+    """
+    return [_fmt_item(items, i, path_prefix) for i in range(len(items))]
+
+
 # Matches "1. ", "2) ", "1.2. ", "1.2.3) " etc. at the start of a string
 _LEADING_NUMBER_RE = re.compile(r"^\d+(\.\d+)*[.)]\s+")
 
@@ -519,7 +527,23 @@ def execute(args: dict, session_data: dict | None = None) -> str:
                     "Delete its children individually first, or retry with cascade_delete=true."
                 )
             })
+
+        # Demotion: if this deletion empties a promoted parent, capture its derived
+        # status now (before the child disappears) then demote it back to a leaf.
+        owner_item = None
+        captured_status = None
+        if len(segs) >= 2 and len(parent_list) == 1:
+            owner_parent, owner_last, owner_err = _resolve_item(root_items, segs[:-1])
+            if not owner_err:
+                owner_item = owner_parent[owner_last - 1]
+                captured_status = _effective_status(owner_item)
+
         removed = parent_list.pop(last - 1)
+
+        if owner_item is not None:
+            owner_item.pop("sub_list", None)
+            owner_item["status"] = captured_status
+
         return json.dumps({
             "item_path": item_path_str,
             "text": removed["text"],

@@ -9,10 +9,10 @@ export interface ToolCallEntry {
 }
 
 export interface TodoItem {
-  item_number: number
+  item_path: string
   text: string
   status: 'open' | 'closed'
-  sub_list?: TodoItem[]
+  children?: TodoItem[]
 }
 
 export interface ApprovalItem {

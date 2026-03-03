@@ -17,6 +17,7 @@ _USE_STREAMING = os.environ.get("SLBP_STREAMING", "1") != "0"
 from src.utils.sql.kv_manager import KVManager
 from src.utils.llm.streaming import StreamingLLM
 from src.tools import ALL_TOOL_DEFINITIONS, execute_tool, check_needs_approval, _TOOL_MAP, _custom_tool_plugins
+from src.tools.todo_list import format_items_for_ui as _todo_format_items_for_ui
 from src.logic.system_prompt import build_system_prompt
 from src.utils.conversation_strip import strip_down_messages
 from src.utils.emitting_kv_manager import EmittingKVManager
@@ -540,17 +541,8 @@ def _execute_tools(
                 _emit_and_log(session_id, "pwd_update", {"path": os.getcwd().replace("\\", "/")})
             if tc.name == "todo_list":
                 _raw = session.session_data.get("todo_list") or []
-                def _build_todo_items(lst: list) -> list:
-                    result_items = []
-                    for i, it in enumerate(lst):
-                        entry = {"item_number": i + 1, "text": it["text"], "status": it["status"]}
-                        sub = it.get("sub_list")
-                        if sub:
-                            entry["sub_list"] = _build_todo_items(sub)
-                        result_items.append(entry)
-                    return result_items
                 _emit_and_log(session_id, "todo_list_update", {
-                    "items": _build_todo_items(_raw), "turn_id": turn_id,
+                    "items": _todo_format_items_for_ui(_raw), "turn_id": turn_id,
                 })
 
         if session.session_data.get("_report_impossible"):
@@ -1017,7 +1009,7 @@ def handle_user_message(data: dict):
     if was_cancelled:
         current_turn.was_cancelled = True
         current_turn.completed = True
-        current_turn.todo_snapshot = session.session_data.get("todo_list") or []
+        current_turn.todo_snapshot = _todo_format_items_for_ui(session.session_data.get("todo_list") or [])
         current_turn.finalize(session.session_data, last_assistant_content)
         session.completed_turns.append(current_turn)
         session.current_turn = None
@@ -1027,7 +1019,7 @@ def handle_user_message(data: dict):
         current_turn.was_impossible = was_impossible
         current_turn.impossible_reason = impossible_reason
         current_turn.completed = True
-        current_turn.todo_snapshot = session.session_data.get("todo_list") or []
+        current_turn.todo_snapshot = _todo_format_items_for_ui(session.session_data.get("todo_list") or [])
         current_turn.finalize(session.session_data, last_assistant_content)
         session.completed_turns.append(current_turn)
         session.current_turn = None

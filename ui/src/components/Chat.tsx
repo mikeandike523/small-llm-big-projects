@@ -818,11 +818,9 @@ function StartupToolCallsCard({
 // Hierarchical todo renderer
 // ---------------------------------------------------------------------------
 
-function renderTodoItems(items: TodoItem[], pathNums: number[] = []): React.ReactNode[] {
+function renderTodoItems(items: TodoItem[], depth: number = 0): React.ReactNode[] {
   return items.flatMap(item => {
-    const path = [...pathNums, item.item_number]
-    const pathStr = path.join('.') + '.'
-    const depth = pathNums.length
+    const pathStr = item.item_path + '.'
     const rows: React.ReactNode[] = [
       <div
         key={pathStr}
@@ -833,8 +831,8 @@ function renderTodoItems(items: TodoItem[], pathNums: number[] = []): React.Reac
         {pathStr} {item.text}
       </div>
     ]
-    if (item.sub_list && item.sub_list.length > 0) {
-      rows.push(...renderTodoItems(item.sub_list, path))
+    if (item.children && item.children.length > 0) {
+      rows.push(...renderTodoItems(item.children, depth + 1))
     }
     return rows
   })
