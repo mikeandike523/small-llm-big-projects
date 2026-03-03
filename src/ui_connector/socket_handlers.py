@@ -127,18 +127,18 @@ _pending_approvals: dict[str, dict] = {}
 _APPROVAL_TIMEOUT = 60  # seconds
 
 
-def _request_approval(sid: str, session_id: str, tool_id: str, tool_name: str, args: dict) -> bool:
+def _request_approval(sid: str, session_id: str, tool_id: str, tool_name: str, args: dict, turn_id: str = "") -> bool:
     """
     Emit an approval_request event and block until approved, denied, or timed out.
     Returns True if approved, False otherwise.
     """
     ev = threading.Event()
     _pending_approvals[sid] = {"event": ev, "approved": None}
-    _emit_and_log(session_id, "approval_request", {"id": tool_id, "tool_name": tool_name, "args": args})
+    _emit_and_log(session_id, "approval_request", {"id": tool_id, "tool_name": tool_name, "args": args, "turn_id": turn_id})
     timed_out = not ev.wait(timeout=_APPROVAL_TIMEOUT)
     entry = _pending_approvals.pop(sid, {})
     if timed_out:
-        _emit_and_log(session_id, "approval_timeout", {"id": tool_id, "tool_name": tool_name})
+        _emit_and_log(session_id, "approval_timeout", {"id": tool_id, "tool_name": tool_name, "turn_id": turn_id})
         return False
     return bool(entry.get("approved", False))
 
@@ -512,7 +512,7 @@ def _execute_tools(
             tool_record = ToolCallRecord(id=tc.id, name=tc.name, args=tc.arguments)
 
             if check_needs_approval(tc.name, tc.arguments):
-                approved = _request_approval(sid, session_id, tc.id, tc.name, tc.arguments)
+                approved = _request_approval(sid, session_id, tc.id, tc.name, tc.arguments, turn_id=turn_id)
                 if not approved:
                     denial = "DENIED: User did not approve this action."
                     tool_record.result = denial
