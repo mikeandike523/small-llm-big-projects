@@ -564,7 +564,15 @@ def _get_closed_items(todo_list: list) -> list[str]:
 
 
 def _get_open_items(todo_list: list) -> list[str]:
-    return [it["text"] for it in todo_list if it.get("status") != "closed"]
+    result = []
+    for item in todo_list:
+        sub = item.get("sub_list")
+        if sub is not None:
+            # promoted sub-list parent — recurse; counts as open if any child is open
+            result.extend(_get_open_items(sub))
+        elif item.get("status") != "closed":
+            result.append(item["text"])
+    return result
 
 
 # ---------------------------------------------------------------------------
