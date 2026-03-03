@@ -47,6 +47,7 @@ function newTurn(id: string, userText: string): Turn {
     userText,
     exchanges: [],
     todoItems: [],
+    approvalItems: [],
     completed: false,
     streaming: true,
     isInterimStreaming: false,
@@ -85,6 +86,7 @@ function backendTurnToFrontendTurn(d: {
       isFinal: ex.is_final,
     })),
     todoItems: d.todo_snapshot ?? [],
+    approvalItems: [],
     impossible: d.was_impossible ? (d.impossible_reason ?? 'Task was impossible') : undefined,
     cancelled: d.was_cancelled ? 'Turn was cancelled' : undefined,
     completed: d.completed,
@@ -628,6 +630,58 @@ const approvalTimedOutCss = css`
   word-break: break-all;
 `
 
+const approvalScrollContainerCss = css`
+  ${scrollbarCss}
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 260px;
+  overflow-y: auto;
+`
+
+const approvalResolvedBubbleCss = (approved: boolean) => css`
+  font-family: 'Consolas', monospace;
+  font-size: 12px;
+  color: ${approved ? '#4ade80' : '#f87171'};
+  padding: 4px 8px;
+  border-radius: 4px;
+  background: ${approved ? '#0a1a0a' : '#1a0a0a'};
+  border: 1px solid ${approved ? '#1a4a1a' : '#4a1a1a'};
+  word-break: break-all;
+`
+
+const approvalTimedOutBubbleCss = css`
+  font-family: 'Consolas', monospace;
+  font-size: 12px;
+  color: #888840;
+  padding: 4px 8px;
+  border-radius: 4px;
+  background: #111100;
+  border: 1px solid #333300;
+  word-break: break-all;
+`
+
+const _approvalPulse = keyframes`
+  0%, 100% { opacity: 0.75; box-shadow: 0 0 6px #d4a03060; }
+  50%       { opacity: 1;    box-shadow: 0 0 18px #d4a030b0; }
+`
+
+const approvalBannerCss = css`
+  background: #1a1200;
+  border: 1px solid #6a4800;
+  border-radius: 6px;
+  padding: 5px 10px;
+  font-family: 'Consolas', monospace;
+  font-size: 11px;
+  font-weight: 600;
+  color: #d4a030;
+  text-align: center;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  animation: ${_approvalPulse} 1.8s ease-in-out infinite;
+  flex-shrink: 0;
+`
+
 const loadingOverlayCss = css`
   position: fixed;
   inset: 0;
@@ -872,6 +926,43 @@ function ToolCallCard({ tc, onViewFull }: { tc: ToolCallEntry; onViewFull: (c: s
 }
 
 // ---------------------------------------------------------------------------
+// ToolApprovalBubble
+// ---------------------------------------------------------------------------
+
+function ToolApprovalBubble({
+  item,
+  onApprove,
+  onDeny,
+}: {
+  item: ApprovalItem
+  onApprove: (id: string) => void
+  onDeny: (id: string) => void
+}) {
+  if (item.timedOut) {
+    return <div css={approvalTimedOutBubbleCss}>⏱ timed out: {item.tool_name}</div>
+  }
+  if (item.resolved) {
+    return (
+      <div css={approvalResolvedBubbleCss(item.resolved.approved)}>
+        {item.resolved.approved ? '✓' : '✗'} {item.tool_name}
+      </div>
+    )
+  }
+  return (
+    <div css={approvalPendingCardCss}>
+      <div css={approvalToolNameCss}>{item.tool_name}</div>
+      {Object.keys(item.args).length > 0 && (
+        <div css={approvalArgsCss}>{JSON.stringify(item.args, null, 2)}</div>
+      )}
+      <div css={approvalButtonRowCss}>
+        <button css={approveButtonCss} onClick={() => onApprove(item.id)}>Approve</button>
+        <button css={denyButtonCss} onClick={() => onDeny(item.id)}>Deny</button>
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // TurnContainer
 // ---------------------------------------------------------------------------
 
@@ -886,10 +977,18 @@ function TurnContainer({
   onApprove: (id: string) => void
   onDeny: (id: string) => void
 }) {
-  const { todoItems, approvalItem, impossible, cancelled, exchanges, streaming, isInterimStreaming, interimCharCount, interrupted } = turn
+  const { todoItems, approvalItems, impossible, cancelled, exchanges, streaming, isInterimStreaming, interimCharCount, interrupted } = turn
 
   const { containerRef: toolsRef, scrollToBottomIfNeeded: scrollTools, onScroll: onToolsScroll } =
     useScrollToBottom<HTMLDivElement>({ persistId: `tools-${turn.id}` })
+
+  const approvalScrollRef = useRef<HTMLDivElement>(null)
+  const hasPendingApproval = approvalItems.some(a => !a.resolved && !a.timedOut)
+  useEffect(() => {
+    if (approvalScrollRef.current) {
+      approvalScrollRef.current.scrollTop = approvalScrollRef.current.scrollHeight
+    }
+  }, [approvalItems.length, hasPendingApproval])
 
   // Collect all tool calls from all exchanges (for the tool calls panel)
   const allToolCalls = exchanges.flatMap(ex => ex.toolCalls)
@@ -986,31 +1085,19 @@ function TurnContainer({
       {/* Fourth column: approval */}
       <div css={approvalColumnCss}>
         <div css={approvalHeaderCss}>Approval</div>
-        {!approvalItem ? (
+        {approvalItems.length === 0 ? (
           <div css={approvalEmptyCss}>—</div>
-        ) : approvalItem.timedOut ? (
-          <div css={approvalTimedOutCss}>
-            timed out: {approvalItem.tool_name}
-          </div>
-        ) : approvalItem.resolved ? (
-          <div css={approvalResolvedCss(approvalItem.resolved.approved)}>
-            {approvalItem.resolved.approved ? '✓' : '✗'} {approvalItem.tool_name}
-          </div>
         ) : (
-          <div css={approvalPendingCardCss}>
-            <div css={approvalToolNameCss}>{approvalItem.tool_name}</div>
-            {Object.keys(approvalItem.args).length > 0 && (
-              <div css={approvalArgsCss}>{JSON.stringify(approvalItem.args, null, 2)}</div>
-            )}
-            <div css={approvalButtonRowCss}>
-              <button css={approveButtonCss} onClick={() => onApprove(approvalItem.id)}>
-                Approve
-              </button>
-              <button css={denyButtonCss} onClick={() => onDeny(approvalItem.id)}>
-                Deny
-              </button>
+          <>
+            <div css={approvalScrollContainerCss} ref={approvalScrollRef}>
+              {approvalItems.map(item => (
+                <ToolApprovalBubble key={item.id} item={item} onApprove={onApprove} onDeny={onDeny} />
+              ))}
             </div>
-          </div>
+            {hasPendingApproval && (
+              <div css={approvalBannerCss}>⚠ Approval needed</div>
+            )}
+          </>
         )}
       </div>
     </div>
@@ -1177,24 +1264,28 @@ export default function Chat() {
           tool_name: data.tool_name as string,
           args: data.args as Record<string, unknown>,
         }
-        updateTurn(turnId, t => ({ ...t, approvalItem: item }))
+        updateTurn(turnId, t => ({ ...t, approvalItems: [...t.approvalItems, item] }))
         break
       }
       case 'approval_resolved': {
         const approved = data.approved as boolean
         const id = data.id as string
-        updateTurn(turnId, t => {
-          if (!t.approvalItem || t.approvalItem.id !== id) return t
-          return { ...t, approvalItem: { ...t.approvalItem, resolved: { approved } } }
-        })
+        updateTurn(turnId, t => ({
+          ...t,
+          approvalItems: t.approvalItems.map(a =>
+            a.id === id ? { ...a, resolved: { approved } } : a
+          ),
+        }))
         break
       }
       case 'approval_timeout': {
         const id = data.id as string
-        updateTurn(turnId, t => {
-          if (!t.approvalItem || t.approvalItem.id !== id) return t
-          return { ...t, approvalItem: { ...t.approvalItem, timedOut: true } }
-        })
+        updateTurn(turnId, t => ({
+          ...t,
+          approvalItems: t.approvalItems.map(a =>
+            a.id === id ? { ...a, timedOut: true } : a
+          ),
+        }))
         break
       }
       case 'message_done': {
@@ -1483,25 +1574,29 @@ export default function Chat() {
       if (data.event_id) updateLastEventId(data.event_id)
       const turnId = data.turn_id ?? ''
       const item: ApprovalItem = { id: data.id, tool_name: data.tool_name, args: data.args }
-      updateTurn(turnId, t => ({ ...t, approvalItem: item }))
+      updateTurn(turnId, t => ({ ...t, approvalItems: [...t.approvalItems, item] }))
     }
 
     function onApprovalResolved(data: { event_id?: string; turn_id?: string; id: string; approved: boolean }) {
       if (data.event_id) updateLastEventId(data.event_id)
       const turnId = data.turn_id ?? ''
-      updateTurn(turnId, t => {
-        if (!t.approvalItem || t.approvalItem.id !== data.id) return t
-        return { ...t, approvalItem: { ...t.approvalItem, resolved: { approved: data.approved } } }
-      })
+      updateTurn(turnId, t => ({
+        ...t,
+        approvalItems: t.approvalItems.map(a =>
+          a.id === data.id ? { ...a, resolved: { approved: data.approved } } : a
+        ),
+      }))
     }
 
     function onApprovalTimeout(data: { event_id?: string; turn_id?: string; id: string; tool_name: string }) {
       if (data.event_id) updateLastEventId(data.event_id)
       const turnId = data.turn_id ?? ''
-      updateTurn(turnId, t => {
-        if (!t.approvalItem || t.approvalItem.id !== data.id) return t
-        return { ...t, approvalItem: { ...t.approvalItem, timedOut: true } }
-      })
+      updateTurn(turnId, t => ({
+        ...t,
+        approvalItems: t.approvalItems.map(a =>
+          a.id === data.id ? { ...a, timedOut: true } : a
+        ),
+      }))
     }
 
     socket.on('connect', onConnect)

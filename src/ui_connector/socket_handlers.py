@@ -133,7 +133,7 @@ def _request_approval(sid: str, session_id: str, tool_id: str, tool_name: str, a
     Returns True if approved, False otherwise.
     """
     ev = threading.Event()
-    _pending_approvals[sid] = {"event": ev, "approved": None}
+    _pending_approvals[sid] = {"event": ev, "approved": None, "turn_id": turn_id}
     _emit_and_log(session_id, "approval_request", {"id": tool_id, "tool_name": tool_name, "args": args, "turn_id": turn_id})
     timed_out = not ev.wait(timeout=_APPROVAL_TIMEOUT)
     entry = _pending_approvals.pop(sid, {})
@@ -759,7 +759,7 @@ def handle_approval_response(data: dict):
     pending = _pending_approvals.get(sid)
     if pending:
         pending["approved"] = approved
-        _emit_and_log(session_id, "approval_resolved", {"id": tool_id, "approved": approved})
+        _emit_and_log(session_id, "approval_resolved", {"id": tool_id, "approved": approved, "turn_id": pending.get("turn_id", "")})
         pending["event"].set()
 
 

@@ -35,7 +35,7 @@ export interface Turn {
   userText: string
   exchanges: LLMExchange[]
   todoItems: TodoItem[]
-  approvalItem?: ApprovalItem
+  approvalItems: ApprovalItem[]
   impossible?: string
   cancelled?: string
   completed: boolean
