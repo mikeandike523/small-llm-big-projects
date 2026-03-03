@@ -44,9 +44,20 @@ Edit operations (all require the key to hold a text value):
   - session_memory_text_editor(action="replace_lines") — atomically swap a line range (preferred over delete+insert)
   - session_memory(action="append")                   — append text to the end
   - session_memory_text_editor(action="apply_patch")   — apply a unified diff patch (alternative to line-based edits;
-                                   auto-detects CRLF/LF, tolerates small line-number offsets;
-                                   output ONLY raw unified diff text — no 'begin patch'/'end patch'
+                                   tolerates small line-number offsets;
+                                   output ONLY raw unified diff text -- no 'begin patch'/'end patch'
                                    wrappers or any other surrounding formatting)
+  - session_memory_text_editor(action="insert_chars")  — insert text at a 0-based character position (no EOL conversion)
+  - session_memory_text_editor(action="replace_chars") — replace a 0-based char range with new text (no EOL conversion)
+  - session_memory_text_editor(action="delete_chars")  — delete a 0-based char range (no EOL conversion)
+
+Line-mutating operations (insert_lines, replace_lines, delete_lines, apply_patch) automatically
+re-encode the result to match the existing EOL style of the buffer (CRLF if any CRLF present,
+else LF). Pass disable_auto_eol=true to suppress this and write verbatim.
+Char operations never perform EOL conversion -- CRLF counts as two characters.
+
+read_text_file_to_session_memory and write_text_file_from_session_memory perform no EOL
+conversion whatsoever; data flows verbatim between disk and session memory (UTF-8 only).
 
 Before making large or risky changes to a buffer, snapshot the current state:
   Use session_memory(action="copy") to copy the key to a versioned name such as
@@ -194,11 +205,12 @@ string and never encodes or decodes it.
 
 Text-based operations (session_memory: append, concat, search_by_regex;
 session_memory_text_editor: read_lines, count_lines, insert_lines, delete_lines,
-replace_lines, normalize_eol, check_eol, check_indentation, convert_indentation)
+replace_lines, insert_chars, replace_chars, delete_chars,
+normalize_eol, check_eol, check_indentation, convert_indentation)
 all require the key to hold a string value. The `text` parameter in
 session_memory(action="append") and
-session_memory_text_editor(action="insert_lines"/"replace_lines") is the literal
-text to write.
+session_memory_text_editor(action="insert_lines"/"replace_lines"/"insert_chars"/"replace_chars")
+is the literal text to write.
 
 == Extracting Values from JSON in Session Memory ==
 

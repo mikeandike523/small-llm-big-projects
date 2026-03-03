@@ -18,3 +18,15 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
 
     after_range = env.session_data["memory"].get("key", "")
     cl.check("delete_lines: range removed", "Only 'b' line remains", after_range.strip() == "b", f"got: {after_range!r}")
+
+    # auto-EOL: deleting from a CRLF buffer keeps CRLF endings
+    env.session_data["memory"]["key"] = "a\r\nb\r\nc\r\nd\r\n"
+    execute_tool("session_memory_text_editor", {"action": "delete_lines", "key": "key", "start_line": 2, "end_line": 2}, env.session_data)
+    after_crlf = env.session_data["memory"].get("key", "")
+    cl.check("delete_lines: auto-EOL CRLF preserved",
+             "Deleting from a CRLF buffer keeps CRLF line endings",
+             "\r\n" in after_crlf and "\n" not in after_crlf.replace("\r\n", ""),
+             f"got: {after_crlf!r}")
+    cl.check("delete_lines: auto-EOL deleted line gone",
+             "The deleted line is absent",
+             "b" not in after_crlf.splitlines(), f"got: {after_crlf!r}")

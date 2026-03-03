@@ -169,3 +169,19 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
              "context lines that exist nowhere in the file return an Error string",
              r.startswith("Error"),
              f"got: {r!r}")
+
+    # disable_auto_eol: CRLF buffer + LF patch -> LF result when disabled
+    _set(env, "doc", "hello\r\nworld\r\n")
+    patch = """\
+--- a/file
++++ b/file
+@@ -1,2 +1,2 @@
+ hello
+-world
++universe
+"""
+    execute_tool("session_memory_text_editor", {"action": "apply_patch", "key": "doc", "patch": patch, "disable_auto_eol": True}, env.session_data)
+    cl.check("apply_patch: disable_auto_eol produces LF on CRLF buffer",
+             "With disable_auto_eol=true, patching a CRLF buffer yields LF result",
+             _get(env, "doc") == "hello\nuniverse\n",
+             f"got: {_get(env, 'doc')!r}")

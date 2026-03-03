@@ -8,10 +8,13 @@ DEFINITION: dict = {
         "name": "write_text_file_from_session_memory",
         "description": (
             "Write a session memory item to a text file. "
-            "The memory value must be a text string. Encoding is utf-8. "
+            "The memory value must be a text string. Encoding must be UTF-8. "
+            "Line endings are written verbatim -- absolutely no automatic EOL conversion "
+            "is performed. Whatever line endings are in the session memory value "
+            "(CRLF, LF, or mixed) are written to disk exactly as-is. "
             "This is the inverse of read_text_file_to_session_memory and completes "
             "the in-memory text editor round-trip: "
-            "read_text_file_to_session_memory → edit → write_text_file_from_session_memory."
+            "read_text_file_to_session_memory -> edit -> write_text_file_from_session_memory."
         ),
         "parameters": {
             "type": "object",
@@ -60,7 +63,7 @@ def execute(args: dict, session_data: dict | None = None) -> str:
         return f"Error: key {memory_key!r} does not hold a text value (got {type(value).__name__})."
 
     try:
-        with open(filepath, "w", encoding="utf-8") as f:
+        with open(filepath, "w", encoding="utf-8", newline='') as f: # write exact line endings
             f.write(value)
     except OSError as e:
         return f"Error writing file: {e}"

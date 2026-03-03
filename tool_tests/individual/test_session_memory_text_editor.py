@@ -8,6 +8,9 @@ from tool_tests.individual.session_memory_text_editor import (
     checks_insert_lines,
     checks_replace_lines,
     checks_delete_lines,
+    checks_insert_chars,
+    checks_replace_chars,
+    checks_delete_chars,
     checks_apply_patch,
     checks_count_chars,
     checks_count_lines,
@@ -26,6 +29,9 @@ def run(env: TestEnv, server: MicroServer | None = None):
         checks_insert_lines.add_checks(cl, env)
         checks_replace_lines.add_checks(cl, env)
         checks_delete_lines.add_checks(cl, env)
+        checks_insert_chars.add_checks(cl, env)
+        checks_replace_chars.add_checks(cl, env)
+        checks_delete_chars.add_checks(cl, env)
         checks_apply_patch.add_checks(cl, env)
         checks_count_chars.add_checks(cl, env)
         checks_count_lines.add_checks(cl, env)

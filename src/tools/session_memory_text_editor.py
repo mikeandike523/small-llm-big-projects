@@ -21,6 +21,9 @@ LEAVE_OUT_PER_ACTION = {
     "insert_lines":        ("PARAMS_ONLY", 0),
     "replace_lines":       ("PARAMS_ONLY", 0),
     "delete_lines":        ("PARAMS_ONLY", 0),
+    "insert_chars":        ("PARAMS_ONLY", 0),
+    "replace_chars":       ("PARAMS_ONLY", 0),
+    "delete_chars":        ("PARAMS_ONLY", 0),
     "count_chars":         ("OMIT",        0),
     "count_lines":         ("OMIT",        0),
     "check_eol":           ("KEEP",        0),
@@ -38,7 +41,14 @@ DEFINITION: dict = {
             "Structural text-editor operations on session memory string values. "
             "Part of the in-memory text editor toolkit: "
             "read_text_file_to_session_memory -> edit -> write_text_file_from_session_memory. "
+            "Line mutating actions (insert_lines, replace_lines, delete_lines) automatically "
+            "re-encode the result to match the existing EOL style of the value "
+            "(CRLF if any CRLF is present, else LF); set disable_auto_eol=true to suppress. "
+            "Char actions (insert_chars, replace_chars, delete_chars) perform raw character-level "
+            "edits with no EOL conversion -- use these when CRLF is significant as two characters. "
+            "apply_patch also auto-matches EOL by default (disable_auto_eol=true to suppress). "
             "Actions: read_lines, read_char_range, insert_lines, replace_lines, delete_lines, "
+            "insert_chars, replace_chars, delete_chars, "
             "count_chars, count_lines, check_eol, normalize_eol, "
             "check_indentation, convert_indentation, apply_patch."
         ),
@@ -50,6 +60,7 @@ DEFINITION: dict = {
                     "enum": [
                         "read_lines", "read_char_range",
                         "insert_lines", "replace_lines", "delete_lines",
+                        "insert_chars", "replace_chars", "delete_chars",
                         "count_chars", "count_lines",
                         "check_eol", "normalize_eol",
                         "check_indentation", "convert_indentation",
@@ -59,16 +70,19 @@ DEFINITION: dict = {
                         "The operation to perform:\n"
                         "  read_lines          -- read all or a line range (1-based inclusive).\n"
                         "  read_char_range     -- read all or a char range (0-based, end exclusive).\n"
-                        "  insert_lines        -- insert text before a 1-based line number.\n"
-                        "  replace_lines       -- replace a 1-based inclusive line range with new text.\n"
-                        "  delete_lines        -- delete a 1-based inclusive line range.\n"
+                        "  insert_lines        -- insert text before a 1-based line number; auto-matches EOL style.\n"
+                        "  replace_lines       -- replace a 1-based inclusive line range with new text; auto-matches EOL style.\n"
+                        "  delete_lines        -- delete a 1-based inclusive line range; auto-matches EOL style.\n"
+                        "  insert_chars        -- insert text before a 0-based char position; no EOL conversion.\n"
+                        "  replace_chars       -- replace a 0-based char range (end exclusive) with new text; no EOL conversion.\n"
+                        "  delete_chars        -- delete a 0-based char range (end exclusive); no EOL conversion.\n"
                         "  count_chars         -- count total characters.\n"
                         "  count_lines         -- count total lines.\n"
                         "  check_eol           -- report line-ending style statistics.\n"
                         "  normalize_eol       -- normalize all line endings to a single style.\n"
                         "  check_indentation   -- report indentation style statistics.\n"
                         "  convert_indentation -- convert leading-whitespace indentation style.\n"
-                        "  apply_patch         -- apply a unified diff patch."
+                        "  apply_patch         -- apply a unified diff patch; auto-matches EOL style."
                     ),
                 },
                 "key": {
@@ -106,12 +120,20 @@ DEFINITION: dict = {
                 "start_char": {
                     "type": "integer",
                     "minimum": 0,
-                    "description": "0-based character index to start reading from (inclusive). Used by: read_char_range.",
+                    "description": (
+                        "0-based character index. "
+                        "Used by: read_char_range (start, inclusive), "
+                        "insert_chars (insert before this position; 0 = prepend, beyond end = append), "
+                        "replace_chars (start, inclusive), delete_chars (start, inclusive)."
+                    ),
                 },
                 "end_char": {
                     "type": "integer",
                     "minimum": 0,
-                    "description": "0-based character index to stop reading at (exclusive). Used by: read_char_range.",
+                    "description": (
+                        "0-based character index (exclusive). "
+                        "Used by: read_char_range, replace_chars, delete_chars."
+                    ),
                 },
                 "before_line": {
                     "type": "integer",
@@ -125,9 +147,22 @@ DEFINITION: dict = {
                 "text": {
                     "type": "string",
                     "description": (
-                        "The text content. Treated as complete lines where applicable; "
-                        "a trailing newline is added automatically if absent. "
-                        "Used by: insert_lines, replace_lines."
+                        "The text content. "
+                        "For line operations (insert_lines, replace_lines): treated as complete lines; "
+                        "a trailing newline is added automatically if absent; EOL style is auto-matched "
+                        "to the existing value unless disable_auto_eol is true. "
+                        "For char operations (insert_chars, replace_chars): written verbatim with no EOL conversion. "
+                        "Used by: insert_lines, replace_lines, insert_chars, replace_chars."
+                    ),
+                },
+                "disable_auto_eol": {
+                    "type": "boolean",
+                    "description": (
+                        "If true, skip automatic EOL normalization and write the result verbatim. "
+                        "By default (false), line-mutating operations (insert_lines, replace_lines, "
+                        "delete_lines, apply_patch) re-encode the result to match the existing "
+                        "EOL style of the value: CRLF if any CRLF is present, else LF. "
+                        "Set to true when you want to control line endings explicitly."
                     ),
                 },
                 "eol": {
@@ -201,6 +236,20 @@ def _detect_newline_style(text: str) -> str:
     return "\r\n" if "\r\n" in text else "\n"
 
 
+def _auto_match_eol(result: str, original: str) -> str:
+    """Re-encode result line endings to match original's EOL style.
+
+    If original contains any CRLF, the result is normalized to CRLF.
+    Otherwise it is normalized to LF-only.
+    """
+    target = _detect_newline_style(original)
+    # Normalize to plain LF first, then apply target
+    normalized = result.replace("\r\n", "\n").replace("\r", "\n")
+    if target == "\r\n":
+        return normalized.replace("\n", "\r\n")
+    return normalized
+
+
 def _split_lines_preserve(text: str) -> Tuple[List[str], bool]:
     if text == "":
         return [], False
@@ -209,7 +258,7 @@ def _split_lines_preserve(text: str) -> Tuple[List[str], bool]:
     return lines, had_trailing_newline
 
 
-def _apply_patch(original_text: str, patch_text: str) -> str:
+def _apply_patch(original_text: str, patch_text: str, auto_eol: bool = True) -> str:
     """Apply a unified diff to an in-memory string with CRLF-awareness and small offset fuzz."""
     try:
         from unidiff import PatchSet
@@ -219,7 +268,7 @@ def _apply_patch(original_text: str, patch_text: str) -> str:
             "Install it with: pip install unidiff"
         )
 
-    newline = _detect_newline_style(original_text)
+    newline = _detect_newline_style(original_text) if auto_eol else "\n"
     orig_lines, orig_had_final_nl = _split_lines_preserve(original_text)
 
     patch_text_normalized = patch_text.replace("\r\n", "\n").replace("\r", "\n")
@@ -331,6 +380,8 @@ def _do_read_char_range(args: dict, key: str, value: str) -> str:
 def _do_insert_lines(args: dict, key: str, value: str, memory: dict) -> str:
     before_line = args.get("before_line")
     text = args.get("text")
+    disable_auto_eol = bool(args.get("disable_auto_eol", False))
+
     if before_line is None:
         return "Error: 'before_line' is required for action 'insert_lines'."
     if text is None:
@@ -339,13 +390,16 @@ def _do_insert_lines(args: dict, key: str, value: str, memory: dict) -> str:
     if not text.endswith("\n"):
         text += "\n"
 
-    lines = value.splitlines(keepends=True)
-    insert_idx = min(before_line - 1, len(lines))
-    insert_idx = max(insert_idx, 0)
-
     new_lines = value.splitlines(keepends=True)
+    insert_idx = min(before_line - 1, len(new_lines))
+    insert_idx = max(insert_idx, 0)
     new_lines[insert_idx:insert_idx] = text.splitlines(keepends=True)
-    memory[key] = "".join(new_lines)
+    result = "".join(new_lines)
+
+    if not disable_auto_eol:
+        result = _auto_match_eol(result, value)
+
+    memory[key] = result
 
     inserted_count = len(text.splitlines())
     return f"Inserted {inserted_count} line(s) before line {before_line} in {key!r}."
@@ -355,6 +409,8 @@ def _do_replace_lines(args: dict, key: str, value: str, memory: dict) -> str:
     start_line = args.get("start_line")
     end_line = args.get("end_line")
     text = args.get("text")
+    disable_auto_eol = bool(args.get("disable_auto_eol", False))
+
     if start_line is None or end_line is None:
         return "Error: 'start_line' and 'end_line' are required for action 'replace_lines'."
     if text is None:
@@ -375,7 +431,12 @@ def _do_replace_lines(args: dict, key: str, value: str, memory: dict) -> str:
     clamped_end = min(end_line, total)
     replacement_lines = text.splitlines(keepends=True)
     lines[start_line - 1:clamped_end] = replacement_lines
-    memory[key] = "".join(lines)
+    result = "".join(lines)
+
+    if not disable_auto_eol:
+        result = _auto_match_eol(result, value)
+
+    memory[key] = result
 
     removed = clamped_end - start_line + 1
     added = len(replacement_lines)
@@ -388,6 +449,8 @@ def _do_replace_lines(args: dict, key: str, value: str, memory: dict) -> str:
 def _do_delete_lines(args: dict, key: str, value: str, memory: dict) -> str:
     start_line = args.get("start_line")
     end_line = args.get("end_line")
+    disable_auto_eol = bool(args.get("disable_auto_eol", False))
+
     if start_line is None or end_line is None:
         return "Error: 'start_line' and 'end_line' are required for action 'delete_lines'."
 
@@ -403,9 +466,62 @@ def _do_delete_lines(args: dict, key: str, value: str, memory: dict) -> str:
     clamped_end = min(end_line, total)
     deleted_count = clamped_end - start_line + 1
     del lines[start_line - 1:clamped_end]
-    memory[key] = "".join(lines)
+    result = "".join(lines)
+
+    if not disable_auto_eol:
+        result = _auto_match_eol(result, value)
+
+    memory[key] = result
 
     return f"Deleted {deleted_count} line(s) ({start_line}-{clamped_end}) from {key!r}."
+
+
+def _do_insert_chars(args: dict, key: str, value: str, memory: dict) -> str:
+    start_char = args.get("start_char")
+    text = args.get("text")
+
+    if start_char is None:
+        return "Error: 'start_char' is required for action 'insert_chars'."
+    if text is None:
+        return "Error: 'text' is required for action 'insert_chars'."
+
+    idx = max(0, min(start_char, len(value)))
+    memory[key] = value[:idx] + text + value[idx:]
+    return f"Inserted {len(text)} character(s) at position {start_char} in {key!r}."
+
+
+def _do_replace_chars(args: dict, key: str, value: str, memory: dict) -> str:
+    start_char = args.get("start_char")
+    end_char = args.get("end_char")
+    text = args.get("text")
+
+    if start_char is None or end_char is None:
+        return "Error: 'start_char' and 'end_char' are required for action 'replace_chars'."
+    if text is None:
+        return "Error: 'text' is required for action 'replace_chars'."
+    if end_char < start_char:
+        return "Error: end_char must be >= start_char."
+
+    removed = value[start_char:end_char]
+    memory[key] = value[:start_char] + text + value[end_char:]
+    return (
+        f"Replaced {len(removed)} character(s) ({start_char}-{end_char}) "
+        f"with {len(text)} character(s) in {key!r}."
+    )
+
+
+def _do_delete_chars(args: dict, key: str, value: str, memory: dict) -> str:
+    start_char = args.get("start_char")
+    end_char = args.get("end_char")
+
+    if start_char is None or end_char is None:
+        return "Error: 'start_char' and 'end_char' are required for action 'delete_chars'."
+    if end_char < start_char:
+        return "Error: end_char must be >= start_char."
+
+    deleted = value[start_char:end_char]
+    memory[key] = value[:start_char] + value[end_char:]
+    return f"Deleted {len(deleted)} character(s) ({start_char}-{end_char}) from {key!r}."
 
 
 def _do_count_chars(args: dict, key: str, value: str) -> str:
@@ -443,11 +559,13 @@ def _do_convert_indentation(args: dict, key: str, value: str, memory: dict) -> s
 
 def _do_apply_patch(args: dict, key: str, value: str, memory: dict) -> str:
     patch = args.get("patch")
+    disable_auto_eol = bool(args.get("disable_auto_eol", False))
+
     if not patch:
         return "Error: 'patch' is required for action 'apply_patch'."
 
     try:
-        result = _apply_patch(value, patch)
+        result = _apply_patch(value, patch, auto_eol=not disable_auto_eol)
     except (ValueError, RuntimeError) as exc:
         return f"Error: {exc}"
     except Exception as exc:
@@ -482,6 +600,9 @@ _WRITE_ACTIONS = {
     "insert_lines": _do_insert_lines,
     "replace_lines": _do_replace_lines,
     "delete_lines": _do_delete_lines,
+    "insert_chars": _do_insert_chars,
+    "replace_chars": _do_replace_chars,
+    "delete_chars": _do_delete_chars,
     "normalize_eol": _do_normalize_eol,
     "convert_indentation": _do_convert_indentation,
     "apply_patch": _do_apply_patch,
