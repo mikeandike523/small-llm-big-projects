@@ -614,22 +614,6 @@ const denyButtonCss = css`
   &:hover { background: #7f1d1d; }
 `
 
-const approvalResolvedCss = (approved: boolean) => css`
-  font-family: 'Consolas', monospace;
-  font-size: 12px;
-  color: ${approved ? '#4ade80' : '#f87171'};
-  padding: 4px 0;
-  word-break: break-all;
-`
-
-const approvalTimedOutCss = css`
-  font-family: 'Consolas', monospace;
-  font-size: 12px;
-  color: #888840;
-  padding: 4px 0;
-  word-break: break-all;
-`
-
 const approvalScrollContainerCss = css`
   ${scrollbarCss}
   display: flex;
