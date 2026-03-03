@@ -109,8 +109,11 @@ DEFINITION: dict = {
                 "auto_strip_leading_numbers": {
                     "type": "boolean",
                     "description": (
-                        "Default true. Strips leading numbering patterns like '1. ', '1.2. ', '2) ' "
-                        "from text or texts before storing."
+                        "Default true. Strips leading numeric list prefixes from text or texts before "
+                        "storing. Handles: bare multi-part numbers followed by whitespace ('2.2 ', "
+                        "'1.2.3 '), numbers with a trailing dot ('1. ', '2.2. '), numbers with a "
+                        "trailing paren ('3) ', '1.1) '), and numbers with both ('1.1.) ', '2.2.) '). "
+                        "Single bare digits ('1 ') are NOT stripped."
                     ),
                 },
             },
@@ -133,8 +136,11 @@ def format_items_for_ui(items: list, path_prefix: list[int] | None = None) -> li
     return [_fmt_item(items, i, path_prefix) for i in range(len(items))]
 
 
-# Matches "1. ", "2) ", "1.2. ", "1.2.3) " etc. at the start of a string
-_LEADING_NUMBER_RE = re.compile(r"^\d+(\.\d+)*[.)]\s+")
+# Matches leading numbering prefixes at the start of a string, followed by whitespace:
+#   multi-part with no trailing marker: "2.2 ", "1.2.3 "
+#   with trailing dot (optionally + paren): "1. ", "2.2. ", "1.1.) "
+#   with trailing paren only: "3) ", "1.1) "
+_LEADING_NUMBER_RE = re.compile(r"^\d+(?:\.\d+)+\s+|^\d+(?:\.\d+)*(?:\.\)?|\))\s+")
 
 
 def _strip_leading_number(s: str) -> str:
