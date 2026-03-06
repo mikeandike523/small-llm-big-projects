@@ -95,7 +95,7 @@ while IFS= read -r line || [ -n "$line" ]; do
     echo "    pip install $pkg"
     # MSYS_NO_PATHCONV=1 prevents Git Bash from converting the Linux path
     # (e.g. /piston/packages/...) into a Windows path before passing it to docker.
-    MSYS_NO_PATHCONV=1 docker exec "$CONTAINER_NAME" "$PYTHON_BIN" -m pip install --quiet "$pkg" \
+    MSYS_NO_PATHCONV=1 docker exec "$CONTAINER_NAME" "$PYTHON_BIN" -m pip install -v "$pkg" \
         && echo "    OK: $pkg" \
         || echo "    FAILED: $pkg (check container logs)"
 done < "$PACKAGES_FILE"

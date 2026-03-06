@@ -85,7 +85,7 @@ right-justified — use them directly as arguments to the edit tools.
 """,
 
 """
-Running Code for Precision Operations:
+Code Interpreter -- How to do "mental math" correctly:
 
 Use the code_interpreter tool to run Python from session memory. Args are JSON-decoded
 before calling main(); main()'s return value is automatically JSON-encoded (any

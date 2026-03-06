@@ -1,0 +1,121 @@
+from __future__ import annotations
+
+import os
+import shutil
+import subprocess
+
+from src.tools._subprocess import run_command
+from src.tools._validate_timeout import validate_timeout
+from src.utils.exceptions import ToolTimeoutError
+
+
+LEAVE_OUT = "SHORT"
+TOOL_SHORT_AMOUNT = 600
+
+MAX_TIMEOUT = 60
+DEFAULT_TIMEOUT = 30
+TIMEOUT_HINT = "Consider using a dedicated tool, or running a fast command on the shell"
+
+
+DEFINITION = {
+    "type": "function",
+    "function": {
+        "name": "host_shell",
+        "description": (
+            "Run a command in the host shell. "
+            "Highly privileged — use dedicated tools when possible. "
+            "Result is returned inline (target='return_value', default) "
+            "or stored in a memory key (target='session_memory' or 'project_memory')."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "command": {
+                    "type": "string",
+                    "description": "Command name or path to executable.",
+                },
+                "command_args": {
+                    "type": "array",
+                    "description": "List of arguments to pass to the command.",
+                    "items": {"type": "string"},
+                },
+                "timeout": {
+                    "type": "number",
+                    "description": (
+                        f"Command timeout in seconds. "
+                        f"Default {DEFAULT_TIMEOUT}, max {MAX_TIMEOUT}."
+                    ),
+                },
+                "target": {
+                    "type": "string",
+                    "enum": ["return_value", "session_memory", "project_memory"],
+                    "description": (
+                        "'return_value' (default): return output inline. "
+                        "'session_memory': write output to a session memory key. "
+                        "'project_memory': write output to a project memory key."
+                    ),
+                },
+                "memory_key": {
+                    "type": "string",
+                    "description": (
+                        "Required when target is 'session_memory' or 'project_memory'. "
+                        "The key to write the command output to."
+                    ),
+                },
+            },
+            "required": ["command", "command_args"],
+            "additionalProperties": False,
+        },
+    },
+}
+
+
+def needs_approval(args: dict) -> bool:
+    return True
+
+
+def execute(args: dict, session_data: dict | None = None) -> str:
+    if session_data is None:
+        session_data = {}
+
+    command = args["command"]
+    command_args = args.get("command_args", [])
+    timeout = args.get("timeout", DEFAULT_TIMEOUT)
+    target = args.get("target", "return_value")
+    memory_key = args.get("memory_key")
+
+    validate_timeout("host_shell", timeout, DEFAULT_TIMEOUT, MAX_TIMEOUT)
+
+    if target in ("session_memory", "project_memory") and not memory_key:
+        return f"Error: target={target!r} requires 'memory_key'."
+
+    try:
+        resolved = shutil.which(command)
+        result = run_command([resolved or command] + command_args, timeout)
+    except subprocess.TimeoutExpired:
+        raise ToolTimeoutError("host_shell", timeout, hint=TIMEOUT_HINT)
+
+    output = str(result)
+
+    if target == "return_value":
+        return output
+
+    if target == "session_memory":
+        memory = session_data.get("memory")
+        if not isinstance(memory, dict):
+            memory = {}
+            session_data["memory"] = memory
+        memory[memory_key] = output
+        return f"Command output written to session memory key {memory_key!r}."
+
+    if target == "project_memory":
+        from src.data import get_pool
+        from src.utils.sql.kv_manager import KVManager
+        project = os.getcwd()
+        pool = get_pool()
+        with pool.get_connection() as conn:
+            KVManager(conn, project).set_value(memory_key, output)
+            conn.commit()
+        return f"Command output written to project memory key {memory_key!r}."
+
+    return output

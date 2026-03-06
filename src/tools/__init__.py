@@ -13,6 +13,7 @@ from src.tools import create_dir
 from src.tools import create_text_file
 from src.tools import delete_file
 from src.tools import get_pwd
+from src.tools import host_shell
 from src.tools import list_dir
 from src.tools import list_working_tree
 from src.tools import load_skill_files_from_url_to_session_memory
@@ -38,6 +39,7 @@ ALL_TOOL_DEFINITIONS: list[dict] = [
     create_text_file.DEFINITION,
     delete_file.DEFINITION,
     get_pwd.DEFINITION,
+    host_shell.DEFINITION,
     list_dir.DEFINITION,
     list_working_tree.DEFINITION,
     load_skill_files_from_url_to_session_memory.DEFINITION,
@@ -63,6 +65,7 @@ _TOOL_MAP: dict[str, object] = {
     "create_text_file": create_text_file,
     "delete_file": delete_file,
     "get_pwd": get_pwd,
+    "host_shell": host_shell,
     "list_dir": list_dir,
     "list_working_tree": list_working_tree,
     "load_skill_files_from_url_to_session_memory": load_skill_files_from_url_to_session_memory,
