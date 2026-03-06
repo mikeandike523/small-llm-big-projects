@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import threading
+import time
 from typing import Any
 
 import redis
@@ -525,8 +526,31 @@ def _execute_tools(
                     was_impossible = True
                     return was_impossible, reason, exchange
 
+            # Inject streaming callback into special_resources if the tool supports it
+            module = _TOOL_MAP.get(tc.name)
+            if getattr(module, "STREAMS_RESULT", False):
+                _tc_id = tc.id
+                def _on_chunk(chunk: str, _id: str = _tc_id) -> None:
+                    socketio.emit("tool_result_chunk", {
+                        "id": _id, "chunk": chunk, "turn_id": turn_id,
+                    }, room=session_id)
+                special_resources["on_chunk"] = _on_chunk
+            else:
+                special_resources.pop("on_chunk", None)
+
+            started_at = int(time.time() * 1000)
+            tool_record.started_at = started_at
+            _emit_and_log(session_id, "tool_call_start", {
+                "id": tc.id, "turn_id": turn_id, "started_at": started_at,
+            })
+
             session.session_data["__pinned_project__"] = _initial_cwd if _pin_project_memory else None
             tool_result = execute_tool(tc.name, tc.arguments, session.session_data, special_resources)
+
+            finished_at = int(time.time() * 1000)
+            tool_record.finished_at = finished_at
+            special_resources.pop("on_chunk", None)
+
             if return_value_max_chars is not None and len(tool_result) > return_value_max_chars:
                 tool_result = _stub_tool_result(tool_result, return_value_max_chars, session.session_data)
                 tool_record.was_stubbed = True
@@ -536,6 +560,7 @@ def _execute_tools(
 
             _emit_and_log(session_id, "tool_result", {
                 "id": tc.id, "result": tool_result, "turn_id": turn_id,
+                "started_at": started_at, "finished_at": finished_at,
             })
             if tc.name == "change_pwd":
                 _emit_and_log(session_id, "pwd_update", {"path": os.getcwd().replace("\\", "/")})

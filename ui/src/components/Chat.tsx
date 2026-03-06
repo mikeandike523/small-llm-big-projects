@@ -61,7 +61,15 @@ function backendTurnToFrontendTurn(d: {
   exchanges: {
     assistant_content: string
     reasoning: string
-    tool_calls: { id: string; name: string; args: Record<string, unknown>; result?: string; was_stubbed?: boolean }[]
+    tool_calls: {
+      id: string
+      name: string
+      args: Record<string, unknown>
+      result?: string
+      was_stubbed?: boolean
+      started_at?: number
+      finished_at?: number
+    }[]
     is_final: boolean
   }[]
   todo_snapshot: TodoItem[]
@@ -82,6 +90,8 @@ function backendTurnToFrontendTurn(d: {
         args: tc.args,
         result: tc.result,
         wasStubbed: tc.was_stubbed,
+        startedAt: tc.started_at ?? undefined,
+        finishedAt: tc.finished_at ?? undefined,
       })),
       isFinal: ex.is_final,
     })),
@@ -703,6 +713,41 @@ const loadingSpinnerCss = css`
   animation: ${_spin} 0.8s linear infinite;
 `
 
+const _streamPulse = keyframes`
+  0%, 100% { opacity: 0.35; }
+  50%       { opacity: 1; }
+`
+
+const streamingDotCss = css`
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  background: #70a0ff;
+  border-radius: 50%;
+  margin-left: 6px;
+  vertical-align: middle;
+  animation: ${_streamPulse} 1s ease-in-out infinite;
+`
+
+const elapsedTimeCss = css`
+  font-size: 11px;
+  color: #7060a0;
+  font-family: 'Consolas', monospace;
+  flex-shrink: 0;
+  margin-left: 6px;
+`
+
+const streamingResultCss = css`
+  background: #050e05;
+  color: #5a8a5a;
+  padding: 8px 14px;
+  font-family: 'Consolas', monospace;
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  border-top: 1px solid #0f200f;
+`
+
 const modalOverlayBaseCss = css`
   position: fixed;
   inset: 0;
@@ -785,6 +830,24 @@ const modalBodyCss = css`
     margin: 0;
   }
 `
+
+// ---------------------------------------------------------------------------
+// ElapsedTimer
+// ---------------------------------------------------------------------------
+
+function ElapsedTimer({ startedAt, finishedAt }: { startedAt?: number; finishedAt?: number }) {
+  const [now, setNow] = useState(() => Date.now())
+
+  useEffect(() => {
+    if (!startedAt || finishedAt) return
+    const id = setInterval(() => setNow(Date.now()), 100)
+    return () => clearInterval(id)
+  }, [startedAt, finishedAt])
+
+  if (!startedAt) return null
+  const elapsed = ((finishedAt ?? now) - startedAt) / 1000
+  return <span css={elapsedTimeCss}>{elapsed.toFixed(1)}s</span>
+}
 
 // ---------------------------------------------------------------------------
 // StartupToolCallsCard
@@ -880,27 +943,46 @@ function renderTodoItems(items: TodoItem[], depth: number = 0): React.ReactNode[
 // ToolCallCard
 // ---------------------------------------------------------------------------
 
+const MAX_STREAMING_CHARS = 300
+
 function ToolCallCard({ tc, onViewFull }: { tc: ToolCallEntry; onViewFull: (c: string) => void }) {
   const hasResult = tc.result !== undefined
+  const isStreaming = !hasResult && tc.streamingResult !== undefined
   const truncated = hasResult && tc.result!.length > MAX_TOOL_CHARS
-  const displayResult = hasResult
-    ? truncated
+
+  let displayResult: string | undefined
+  if (hasResult) {
+    displayResult = truncated
       ? tc.result!.slice(0, MAX_TOOL_CHARS) + `... (${tc.result!.length - MAX_TOOL_CHARS} more)`
       : tc.result!
-    : undefined
+  } else if (isStreaming) {
+    const sr = tc.streamingResult!
+    displayResult = sr.length > MAX_STREAMING_CHARS
+      ? `[...+${sr.length - MAX_STREAMING_CHARS} chars]\n` + sr.slice(-MAX_STREAMING_CHARS)
+      : sr
+  }
 
   return (
     <div css={toolCallCss}>
       <div css={toolHeaderCss}>
-        <span>⚙ {tc.name}</span>
-        {truncated && (
-          <button css={viewFullButtonCss} onClick={() => onViewFull(tc.result!)}>
-            view full
-          </button>
-        )}
+        <span>
+          ⚙ {tc.name}
+          {isStreaming && <span css={streamingDotCss} />}
+        </span>
+        <span css={css`display: flex; align-items: center; gap: 6px;`}>
+          <ElapsedTimer startedAt={tc.startedAt} finishedAt={tc.finishedAt} />
+          {truncated && (
+            <button css={viewFullButtonCss} onClick={() => onViewFull(tc.result!)}>
+              view full
+            </button>
+          )}
+        </span>
       </div>
       {Object.keys(tc.args).length > 0 && (
         <div css={toolArgsCss}>{JSON.stringify(tc.args, null, 2)}</div>
+      )}
+      {isStreaming && displayResult !== undefined && (
+        <div css={streamingResultCss}><Ansi>{displayResult}</Ansi></div>
       )}
       {hasResult && (
         <div css={toolResultCss}><Ansi>{displayResult}</Ansi></div>
@@ -1215,14 +1297,29 @@ export default function Chat() {
         })
         break
       }
-      case 'tool_result': {
+      case 'tool_call_start': {
         const id = data.id as string
-        const result = data.result as string
+        const startedAt = data.started_at as number
         updateTurn(turnId, t => ({
           ...t,
           exchanges: t.exchanges.map(ex => ({
             ...ex,
-            toolCalls: ex.toolCalls.map(tc => tc.id === id ? { ...tc, result } : tc),
+            toolCalls: ex.toolCalls.map(tc => tc.id === id ? { ...tc, startedAt } : tc),
+          })),
+        }))
+        break
+      }
+      case 'tool_result': {
+        const id = data.id as string
+        const result = data.result as string
+        const finishedAt = data.finished_at as number | undefined
+        updateTurn(turnId, t => ({
+          ...t,
+          exchanges: t.exchanges.map(ex => ({
+            ...ex,
+            toolCalls: ex.toolCalls.map(tc =>
+              tc.id === id ? { ...tc, result, ...(finishedAt !== undefined ? { finishedAt } : {}) } : tc
+            ),
           })),
         }))
         break
@@ -1486,15 +1583,46 @@ export default function Chat() {
       })
     }
 
-    function onToolResult(data: { event_id?: string; turn_id?: string; id: string; result: string }) {
+    function onToolCallStart(data: { event_id?: string; turn_id?: string; id: string; started_at: number }) {
       if (data.event_id) updateLastEventId(data.event_id)
       const turnId = data.turn_id ?? ''
-      const { id, result } = data
+      const startedAt = data.started_at
       updateTurn(turnId, t => ({
         ...t,
         exchanges: t.exchanges.map(ex => ({
           ...ex,
-          toolCalls: ex.toolCalls.map(tc => tc.id === id ? { ...tc, result } : tc),
+          toolCalls: ex.toolCalls.map(tc => tc.id === data.id ? { ...tc, startedAt } : tc),
+        })),
+      }))
+    }
+
+    function onToolResultChunk(data: { turn_id?: string; id: string; chunk: string }) {
+      const turnId = data.turn_id ?? ''
+      updateTurn(turnId, t => ({
+        ...t,
+        exchanges: t.exchanges.map(ex => ({
+          ...ex,
+          toolCalls: ex.toolCalls.map(tc =>
+            tc.id === data.id
+              ? { ...tc, streamingResult: (tc.streamingResult ?? '') + data.chunk }
+              : tc
+          ),
+        })),
+      }))
+    }
+
+    function onToolResult(data: { event_id?: string; turn_id?: string; id: string; result: string; started_at?: number; finished_at?: number }) {
+      if (data.event_id) updateLastEventId(data.event_id)
+      const turnId = data.turn_id ?? ''
+      const { id, result } = data
+      const finishedAt = data.finished_at
+      updateTurn(turnId, t => ({
+        ...t,
+        exchanges: t.exchanges.map(ex => ({
+          ...ex,
+          toolCalls: ex.toolCalls.map(tc =>
+            tc.id === id ? { ...tc, result, ...(finishedAt !== undefined ? { finishedAt } : {}) } : tc
+          ),
         })),
       }))
     }
@@ -1601,6 +1729,8 @@ export default function Chat() {
     socket.on('begin_interim_stream', onBeginInterimStream)
     socket.on('begin_final_summary', onBeginFinalSummary)
     socket.on('tool_call', onToolCall)
+    socket.on('tool_call_start', onToolCallStart)
+    socket.on('tool_result_chunk', onToolResultChunk)
     socket.on('tool_result', onToolResult)
     socket.on('message_done', onMessageDone)
     socket.on('error', onError)
@@ -1633,6 +1763,8 @@ export default function Chat() {
       socket.off('begin_interim_stream', onBeginInterimStream)
       socket.off('begin_final_summary', onBeginFinalSummary)
       socket.off('tool_call', onToolCall)
+      socket.off('tool_call_start', onToolCallStart)
+      socket.off('tool_result_chunk', onToolResultChunk)
       socket.off('tool_result', onToolResult)
       socket.off('message_done', onMessageDone)
       socket.off('error', onError)

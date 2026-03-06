@@ -14,6 +14,8 @@ class ToolCallRecord:
     args: dict
     result: str | None = None
     was_stubbed: bool = False
+    started_at: int | None = None   # ms timestamp, set just before execute_tool
+    finished_at: int | None = None  # ms timestamp, set just after execute_tool
 
 
 @dataclass
@@ -139,6 +141,8 @@ def tool_call_record_to_dict(tc: ToolCallRecord) -> dict:
         "args": tc.args,
         "result": tc.result,
         "was_stubbed": tc.was_stubbed,
+        "started_at": tc.started_at,
+        "finished_at": tc.finished_at,
     }
 
 
@@ -149,6 +153,8 @@ def tool_call_record_from_dict(d: dict) -> ToolCallRecord:
         args=d.get("args", {}),
         result=d.get("result"),
         was_stubbed=d.get("was_stubbed", False),
+        started_at=d.get("started_at"),
+        finished_at=d.get("finished_at"),
     )
 
 

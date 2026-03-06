@@ -5,12 +5,14 @@ import shutil
 import subprocess
 
 from src.tools._subprocess import run_command
+from src.tools._managed_process import run_command_streaming
 from src.tools._validate_timeout import validate_timeout
 from src.utils.exceptions import ToolTimeoutError
 
 
 LEAVE_OUT = "SHORT"
 TOOL_SHORT_AMOUNT = 600
+STREAMS_RESULT = True
 
 MAX_TIMEOUT = 60
 DEFAULT_TIMEOUT = 30
@@ -74,7 +76,7 @@ def needs_approval(args: dict) -> bool:
     return True
 
 
-def execute(args: dict, session_data: dict | None = None) -> str:
+def execute(args: dict, session_data: dict | None = None, special_resources: dict | None = None) -> str:
     if session_data is None:
         session_data = {}
 
@@ -89,9 +91,14 @@ def execute(args: dict, session_data: dict | None = None) -> str:
     if target in ("session_memory", "project_memory") and not memory_key:
         return f"Error: target={target!r} requires 'memory_key'."
 
+    on_chunk = (special_resources or {}).get("on_chunk")
     try:
         resolved = shutil.which(command)
-        result = run_command([resolved or command] + command_args, timeout)
+        cmd = [resolved or command] + command_args
+        if on_chunk is not None:
+            result = run_command_streaming(cmd, timeout, on_chunk)
+        else:
+            result = run_command(cmd, timeout)
     except subprocess.TimeoutExpired:
         raise ToolTimeoutError("host_shell", timeout, hint=TIMEOUT_HINT)
 

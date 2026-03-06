@@ -7,6 +7,7 @@ import redis
 # Events excluded from the replay log (too high-volume or not meaningful on replay)
 REPLAY_EXCLUDED_EVENTS = {
     "token",
+    "tool_result_chunk",
     "session_memory_keys_update",
     "project_memory_key_event",
     "session_memory_key_event",

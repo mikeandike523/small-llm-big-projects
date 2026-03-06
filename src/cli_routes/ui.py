@@ -79,8 +79,6 @@ def ui_run(streaming, load_skills, load_tools, pin_project_memory, tool_tracebac
     """
     bash = find_bash()
 
-    print(bash)
-
     flask_env = {}
     if not streaming:
         flask_env["SLBP_STREAMING"] = "0"

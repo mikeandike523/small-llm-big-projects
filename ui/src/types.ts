@@ -6,6 +6,9 @@ export interface ToolCallEntry {
   args: Record<string, unknown>
   result?: string
   wasStubbed?: boolean
+  streamingResult?: string  // live output chunks before result arrives
+  startedAt?: number        // ms timestamp — set after approval, before execute
+  finishedAt?: number       // ms timestamp — set when result arrives
 }
 
 export interface TodoItem {
