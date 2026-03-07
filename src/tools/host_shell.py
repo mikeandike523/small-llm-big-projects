@@ -6,6 +6,7 @@ import subprocess
 
 from src.tools._subprocess import run_command
 from src.tools._managed_process import run_command_streaming
+from src.tools._autoresponse import get_applicable_rules
 from src.tools._validate_timeout import validate_timeout
 from src.utils.exceptions import ToolTimeoutError
 
@@ -64,6 +65,14 @@ DEFINITION = {
                         "The key to write the command output to."
                     ),
                 },
+                "use_known_autoresponse": {
+                    "type": "boolean",
+                    "description": (
+                        "If true, automatically answer known interactive prompts "
+                        "(e.g. npx install confirmations) using the built-in autoresponse "
+                        "manifest. Responses are matched by command name and prompt text."
+                    ),
+                },
             },
             "required": ["command", "command_args"],
             "additionalProperties": False,
@@ -85,6 +94,7 @@ def execute(args: dict, session_data: dict | None = None, special_resources: dic
     timeout = args.get("timeout", DEFAULT_TIMEOUT)
     target = args.get("target", "return_value")
     memory_key = args.get("memory_key")
+    use_known_autoresponse = args.get("use_known_autoresponse", False)
 
     validate_timeout("host_shell", timeout, DEFAULT_TIMEOUT, MAX_TIMEOUT)
 
@@ -96,7 +106,8 @@ def execute(args: dict, session_data: dict | None = None, special_resources: dic
         resolved = shutil.which(command)
         cmd = [resolved or command] + command_args
         if on_chunk is not None:
-            result = run_command_streaming(cmd, timeout, on_chunk)
+            autoresponses = get_applicable_rules(cmd) if use_known_autoresponse else None
+            result = run_command_streaming(cmd, timeout, on_chunk, autoresponses=autoresponses)
         else:
             result = run_command(cmd, timeout)
     except subprocess.TimeoutExpired:
