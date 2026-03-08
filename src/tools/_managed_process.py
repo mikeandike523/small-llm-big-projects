@@ -21,6 +21,108 @@ READ_INTERVAL = 0.05  # seconds
 # process has finished writing the full prompt before we respond.
 WAIT_UNTIL_RESPONSE = 0.3  # seconds
 
+# Maximum time (seconds) the LLM is allowed to respond during hang triage.
+# If the LLM exceeds this, treat the process as hung (no decision = hang).
+HANG_DECISION_TIMEOUT = 10  # seconds
+
+
+def _llm_triage(
+    proc: subprocess.Popen,
+    auto_buffer: list[str],
+    last_data_time: list[float],
+    hung_flag: list[bool],
+) -> bool:
+    """
+    Out-of-band LLM triage called when idle >= hang_timeout.
+
+    Stage 1: ask if the process is still computing or waiting for input.
+    Stage 2 (only if waiting): ask what keys to press; inject them if simple.
+
+    Returns True  -> extended the hang timer (caller should keep watching).
+    Returns False -> decided to kill (hung_flag set, proc killed, caller breaks).
+    """
+    from src.utils.llm.factory import make_llm
+
+    llm = make_llm(timeout_s=HANG_DECISION_TIMEOUT)
+    if llm is None:
+        # No LLM config available — fall back to original kill behaviour.
+        hung_flag[0] = True
+        proc.kill()
+        return False
+
+    buffer_snapshot = auto_buffer[0]
+
+    # ------------------------------------------------------------------
+    # Stage 1 — still processing, or waiting for input?
+    # ------------------------------------------------------------------
+    stage1_system = (
+        "Your job is to determine if the CLI output shown represents a process "
+        "that needs more time to complete, or a process that is waiting for human "
+        "input. Respond with exactly one word: PROCESSING or INPUT."
+    )
+    try:
+        r1 = llm.fetch([
+            {"role": "system", "content": stage1_system},
+            {"role": "user", "content": buffer_snapshot or "(no output yet)"},
+        ], max_tokens=16)
+        decision1 = r1.content.strip().upper()
+    except Exception as exc:
+        log(f"[hang-triage] Stage 1 LLM error: {exc} — treating as hung")
+        hung_flag[0] = True
+        proc.kill()
+        return False
+
+    if "PROCESSING" in decision1:
+        log(f"[hang-triage] Stage 1: PROCESSING — extending hang timer")
+        last_data_time[0] = time.monotonic()
+        return True
+
+    # ------------------------------------------------------------------
+    # Stage 2 — what keys are needed?
+    # ------------------------------------------------------------------
+    stage2_system = (
+        "A CLI process is waiting for input and the user has already pre-approved "
+        "this action. What key(s) would you press to proceed? "
+        "If only simple printable characters or Enter are needed (e.g. 'y', 'n', Enter), "
+        "respond with SIMPLE: followed by the exact characters to send (use \\n for Enter). "
+        "If the prompt requires arrow keys, function keys, Ctrl sequences, or interactive "
+        "menu navigation, respond with EXOTIC."
+    )
+    try:
+        r2 = llm.fetch([
+            {"role": "system", "content": stage2_system},
+            {"role": "user", "content": buffer_snapshot or "(no output yet)"},
+        ], max_tokens=32)
+        decision2 = r2.content.strip()
+    except Exception as exc:
+        log(f"[hang-triage] Stage 2 LLM error: {exc} — treating as hung")
+        hung_flag[0] = True
+        proc.kill()
+        return False
+
+    if decision2.upper().startswith("SIMPLE:"):
+        keys_raw = decision2[len("SIMPLE:"):].strip()
+        # Unescape \n so the LLM can express Enter literally.
+        keys = keys_raw.replace("\\n", "\n")
+        log(f"[hang-triage] Stage 2: SIMPLE keys={keys!r} — injecting and extending timer")
+        try:
+            proc.stdin.write(keys.encode())  # type: ignore[union-attr]
+            proc.stdin.flush()              # type: ignore[union-attr]
+        except Exception as exc:
+            log(f"[hang-triage] stdin write failed: {exc} — treating as hung")
+            hung_flag[0] = True
+            proc.kill()
+            return False
+        auto_buffer[0] = ""
+        last_data_time[0] = time.monotonic()
+        return True
+
+    # EXOTIC or unrecognised response — kill.
+    log(f"[hang-triage] Stage 2: {decision2!r} — treating as hung")
+    hung_flag[0] = True
+    proc.kill()
+    return False
+
 
 def run_command_streaming(
     cmd: list[str],
@@ -41,8 +143,10 @@ def run_command_streaming(
 
     stderr chunks are prefixed with '[stderr] ' and emitted as they arrive.
 
+    stdin is always opened as a pipe so both the static autoresponse rules and
+    the LLM-based hang triage (Stage 2) can inject key responses.
+
     When autoresponses is non-empty:
-      - stdin is opened as a pipe.
       - A dedicated autoresponse buffer accumulates all stdout since the last
         triggered response (cleared on each match so pattern matching always
         sees only fresh, relevant data).
@@ -54,11 +158,13 @@ def run_command_streaming(
     """
     use_auto = bool(autoresponses)
 
+    # Always open stdin as a pipe so the LLM-based hang triage (Stage 2) can
+    # inject key responses even when no static autoresponses are configured.
     proc = subprocess.Popen(
         cmd,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-        stdin=subprocess.PIPE if use_auto else None,
+        stdin=subprocess.PIPE,
         bufsize=0,  # raw binary: read() returns immediately with available bytes
     )
 
@@ -184,13 +290,17 @@ def run_command_streaming(
                         except Exception:
                             pass
 
-            # 3. Hang detection: if idle exceeds hang_timeout and process is still
-            #    running, no autoresponder unblocked it — kill it and mark as hung.
+            # 3. Hang detection with LLM triage.
+            #    When idle exceeds hang_timeout and the process is still alive,
+            #    ask the LLM whether this is a long-running process that needs
+            #    more time, or an interactive prompt waiting for input.
             if hang_timeout is not None and idle >= hang_timeout:
                 if proc.poll() is None:  # only flag as hung if process hasn't already exited
-                    hung_flag[0] = True
-                    proc.kill()
-                break
+                    if not _llm_triage(proc, auto_buffer, last_data_time, hung_flag):
+                        break  # triage decided to kill — watchdog exits
+                    # triage extended the timer — continue the loop
+                else:
+                    break  # process already exited naturally
 
         # Reader has finished — flush any remaining tail.
         with lock:
@@ -224,11 +334,10 @@ def run_command_streaming(
     t_err.join(timeout=5)
     t_watch.join(timeout=5)
 
-    if use_auto:
-        try:
-            proc.stdin.close()  # type: ignore[union-attr]
-        except Exception:
-            pass
+    try:
+        proc.stdin.close()  # type: ignore[union-attr]
+    except Exception:
+        pass
 
     if hung_flag[0]:
         raise ToolHangError("host_shell", hang_timeout)  # type: ignore[arg-type]

@@ -21,10 +21,6 @@ def ui():
 
 @ui.command(name="run")
 @click.option(
-    '--streaming', default=True, type=bool, show_default=True,
-    help='Stream tokens from the LLM. Set false to receive the full response at once (useful for diagnosing vLLM garbled-character bugs).',
-)
-@click.option(
     '--load-skills', is_flag=True, default=False,
     help='Load custom skills from a skills/ directory in the current working directory.',
 )
@@ -67,7 +63,7 @@ def ui():
     '--load-startup-tool-calls', is_flag=True, default=False,
     help='Execute tool calls from startup_tool_calls.json in the working directory on UI startup.',
 )
-def ui_run(streaming, load_skills, load_tools, pin_project_memory, tool_tracebacks, hotfix_gpt_oss_20b_bad_parser, hotfix_gpt_oss_20b_bad_void_call, hotfix_suite_gpt_oss_20b, load_startup_tool_calls):
+def ui_run(load_skills, load_tools, pin_project_memory, tool_tracebacks, hotfix_gpt_oss_20b_bad_parser, hotfix_gpt_oss_20b_bad_void_call, hotfix_suite_gpt_oss_20b, load_startup_tool_calls):
     """
     Start the web UI: launches the Vite dev server and the Flask/SocketIO
     backend concurrently, forwarding both streams to stdout.
@@ -80,8 +76,6 @@ def ui_run(streaming, load_skills, load_tools, pin_project_memory, tool_tracebac
     bash = find_bash()
 
     flask_env = {}
-    if not streaming:
-        flask_env["SLBP_STREAMING"] = "0"
     if load_skills:
         flask_env["SLBP_LOAD_SKILLS"] = "1"
     if load_tools:

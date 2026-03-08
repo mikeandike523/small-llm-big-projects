@@ -14,9 +14,9 @@ import requests
 from src.ui_connector.app import socketio
 from src.data import get_pool
 
-_USE_STREAMING = os.environ.get("SLBP_STREAMING", "1") != "0"
 from src.utils.sql.kv_manager import KVManager
 from src.utils.llm.streaming import StreamingLLM
+from src.utils.llm.factory import load_llm_config
 from src.tools import ALL_TOOL_DEFINITIONS, execute_tool, check_needs_approval, _TOOL_MAP, _custom_tool_plugins
 from src.tools.todo_list import format_items_for_ui as _todo_format_items_for_ui
 from src.logic.system_prompt import build_system_prompt
@@ -217,60 +217,7 @@ def _delete_session(session_id: str) -> None:
 
 def _load_llm_config() -> dict | None:
     """Return dict with endpoint_url, token_value, model or None on failure."""
-    try:
-        pool = get_pool()
-    except Exception as exc:
-        print(f"[ui_connector] DB pool error: {exc}")
-        return None
-
-    with pool.get_connection() as conn:
-        kv = KVManager(conn)
-        active_token = kv.get_value("active_token")
-        if not active_token:
-            return None
-
-        provider = active_token["provider"]
-        token_name = active_token.get("name", "")
-
-        with conn.cursor() as cursor:
-            cursor.execute(
-                """
-                SELECT token_value, endpoint_url
-                FROM tokens
-                WHERE BINARY provider = BINARY %s
-                  AND BINARY token_name = BINARY %s
-                LIMIT 1
-                """,
-                (provider, token_name),
-            )
-            row = cursor.fetchone()
-
-        if not row:
-            return None
-
-        token_value, endpoint_url = row
-
-        model = kv.get_value("model") or None
-        param_keys = kv.list_keys(prefix="params.")
-        model_params = {
-            k[len("params.model."):]: kv.get_value(k)
-            for k in param_keys if k.startswith("params.model.")
-        }
-        system_params = {
-            k[len("params.system."):]: kv.get_value(k)
-            for k in param_keys if k.startswith("params.system.")
-        }
-
-    if not token_value or not endpoint_url:
-        return None
-
-    return {
-        "endpoint_url": endpoint_url,
-        "token_value": token_value,
-        "model": model,
-        "model_params": model_params,
-        "system_params": system_params,
-    }
+    return load_llm_config()
 
 
 # ---------------------------------------------------------------------------
@@ -344,49 +291,30 @@ def _run_llm_call(
     Returns (result, content_for_history, reasoning_accumulated).
     Raises on HTTP/network errors.
     """
-    if _USE_STREAMING:
-        acc: dict[str, str] = {"content": "", "reasoning": ""}
-        token_count = 0
+    acc: dict[str, str] = {"content": "", "reasoning": ""}
+    token_count = 0
 
-        def on_data(chunk: dict) -> None:
-            nonlocal token_count
-            if chunk.get("reasoning"):
-                acc["reasoning"] += chunk["reasoning"]
-                socketio.emit("token", {
-                    "type": "reasoning", "text": chunk["reasoning"],
-                    "turn_id": turn_id,
-                }, room=session_id)
-            if chunk.get("content"):
-                acc["content"] += chunk["content"]
-                socketio.emit("token", {
-                    "type": "content", "text": chunk["content"],
-                    "turn_id": turn_id,
-                }, room=session_id)
-                token_count += 1
-                if token_count % 50 == 0:
-                    _emit_content_snapshot(session_id, turn_id, exchange_idx, acc["content"], acc["reasoning"])
-
-        result = streaming_llm.stream(payload, on_data, tools=ALL_TOOL_DEFINITIONS, is_cancelled=is_cancelled)
-        # Emit final snapshot
-        _emit_content_snapshot(session_id, turn_id, exchange_idx, acc["content"], acc["reasoning"])
-        return result, acc["content"], acc["reasoning"]
-    else:
-        acc_r: dict[str, str] = {"reasoning": ""}
-        result = streaming_llm.fetch(payload, tools=ALL_TOOL_DEFINITIONS)
-        if result.reasoning:
+    def on_data(chunk: dict) -> None:
+        nonlocal token_count
+        if chunk.get("reasoning"):
+            acc["reasoning"] += chunk["reasoning"]
             socketio.emit("token", {
-                "type": "reasoning", "text": result.reasoning,
+                "type": "reasoning", "text": chunk["reasoning"],
                 "turn_id": turn_id,
             }, room=session_id)
-            acc_r["reasoning"] = result.reasoning
-        if result.content:
+        if chunk.get("content"):
+            acc["content"] += chunk["content"]
             socketio.emit("token", {
-                "type": "content", "text": result.content,
+                "type": "content", "text": chunk["content"],
                 "turn_id": turn_id,
             }, room=session_id)
-        content = result.content or ""
-        _emit_content_snapshot(session_id, turn_id, exchange_idx, content, acc_r["reasoning"])
-        return result, content, acc_r["reasoning"]
+            token_count += 1
+            if token_count % 50 == 0:
+                _emit_content_snapshot(session_id, turn_id, exchange_idx, acc["content"], acc["reasoning"])
+
+    result = streaming_llm.stream(payload, on_data, tools=ALL_TOOL_DEFINITIONS, is_cancelled=is_cancelled)
+    _emit_content_snapshot(session_id, turn_id, exchange_idx, acc["content"], acc["reasoning"])
+    return result, acc["content"], acc["reasoning"]
 
 
 def _emit_content_snapshot(
@@ -637,7 +565,7 @@ def handle_resume_session(data: dict):
     _emit_backend_log(
         session_id,
         colored("System started", "green") +
-        f": streaming={_USE_STREAMING}, skills={skills_str}, os={_env_os}, shell={_env_shell}"
+        f": streaming=True, skills={skills_str}, os={_env_os}, shell={_env_shell}"
     )
 
     if session.schema_version != CURRENT_SCHEMA_VERSION:
