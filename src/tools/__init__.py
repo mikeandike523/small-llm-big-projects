@@ -5,6 +5,7 @@ import inspect
 import os
 import sys
 import traceback
+from src.utils.exceptions import ToolHangError, ToolTimeoutError
 from src.tools import basic_web_request
 from src.tools import code_interpreter
 from src.tools import brave_web_search
@@ -145,6 +146,8 @@ def execute_tool(
         if special_resources is not None and _accepts_special_resources(fn):
             return fn(args, session_data, special_resources)
         return fn(args, session_data)
+    except (ToolHangError, ToolTimeoutError):
+        raise
     except Exception as e:
         if os.environ.get("SLBP_TOOL_TRACEBACKS") == "1":
             tb = traceback.format_exc()

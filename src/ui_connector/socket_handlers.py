@@ -31,6 +31,7 @@ from src.utils.session_model import (
     CURRENT_SCHEMA_VERSION,
 )
 from src.utils.event_log import log_event, get_events_since, REPLAY_EXCLUDED_EVENTS
+from src.utils.exceptions import ToolHangError, ToolTimeoutError
 from termcolor import colored
 
 SYSTEM_PROMPT = build_system_prompt(
@@ -545,7 +546,12 @@ def _execute_tools(
             })
 
             session.session_data["__pinned_project__"] = _initial_cwd if _pin_project_memory else None
-            tool_result = execute_tool(tc.name, tc.arguments, session.session_data, special_resources)
+            try:
+                tool_result = execute_tool(tc.name, tc.arguments, session.session_data, special_resources)
+            except ToolHangError as e:
+                tool_result = f"HANG: {e}"
+            except ToolTimeoutError as e:
+                tool_result = f"TIMEOUT: {e}"
 
             finished_at = int(time.time() * 1000)
             tool_record.finished_at = finished_at

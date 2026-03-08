@@ -77,6 +77,10 @@ def run_command_streaming(
     # Monotonic timestamp of the last received stdout byte.
     last_data_time: list[float] = [time.monotonic()]
 
+    # Tracks whether we've already checked the current idle period for autoresponse
+    # (to avoid calling find_response every 50ms on the same buffer with no match).
+    auto_checked_at: list[float] = [-1.0]
+
     reader_done = threading.Event()
     hung_flag: list[bool] = [False]
 
@@ -160,25 +164,32 @@ def run_command_streaming(
                         pass
 
             # 2. Autoresponse: check after WAIT_UNTIL_RESPONSE of idle.
+            #    Only fire once per idle period — skip if the buffer hasn't changed
+            #    since the last check (avoids calling find_response every 50ms on no-match).
             if use_auto and current_auto and idle >= WAIT_UNTIL_RESPONSE:
-                log(f"Current auto: "+current_auto)
-                response = find_response(current_auto, autoresponses)  # type: ignore[arg-type]
+                checked_at = auto_checked_at[0]
+                if checked_at != last_data_time[0]:
+                    auto_checked_at[0] = last_data_time[0]
+                    log(f"Current auto: "+current_auto)
+                    response = find_response(current_auto, autoresponses)  # type: ignore[arg-type]
 
-                if response is not None:
-                    with lock:
-                        auto_buffer[0] = ""
-                        last_data_time[0] = time.monotonic()  # reset idle timer
-                    try:
-                        proc.stdin.write(response.encode())  # type: ignore[union-attr]
-                        proc.stdin.flush()  # type: ignore[union-attr]
-                    except Exception:
-                        pass
+                    if response is not None:
+                        with lock:
+                            auto_buffer[0] = ""
+                            last_data_time[0] = time.monotonic()  # reset idle timer
+                            auto_checked_at[0] = -1.0  # allow rechecking after new data
+                        try:
+                            proc.stdin.write(response.encode())  # type: ignore[union-attr]
+                            proc.stdin.flush()  # type: ignore[union-attr]
+                        except Exception:
+                            pass
 
             # 3. Hang detection: if idle exceeds hang_timeout and process is still
             #    running, no autoresponder unblocked it — kill it and mark as hung.
             if hang_timeout is not None and idle >= hang_timeout:
-                hung_flag[0] = True
-                proc.kill()
+                if proc.poll() is None:  # only flag as hung if process hasn't already exited
+                    hung_flag[0] = True
+                    proc.kill()
                 break
 
         # Reader has finished — flush any remaining tail.
@@ -207,18 +218,20 @@ def run_command_streaming(
         t_watch.join(timeout=2)
         raise
 
-    t_out.join()
-    t_err.join()
-    t_watch.join()
-
-    if hung_flag[0]:
-        raise ToolHangError("host_shell", hang_timeout)  # type: ignore[arg-type]
+    # Use timeouts on joins: on Windows, orphaned child processes can keep the pipe
+    # open after the parent is killed, causing read() to block indefinitely.
+    t_out.join(timeout=5)
+    t_err.join(timeout=5)
+    t_watch.join(timeout=5)
 
     if use_auto:
         try:
             proc.stdin.close()  # type: ignore[union-attr]
         except Exception:
             pass
+
+    if hung_flag[0]:
+        raise ToolHangError("host_shell", hang_timeout)  # type: ignore[arg-type]
 
     return SubprocessResult(
         returncode=proc.returncode,
