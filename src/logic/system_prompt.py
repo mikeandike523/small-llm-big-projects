@@ -111,6 +111,18 @@ Target: "return_value" (default) returns the JSON result inline;
 main() may return any JSON-serialisable value (str, int, list, dict, ...).
 Use return, not print().
 
+""",
+"""
+Coding Tips:
+
+Try to run shell commands non-interactively. If you don't have a proper autoresponder preconfigured, interactive
+commands will hang indefinietly. Watch out for "ToolHangError" errors, and if you get that, try a different command.
+
+Look up articles on the internet (e.g. brave_web_search) for up-to-date apis to find out non-interactive methods.
+
+Save important articles with their date into project memory, so you can check your project memory for api data
+instead of always searching the web.
+
 """
 ]
 
