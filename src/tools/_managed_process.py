@@ -7,6 +7,8 @@ from typing import Callable
 
 from src.tools._subprocess import SubprocessResult
 from src.tools._autoresponse import AutoResponse, find_response
+from src.utils.exceptions import ToolHangError
+from src.utils.log import log
 
 
 # How often the watchdog wakes to flush partial output and check autoresponses.
@@ -25,6 +27,7 @@ def run_command_streaming(
     timeout: int | None,
     on_chunk: Callable[[str], None],
     autoresponses: list[AutoResponse] | None = None,
+    hang_timeout: int | None = None,
 ) -> SubprocessResult:
     """
     Run a command and stream its output via on_chunk as it arrives.
@@ -75,6 +78,7 @@ def run_command_streaming(
     last_data_time: list[float] = [time.monotonic()]
 
     reader_done = threading.Event()
+    hung_flag: list[bool] = [False]
 
     # ------------------------------------------------------------------
     # stdout reader: 128-byte chunks, raw binary, decode UTF-8
@@ -157,7 +161,9 @@ def run_command_streaming(
 
             # 2. Autoresponse: check after WAIT_UNTIL_RESPONSE of idle.
             if use_auto and current_auto and idle >= WAIT_UNTIL_RESPONSE:
+                log(f"Current auto: "+current_auto)
                 response = find_response(current_auto, autoresponses)  # type: ignore[arg-type]
+
                 if response is not None:
                     with lock:
                         auto_buffer[0] = ""
@@ -167,6 +173,13 @@ def run_command_streaming(
                         proc.stdin.flush()  # type: ignore[union-attr]
                     except Exception:
                         pass
+
+            # 3. Hang detection: if idle exceeds hang_timeout and process is still
+            #    running, no autoresponder unblocked it — kill it and mark as hung.
+            if hang_timeout is not None and idle >= hang_timeout:
+                hung_flag[0] = True
+                proc.kill()
+                break
 
         # Reader has finished — flush any remaining tail.
         with lock:
@@ -197,6 +210,9 @@ def run_command_streaming(
     t_out.join()
     t_err.join()
     t_watch.join()
+
+    if hung_flag[0]:
+        raise ToolHangError("host_shell", hang_timeout)  # type: ignore[arg-type]
 
     if use_auto:
         try:

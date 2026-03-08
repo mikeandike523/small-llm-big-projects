@@ -8,16 +8,19 @@ from src.tools._subprocess import run_command
 from src.tools._managed_process import run_command_streaming
 from src.tools._autoresponse import get_applicable_rules
 from src.tools._validate_timeout import validate_timeout
-from src.utils.exceptions import ToolTimeoutError
+from src.utils.exceptions import ToolTimeoutError, ToolHangError
 
 
 LEAVE_OUT = "SHORT"
 TOOL_SHORT_AMOUNT = 600
 STREAMS_RESULT = True
 
-MAX_TIMEOUT = 60
-DEFAULT_TIMEOUT = 30
+MAX_TIMEOUT = 120
+DEFAULT_TIMEOUT = 60
 TIMEOUT_HINT = "Consider using a dedicated tool, or running a fast command on the shell"
+
+MAX_HANG_TIMEOUT = 20
+DEFAULT_HANG_TIMEOUT = 10
 
 
 DEFINITION = {
@@ -70,7 +73,16 @@ DEFINITION = {
                     "description": (
                         "If true, automatically answer known interactive prompts "
                         "(e.g. npx install confirmations) using the built-in autoresponse "
-                        "manifest. Responses are matched by command name and prompt text."
+                        "manifest. Responses are matched by command name and prompt text. "
+                        "Default true."
+                    ),
+                },
+                "hang_timeout": {
+                    "type": "number",
+                    "description": (
+                        f"Seconds of idle output after which the process is considered hung "
+                        f"(no new output and no autoresponder matched). "
+                        f"Default {DEFAULT_HANG_TIMEOUT}, max {MAX_HANG_TIMEOUT}."
                     ),
                 },
             },
@@ -94,9 +106,11 @@ def execute(args: dict, session_data: dict | None = None, special_resources: dic
     timeout = args.get("timeout", DEFAULT_TIMEOUT)
     target = args.get("target", "return_value")
     memory_key = args.get("memory_key")
-    use_known_autoresponse = args.get("use_known_autoresponse", False)
+    use_known_autoresponse = args.get("use_known_autoresponse", True)
+    hang_timeout = args.get("hang_timeout", DEFAULT_HANG_TIMEOUT)
 
     validate_timeout("host_shell", timeout, DEFAULT_TIMEOUT, MAX_TIMEOUT)
+    validate_timeout("host_shell hang_timeout", hang_timeout, DEFAULT_HANG_TIMEOUT, MAX_HANG_TIMEOUT)
 
     if target in ("session_memory", "project_memory") and not memory_key:
         return f"Error: target={target!r} requires 'memory_key'."
@@ -107,11 +121,13 @@ def execute(args: dict, session_data: dict | None = None, special_resources: dic
         cmd = [resolved or command] + command_args
         if on_chunk is not None:
             autoresponses = get_applicable_rules(cmd) if use_known_autoresponse else None
-            result = run_command_streaming(cmd, timeout, on_chunk, autoresponses=autoresponses)
+            result = run_command_streaming(cmd, timeout, on_chunk, autoresponses=autoresponses, hang_timeout=hang_timeout)
         else:
             result = run_command(cmd, timeout)
     except subprocess.TimeoutExpired:
         raise ToolTimeoutError("host_shell", timeout, hint=TIMEOUT_HINT)
+    except ToolHangError:
+        raise
 
     output = str(result)
 
