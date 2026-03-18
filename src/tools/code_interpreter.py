@@ -6,6 +6,7 @@ import os
 import httpx
 
 from src.utils.exceptions import ToolTimeoutError
+from src.utils.docker_compose import get_service_port
 
 DEFAULT_TIMEOUT = 30        # seconds, used when the caller omits timeout
 MAX_ALLOWABLE_TIMEOUT = 120  # hard cap — never allow the LLM to set higher
@@ -243,7 +244,8 @@ def execute(args: dict, session_data: dict | None = None) -> str:
     # --- build Piston request payload ---
     # resolved_args contains Python objects; json.dumps produces the JSON array
     # that the wrapper will json.loads back into the same objects.
-    piston_url = os.environ.get("PISTON_URL", "http://localhost:2000").rstrip("/")
+    piston_port = get_service_port("piston", 2000)
+    piston_url = f"http://localhost:{piston_port}"
     stdin_data = json.dumps(resolved_args)
 
     payload = {
@@ -266,8 +268,7 @@ def execute(args: dict, session_data: dict | None = None) -> str:
     except httpx.ConnectError:
         return (
             f"Error: Could not connect to Piston at {piston_url!r}. "
-            "Make sure the Piston container is running "
-            "(docker compose up piston) and PISTON_URL is set correctly. "
+            "Make sure the Piston container is running (docker compose up piston). "
             "If the Python runtime is not yet installed, run server/setup_piston.sh."
         )
     except httpx.TimeoutException:

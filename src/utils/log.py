@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import os
+
 import requests
 
-_LOG_URL = "http://localhost:8080"
+_LOG_URL = f"http://localhost:{os.environ.get('LOGGING_PORT', '8080')}"
 
 
 def log(message: str) -> None:

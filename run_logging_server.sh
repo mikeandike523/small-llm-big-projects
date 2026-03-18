@@ -1,6 +1,7 @@
 #!/bin/bash
 # Activate the project virtualenv then launch the logging server.
-# Intended to be called by `slbp ui run` via Git Bash.
+# Intended to be called by `slbp server run` via Git Bash.
+# Pass LOGGING_PORT env var to control which port the server listens on.
 
 set -euo pipefail
 
@@ -15,4 +16,4 @@ else
     exit 1
 fi
 
-python "$dn/logging_server.py"
+python "$dn/logging_server.py" --port "${LOGGING_PORT:-8080}"

@@ -44,6 +44,7 @@ interface Props {
   open: boolean
   onToggle: () => void
   pwd: string
+  sessionId: string
   envInfo: EnvInfo | null
   skillsInfo: SkillsInfo | null
   toolsInfo: ToolsInfo | null
@@ -627,9 +628,10 @@ function ToolsCard({ toolsInfo }: { toolsInfo: ToolsInfo }) {
   )
 }
 
-function SystemTab({ pwd, envInfo, skillsInfo, toolsInfo }: { pwd: string; envInfo: EnvInfo | null; skillsInfo: SkillsInfo | null; toolsInfo: ToolsInfo | null }) {
+function SystemTab({ pwd, sessionId, envInfo, skillsInfo, toolsInfo }: { pwd: string; sessionId: string; envInfo: EnvInfo | null; skillsInfo: SkillsInfo | null; toolsInfo: ToolsInfo | null }) {
   return (
     <>
+      {sessionId && <InfoRow label="Session ID" value={sessionId} />}
       {envInfo && (
         <>
           <InfoRow label="OS" value={envInfo.os} />
@@ -640,7 +642,7 @@ function SystemTab({ pwd, envInfo, skillsInfo, toolsInfo }: { pwd: string; envIn
       {pwd && <InfoRow label="Working Directory" value={pwd} />}
       {skillsInfo && <SkillsCard skillsInfo={skillsInfo} />}
       {toolsInfo && <ToolsCard toolsInfo={toolsInfo} />}
-      {!envInfo && !pwd && !skillsInfo && !toolsInfo && (
+      {!sessionId && !envInfo && !pwd && !skillsInfo && !toolsInfo && (
         <div css={placeholderCss}>No system info available.</div>
       )}
     </>
@@ -767,7 +769,7 @@ interface MemModal {
   notification: 'modified' | 'deleted' | null
 }
 
-export function DebugPanel({ open, onToggle, pwd, envInfo, skillsInfo, toolsInfo, systemPrompt, backendLogs, socket }: Props) {
+export function DebugPanel({ open, onToggle, pwd, sessionId, envInfo, skillsInfo, toolsInfo, systemPrompt, backendLogs, socket }: Props) {
   const [activeTab, setActiveTab] = useState<TabId>('system')
   const [sessionMemKeys, setSessionMemKeys] = useState<string[]>([])
   const [sessionMemLoading, setSessionMemLoading] = useState(false)
@@ -956,7 +958,7 @@ export function DebugPanel({ open, onToggle, pwd, envInfo, skillsInfo, toolsInfo
 
         <div css={tabContentAreaCss}>
           <div css={tabPanelCss(activeTab === 'system')}>
-            <SystemTab pwd={pwd} envInfo={envInfo} skillsInfo={skillsInfo} toolsInfo={toolsInfo} />
+            <SystemTab pwd={pwd} sessionId={sessionId} envInfo={envInfo} skillsInfo={skillsInfo} toolsInfo={toolsInfo} />
           </div>
 
           {/* Session memory tab: flex column with scrollable content + fixed footer */}

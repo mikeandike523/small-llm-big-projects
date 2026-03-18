@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
 """
 Simple HTTP logging server. Receives POST requests and prints the body to
-stdout. Used to receive log messages from the Flask/eventlet process, where
-print() is unreliable due to eventlet's monkey-patching.
+stdout. Used to receive log messages from the Flask process.
 
-Listens on http://localhost:8080
+Usage:
+    python logging_server.py [--port PORT]
+
+Defaults to port 8080 if --port is not supplied.
 """
 
+import argparse
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 
@@ -24,8 +27,12 @@ class _LogHandler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    server = HTTPServer(("localhost", 8080), _LogHandler)
-    print("[logging_server] Listening on http://localhost:8080", flush=True)
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--port", type=int, default=8080)
+    args = parser.parse_args()
+
+    server = HTTPServer(("localhost", args.port), _LogHandler)
+    print(f"[logging_server] Listening on http://localhost:{args.port}", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

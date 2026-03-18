@@ -467,6 +467,14 @@ const statusCss = css`
   white-space: nowrap;
 `
 
+const sessionIdCss = css`
+  font-size: 10px;
+  color: #484848;
+  font-family: 'Consolas', monospace;
+  white-space: nowrap;
+  cursor: default;
+`
+
 const turnContainerCss = css`
   display: grid;
   grid-template-columns: 3fr 2fr 2fr 1.5fr;
@@ -1840,6 +1848,7 @@ export default function Chat() {
           open={debugOpen}
           onToggle={() => setDebugOpen(o => !o)}
           pwd={pwd}
+          sessionId={sessionId}
           envInfo={envInfo}
           skillsInfo={skillsInfo}
           toolsInfo={toolsInfo}
@@ -1867,6 +1876,7 @@ export default function Chat() {
 
         <div css={headerBarCss}>
           <span css={statusCss}>{connected ? '●' : '○'} {connected ? 'connected' : 'disconnected'}</span>
+          <span css={sessionIdCss} title={sessionId}>session: {sessionId.slice(0, 8)}</span>
         </div>
         <div css={threadCss} ref={threadRef} onScroll={handleScroll}>
           {startupToolCalls.length > 0 && (

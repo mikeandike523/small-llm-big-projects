@@ -32,6 +32,7 @@ from src.utils.session_model import (
 )
 from src.utils.event_log import log_event, get_events_since, REPLAY_EXCLUDED_EVENTS
 from src.utils.exceptions import ToolHangError, ToolTimeoutError
+from src.utils.docker_compose import get_service_port
 from termcolor import colored
 
 SYSTEM_PROMPT = build_system_prompt(
@@ -156,7 +157,7 @@ def _get_redis() -> redis.Redis:
     if _redis_client is None:
         _redis_client = redis.Redis(
             host=os.environ.get("REDIS_HOST", "localhost"),
-            port=int(os.environ.get("REDIS_PORT", 6379)),
+            port=get_service_port("redis", 6379),
             decode_responses=True,
         )
     return _redis_client

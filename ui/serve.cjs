@@ -3,7 +3,9 @@ const fs = require('fs');
 const path = require('path');
 
 const ROOT = path.resolve(__dirname, './dist');
-const PORT = 5173;
+const PORT = parseInt(process.env.UI_PORT || '0', 10);
+const FLASK_PORT = process.env.FLASK_PORT || '5000';
+const FLASK_URL = `http://localhost:${FLASK_PORT}`;
 
 function setNoCacheHeaders(res) {
   res.setHeader(
@@ -43,6 +45,13 @@ function getContentType(filePath) {
 const server = http.createServer((req, res) => {
   setNoCacheHeaders(res);
 
+  // Serve runtime config so the frontend can discover the Flask URL at
+  // page-load time, even if the port was assigned dynamically.
+  if (req.url === '/runtime-config.js') {
+    res.writeHead(200, { 'Content-Type': 'application/javascript' });
+    return res.end(`window.__FLASK_URL__ = ${JSON.stringify(FLASK_URL)};`);
+  }
+
   let filePath = path.join(ROOT, req.url.split('?')[0]);
 
   // Prevent directory traversal
@@ -58,8 +67,17 @@ const server = http.createServer((req, res) => {
 
   fs.stat(filePath, (err, stats) => {
     if (err || !stats.isFile()) {
-      res.writeHead(404);
-      return res.end('Not Found');
+      // SPA fallback
+      filePath = path.join(ROOT, 'index.html');
+      fs.stat(filePath, (err2, stats2) => {
+        if (err2 || !stats2.isFile()) {
+          res.writeHead(404);
+          return res.end('Not Found');
+        }
+        res.writeHead(200, { 'Content-Type': 'text/html' });
+        fs.createReadStream(filePath).pipe(res);
+      });
+      return;
     }
 
     res.writeHead(200, {
@@ -71,7 +89,8 @@ const server = http.createServer((req, res) => {
 });
 
 server.listen(PORT, () => {
+  const actualPort = server.address().port;
   console.log(`Serving ${ROOT}`);
   console.log(`No caching enabled`);
-  console.log(`http://localhost:${PORT}`);
+  console.log(`http://localhost:${actualPort}`);
 });

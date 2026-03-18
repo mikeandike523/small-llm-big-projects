@@ -9,13 +9,62 @@
 #   ./setup_piston.sh [PISTON_URL] [PYTHON_VERSION] [CONTAINER_NAME]
 #
 # Defaults:
-#   PISTON_URL       http://localhost:2000
+#   PISTON_URL       auto-discovered via `docker compose port piston 2000`
 #   PYTHON_VERSION   3.12.0
 #   CONTAINER_NAME   server-piston-1   (docker compose default naming)
 
 set -euo pipefail
 
-PISTON_URL="${1:-${PISTON_URL:-http://localhost:2000}}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+COMPOSE_FILE="$SCRIPT_DIR/docker-compose.yml"
+
+# ---------------------------------------------------------------------------
+# Discover docker compose command (plugin mode first, then legacy standalone)
+# ---------------------------------------------------------------------------
+_find_docker_compose() {
+    if docker compose version >/dev/null 2>&1; then
+        echo "docker compose"
+    elif docker-compose version >/dev/null 2>&1; then
+        echo "docker-compose"
+    else
+        echo "ERROR: Neither 'docker compose' nor 'docker-compose' is available." >&2
+        echo "       Install Docker Desktop or the standalone docker-compose binary." >&2
+        exit 1
+    fi
+}
+
+DC="$(_find_docker_compose)"
+
+# ---------------------------------------------------------------------------
+# Auto-discover PISTON_URL from docker compose port if not explicitly set
+# ---------------------------------------------------------------------------
+_discover_piston_url() {
+    local port_output
+    if port_output=$($DC -f "$COMPOSE_FILE" port piston 2000 2>/dev/null); then
+        # Output is "0.0.0.0:PORT" or ":::PORT"
+        local port="${port_output##*:}"
+        echo "http://localhost:${port}"
+    else
+        echo ""
+    fi
+}
+
+if [ -n "${1:-}" ]; then
+    PISTON_URL="$1"
+elif [ -n "${PISTON_URL:-}" ]; then
+    : # already set in environment
+else
+    echo "==> Auto-discovering Piston host port via docker compose..."
+    DISCOVERED="$(_discover_piston_url)"
+    if [ -n "$DISCOVERED" ]; then
+        PISTON_URL="$DISCOVERED"
+        echo "    Discovered: $PISTON_URL"
+    else
+        PISTON_URL="http://localhost:2000"
+        echo "    Could not discover port; falling back to $PISTON_URL"
+    fi
+fi
+
 PYTHON_VERSION="${2:-${PISTON_PYTHON_VERSION:-3.12.0}}"
 CONTAINER_NAME="${3:-${PISTON_CONTAINER:-server-piston-1}}"
 PACKAGES_FILE="$(dirname "$0")/piston_packages.txt"

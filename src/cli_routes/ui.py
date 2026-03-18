@@ -1,16 +1,11 @@
 from __future__ import annotations
 
-import os
 import webbrowser
-from pathlib import Path
 
 import click
 
 from src.cli_obj import cli
-from src.utils.process import ManagedProcess, find_bash, run_processes
-
-PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
-UI_DIR = PROJECT_ROOT / "ui"
+from src.utils.server_state import read_state
 
 
 @cli.group()
@@ -19,102 +14,23 @@ def ui():
     ...
 
 
-@ui.command(name="run")
-@click.option(
-    '--load-skills', is_flag=True, default=False,
-    help='Load custom skills from a skills/ directory in the current working directory.',
-)
-@click.option(
-    '--load-tools', is_flag=True, default=False,
-    help='Load custom tools from a tools/ directory in the current working directory.',
-)
-@click.option(
-    '--pin-project-memory', default=True, type=bool, show_default=True,
-    help=(
-        'Pin the default project memory scope to the working directory at launch time. '
-        'When False, project memory defaults to os.getcwd() at the time of each call.'
-    ),
-)
-@click.option(
-    '--tool-tracebacks', is_flag=True, default=False,
-    help='When a tool raises an exception, return the full traceback instead of just the error message.',
-)
-@click.option(
-    '--hotfix-gpt-oss-20b-bad-parser', is_flag=True, default=False,
-    help=(
-        'Hotfix for OpenRouter models that emit spurious <|channel|> tokens inside tool names. '
-        'Strips <|channel|> and everything after it from the tool name; if the remainder is a '
-        'valid tool, that tool is used.'
-    ),
-)
-@click.option(
-    '--hotfix-gpt-oss-20b-bad-void-call', is_flag=True, default=False,
-    help=(
-        'Hotfix for OpenRouter models that pass spurious arguments to void tools (tools with no '
-        'defined parameters). If a tool has no properties in its DEFINITION, any LLM-provided '
-        'arguments are discarded and the tool is called with an empty argument set.'
-    ),
-)
-@click.option(
-    '--hotfix-suite-gpt-oss-20b', is_flag=True, default=False,
-    help='Enable all gpt-oss-20b hotfixes at once (equivalent to --hotfix-gpt-oss-20b-bad-parser and --hotfix-gpt-oss-20b-bad-void-call).',
-)
-@click.option(
-    '--load-startup-tool-calls', is_flag=True, default=False,
-    help='Execute tool calls from startup_tool_calls.json in the working directory on UI startup.',
-)
-def ui_run(load_skills, load_tools, pin_project_memory, tool_tracebacks, hotfix_gpt_oss_20b_bad_parser, hotfix_gpt_oss_20b_bad_void_call, hotfix_suite_gpt_oss_20b, load_startup_tool_calls):
+@ui.command(name="open")
+def ui_open():
+    """Open the UI in the default web browser.
+
+    Reads the port assigned by `slbp server run` from .slbp-server.json.
+    Run `slbp server run` first.
     """
-    Start the web UI: launches the Vite dev server and the Flask/SocketIO
-    backend concurrently, forwarding both streams to stdout.
-
-    Prerequisites:
-      - pnpm install has been run inside the ui/ directory
-      - Docker Compose services (MySQL, Redis) are running
-      - .env exists at the project root (copy from .env.example)
-    """
-    bash = find_bash()
-
-    flask_env = {}
-    if load_skills:
-        flask_env["SLBP_LOAD_SKILLS"] = "1"
-    if load_tools:
-        flask_env["SLBP_LOAD_CUSTOM_TOOLS"] = "1"
-    flask_env["SLBP_PIN_PROJECT_MEMORY"] = "1" if pin_project_memory else "0"
-    if tool_tracebacks:
-        flask_env["SLBP_TOOL_TRACEBACKS"] = "1"
-    if hotfix_gpt_oss_20b_bad_parser or hotfix_suite_gpt_oss_20b:
-        flask_env["SLBP_HOTFIX_GPT_OSS_20B_BAD_PARSER"] = "1"
-    if hotfix_gpt_oss_20b_bad_void_call or hotfix_suite_gpt_oss_20b:
-        flask_env["SLBP_HOTFIX_GPT_OSS_20B_BAD_VOID_CALL"] = "1"
-    if load_startup_tool_calls:
-        flask_env["SLBP_LOAD_STARTUP_TOOL_CALLS"] = "1"
-
-    processes = [
-        ManagedProcess(
-            label="logging",
-            cmd=[bash, "-l", str(PROJECT_ROOT / "run_logging_server.sh")],
-            cwd=PROJECT_ROOT,
-        ),
-        ManagedProcess(
-            label="vite",
-            cmd=[bash, "-l", "run_ui_server.sh"],
-            cwd=PROJECT_ROOT,
-        ),
-        ManagedProcess(
-            label="flask",
-            cmd=[bash, "-l", str(PROJECT_ROOT / "run_ui_connector.sh")],
-            cwd=os.getcwd(),
-            env=flask_env if flask_env else None,
-        ),
-    ]
-
-    click.echo("[slbp] Starting UI processes. Press Ctrl+C to stop.")
-
-    ui_port = os.environ.get("UI_PORT", "5173")
-    webbrowser.open(f"http://localhost:{ui_port}", new=0, autoraise=True)
-
-    try:
-        run_processes(processes)
-    except KeyboardInterrupt:
-        click.echo("[slbp] Stopped.")
+    state = read_state()
+    if state is None:
+        raise click.ClickException(
+            ".slbp-server.json not found. Start the server with `slbp server run` first."
+        )
+    ui_port = state.get("ui_port")
+    if not ui_port:
+        raise click.ClickException(
+            ".slbp-server.json is missing 'ui_port'. Re-run `slbp server run`."
+        )
+    url = f"http://localhost:{ui_port}"
+    click.echo(f"[slbp] Opening {url}")
+    webbrowser.open(url, new=0, autoraise=True)

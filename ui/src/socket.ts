@@ -1,6 +1,17 @@
 import { io, type Socket } from 'socket.io-client'
 
-const FLASK_URL = import.meta.env.VITE_FLASK_URL ?? 'http://localhost:5000'
+// Runtime config injected by serve.cjs via /runtime-config.js takes priority,
+// then the Vite build-time env var, then a sensible default.
+declare global {
+  interface Window {
+    __FLASK_URL__?: string
+  }
+}
+
+const FLASK_URL =
+  (typeof window !== 'undefined' && window.__FLASK_URL__)
+    ? window.__FLASK_URL__
+    : (import.meta.env.VITE_FLASK_URL ?? 'http://localhost:5000')
 
 /**
  * Create a socket.io client for a specific session.

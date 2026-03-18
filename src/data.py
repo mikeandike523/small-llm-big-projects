@@ -1,24 +1,7 @@
-import subprocess
-from pathlib import Path
-
 import mysql.connector
 from mysql.connector import pooling
 
-COMPOSE_DIR = Path(__file__).resolve().parent.parent / "server"
-
-
-def _get_mysql_host_port() -> int:
-    """Use `docker compose port` to discover the host port mapped to mysql:3306."""
-    result = subprocess.run(
-        ["docker", "compose", "port", "mysql", "3306"],
-        cwd=COMPOSE_DIR,
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-    # Output is like "0.0.0.0:12345\n"
-    _, port_str = result.stdout.strip().rsplit(":", 1)
-    return int(port_str)
+from src.utils.docker_compose import get_service_port
 
 
 _pool = None
@@ -38,8 +21,8 @@ def get_pool():
     """
     global _pool
     if _pool is None:
-        port = _get_mysql_host_port()
-        
+        port = get_service_port("mysql", 3306)
+
         _pool = pooling.MySQLConnectionPool(
             pool_name="slbp_pool",
             pool_size=10,
