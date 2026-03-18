@@ -27,7 +27,7 @@ def get_pool():
             pool_name="slbp_pool",
             pool_size=10,
             pool_reset_session=True,
-            host="localhost",
+            host="127.0.0.1",
             port=port,
             database="slbp",
             user="slbp",

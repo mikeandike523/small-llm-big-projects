@@ -156,7 +156,7 @@ def _get_redis() -> redis.Redis:
     global _redis_client
     if _redis_client is None:
         _redis_client = redis.Redis(
-            host=os.environ.get("REDIS_HOST", "localhost"),
+            host=os.environ.get("REDIS_HOST", "127.0.0.1"),
             port=get_service_port("redis", 6379),
             decode_responses=True,
         )

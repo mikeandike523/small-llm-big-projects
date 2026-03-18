@@ -15,6 +15,14 @@ LEAVE_OUT = "SHORT"
 TOOL_SHORT_AMOUNT = 1000
 
 _PISTON_EXECUTE_PATH = "/api/v2/execute"
+_piston_port: int | None = None
+
+
+def _get_piston_port() -> int:
+    global _piston_port
+    if _piston_port is None:
+        _piston_port = get_service_port("piston", 2000)
+    return _piston_port
 
 # Appended after the user's code to invoke main() with JSON-decoded args from
 # stdin and print the JSON-encoded return value to stdout.
@@ -244,8 +252,7 @@ def execute(args: dict, session_data: dict | None = None) -> str:
     # --- build Piston request payload ---
     # resolved_args contains Python objects; json.dumps produces the JSON array
     # that the wrapper will json.loads back into the same objects.
-    piston_port = get_service_port("piston", 2000)
-    piston_url = f"http://localhost:{piston_port}"
+    piston_url = f"http://127.0.0.1:{_get_piston_port()}"
     stdin_data = json.dumps(resolved_args)
 
     payload = {
