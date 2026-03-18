@@ -50,6 +50,9 @@ def load_llm_config() -> dict | None:
             k[len("params.model."):]: kv.get_value(k)
             for k in param_keys if k.startswith("params.model.")
         }
+        extra = model_params.pop("request_extra_params", None)
+        if extra:
+            model_params.update(extra)
         system_params = {
             k[len("params.system."):]: kv.get_value(k)
             for k in param_keys if k.startswith("params.system.")

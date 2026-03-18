@@ -12,6 +12,7 @@ _ALLOWED_PARAMS = {
     "model.top_p",
     "model.top_k",
     "model.max_tokens",
+    "model.request_extra_params",
     "system.return_value_max_chars",
     "system.assistant_strip_truncation_chars",
 }
@@ -48,6 +49,16 @@ _PARAM_DOCS = {
             "The model may stop earlier if it produces an end-of-sequence token."
         ),
     },
+    "model.request_extra_params": {
+        "type": "JSON object",
+        "description": (
+            "Extra parameters merged directly into every LLM API request payload. "
+            "Must be a valid JSON object (curly-brace delimited). "
+            "Useful for non-standard provider params such as "
+            "{\"reasoning\":{\"effort\":\"low\"}} or {\"provider\":{\"order\":[\"Fireworks\"]}}. "
+            "Keys in this object take precedence over other model params."
+        ),
+    },
     "system.return_value_max_chars": {
         "type": "integer > 0",
         "description": (
@@ -80,7 +91,21 @@ def _parse_and_validate(name: str, raw_value: str):
             param_hint="name",
         )
     try:
-        if name == "model.top_k":
+        if name == "model.request_extra_params":
+            try:
+                value = json.loads(raw_value)
+            except json.JSONDecodeError as exc:
+                raise click.BadParameter(
+                    f"model.request_extra_params must be valid JSON: {exc}", param_hint="value"
+                )
+            if not isinstance(value, dict):
+                raise click.BadParameter(
+                    "model.request_extra_params must be a JSON object (got "
+                    + type(value).__name__ + ")",
+                    param_hint="value",
+                )
+            return value
+        elif name == "model.top_k":
             value = int(raw_value)
             if value <= 0:
                 raise click.BadParameter("model.top_k must be > 0", param_hint="value")
