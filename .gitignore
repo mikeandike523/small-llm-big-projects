@@ -16,3 +16,5 @@ scratchpad
 **/.claude
 
 test_results/
+
+.slbp-server.json
