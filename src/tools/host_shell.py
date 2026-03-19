@@ -15,8 +15,8 @@ LEAVE_OUT = "SHORT"
 TOOL_SHORT_AMOUNT = 600
 STREAMS_RESULT = True
 
-MAX_TIMEOUT = 120
-DEFAULT_TIMEOUT = 60
+MAX_TIMEOUT = 300
+DEFAULT_TIMEOUT = 120
 TIMEOUT_HINT = "Consider using a dedicated tool, or running a fast command on the shell"
 
 MAX_HANG_TIMEOUT = 20

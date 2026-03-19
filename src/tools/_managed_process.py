@@ -25,7 +25,7 @@ WAIT_UNTIL_RESPONSE = 0.3  # seconds
 
 # Maximum time (seconds) the LLM is allowed to respond during hang triage.
 # If the LLM exceeds this, treat the process as hung (no decision = hang).
-HANG_DECISION_TIMEOUT = 10  # seconds
+HANG_DECISION_TIMEOUT = 30  # seconds
 
 # Maximum number of WAITING extensions the LLM can grant before we kill
 # the process regardless. Prevents infinite deferral of a truly stuck process.
@@ -62,6 +62,14 @@ def _llm_triage(
         _log(reason)
         hung_flag[0] = True
         proc.kill()
+        # Close pipes immediately so the blocked read() in _read_stdout/_read_stderr
+        # gets an exception and the reader threads exit without waiting for EOF.
+        for pipe in (proc.stdout, proc.stderr):
+            try:
+                if pipe and not pipe.closed:
+                    pipe.close()
+            except Exception:
+                pass
         return False
 
     triage_count[0] += 1
@@ -100,7 +108,7 @@ def _llm_triage(
         r1 = llm.fetch([
             {"role": "system", "content": stage1_system},
             {"role": "user", "content": buffer_snapshot or "(no output yet)"},
-        ], max_tokens=16)
+        ])
         decision1 = r1.content.strip().upper()
     except Exception as exc:
         return _kill(colored(f"LLM error in stage 1: {exc} — killing process", "red"))
@@ -137,7 +145,7 @@ def _llm_triage(
         r2 = llm.fetch([
             {"role": "system", "content": stage2_system},
             {"role": "user", "content": buffer_snapshot or "(no output yet)"},
-        ], max_tokens=32)
+        ])
         decision2 = r2.content.strip()
     except Exception as exc:
         return _kill(colored(f"LLM error in stage 2: {exc} — killing process", "red"))
@@ -375,6 +383,12 @@ def run_command_streaming(
         proc.wait(timeout=timeout)
     except subprocess.TimeoutExpired:
         proc.kill()
+        for pipe in (proc.stdout, proc.stderr):
+            try:
+                if pipe and not pipe.closed:
+                    pipe.close()
+            except Exception:
+                pass
         t_out.join(timeout=2)
         t_err.join(timeout=2)
         t_watch.join(timeout=2)
@@ -389,8 +403,8 @@ def run_command_streaming(
     # Use timeouts on joins: on Windows, orphaned child processes can keep the pipe
     # open after the parent is killed, causing read() to block indefinitely.
     # Watchdog timeout is generous enough to cover an in-flight LLM triage call.
-    t_out.join(timeout=5)
-    t_err.join(timeout=5)
+    t_out.join(timeout=2)
+    t_err.join(timeout=2)
     t_watch.join(timeout=max(5, HANG_DECISION_TIMEOUT + 2))
 
     try:
