@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 import json
 import warnings
 
-import requests
+import httpx
 from termcolor import colored
 
 
@@ -53,10 +53,10 @@ class StreamingLLM:
         self._default_parameters = default_parameters
         self._timeout_s = timeout_s
 
-    def stream(self, messages, on_data: Callable[[dict], None],
-               max_tokens=None, parameters={},
-               tools: Optional[list[dict]] = None,
-               is_cancelled: Optional[Callable[[], bool]] = None) -> StreamResult:
+    async def stream(self, messages, on_data: Callable[[dict], None],
+                     max_tokens=None, parameters={},
+                     tools: Optional[list[dict]] = None) -> StreamResult:
+        """Async streaming LLM call. Cancellable via asyncio task cancellation."""
         payload = {
             "stream": True,
             "stream_options": {"include_usage": True},
@@ -74,84 +74,81 @@ class StreamingLLM:
 
         headers = {"Authorization": f"Bearer {self._token}"}
 
-        with requests.post(
-            self._endpoint.rstrip("/") + "/chat/completions", json=payload, stream=True,
-            timeout=(60, 60), headers=headers
-        ) as r:
-            
-            if r.status_code!=200:
-                print(colored(r.text,"red"))
-                
+        _pending_tool_calls: dict[int, dict] = {}
+        _last_usage: dict | None = None
 
-            r.raise_for_status()
-            r.encoding = 'utf-8'
+        async with httpx.AsyncClient() as client:
+            async with client.stream(
+                "POST",
+                self._endpoint.rstrip("/") + "/chat/completions",
+                json=payload,
+                headers=headers,
+                timeout=None,
+            ) as r:
+                if r.status_code != 200:
+                    body = await r.aread()
+                    print(colored(body.decode("utf-8", errors="replace"), "red"))
+                r.raise_for_status()
 
-            _pending_tool_calls: dict[int, dict] = {}
-            _last_usage: dict | None = None
+                async for line in r.aiter_lines():
+                    if not line:
+                        continue
 
-            for line in r.iter_lines(decode_unicode=True):
-                if is_cancelled and is_cancelled():
-                    break
+                    if not line.startswith("data: "):
+                        continue
 
-                if not line:
-                    continue
+                    raw = line[len("data: "):].strip()
+                    if raw == "[DONE]":
+                        break
 
-                # SSE lines usually look like: "data: {...}" or "data: [DONE]"
-                if not line.startswith("data: "):
-                    continue
+                    try:
+                        obj = json.loads(raw)
+                    except json.JSONDecodeError:
+                        continue
 
-                raw = line[len("data: "):].strip()
-                if raw == "[DONE]":
-                    break
+                    # Capture top-level usage (present in the final usage-only chunk
+                    # when stream_options.include_usage is True).
+                    top_usage = obj.get("usage")
+                    if top_usage:
+                        _last_usage = top_usage
 
-                try:
-                    obj = json.loads(raw)
-                except json.JSONDecodeError:
-                    continue
+                    choices = obj.get("choices") or []
+                    if not choices:
+                        continue
 
-                # Capture top-level usage (present in the final usage-only chunk
-                # when stream_options.include_usage is True).
-                top_usage = obj.get("usage")
-                if top_usage:
-                    _last_usage = top_usage
+                    choice = choices[0]
+                    delta = choice.get("delta", {}) or {}
 
-                choices = obj.get("choices") or []
-                if not choices:
-                    continue
+                    # Handle tool call deltas
+                    tc_deltas = delta.get("tool_calls")
+                    if tc_deltas:
+                        for tc_delta in tc_deltas:
+                            idx = tc_delta.get("index", 0)
+                            if idx not in _pending_tool_calls:
+                                _pending_tool_calls[idx] = {"id": "", "name": "", "arguments": ""}
+                            if tc_delta.get("id"):
+                                _pending_tool_calls[idx]["id"] = tc_delta["id"]
+                            func = tc_delta.get("function", {})
+                            if func.get("name"):
+                                _pending_tool_calls[idx]["name"] = func["name"]
+                            if func.get("arguments"):
+                                _pending_tool_calls[idx]["arguments"] += func["arguments"]
+                        continue
 
-                choice = choices[0]
-                delta = choice.get("delta", {}) or {}
+                    event_data = {
+                        "reasoning": delta.get("reasoning"),
+                        "content": delta.get("content"),
+                    }
 
-                # Handle tool call deltas
-                tc_deltas = delta.get("tool_calls")
-                if tc_deltas:
-                    for tc_delta in tc_deltas:
-                        idx = tc_delta.get("index", 0)
-                        if idx not in _pending_tool_calls:
-                            _pending_tool_calls[idx] = {"id": "", "name": "", "arguments": ""}
-                        if tc_delta.get("id"):
-                            _pending_tool_calls[idx]["id"] = tc_delta["id"]
-                        func = tc_delta.get("function", {})
-                        if func.get("name"):
-                            _pending_tool_calls[idx]["name"] = func["name"]
-                        if func.get("arguments"):
-                            _pending_tool_calls[idx]["arguments"] += func["arguments"]
-                    continue
-
-                event_data = {
-                    "reasoning": delta.get("reasoning"),
-                    "content": delta.get("content"),
-                }
-
-                if all(v is None for v in event_data.values()):
-                    warnings.warn(
-                        colored(
-                            "Warning: got event from server with no useful data.",
-                            "yellow",
+                    if all(v is None for v in event_data.values()):
+                        warnings.warn(
+                            colored(
+                                "Warning: got event from server with no useful data.",
+                                "yellow",
+                            )
                         )
-                    )
-                    continue
-                on_data(event_data)
+                        continue
+                    on_data(event_data)
 
         tool_calls = []
         for entry in _pending_tool_calls.values():
@@ -165,7 +162,8 @@ class StreamingLLM:
 
     def fetch(self, messages, max_tokens=None, parameters={},
               tools: Optional[list[dict]] = None) -> FetchResult:
-        """Non-streaming request — returns the full response in one shot."""
+        """Synchronous (non-streaming) request — used for out-of-band calls (e.g. hang triage).
+        Returns the full response in one shot."""
         payload = {"stream": False}
         payload.update(self._default_parameters)
         if self._model:
@@ -179,12 +177,14 @@ class StreamingLLM:
             payload["tools"] = tools
 
         headers = {"Authorization": f"Bearer {self._token}"}
-        r = requests.post(
-            self._endpoint.rstrip("/") + "/chat/completions",
-            json=payload,
-            timeout=self._timeout_s,
-            headers=headers,
-        )
+        timeout = httpx.Timeout(float(self._timeout_s)) if self._timeout_s else None
+        with httpx.Client() as client:
+            r = client.post(
+                self._endpoint.rstrip("/") + "/chat/completions",
+                json=payload,
+                headers=headers,
+                timeout=timeout,
+            )
         if r.status_code != 200:
             print(colored(r.text, "red"))
         r.raise_for_status()

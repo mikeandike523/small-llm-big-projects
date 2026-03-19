@@ -177,6 +177,7 @@ def run_command_streaming(
     on_log: Callable[[str], None] | None = None,
     tool_name: str = "host_shell",
     timeout_hint: str | None = None,
+    cancel_event: threading.Event | None = None,
 ) -> SubprocessResult:
     """
     Run a command and stream its output via on_chunk as it arrives.
@@ -307,6 +308,19 @@ def run_command_streaming(
     # ------------------------------------------------------------------
     def _watchdog() -> None:
         while not reader_done.wait(timeout=READ_INTERVAL):
+            # Cancel check: honour external cancellation immediately.
+            if cancel_event is not None and cancel_event.is_set():
+                if proc.poll() is None:
+                    proc.kill()
+                    for pipe in (proc.stdout, proc.stderr):
+                        try:
+                            if pipe and not pipe.closed:
+                                pipe.close()
+                        except Exception:
+                            pass
+                hung_flag[0] = True
+                break
+
             now = time.monotonic()
             with lock:
                 idle = now - last_data_time[0]

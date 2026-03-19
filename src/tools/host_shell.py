@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import threading
 
 from src.tools._subprocess import run_command
 from src.tools._managed_process import run_command_streaming
@@ -97,6 +98,22 @@ def needs_approval(args: dict) -> bool:
     return True
 
 
+# ---------------------------------------------------------------------------
+# Active shell output registry — used by the resume handler to emit a
+# shell_output_snapshot when the browser reconnects during a running shell.
+# ---------------------------------------------------------------------------
+
+_active_outputs: dict[str, list[str]] = {}
+_active_outputs_lock = threading.Lock()
+
+
+def get_active_output(session_id: str) -> str | None:
+    """Return the accumulated shell output for a currently-running shell, or None."""
+    with _active_outputs_lock:
+        parts = _active_outputs.get(session_id)
+        return "".join(parts) if parts is not None else None
+
+
 def execute(args: dict, session_data: dict | None = None, special_resources: dict | None = None) -> str:
     if session_data is None:
         session_data = {}
@@ -118,21 +135,49 @@ def execute(args: dict, session_data: dict | None = None, special_resources: dic
     sr = special_resources or {}
     on_chunk = sr.get("on_chunk")
     on_log = sr.get("on_log")
+    cancel_event: threading.Event | None = sr.get("cancel_event")
+    session_id: str | None = sr.get("session_id")
+
     try:
         resolved = shutil.which(command)
         cmd = [resolved or command] + command_args
         if on_chunk is not None:
             autoresponses = get_applicable_rules(cmd) if use_known_autoresponse else None
-            result = run_command_streaming(
-                cmd, timeout, on_chunk,
-                autoresponses=autoresponses,
-                hang_timeout=hang_timeout,
-                on_log=on_log,
-                tool_name="host_shell",
-                timeout_hint=TIMEOUT_HINT,
-            )
+
+            # Wrap on_chunk to track accumulated output for resume snapshots.
+            if session_id:
+                with _active_outputs_lock:
+                    _active_outputs[session_id] = []
+
+                original_on_chunk = on_chunk
+
+                def _tracking_on_chunk(chunk: str, _sid: str = session_id) -> None:
+                    with _active_outputs_lock:
+                        parts = _active_outputs.get(_sid)
+                        if parts is not None:
+                            parts.append(chunk)
+                    original_on_chunk(chunk)
+
+                tracked_on_chunk = _tracking_on_chunk
+            else:
+                tracked_on_chunk = on_chunk
+
+            try:
+                result = run_command_streaming(
+                    cmd, timeout, tracked_on_chunk,
+                    autoresponses=autoresponses,
+                    hang_timeout=hang_timeout,
+                    on_log=on_log,
+                    tool_name="host_shell",
+                    timeout_hint=TIMEOUT_HINT,
+                    cancel_event=cancel_event,
+                )
+            finally:
+                if session_id:
+                    with _active_outputs_lock:
+                        _active_outputs.pop(session_id, None)
         else:
-            result = run_command(cmd, timeout)
+            result = run_command(cmd, timeout, cancel_event=cancel_event)
     except subprocess.TimeoutExpired:
         # Non-streaming path timeout (run_command); no partial output available.
         raise ToolTimeoutError("host_shell", timeout, hint=TIMEOUT_HINT)

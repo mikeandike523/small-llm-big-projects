@@ -1501,7 +1501,7 @@ export default function Chat() {
     }
 
     // Event replay (always emitted after session_state, possibly with empty list)
-    function onEventReplay({ events }: { events: { id: string; type: string; data: Record<string, unknown> }[] }) {
+    function onEventReplay({ events, replay_complete }: { events: { id: string; type: string; data: Record<string, unknown> }[]; replay_complete?: boolean }) {
       if (events && events.length > 0) {
         // Clear interrupted state on any streaming turns before replaying
         setThread(prev => prev.map(t => t.interrupted ? { ...t, interrupted: false, streaming: true } : t))
@@ -1513,8 +1513,31 @@ export default function Chat() {
         updateLastEventId(events[events.length - 1].id)
       }
 
+      // After replay, force scroll to bottom so the user sees the current state.
+      if (replay_complete) {
+        isAtBottom.current = true
+        scrollToBottomIfNeeded()
+      }
+
       // Replay complete — safe to show UI now
       setIsLoadingBackendState(false)
+    }
+
+    // Shell output snapshot: emitted when browser reconnects during a running host_shell.
+    // Replaces the streaming result of the active (resultless) host_shell tool call.
+    function onShellOutputSnapshot({ output }: { output: string }) {
+      setThread(prev => prev.map(t => {
+        if (!t.streaming) return t
+        const exchanges = t.exchanges.map(ex => ({
+          ...ex,
+          toolCalls: ex.toolCalls.map(tc =>
+            tc.name === 'host_shell' && tc.result === undefined
+              ? { ...tc, streamingResult: output }
+              : tc
+          ),
+        }))
+        return { ...t, exchanges }
+      }))
     }
 
     // Live event handlers (mirror replay logic but also track lastEventId)
@@ -1748,6 +1771,7 @@ export default function Chat() {
     socket.on('approval_request', onApprovalRequest)
     socket.on('approval_resolved', onApprovalResolved)
     socket.on('approval_timeout', onApprovalTimeout)
+    socket.on('shell_output_snapshot', onShellOutputSnapshot)
 
     // Connect after all handlers are registered so we never miss the connect event
     socket.connect()
@@ -1782,6 +1806,7 @@ export default function Chat() {
       socket.off('approval_request', onApprovalRequest)
       socket.off('approval_resolved', onApprovalResolved)
       socket.off('approval_timeout', onApprovalTimeout)
+      socket.off('shell_output_snapshot', onShellOutputSnapshot)
       socket.disconnect()
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
