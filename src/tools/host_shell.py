@@ -115,18 +115,28 @@ def execute(args: dict, session_data: dict | None = None, special_resources: dic
     if target in ("session_memory", "project_memory") and not memory_key:
         return f"Error: target={target!r} requires 'memory_key'."
 
-    on_chunk = (special_resources or {}).get("on_chunk")
+    sr = special_resources or {}
+    on_chunk = sr.get("on_chunk")
+    on_log = sr.get("on_log")
     try:
         resolved = shutil.which(command)
         cmd = [resolved or command] + command_args
         if on_chunk is not None:
             autoresponses = get_applicable_rules(cmd) if use_known_autoresponse else None
-            result = run_command_streaming(cmd, timeout, on_chunk, autoresponses=autoresponses, hang_timeout=hang_timeout)
+            result = run_command_streaming(
+                cmd, timeout, on_chunk,
+                autoresponses=autoresponses,
+                hang_timeout=hang_timeout,
+                on_log=on_log,
+                tool_name="host_shell",
+                timeout_hint=TIMEOUT_HINT,
+            )
         else:
             result = run_command(cmd, timeout)
     except subprocess.TimeoutExpired:
+        # Non-streaming path timeout (run_command); no partial output available.
         raise ToolTimeoutError("host_shell", timeout, hint=TIMEOUT_HINT)
-    except ToolHangError:
+    except (ToolTimeoutError, ToolHangError):
         raise
 
     output = str(result)

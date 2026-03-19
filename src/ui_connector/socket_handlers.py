@@ -408,6 +408,7 @@ def _execute_tools(
     """
     special_resources = {
         "emitting_kv_manager": EmittingKVManager(get_pool(), socketio, session_id),
+        "on_log": lambda msg: _emit_backend_log(session_id, msg),
     }
     turn_id = current_turn.id
 
@@ -742,6 +743,7 @@ def handle_run_startup_tool_calls():
 
     special_resources = {
         "emitting_kv_manager": EmittingKVManager(get_pool(), socketio, session_id),
+        "on_log": lambda msg: _emit_backend_log(session_id, msg),
     }
 
     for i, tc_spec in enumerate(_startup_tool_calls):
