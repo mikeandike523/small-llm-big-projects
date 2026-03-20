@@ -4,7 +4,7 @@ import json
 from dataclasses import dataclass, field
 from typing import Any
 
-CURRENT_SCHEMA_VERSION = 2
+CURRENT_SCHEMA_VERSION = 3
 
 
 @dataclass
@@ -128,6 +128,12 @@ class Session:
     completed_turns: list[Turn] = field(default_factory=list)
     current_turn: Turn | None = None
     session_data: dict = field(default_factory=dict)
+    # Per-session context (set at creation time via slbp session new)
+    initial_cwd: str = ""
+    pin_project_memory: bool = True
+    skills_path: str | None = None
+    custom_tools_path: str | None = None
+    startup_tool_calls: list = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -224,6 +230,11 @@ def session_to_dict(session: Session) -> dict:
         "completed_turns": [turn_to_dict(t) for t in session.completed_turns],
         "current_turn": turn_to_dict(session.current_turn) if session.current_turn else None,
         "session_data": session_data_clean,
+        "initial_cwd": session.initial_cwd,
+        "pin_project_memory": session.pin_project_memory,
+        "skills_path": session.skills_path,
+        "custom_tools_path": session.custom_tools_path,
+        "startup_tool_calls": session.startup_tool_calls,
     }
 
 
@@ -235,4 +246,9 @@ def session_from_dict(d: dict) -> Session:
         completed_turns=[turn_from_dict(t) for t in d.get("completed_turns", [])],
         current_turn=turn_from_dict(d["current_turn"]) if d.get("current_turn") else None,
         session_data=d.get("session_data", {}),
+        initial_cwd=d.get("initial_cwd", ""),
+        pin_project_memory=d.get("pin_project_memory", True),
+        skills_path=d.get("skills_path"),
+        custom_tools_path=d.get("custom_tools_path"),
+        startup_tool_calls=d.get("startup_tool_calls", []),
     )

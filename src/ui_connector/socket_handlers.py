@@ -9,16 +9,17 @@ from typing import Any
 
 import httpx
 import redis
-from flask import request
+import uuid as _uuid_module
+from flask import request, jsonify
 from flask_socketio import emit, join_room
 
-from src.ui_connector.app import socketio
+from src.ui_connector.app import app, socketio
 from src.data import get_pool
 
 from src.utils.sql.kv_manager import KVManager
 from src.utils.llm.streaming import StreamingLLM
 from src.utils.llm.factory import load_llm_config
-from src.tools import ALL_TOOL_DEFINITIONS, execute_tool, check_needs_approval, _TOOL_MAP, _custom_tool_plugins
+from src.tools import ALL_TOOL_DEFINITIONS, execute_tool, check_needs_approval, _TOOL_MAP, load_custom_tools
 from src.tools.todo_list import format_items_for_ui as _todo_format_items_for_ui
 from src.logic.system_prompt import build_system_prompt
 from src.utils.conversation_strip import strip_down_messages
@@ -36,47 +37,81 @@ from src.utils.exceptions import ToolHangError, ToolTimeoutError
 from src.utils.docker_compose import get_service_port
 from termcolor import colored
 
-SYSTEM_PROMPT = build_system_prompt(
-    use_custom_skills=os.environ.get("SLBP_LOAD_SKILLS") == "1"
-)
+_BASE_SYSTEM_PROMPT: str = build_system_prompt(use_custom_skills=False)
 
 _env_os = get_os()
 _env_shell = get_shell()
-_initial_cwd: str = os.getcwd()
-_pin_project_memory: bool = os.environ.get("SLBP_PIN_PROJECT_MEMORY", "1") != "0"
 _hotfix_bad_parser: bool = os.environ.get("SLBP_HOTFIX_GPT_OSS_20B_BAD_PARSER") == "1"
 _hotfix_void_call: bool = os.environ.get("SLBP_HOTFIX_GPT_OSS_20B_BAD_VOID_CALL") == "1"
 
+# ---------------------------------------------------------------------------
+# Per-session state caches (rebuilt from session data on load)
+# ---------------------------------------------------------------------------
 
-def _get_default_project() -> str:
-    return _initial_cwd if _pin_project_memory else os.getcwd()
+# session_id -> (tool_definitions, tool_map, plugin_info_list)
+_session_tool_sets: dict[str, tuple[list, dict, list]] = {}
+# session_id -> system_prompt_string
+_session_system_prompts: dict[str, str] = {}
+# session_id -> {initial_cwd, pin_project_memory} — lightweight cache for info handlers
+_session_project_config: dict[str, dict] = {}
 
 
-_skills_enabled = os.environ.get("SLBP_LOAD_SKILLS") == "1"
-_skills_dir: str | None = None
-_skills_files: list[str] = []
-_skills_count: int = 0
-if _skills_enabled:
-    _skills_dir = os.path.join(os.getcwd(), "skills").replace("\\", "/")
-    try:
-        _skills_files = sorted(f for f in os.listdir(_skills_dir) if f.lower().endswith(".md"))
-        _skills_count = len(_skills_files)
-    except (FileNotFoundError, OSError):
-        pass
+def _get_default_project(session_id: str) -> str:
+    cfg = _session_project_config.get(session_id, {})
+    if cfg.get("pin_project_memory", True):
+        return cfg.get("initial_cwd", "") or os.getcwd()
+    return os.getcwd()
 
-_builtin_tool_count: int = len(ALL_TOOL_DEFINITIONS) - sum(p["count"] for p in _custom_tool_plugins)
 
-_startup_tool_calls: list[dict] = []
-if os.environ.get("SLBP_LOAD_STARTUP_TOOL_CALLS") == "1":
-    _startup_path = os.path.join(_initial_cwd, "startup_tool_calls.json")
-    try:
-        with open(_startup_path, "r", encoding="utf-8") as _f:
-            _startup_tool_calls = json.load(_f)
-        print(f"[ui_connector] Loaded {len(_startup_tool_calls)} startup tool call(s) from {_startup_path}", flush=True)
-    except FileNotFoundError:
-        print(f"[ui_connector] startup_tool_calls.json not found at {_startup_path}", flush=True)
-    except Exception as _exc:
-        print(f"[ui_connector] Failed to load startup_tool_calls.json: {_exc}", flush=True)
+def _get_session_tool_defs(session_id: str) -> list[dict]:
+    return _session_tool_sets.get(session_id, (ALL_TOOL_DEFINITIONS, _TOOL_MAP, []))[0]
+
+
+def _get_session_tool_map(session_id: str) -> dict:
+    return _session_tool_sets.get(session_id, (ALL_TOOL_DEFINITIONS, _TOOL_MAP, []))[1]
+
+
+def _get_session_plugins(session_id: str) -> list[dict]:
+    return _session_tool_sets.get(session_id, (ALL_TOOL_DEFINITIONS, _TOOL_MAP, []))[2]
+
+
+def _get_session_system_prompt(session_id: str) -> str:
+    return _session_system_prompts.get(session_id, _BASE_SYSTEM_PROMPT)
+
+
+def _init_session_caches(session: "Session", session_id: str) -> None:
+    """Build per-session tool set and system prompt caches (idempotent — skips if already done)."""
+    if session_id not in _session_tool_sets:
+        if session.custom_tools_path:
+            try:
+                extra_defs, extra_map, plugins = load_custom_tools(
+                    tools_dir=session.custom_tools_path,
+                    workspace_root=session.initial_cwd or None,
+                    session_prefix=session_id[:8],
+                )
+                tool_defs = list(ALL_TOOL_DEFINITIONS) + extra_defs
+                tool_map = {**_TOOL_MAP, **extra_map}
+            except RuntimeError as exc:
+                print(f"[ui_connector] Custom tool loading failed for session {session_id}: {exc}", flush=True)
+                tool_defs = list(ALL_TOOL_DEFINITIONS)
+                tool_map = dict(_TOOL_MAP)
+                plugins = []
+        else:
+            tool_defs = ALL_TOOL_DEFINITIONS
+            tool_map = _TOOL_MAP
+            plugins = []
+        _session_tool_sets[session_id] = (tool_defs, tool_map, plugins)
+
+    if session_id not in _session_system_prompts:
+        _session_system_prompts[session_id] = build_system_prompt(
+            use_custom_skills=bool(session.skills_path),
+            custom_skills_path=session.skills_path,
+        )
+
+    _session_project_config[session_id] = {
+        "initial_cwd": session.initial_cwd,
+        "pin_project_memory": session.pin_project_memory,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -218,6 +253,7 @@ def _load_session(session_id: str) -> Session:
             print(f"[session_memory] _on_memory_change error (key={key!r}, session_id={session_id!r}): {exc}", flush=True)
 
     session.session_data["memory"] = RedisDict(r, mem_hash_key, on_change=_on_memory_change)
+    _init_session_caches(session, session_id)
     return session
 
 
@@ -235,6 +271,87 @@ def _delete_session(session_id: str) -> None:
     r.delete(f"session:{session_id}")
     r.delete(f"session:{session_id}:memory")
     r.delete(f"session:{session_id}:events")
+    _session_tool_sets.pop(session_id, None)
+    _session_system_prompts.pop(session_id, None)
+    _session_project_config.pop(session_id, None)
+
+
+# ---------------------------------------------------------------------------
+# HTTP API — session creation
+# ---------------------------------------------------------------------------
+
+@app.route("/api/sessions", methods=["POST"])
+def api_create_session():
+    """
+    Create a new session with per-session context.
+    Body (JSON):
+      initial_cwd             str   — working directory for this session
+      pin_project_memory      bool  — pin project memory to initial_cwd (default true)
+      skills_path             str?  — path to skills/ directory (or null)
+      custom_tools_path       str?  — path to tools/ directory (or null)
+      startup_tool_calls_path str?  — path to startup_tool_calls.json (or null)
+    Returns:
+      {"session_id": "<uuid>"}
+    """
+    data = request.get_json(force=True, silent=True) or {}
+
+    session_id = str(_uuid_module.uuid4())
+    initial_cwd = data.get("initial_cwd", "")
+    pin_project_memory = bool(data.get("pin_project_memory", True))
+    skills_path = data.get("skills_path") or None
+    custom_tools_path = data.get("custom_tools_path") or None
+    startup_tool_calls_path = data.get("startup_tool_calls_path") or None
+
+    startup_tool_calls: list = []
+    if startup_tool_calls_path:
+        try:
+            with open(startup_tool_calls_path, "r", encoding="utf-8") as fh:
+                startup_tool_calls = json.load(fh)
+        except FileNotFoundError:
+            return jsonify({"error": f"startup_tool_calls.json not found at {startup_tool_calls_path!r}"}), 400
+        except Exception as exc:
+            return jsonify({"error": f"Failed to load startup_tool_calls.json: {exc}"}), 400
+
+    session = Session(
+        session_id=session_id,
+        initial_cwd=initial_cwd,
+        pin_project_memory=pin_project_memory,
+        skills_path=skills_path,
+        custom_tools_path=custom_tools_path,
+        startup_tool_calls=startup_tool_calls,
+    )
+
+    # Pre-validate and cache custom tools so errors surface at creation time.
+    if custom_tools_path:
+        try:
+            extra_defs, extra_map, plugins = load_custom_tools(
+                tools_dir=custom_tools_path,
+                workspace_root=initial_cwd or None,
+                session_prefix=session_id[:8],
+            )
+            _session_tool_sets[session_id] = (
+                list(ALL_TOOL_DEFINITIONS) + extra_defs,
+                {**_TOOL_MAP, **extra_map},
+                plugins,
+            )
+        except RuntimeError as exc:
+            return jsonify({"error": f"Custom tool loading failed: {exc}"}), 400
+    else:
+        _session_tool_sets[session_id] = (ALL_TOOL_DEFINITIONS, _TOOL_MAP, [])
+
+    _session_system_prompts[session_id] = build_system_prompt(
+        use_custom_skills=bool(skills_path),
+        custom_skills_path=skills_path,
+    )
+    _session_project_config[session_id] = {
+        "initial_cwd": initial_cwd,
+        "pin_project_memory": pin_project_memory,
+    }
+
+    _save_session(session_id, session)
+
+    print(f"[ui_connector] Session created: {session_id} cwd={initial_cwd!r}", flush=True)
+    return jsonify({"session_id": session_id})
 
 
 # ---------------------------------------------------------------------------
@@ -252,7 +369,7 @@ def _load_llm_config() -> dict | None:
 
 def _build_llm_payload(session: Session, current_turn: Turn) -> list[dict]:
     """Assemble the message list actually sent to the LLM endpoint."""
-    messages: list[dict] = [{"role": "system", "content": SYSTEM_PROMPT}]
+    messages: list[dict] = [{"role": "system", "content": _get_session_system_prompt(session.session_id)}]
     for turn in session.completed_turns:
         messages.append({"role": "user", "content": turn.condensed_user})
         messages.append({"role": "assistant", "content": turn.condensed_assistant})
@@ -310,6 +427,7 @@ async def _async_run_llm_call(
     session_id: str,
     turn_id: str,
     exchange_idx: int,
+    tool_defs: list[dict] | None = None,
 ) -> tuple[object, str, str]:
     """
     Run one async LLM call (streaming) and emit token events.
@@ -337,7 +455,7 @@ async def _async_run_llm_call(
             if token_count % 50 == 0:
                 _emit_content_snapshot(session_id, turn_id, exchange_idx, acc["content"], acc["reasoning"])
 
-    result = await streaming_llm.stream(payload, on_data, tools=ALL_TOOL_DEFINITIONS)
+    result = await streaming_llm.stream(payload, on_data, tools=(tool_defs if tool_defs is not None else ALL_TOOL_DEFINITIONS))
     _emit_content_snapshot(session_id, turn_id, exchange_idx, acc["content"], acc["reasoning"])
     return result, acc["content"], acc["reasoning"]
 
@@ -366,6 +484,8 @@ async def _async_run_llm_call_with_retry(
     turn_id: str,
     exchange_idx: int,
     assistant_truncation_chars: int | None = None,
+    tool_defs: list[dict] | None = None,
+    tool_map: dict | None = None,
 ) -> tuple[object, str, str]:
     """
     Run an async LLM call; on timeout or context-limit error, strip the payload
@@ -373,7 +493,7 @@ async def _async_run_llm_call_with_retry(
     Returns (result, content_for_history, reasoning).
     """
     try:
-        return await _async_run_llm_call(streaming_llm, payload, session_id, turn_id, exchange_idx)
+        return await _async_run_llm_call(streaming_llm, payload, session_id, turn_id, exchange_idx, tool_defs)
     except Exception as exc:
         if not _is_retryable_error(exc):
             raise
@@ -384,11 +504,12 @@ async def _async_run_llm_call_with_retry(
             colored(f"LLM call failed ({reason}), retrying with stripped context…", "yellow")
         )
 
+        actual_tool_map = tool_map if tool_map is not None else _TOOL_MAP
         stripped = strip_down_messages(
-            payload, _TOOL_MAP,
+            payload, actual_tool_map,
             assistant_truncation_chars=assistant_truncation_chars,
         )
-        return await _async_run_llm_call(streaming_llm, stripped, session_id, turn_id, exchange_idx)
+        return await _async_run_llm_call(streaming_llm, stripped, session_id, turn_id, exchange_idx, tool_defs)
 
 
 # ---------------------------------------------------------------------------
@@ -424,6 +545,7 @@ def _execute_tools(
     current_turn: Turn,
     return_value_max_chars: int | None = None,
     cancel_event: threading.Event | None = None,
+    tool_map: dict | None = None,
 ) -> tuple[bool, str | None, LLMExchange]:
     """
     Execute all tool calls in result, emit events, and build an LLMExchange record.
@@ -438,15 +560,16 @@ def _execute_tools(
     }
     turn_id = current_turn.id
 
+    actual_tool_map = tool_map if tool_map is not None else _TOOL_MAP
     if _hotfix_bad_parser:
         for tc in result.tool_calls:
             if "<|channel|>" in tc.name:
                 clean = tc.name.split("<|channel|>")[0]
-                if clean in _TOOL_MAP:
+                if clean in actual_tool_map:
                     tc.name = clean
     if _hotfix_void_call:
         for tc in result.tool_calls:
-            module = _TOOL_MAP.get(tc.name)
+            module = actual_tool_map.get(tc.name)
             if module is not None:
                 props = getattr(module, "DEFINITION", {}).get("function", {}).get("parameters", {}).get("properties")
                 if not props and tc.arguments:
@@ -469,7 +592,7 @@ def _execute_tools(
 
             tool_record = ToolCallRecord(id=tc.id, name=tc.name, args=tc.arguments)
 
-            if check_needs_approval(tc.name, tc.arguments):
+            if check_needs_approval(tc.name, tc.arguments, tool_map=actual_tool_map):
                 approved = _request_approval(
                     sid, session_id, tc.id, tc.name, tc.arguments,
                     turn_id=turn_id, cancel_event=cancel_event,
@@ -493,7 +616,7 @@ def _execute_tools(
                     return was_impossible, reason, exchange
 
             # Inject streaming callback into special_resources if the tool supports it
-            module = _TOOL_MAP.get(tc.name)
+            module = actual_tool_map.get(tc.name)
             if getattr(module, "STREAMS_RESULT", False):
                 _tc_id = tc.id
                 def _on_chunk(chunk: str, _id: str = _tc_id) -> None:
@@ -510,9 +633,9 @@ def _execute_tools(
                 "id": tc.id, "turn_id": turn_id, "started_at": started_at,
             })
 
-            session.session_data["__pinned_project__"] = _initial_cwd if _pin_project_memory else None
+            session.session_data["__pinned_project__"] = session.initial_cwd if session.pin_project_memory else None
             try:
-                tool_result = execute_tool(tc.name, tc.arguments, session.session_data, special_resources)
+                tool_result = execute_tool(tc.name, tc.arguments, session.session_data, special_resources, tool_map=actual_tool_map)
             except ToolHangError as e:
                 tool_result = f"HANG: {e}"
             except ToolTimeoutError as e:
@@ -599,6 +722,9 @@ async def _async_agent_loop(
     last_assistant_content = ""
     turn_completed = False
 
+    session_tool_defs = _get_session_tool_defs(session_id)
+    session_tool_map = _get_session_tool_map(session_id)
+
     try:
         while True:
             if cancel_event.is_set():
@@ -618,6 +744,8 @@ async def _async_agent_loop(
                     turn_id=turn_id,
                     exchange_idx=exchange_idx,
                     assistant_truncation_chars=assistant_truncation_chars,
+                    tool_defs=session_tool_defs,
+                    tool_map=session_tool_map,
                 )
             except asyncio.CancelledError:
                 was_cancelled = True
@@ -663,6 +791,7 @@ async def _async_agent_loop(
                         _execute_tools,
                         result, content_for_history, session, sid, session_id,
                         current_turn, return_value_max_chars, cancel_event,
+                        session_tool_map,
                     )
                 except asyncio.CancelledError:
                     cancel_event.set()
@@ -821,7 +950,15 @@ def handle_resume_session(data: dict):
     session = _load_session(session_id)
 
     # Emit startup log after session is loaded
-    skills_str = f"enabled ({_skills_count} files)" if _skills_enabled else "disabled"
+    skills_path = session.skills_path
+    if skills_path:
+        try:
+            _skills_count = len([f for f in os.listdir(skills_path) if f.lower().endswith(".md")])
+            skills_str = f"enabled ({_skills_count} files)"
+        except OSError:
+            skills_str = "enabled (path error)"
+    else:
+        skills_str = "disabled"
     _emit_backend_log(
         session_id,
         colored("System started", "green") +
@@ -899,25 +1036,38 @@ def handle_get_pwd():
 def handle_get_skills_info():
     sid = request.sid
     session_id = _sid_to_session_id.get(sid, sid)
-    socketio.emit("skills_info", {
-        "enabled": _skills_enabled, "count": _skills_count,
-        "path": _skills_dir, "files": _skills_files,
-    }, room=session_id)
+    session = _load_session(session_id)
+    skills_path = session.skills_path
+    if skills_path:
+        try:
+            skills_files = sorted(f for f in os.listdir(skills_path) if f.lower().endswith(".md"))
+        except OSError:
+            skills_files = []
+        socketio.emit("skills_info", {
+            "enabled": True, "count": len(skills_files),
+            "path": skills_path.replace("\\", "/"), "files": skills_files,
+        }, room=session_id)
+    else:
+        socketio.emit("skills_info", {
+            "enabled": False, "count": 0, "path": None, "files": [],
+        }, room=session_id)
 
 
 @socketio.on("get_system_prompt")
 def handle_get_system_prompt():
     sid = request.sid
     session_id = _sid_to_session_id.get(sid, sid)
-    socketio.emit("system_prompt", {"text": SYSTEM_PROMPT}, room=session_id)
+    socketio.emit("system_prompt", {"text": _get_session_system_prompt(session_id)}, room=session_id)
 
 
 @socketio.on("get_env_info")
 def handle_get_env_info():
     sid = request.sid
     session_id = _sid_to_session_id.get(sid, sid)
+    cfg = _session_project_config.get(session_id, {})
     socketio.emit("env_info", {
-        "os": _env_os, "shell": _env_shell, "initialCwd": _initial_cwd,
+        "os": _env_os, "shell": _env_shell,
+        "initialCwd": cfg.get("initial_cwd", ""),
     }, room=session_id)
 
 
@@ -945,7 +1095,7 @@ def handle_get_session_memory_value(data: dict):
 def handle_get_project_memory_keys():
     sid = request.sid
     session_id = _sid_to_session_id.get(sid, sid)
-    project = _get_default_project()
+    project = _get_default_project(session_id)
     pool = get_pool()
     with pool.get_connection() as conn:
         keys = KVManager(conn).list_keys(project=project)
@@ -957,7 +1107,7 @@ def handle_get_project_memory_value(data: dict):
     sid = request.sid
     session_id = _sid_to_session_id.get(sid, sid)
     key = data.get("key", "")
-    project = _get_default_project()
+    project = _get_default_project(session_id)
     pool = get_pool()
     with pool.get_connection() as conn:
         value = KVManager(conn).get_value(key, project=project)
@@ -972,13 +1122,16 @@ def handle_get_project_memory_value(data: dict):
 def handle_get_tools_info():
     sid = request.sid
     session_id = _sid_to_session_id.get(sid, sid)
-    custom_enabled = os.environ.get("SLBP_LOAD_CUSTOM_TOOLS") == "1"
+    tool_defs = _get_session_tool_defs(session_id)
+    plugins = _get_session_plugins(session_id)
+    total = len(tool_defs)
+    custom_count = sum(p["count"] for p in plugins)
     socketio.emit("tools_info", {
-        "totalCount": len(ALL_TOOL_DEFINITIONS),
-        "builtinCount": _builtin_tool_count,
+        "totalCount": total,
+        "builtinCount": total - custom_count,
         "builtinPath": "src/tools/",
-        "names": [d["function"]["name"] for d in ALL_TOOL_DEFINITIONS],
-        "customPlugins": _custom_tool_plugins if custom_enabled else None,
+        "names": [d["function"]["name"] for d in tool_defs],
+        "customPlugins": plugins if plugins else None,
     }, room=session_id)
 
 
@@ -1003,11 +1156,12 @@ def handle_run_startup_tool_calls():
         emit("startup_tool_calls_done", {"count": 0})
         return
 
-    if not _startup_tool_calls:
+    session = _load_session(session_id)
+
+    if not session.startup_tool_calls:
         socketio.emit("startup_tool_calls_done", {"count": 0}, room=session_id)
         return
 
-    session = _load_session(session_id)
     if session.startup_done:
         socketio.emit("startup_tool_calls_done", {"count": 0, "skipped": True}, room=session_id)
         return
@@ -1016,17 +1170,18 @@ def handle_run_startup_tool_calls():
         "emitting_kv_manager": EmittingKVManager(get_pool(), socketio, session_id),
         "on_log": lambda msg: _emit_backend_log(session_id, msg),
     }
+    startup_tool_map = _get_session_tool_map(session_id)
 
-    for i, tc_spec in enumerate(_startup_tool_calls):
+    for i, tc_spec in enumerate(session.startup_tool_calls):
         name = tc_spec.get("name", "")
         args = tc_spec.get("args", {})
         tc_id = f"startup-{i}"
 
         socketio.emit("startup_tool_call", {"id": tc_id, "name": name, "args": args}, room=session_id)
 
-        session.session_data["__pinned_project__"] = _initial_cwd if _pin_project_memory else None
+        session.session_data["__pinned_project__"] = session.initial_cwd if session.pin_project_memory else None
         try:
-            result = execute_tool(name, args, session.session_data, special_resources)
+            result = execute_tool(name, args, session.session_data, special_resources, tool_map=startup_tool_map)
         except Exception as exc:
             result = f"Error executing '{name}': {exc}"
 
@@ -1037,7 +1192,7 @@ def handle_run_startup_tool_calls():
 
     session.startup_done = True
     _save_session(session_id, session)
-    socketio.emit("startup_tool_calls_done", {"count": len(_startup_tool_calls)}, room=session_id)
+    socketio.emit("startup_tool_calls_done", {"count": len(session.startup_tool_calls)}, room=session_id)
 
 
 @socketio.on("user_message")
@@ -1059,8 +1214,7 @@ def handle_user_message(data: dict):
 
     turn_id: str = data.get("clientTurnId") or ""
     if not turn_id:
-        import uuid
-        turn_id = str(uuid.uuid4())
+        turn_id = str(_uuid_module.uuid4())
 
     llm_config = _load_llm_config()
     if llm_config is None:
@@ -1084,7 +1238,7 @@ def handle_user_message(data: dict):
     session.session_data["todo_list"] = []
     _emit_and_log(session_id, "todo_list_update", {"items": [], "turn_id": turn_id})
 
-    user_text_with_context = f"{text}\n\n{get_env_context(initial_cwd=_initial_cwd)}"
+    user_text_with_context = f"{text}\n\n{get_env_context(initial_cwd=session.initial_cwd or None)}"
     current_turn = Turn(
         id=turn_id,
         user_text=text,

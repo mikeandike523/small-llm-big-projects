@@ -110,9 +110,9 @@ if _load_excluded:
         _TOOL_MAP.pop(_excl_name, None)
 
 
-def check_needs_approval(name: str, args: dict) -> bool:
+def check_needs_approval(name: str, args: dict, tool_map: dict | None = None) -> bool:
     """Return True if this tool call requires user approval before executing."""
-    module = _TOOL_MAP.get(name)
+    module = (tool_map if tool_map is not None else _TOOL_MAP).get(name)
     if module is None:
         return False
     fn = getattr(module, "needs_approval", None)
@@ -134,8 +134,10 @@ def execute_tool(
     args: dict,
     session_data: dict | None = None,
     special_resources: dict | None = None,
+    tool_map: dict | None = None,
 ) -> str:
-    module = _TOOL_MAP.get(name)
+    actual_map = tool_map if tool_map is not None else _TOOL_MAP
+    module = actual_map.get(name)
     if module is None:
         return f"Unknown tool: {name!r}"
     if session_data is None:
@@ -156,183 +158,143 @@ def execute_tool(
 
 
 # ---------------------------------------------------------------------------
-# Custom tool plugins metadata (populated during loading below)
+# Custom tool plugins metadata (empty at server start; populated per-session)
 # ---------------------------------------------------------------------------
 
 _custom_tool_plugins: list[dict] = []
 
 # ---------------------------------------------------------------------------
-# Custom tool loading — subfolder-per-plugin
+# Custom tool loading — called at session-creation time, not server start
 # ---------------------------------------------------------------------------
 
-if os.environ.get("SLBP_LOAD_CUSTOM_TOOLS") == "1":
-    _custom_tools_root = os.path.join(os.getcwd(), "tools")
+def load_custom_tools(
+    tools_dir: str,
+    workspace_root: str | None = None,
+    session_prefix: str = "",
+) -> tuple[list[dict], dict, list[dict]]:
+    """
+    Load custom tool plugins from tools_dir.
 
-    # Insert cwd into sys.path so plugins can do:  from tools.moltbook.helpers import ...
-    _workspace_root = os.getcwd()
-    sys.path.insert(0, _workspace_root)
+    Returns (extra_definitions, extra_tool_map, plugin_info_list).
+    extra_definitions and extra_tool_map contain only the newly loaded tools —
+    callers merge them with the base ALL_TOOL_DEFINITIONS / _TOOL_MAP.
 
-    # Load optional _exclude_builtin_tools.py from the custom tools root and apply
-    # any additional loading exclusions it declares (same format as src/tools/_exclude_builtin_tools.py).
-    _custom_exclude_file = os.path.join(_custom_tools_root, "_exclude_builtin_tools.py")
-    if os.path.isfile(_custom_exclude_file):
-        try:
-            _custom_excl_spec = importlib.util.spec_from_file_location(
-                "_custom_exclude_builtin_tools", _custom_exclude_file
-            )
-            _custom_excl_module = importlib.util.module_from_spec(_custom_excl_spec)
-            _custom_excl_spec.loader.exec_module(_custom_excl_module)
-            _custom_excl_map: dict = getattr(_custom_excl_module, "EXCLUDE", {})
-        except Exception as _e:
-            print(
-                f"[slbp] ERROR: Failed to load {_custom_exclude_file!r}: {_e}",
-                file=sys.stderr,
-            )
-            sys.exit(1)
+    session_prefix is prepended to sys.modules keys to prevent collisions when
+    multiple sessions load tools from the same path simultaneously.
 
-        _custom_load_excluded: set[str] = {
-            name for name, flags in _custom_excl_map.items()
-            if flags.get("loading") is True
-        }
-        if _custom_load_excluded:
-            ALL_TOOL_DEFINITIONS = [
-                d for d in ALL_TOOL_DEFINITIONS
-                if d.get("function", {}).get("name") not in _custom_load_excluded
-            ]
-            for _excl_name in _custom_load_excluded:
-                _TOOL_MAP.pop(_excl_name, None)
+    Raises RuntimeError on any loading error.
+    """
+    if workspace_root and workspace_root not in sys.path:
+        sys.path.insert(0, workspace_root)
 
-    # Enumerate plugin subdirectories
+    extra_defs: list[dict] = []
+    extra_map: dict = {}
+    plugins: list[dict] = []
+
     try:
-        _plugin_candidates = sorted(
-            entry for entry in os.listdir(_custom_tools_root)
-            if os.path.isdir(os.path.join(_custom_tools_root, entry))
+        plugin_candidates = sorted(
+            entry for entry in os.listdir(tools_dir)
+            if os.path.isdir(os.path.join(tools_dir, entry))
         )
-    except (FileNotFoundError, OSError) as _e:
-        print(
-            f"[slbp] ERROR: --load-custom-tools is set but cannot list tools/ directory"
-            f" at {_custom_tools_root!r}: {_e}",
-            file=sys.stderr,
-        )
-        sys.exit(1)
+    except (FileNotFoundError, OSError) as e:
+        raise RuntimeError(
+            f"Cannot list tools/ directory at {tools_dir!r}: {e}"
+        ) from e
 
-    for _plugin_name in _plugin_candidates:
-        _plugin_dir = os.path.join(_custom_tools_root, _plugin_name)
-        _plugin_init = os.path.join(_plugin_dir, "__init__.py")
+    for plugin_name in plugin_candidates:
+        plugin_dir = os.path.join(tools_dir, plugin_name)
+        plugin_init = os.path.join(plugin_dir, "__init__.py")
 
-        # Skip subdirs without __init__.py (not a plugin package)
-        if not os.path.isfile(_plugin_init):
+        if not os.path.isfile(plugin_init):
             continue
 
-        # Load __init__.py to get TOOL_NAMESPACE
-        _init_module_name = f"_custom_plugin_init_{_plugin_name}"
+        init_module_name = f"_slbp_{session_prefix}_plugin_init_{plugin_name}"
         try:
-            _init_spec = importlib.util.spec_from_file_location(_init_module_name, _plugin_init)
-            _init_module = importlib.util.module_from_spec(_init_spec)
-            _init_spec.loader.exec_module(_init_module)
-        except Exception as _e:
-            print(
-                f"[slbp] ERROR: Failed to import plugin __init__.py at {_plugin_init!r}: {_e}",
-                file=sys.stderr,
+            init_spec = importlib.util.spec_from_file_location(init_module_name, plugin_init)
+            init_module = importlib.util.module_from_spec(init_spec)
+            init_spec.loader.exec_module(init_module)
+        except Exception as e:
+            raise RuntimeError(
+                f"Failed to import plugin __init__.py at {plugin_init!r}: {e}"
+            ) from e
+
+        if not hasattr(init_module, "TOOL_NAMESPACE"):
+            raise RuntimeError(
+                f"Plugin __init__.py at {plugin_init!r} is missing required attribute 'TOOL_NAMESPACE'."
             )
-            sys.exit(1)
 
-        if not hasattr(_init_module, "TOOL_NAMESPACE"):
-            print(
-                f"[slbp] ERROR: Plugin __init__.py at {_plugin_init!r} is missing required"
-                f" attribute 'TOOL_NAMESPACE'.",
-                file=sys.stderr,
-            )
-            sys.exit(1)
+        tool_namespace: str = init_module.TOOL_NAMESPACE
 
-        _tool_namespace: str = _init_module.TOOL_NAMESPACE
-
-        # Enumerate tool files in this plugin directory
         try:
-            _plugin_files = sorted(
-                f for f in os.listdir(_plugin_dir)
+            plugin_files = sorted(
+                f for f in os.listdir(plugin_dir)
                 if f.lower().endswith(".py") and f != "__init__.py"
             )
-        except (FileNotFoundError, OSError) as _e:
-            print(
-                f"[slbp] ERROR: Cannot list plugin directory {_plugin_dir!r}: {_e}",
-                file=sys.stderr,
-            )
-            sys.exit(1)
+        except (FileNotFoundError, OSError) as e:
+            raise RuntimeError(
+                f"Cannot list plugin directory {plugin_dir!r}: {e}"
+            ) from e
 
-        _plugin_tool_count = 0
+        plugin_tool_count = 0
 
-        for _tool_file in _plugin_files:
-            _tool_path = os.path.join(_plugin_dir, _tool_file)
-            _stem = os.path.splitext(_tool_file)[0]
-            _module_name = f"_custom_{_tool_namespace}_{_stem}"
+        for tool_file in plugin_files:
+            tool_path = os.path.join(plugin_dir, tool_file)
+            stem = os.path.splitext(tool_file)[0]
+            module_name = f"_slbp_{session_prefix}_{tool_namespace}_{stem}"
 
-            if _module_name in sys.modules:
-                print(
-                    f"[slbp] ERROR: Custom tool file {_tool_path!r} would be loaded"
-                    f" as module {_module_name!r}, but that name is already in sys.modules."
-                    f" Rename the file to resolve this collision.",
-                    file=sys.stderr,
+            if module_name in sys.modules:
+                raise RuntimeError(
+                    f"Custom tool file {tool_path!r} would be loaded as module {module_name!r},"
+                    f" but that name is already in sys.modules. Rename the file to resolve this collision."
                 )
-                sys.exit(1)
 
             try:
-                _spec = importlib.util.spec_from_file_location(_module_name, _tool_path)
-                _module = importlib.util.module_from_spec(_spec)
-                sys.modules[_module_name] = _module
-                _spec.loader.exec_module(_module)
-            except Exception as _e:
-                sys.modules.pop(_module_name, None)
-                print(
-                    f"[slbp] ERROR: Failed to import custom tool {_tool_path!r}: {_e}",
-                    file=sys.stderr,
-                )
-                sys.exit(1)
+                spec = importlib.util.spec_from_file_location(module_name, tool_path)
+                module = importlib.util.module_from_spec(spec)
+                sys.modules[module_name] = module
+                spec.loader.exec_module(module)
+            except Exception as e:
+                sys.modules.pop(module_name, None)
+                raise RuntimeError(
+                    f"Failed to import custom tool {tool_path!r}: {e}"
+                ) from e
 
-            # No DEFINITION means it's a helper module — silently skip
-            if not hasattr(_module, "DEFINITION"):
-                sys.modules.pop(_module_name, None)
+            if not hasattr(module, "DEFINITION"):
+                sys.modules.pop(module_name, None)
                 continue
 
-            if not hasattr(_module, "execute"):
-                sys.modules.pop(_module_name, None)
-                print(
-                    f"[slbp] ERROR: Custom tool {_tool_path!r} has DEFINITION but is missing"
-                    f" required function 'execute'.",
-                    file=sys.stderr,
+            if not hasattr(module, "execute"):
+                sys.modules.pop(module_name, None)
+                raise RuntimeError(
+                    f"Custom tool {tool_path!r} has DEFINITION but is missing required function 'execute'."
                 )
-                sys.exit(1)
 
-            _base_tool_name = _module.DEFINITION.get("function", {}).get("name")
-            if not _base_tool_name:
-                sys.modules.pop(_module_name, None)
-                print(
-                    f"[slbp] ERROR: Custom tool {_tool_path!r} has a DEFINITION dict"
-                    f" that is missing 'function.name'.",
-                    file=sys.stderr,
+            base_tool_name = module.DEFINITION.get("function", {}).get("name")
+            if not base_tool_name:
+                sys.modules.pop(module_name, None)
+                raise RuntimeError(
+                    f"Custom tool {tool_path!r} has a DEFINITION dict that is missing 'function.name'."
                 )
-                sys.exit(1)
 
-            _tool_name = f"{_tool_namespace}_{_base_tool_name}"
+            tool_name = f"{tool_namespace}_{base_tool_name}"
 
-            if _tool_name in _TOOL_MAP:
-                sys.modules.pop(_module_name, None)
-                print(
-                    f"[slbp] ERROR: Custom tool {_tool_name!r} (from {_tool_path!r})"
-                    f" collides with an existing tool of the same name. Rename the tool to"
-                    f" resolve this collision.",
-                    file=sys.stderr,
+            if tool_name in _TOOL_MAP or tool_name in extra_map:
+                sys.modules.pop(module_name, None)
+                raise RuntimeError(
+                    f"Custom tool {tool_name!r} (from {tool_path!r}) collides with an existing tool."
+                    f" Rename the tool to resolve this collision."
                 )
-                sys.exit(1)
 
-            _prefixed_def = copy.deepcopy(_module.DEFINITION)
-            _prefixed_def["function"]["name"] = _tool_name
-            ALL_TOOL_DEFINITIONS.append(_prefixed_def)
-            _TOOL_MAP[_tool_name] = _module
-            _plugin_tool_count += 1
+            prefixed_def = copy.deepcopy(module.DEFINITION)
+            prefixed_def["function"]["name"] = tool_name
+            extra_defs.append(prefixed_def)
+            extra_map[tool_name] = module
+            plugin_tool_count += 1
 
-        _custom_tool_plugins.append({
-            "name": _plugin_name,
-            "count": _plugin_tool_count,
-            "path": _plugin_dir.replace("\\", "/"),
+        plugins.append({
+            "name": plugin_name,
+            "count": plugin_tool_count,
+            "path": plugin_dir.replace("\\", "/"),
         })
+
+    return extra_defs, extra_map, plugins

@@ -5,7 +5,7 @@ importlib.import_module("src.cli_routes.endpoint")
 importlib.import_module("src.cli_routes.model")
 importlib.import_module("src.cli_routes.param")
 importlib.import_module("src.cli_routes.chat")
-importlib.import_module("src.cli_routes.ui")
+importlib.import_module("src.cli_routes.session")
 importlib.import_module("src.cli_routes.server")
 importlib.import_module("src.cli_routes.service_token")
 
