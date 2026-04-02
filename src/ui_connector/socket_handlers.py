@@ -54,6 +54,8 @@ _session_tool_sets: dict[str, tuple[list, dict, list]] = {}
 _session_system_prompts: dict[str, str] = {}
 # session_id -> {initial_cwd, pin_project_memory} — lightweight cache for info handlers
 _session_project_config: dict[str, dict] = {}
+# session_id -> current working directory for this session (updated by change_pwd tool)
+_session_current_cwd: dict[str, str] = {}
 
 
 def _get_default_project(session_id: str) -> str:
@@ -112,6 +114,11 @@ def _init_session_caches(session: "Session", session_id: str) -> None:
         "initial_cwd": session.initial_cwd,
         "pin_project_memory": session.pin_project_memory,
     }
+
+    # Track per-session CWD; only initialise if not already set so mid-session
+    # navigation (change_pwd) survives across calls to _init_session_caches.
+    if session_id not in _session_current_cwd:
+        _session_current_cwd[session_id] = session.initial_cwd
 
 
 # ---------------------------------------------------------------------------
@@ -274,6 +281,7 @@ def _delete_session(session_id: str) -> None:
     _session_tool_sets.pop(session_id, None)
     _session_system_prompts.pop(session_id, None)
     _session_project_config.pop(session_id, None)
+    _session_current_cwd.pop(session_id, None)
 
 
 # ---------------------------------------------------------------------------
@@ -347,6 +355,7 @@ def api_create_session():
         "initial_cwd": initial_cwd,
         "pin_project_memory": pin_project_memory,
     }
+    _session_current_cwd[session_id] = initial_cwd
 
     _save_session(session_id, session)
 
@@ -657,6 +666,7 @@ def _execute_tools(
                 "started_at": started_at, "finished_at": finished_at,
             })
             if tc.name == "change_pwd":
+                _session_current_cwd[session_id] = os.getcwd()
                 _emit_and_log(session_id, "pwd_update", {"path": os.getcwd().replace("\\", "/")})
             if tc.name == "todo_list":
                 _raw = session.session_data.get("todo_list") or []
@@ -1029,7 +1039,8 @@ def handle_cancel_turn():
 def handle_get_pwd():
     sid = request.sid
     session_id = _sid_to_session_id.get(sid, sid)
-    socketio.emit("pwd_update", {"path": os.getcwd().replace("\\", "/")}, room=session_id)
+    cwd = _session_current_cwd.get(session_id) or os.getcwd()
+    socketio.emit("pwd_update", {"path": cwd.replace("\\", "/")}, room=session_id)
 
 
 @socketio.on("get_skills_info")
@@ -1166,6 +1177,14 @@ def handle_run_startup_tool_calls():
         socketio.emit("startup_tool_calls_done", {"count": 0, "skipped": True}, room=session_id)
         return
 
+    # Navigate to session's CWD before running startup tool calls.
+    _startup_cwd = _session_current_cwd.get(session_id) or session.initial_cwd
+    if _startup_cwd:
+        try:
+            os.chdir(_startup_cwd)
+        except OSError as _chdir_err:
+            socketio.emit("backend_log", {"text": f"Warning: could not chdir to {_startup_cwd!r}: {_chdir_err}"}, room=session_id)
+
     special_resources = {
         "emitting_kv_manager": EmittingKVManager(get_pool(), socketio, session_id),
         "on_log": lambda msg: _emit_backend_log(session_id, msg),
@@ -1188,6 +1207,7 @@ def handle_run_startup_tool_calls():
         socketio.emit("startup_tool_result", {"id": tc_id, "result": result}, room=session_id)
 
         if name == "change_pwd":
+            _session_current_cwd[session_id] = os.getcwd()
             socketio.emit("pwd_update", {"path": os.getcwd().replace("\\", "/")}, room=session_id)
 
     session.startup_done = True
@@ -1237,6 +1257,15 @@ def handle_user_message(data: dict):
     session = _load_session(session_id)
     session.session_data["todo_list"] = []
     _emit_and_log(session_id, "todo_list_update", {"items": [], "turn_id": turn_id})
+
+    # Navigate to this session's current working directory before the turn runs.
+    # _session_current_cwd tracks navigations across turns; falls back to initial_cwd.
+    _effective_cwd = _session_current_cwd.get(session_id) or session.initial_cwd
+    if _effective_cwd:
+        try:
+            os.chdir(_effective_cwd)
+        except OSError as _chdir_err:
+            _emit_backend_log(session_id, f"Warning: could not chdir to {_effective_cwd!r}: {_chdir_err}")
 
     user_text_with_context = f"{text}\n\n{get_env_context(initial_cwd=session.initial_cwd or None)}"
     current_turn = Turn(
