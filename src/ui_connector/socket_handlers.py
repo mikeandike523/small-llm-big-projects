@@ -969,10 +969,12 @@ def handle_resume_session(data: dict):
             skills_str = "enabled (path error)"
     else:
         skills_str = "disabled"
+    _effective_initial_cwd = session.initial_cwd or "(none)"
     _emit_backend_log(
         session_id,
         colored("System started", "green") +
-        f": streaming=True, skills={skills_str}, os={_env_os}, shell={_env_shell}"
+        f": streaming=True, skills={skills_str}, os={_env_os}, shell={_env_shell}, "
+        f"initial_cwd={_effective_initial_cwd!r}"
     )
 
     if session.schema_version != CURRENT_SCHEMA_VERSION:

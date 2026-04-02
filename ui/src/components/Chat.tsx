@@ -1186,6 +1186,13 @@ export default function Chat() {
   // Session ID: read from sessionStorage on mount (idempotent — repeated mounts
   // return the same ID; only generates a new UUID the very first time).
   const [sessionId] = useState<string>(() => {
+    // URL param takes priority (set by `slbp session new` which opens the browser
+    // with ?sessionId=<uuid> pointing to a server-created session).
+    const urlId = new URLSearchParams(window.location.search).get('sessionId')
+    if (urlId) {
+      sessionStorage.setItem('session_id', urlId)
+      return urlId
+    }
     let id = sessionStorage.getItem('session_id')
     if (!id) {
       id = crypto.randomUUID()
