@@ -17,9 +17,6 @@ importers:
       highlight.js:
         specifier: ^11.11.1
         version: 11.11.1
-      lodash.throttle:
-        specifier: ^4.1.1
-        version: 4.1.1
       react:
         specifier: ^18.3.1
         version: 18.3.1
@@ -38,10 +35,10 @@ importers:
       socket.io-client:
         specifier: ^4.8.1
         version: 4.8.3
+      use-stick-to-bottom:
+        specifier: ^1.1.3
+        version: 1.1.3(react@18.3.1)
     devDependencies:
-      '@types/lodash.throttle':
-        specifier: ^4.1.9
-        version: 4.1.9
       '@types/node':
         specifier: ^25.2.3
         version: 25.2.3
@@ -531,12 +528,6 @@ packages:
   '@types/hast@3.0.4':
     resolution: {integrity: sha512-WPs+bbQw5aCj+x6laNGWLH3wviHtoCv/P3+otBhbOhJgG8qtpdAMlTCxLtsTWA7LH1Oh/bFCHsBn0TPS5m30EQ==}
 
-  '@types/lodash.throttle@4.1.9':
-    resolution: {integrity: sha512-PCPVfpfueguWZQB7pJQK890F2scYKoDUL3iM522AptHWn7d5NQmeS/LTEHIcLr5PaTzl3dK2Z0xSUHHTHwaL5g==}
-
-  '@types/lodash@4.17.23':
-    resolution: {integrity: sha512-RDvF6wTulMPjrNdCoYRC8gNR880JNGT8uB+REUpC2Ns4pRqQJhGz90wh7rgdXDPpCczF3VGktDuFGVnz8zP7HA==}
-
   '@types/mdast@4.0.4':
     resolution: {integrity: sha512-kGaNbPh1k7AFzgpud/gMdvIm5xuECykRR+JnWKQno9TAXVa6WIVCGTPvYGekIDL4uwCZQSYbUxNBSb1aUo79oA==}
 
@@ -797,9 +788,6 @@ packages:
 
   linkify-it@3.0.3:
     resolution: {integrity: sha512-ynTsyrFSdE5oZ/O9GEf00kPngmOfVwazR5GKDq6EYfhlpFug3J2zybX56a2PRRpc9P+FuSoGNAwjlbDs9jJBPQ==}
-
-  lodash.throttle@4.1.1:
-    resolution: {integrity: sha512-wIkUCfVKpVsWo3JSZlc+8MB5it+2AN5W8J7YVMST30UrvcQNZ1Okbj+rbVniijTWE6FGYy4XJq/rHkas8qJMLQ==}
 
   longest-streak@3.1.0:
     resolution: {integrity: sha512-9Ri+o0JYgehTaVBBDoMqIl8GXtbWg711O3srftcHhZ0dqnETqLaoIK0x17fUw9rFSlK/0NlsKe0Ahhyl5pXE2g==}
@@ -1129,6 +1117,11 @@ packages:
     hasBin: true
     peerDependencies:
       browserslist: '>= 4.21.0'
+
+  use-stick-to-bottom@1.1.3:
+    resolution: {integrity: sha512-GgRLdeGhxBxpcbrBbEIEoOKUQ9d46/eaSII+wyv1r9Du+NbCn1W/OE+VddefvRP4+5w/1kATN/6g2/BAC/yowQ==}
+    peerDependencies:
+      react: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
 
   vfile-message@4.0.3:
     resolution: {integrity: sha512-QTHzsGd1EhbZs4AsQ20JX1rC3cOlt/IWJruk893DfLRr57lcnOeMaWG4K0JrRta4mIJZKth2Au3mM3u03/JWKw==}
@@ -1593,12 +1586,6 @@ snapshots:
     dependencies:
       '@types/unist': 3.0.3
 
-  '@types/lodash.throttle@4.1.9':
-    dependencies:
-      '@types/lodash': 4.17.23
-
-  '@types/lodash@4.17.23': {}
-
   '@types/mdast@4.0.4':
     dependencies:
       '@types/unist': 3.0.3
@@ -1872,8 +1859,6 @@ snapshots:
   linkify-it@3.0.3:
     dependencies:
       uc.micro: 1.0.6
-
-  lodash.throttle@4.1.1: {}
 
   longest-streak@3.1.0: {}
 
@@ -2498,6 +2483,10 @@ snapshots:
       browserslist: 4.28.1
       escalade: 3.2.0
       picocolors: 1.1.1
+
+  use-stick-to-bottom@1.1.3(react@18.3.1):
+    dependencies:
+      react: 18.3.1
 
   vfile-message@4.0.3:
     dependencies:

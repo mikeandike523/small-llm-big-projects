@@ -4,7 +4,7 @@ import { css, keyframes } from '@emotion/react'
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { type Socket } from 'socket.io-client'
 import { createSocket } from '../socket'
-import { useScrollToBottom } from '../hooks/useScrollToBottom'
+import { useStickToBottom } from 'use-stick-to-bottom'
 import { TextPresenter } from './TextPresenter'
 import { DebugPanel } from './DebugPanel'
 import Ansi from 'ansi-to-react'
@@ -872,13 +872,7 @@ function StartupToolCallsCard({
   done: boolean
   onViewFull: (content: string) => void
 }) {
-  const { containerRef, scrollToBottomIfNeeded, onScroll } = useScrollToBottom<HTMLDivElement>({
-    persistId: 'startup-tools',
-  })
-
-  useEffect(() => {
-    if (!done) scrollToBottomIfNeeded()
-  }, [toolCalls, done, scrollToBottomIfNeeded])
+  const { scrollRef, contentRef } = useStickToBottom()
 
   return (
     <div css={startupCardCss}>
@@ -890,7 +884,7 @@ function StartupToolCallsCard({
         }
       </div>
       <div css={startupCardBodyCss}>
-        <div css={toolCallsGroupCss} ref={containerRef} onScroll={onScroll}>
+        <div css={toolCallsGroupCss} ref={scrollRef}><div ref={contentRef}>
           {toolCalls.map(tc => {
             const hasResult = tc.result !== undefined
             const truncated = hasResult && tc.result!.length > MAX_TOOL_CHARS
@@ -919,7 +913,7 @@ function StartupToolCallsCard({
               </div>
             )
           })}
-        </div>
+        </div></div>
       </div>
     </div>
   )
@@ -1055,8 +1049,7 @@ function TurnContainer({
 }) {
   const { todoItems, approvalItems, impossible, cancelled, exchanges, streaming, isInterimStreaming, interimShowCharCount, interimCharCount, interrupted } = turn
 
-  const { containerRef: toolsRef, scrollToBottomIfNeeded: scrollTools, onScroll: onToolsScroll } =
-    useScrollToBottom<HTMLDivElement>({ persistId: `tools-${turn.id}` })
+  const { scrollRef: toolsScrollRef, contentRef: toolsContentRef } = useStickToBottom()
 
   const approvalScrollRef = useRef<HTMLDivElement>(null)
   const hasPendingApproval = approvalItems.some(a => !a.resolved && !a.timedOut)
@@ -1082,10 +1075,6 @@ function TurnContainer({
 
   const isStreamingFinal = streaming && !isInterimStreaming
   const showPlaceholder = streaming && !displayContent && !isInterimStreaming && allToolCalls.length === 0
-
-  useEffect(() => {
-    if (streaming) scrollTools()
-  }, [allToolCalls.length, streaming, scrollTools])
 
   return (
     <div css={turnContainerCss}>
@@ -1139,10 +1128,12 @@ function TurnContainer({
           </div>
         ) : null}
         {allToolCalls.length > 0 && (
-          <div css={toolCallsGroupCss} ref={toolsRef} onScroll={onToolsScroll}>
-            {allToolCalls.map(tc => (
-              <ToolCallCard key={tc.id} tc={tc} onViewFull={onViewFull} />
-            ))}
+          <div css={toolCallsGroupCss} ref={toolsScrollRef}>
+            <div ref={toolsContentRef}>
+              {allToolCalls.map(tc => (
+                <ToolCallCard key={tc.id} tc={tc} onViewFull={onViewFull} />
+              ))}
+            </div>
           </div>
         )}
       </div>
@@ -1234,16 +1225,7 @@ export default function Chat() {
   const [backendLogs, setBackendLogs] = useState<BackendLogEntry[]>([])
   const [isLoadingBackendState, setIsLoadingBackendState] = useState(false)
 
-  const {
-    containerRef: threadRef,
-    isAtBottom,
-    scrollToBottomIfNeeded,
-    onScroll: handleScroll,
-  } = useScrollToBottom<HTMLDivElement>({ persistId: 'thread' })
-
-  useEffect(() => {
-    scrollToBottomIfNeeded()
-  }, [thread, scrollToBottomIfNeeded])
+  const { scrollRef: threadRef, contentRef: threadContentRef, scrollToBottom } = useStickToBottom()
 
   // ---------------------------------------------------------------------------
   // lastEventId — persisted to sessionStorage
@@ -1529,8 +1511,7 @@ export default function Chat() {
 
       // After replay, force scroll to bottom so the user sees the current state.
       if (replay_complete) {
-        isAtBottom.current = true
-        scrollToBottomIfNeeded()
+        scrollToBottom()
       }
 
       // Replay complete — safe to show UI now
@@ -1562,7 +1543,7 @@ export default function Chat() {
         if (prev.some(t => t.id === id)) return prev
         return [...prev, newTurn(id, data.user_text)]
       })
-      isAtBottom.current = true
+      scrollToBottom()
     }
 
     function onToken(data: { type: 'reasoning' | 'content'; text: string; turn_id?: string }) {
@@ -1859,8 +1840,8 @@ export default function Chat() {
     socket.emit('user_message', { text, clientTurnId })
     setBusy(true)
     setInputText('')
-    isAtBottom.current = true
-  }, [inputText, busy, connected, isAtBottom])
+    scrollToBottom()
+  }, [inputText, busy, connected, scrollToBottom])
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -1921,23 +1902,25 @@ export default function Chat() {
           <span css={statusCss}>{connected ? '●' : '○'} {connected ? 'connected' : 'disconnected'}</span>
           <span css={sessionIdCss} title={sessionId}>session: {sessionId.slice(0, 8)}</span>
         </div>
-        <div css={threadCss} ref={threadRef} onScroll={handleScroll}>
-          {startupToolCalls.length > 0 && (
-            <StartupToolCallsCard
-              toolCalls={startupToolCalls}
-              done={startupDone}
-              onViewFull={setModalContent}
-            />
-          )}
-          {thread.map(turn => (
-            <TurnContainer
-              key={turn.id}
-              turn={turn}
-              onViewFull={setModalContent}
-              onApprove={approve}
-              onDeny={deny}
-            />
-          ))}
+        <div css={threadCss} ref={threadRef}>
+          <div ref={threadContentRef}>
+            {startupToolCalls.length > 0 && (
+              <StartupToolCallsCard
+                toolCalls={startupToolCalls}
+                done={startupDone}
+                onViewFull={setModalContent}
+              />
+            )}
+            {thread.map(turn => (
+              <TurnContainer
+                key={turn.id}
+                turn={turn}
+                onViewFull={setModalContent}
+                onApprove={approve}
+                onDeny={deny}
+              />
+            ))}
+          </div>
         </div>
         <div css={inputBarCss}>
           <textarea

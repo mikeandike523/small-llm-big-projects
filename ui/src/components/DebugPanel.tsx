@@ -3,7 +3,7 @@ import { css, keyframes } from '@emotion/react'
 import { useState, useEffect } from 'react'
 import { type Socket } from 'socket.io-client'
 import Ansi from 'ansi-to-react'
-import { useScrollToBottom } from '../hooks/useScrollToBottom'
+import { useStickToBottom } from 'use-stick-to-bottom'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -726,22 +726,20 @@ function SessionMemTab({
 }
 
 function BackendLogsTab({ logs, visible }: { logs: BackendLogEntry[]; visible: boolean }) {
-  const { containerRef, scrollToBottomIfNeeded, onScroll } = useScrollToBottom<HTMLDivElement>()
-
-  useEffect(() => {
-    scrollToBottomIfNeeded()
-  }, [logs, scrollToBottomIfNeeded])
+  const { scrollRef, contentRef } = useStickToBottom()
 
   return (
-    <div ref={containerRef} css={logsPanelCss(visible)} onScroll={onScroll}>
-      {logs.length === 0
-        ? <div css={placeholderCss}>No logs yet.</div>
-        : logs.map(entry => (
-            <div key={entry.id} css={logLineCss}>
-              <Ansi>{entry.text}</Ansi>
-            </div>
-          ))
-      }
+    <div ref={scrollRef} css={logsPanelCss(visible)}>
+      <div ref={contentRef}>
+        {logs.length === 0
+          ? <div css={placeholderCss}>No logs yet.</div>
+          : logs.map(entry => (
+              <div key={entry.id} css={logLineCss}>
+                <Ansi>{entry.text}</Ansi>
+              </div>
+            ))
+        }
+      </div>
     </div>
   )
 }

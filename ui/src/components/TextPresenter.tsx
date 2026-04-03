@@ -1,10 +1,10 @@
 /** @jsxImportSource @emotion/react */
 import { css } from '@emotion/react'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
-import { useScrollToBottom } from '../hooks/useScrollToBottom'
+import { useStickToBottom } from 'use-stick-to-bottom'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -130,16 +130,11 @@ const markdownCss = css`
 export function TextPresenter({
   content,
   maxHeight,
-  streaming = false,
   initialMode = 'markdown',
   showToggle = true,
 }: TextPresenterProps) {
   const [mode, setMode] = useState<'plain' | 'markdown'>(initialMode)
-  const { containerRef, scrollToBottomIfNeeded, onScroll } = useScrollToBottom<HTMLDivElement>()
-
-  useEffect(() => {
-    if (streaming) scrollToBottomIfNeeded()
-  }, [content, streaming, scrollToBottomIfNeeded])
+  const { scrollRef, contentRef } = useStickToBottom()
 
   return (
     <div>
@@ -153,16 +148,18 @@ export function TextPresenter({
           </button>
         </div>
       )}
-      <div ref={containerRef} css={scrollContainerCss(maxHeight)} onScroll={onScroll}>
-        {mode === 'plain' ? (
-          <div css={plainCss}>{content}</div>
-        ) : (
-          <div css={markdownCss}>
-            <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
-              {content}
-            </ReactMarkdown>
-          </div>
-        )}
+      <div ref={scrollRef} css={scrollContainerCss(maxHeight)}>
+        <div ref={contentRef}>
+          {mode === 'plain' ? (
+            <div css={plainCss}>{content}</div>
+          ) : (
+            <div css={markdownCss}>
+              <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
+                {content}
+              </ReactMarkdown>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   )
