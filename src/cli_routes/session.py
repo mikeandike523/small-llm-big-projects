@@ -40,7 +40,15 @@ def session():
     '--cwd', default=None,
     help='Working directory for this session. Defaults to the current directory.',
 )
-def session_new(pin_project_memory, load_skills, load_tools, load_startup_tool_calls, cwd):
+@click.option(
+    '--interim-response-as-thinking', is_flag=True, default=False,
+    help=(
+        'Emit interim assistant content (between tool call rounds) as reasoning tokens '
+        'so they appear in the thinking panel instead of the char-count bubble. '
+        'Useful for non-thinking models that reason aloud through interim output.'
+    ),
+)
+def session_new(pin_project_memory, load_skills, load_tools, load_startup_tool_calls, cwd, interim_response_as_thinking):
     """
     Create a new agentic session and open it in the default web browser.
 
@@ -67,6 +75,7 @@ def session_new(pin_project_memory, load_skills, load_tools, load_startup_tool_c
     payload: dict = {
         "initial_cwd": session_cwd,
         "pin_project_memory": pin_project_memory,
+        "interim_response_as_thinking": interim_response_as_thinking,
     }
     if load_skills:
         payload["skills_path"] = os.path.join(session_cwd, "skills")

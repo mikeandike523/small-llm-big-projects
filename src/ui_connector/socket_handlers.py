@@ -293,11 +293,12 @@ def api_create_session():
     """
     Create a new session with per-session context.
     Body (JSON):
-      initial_cwd             str   — working directory for this session
-      pin_project_memory      bool  — pin project memory to initial_cwd (default true)
-      skills_path             str?  — path to skills/ directory (or null)
-      custom_tools_path       str?  — path to tools/ directory (or null)
-      startup_tool_calls_path str?  — path to startup_tool_calls.json (or null)
+      initial_cwd                   str   — working directory for this session
+      pin_project_memory            bool  — pin project memory to initial_cwd (default true)
+      skills_path                   str?  — path to skills/ directory (or null)
+      custom_tools_path             str?  — path to tools/ directory (or null)
+      startup_tool_calls_path       str?  — path to startup_tool_calls.json (or null)
+      interim_response_as_thinking  bool  — emit interim content tokens as reasoning (default false)
     Returns:
       {"session_id": "<uuid>"}
     """
@@ -309,6 +310,7 @@ def api_create_session():
     skills_path = data.get("skills_path") or None
     custom_tools_path = data.get("custom_tools_path") or None
     startup_tool_calls_path = data.get("startup_tool_calls_path") or None
+    interim_response_as_thinking = bool(data.get("interim_response_as_thinking", False))
 
     startup_tool_calls: list = []
     if startup_tool_calls_path:
@@ -327,6 +329,7 @@ def api_create_session():
         skills_path=skills_path,
         custom_tools_path=custom_tools_path,
         startup_tool_calls=startup_tool_calls,
+        interim_response_as_thinking=interim_response_as_thinking,
     )
 
     # Pre-validate and cache custom tools so errors surface at creation time.
@@ -437,11 +440,14 @@ async def _async_run_llm_call(
     turn_id: str,
     exchange_idx: int,
     tool_defs: list[dict] | None = None,
+    interim_response_as_thinking: bool = False,
 ) -> tuple[object, str, str]:
     """
     Run one async LLM call (streaming) and emit token events.
     Returns (result, content_for_history, reasoning_accumulated).
     Raises on HTTP/network errors. Immediately cancellable via asyncio task cancellation.
+    When interim_response_as_thinking=True, content tokens are emitted as type "reasoning"
+    so the frontend displays them in the thinking panel instead of counting chars.
     """
     acc: dict[str, str] = {"content": "", "reasoning": ""}
     token_count = 0
@@ -456,8 +462,9 @@ async def _async_run_llm_call(
             }, room=session_id)
         if chunk.get("content"):
             acc["content"] += chunk["content"]
+            emit_type = "reasoning" if interim_response_as_thinking else "content"
             socketio.emit("token", {
-                "type": "content", "text": chunk["content"],
+                "type": emit_type, "text": chunk["content"],
                 "turn_id": turn_id,
             }, room=session_id)
             token_count += 1
@@ -495,6 +502,7 @@ async def _async_run_llm_call_with_retry(
     assistant_truncation_chars: int | None = None,
     tool_defs: list[dict] | None = None,
     tool_map: dict | None = None,
+    interim_response_as_thinking: bool = False,
 ) -> tuple[object, str, str]:
     """
     Run an async LLM call; on timeout or context-limit error, strip the payload
@@ -502,7 +510,7 @@ async def _async_run_llm_call_with_retry(
     Returns (result, content_for_history, reasoning).
     """
     try:
-        return await _async_run_llm_call(streaming_llm, payload, session_id, turn_id, exchange_idx, tool_defs)
+        return await _async_run_llm_call(streaming_llm, payload, session_id, turn_id, exchange_idx, tool_defs, interim_response_as_thinking)
     except Exception as exc:
         if not _is_retryable_error(exc):
             raise
@@ -518,7 +526,7 @@ async def _async_run_llm_call_with_retry(
             payload, actual_tool_map,
             assistant_truncation_chars=assistant_truncation_chars,
         )
-        return await _async_run_llm_call(streaming_llm, stripped, session_id, turn_id, exchange_idx, tool_defs)
+        return await _async_run_llm_call(streaming_llm, stripped, session_id, turn_id, exchange_idx, tool_defs, interim_response_as_thinking)
 
 
 # ---------------------------------------------------------------------------
@@ -741,8 +749,12 @@ async def _async_agent_loop(
                 was_cancelled = True
                 break
 
-            if had_tool_calls and not final_reprompt_done:
-                _emit_and_log(session_id, "begin_interim_stream", {"turn_id": turn_id})
+            is_interim_call = had_tool_calls and not final_reprompt_done
+            if is_interim_call:
+                _emit_and_log(session_id, "begin_interim_stream", {
+                    "turn_id": turn_id,
+                    "show_char_count": not session.interim_response_as_thinking,
+                })
 
             exchange_idx = len(current_turn.exchanges)
             payload = _build_llm_payload(session, current_turn)
@@ -756,6 +768,7 @@ async def _async_agent_loop(
                     assistant_truncation_chars=assistant_truncation_chars,
                     tool_defs=session_tool_defs,
                     tool_map=session_tool_map,
+                    interim_response_as_thinking=session.interim_response_as_thinking and is_interim_call,
                 )
             except asyncio.CancelledError:
                 was_cancelled = True

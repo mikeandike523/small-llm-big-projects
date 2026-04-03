@@ -51,6 +51,7 @@ function newTurn(id: string, userText: string): Turn {
     completed: false,
     streaming: true,
     isInterimStreaming: false,
+    interimShowCharCount: false,
     interimCharCount: 0,
   }
 }
@@ -102,6 +103,7 @@ function backendTurnToFrontendTurn(d: {
     completed: d.completed,
     streaming: false,
     isInterimStreaming: false,
+    interimShowCharCount: false,
     interimCharCount: 0,
   }
 }
@@ -1051,7 +1053,7 @@ function TurnContainer({
   onApprove: (id: string) => void
   onDeny: (id: string) => void
 }) {
-  const { todoItems, approvalItems, impossible, cancelled, exchanges, streaming, isInterimStreaming, interimCharCount, interrupted } = turn
+  const { todoItems, approvalItems, impossible, cancelled, exchanges, streaming, isInterimStreaming, interimShowCharCount, interimCharCount, interrupted } = turn
 
   const { containerRef: toolsRef, scrollToBottomIfNeeded: scrollTools, onScroll: onToolsScroll } =
     useScrollToBottom<HTMLDivElement>({ persistId: `tools-${turn.id}` })
@@ -1090,7 +1092,7 @@ function TurnContainer({
       {/* Left column: user message + AI content + impossible notice */}
       <div css={leftColumnCss}>
         <div css={userBubbleCss}>{turn.userText}</div>
-        {(interimCharCount > 0 || isInterimStreaming) && (
+        {interimShowCharCount && (interimCharCount > 0 || isInterimStreaming) && (
           <div css={interimBubbleCss}>
             AI interim response: {interimCharCount} chars
           </div>
@@ -1340,7 +1342,11 @@ export default function Chat() {
         break
       }
       case 'begin_interim_stream':
-        updateTurn(turnId, t => ({ ...t, isInterimStreaming: true }))
+        updateTurn(turnId, t => ({
+          ...t,
+          isInterimStreaming: true,
+          interimShowCharCount: !!(data.show_char_count),
+        }))
         break
       case 'begin_final_summary':
         updateTurn(turnId, t => ({ ...t, isInterimStreaming: false }))
@@ -1491,6 +1497,7 @@ export default function Chat() {
         )
         inProgress.streaming = true
         inProgress.isInterimStreaming = false
+        inProgress.interimShowCharCount = false
         inProgress.interimCharCount = 0
         turns.push(inProgress)
         setBusy(true)
@@ -1592,10 +1599,14 @@ export default function Chat() {
       })
     }
 
-    function onBeginInterimStream(data: { event_id?: string; turn_id?: string }) {
+    function onBeginInterimStream(data: { event_id?: string; turn_id?: string; show_char_count?: boolean }) {
       if (data.event_id) updateLastEventId(data.event_id)
       const turnId = data.turn_id ?? ''
-      updateTurn(turnId, t => ({ ...t, isInterimStreaming: true }))
+      updateTurn(turnId, t => ({
+        ...t,
+        isInterimStreaming: true,
+        interimShowCharCount: !!(data.show_char_count),
+      }))
     }
 
     function onBeginFinalSummary(data: { event_id?: string; turn_id?: string }) {

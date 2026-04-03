@@ -45,6 +45,7 @@ export interface Turn {
   // Live state (only meaningful on current/in-progress turn):
   streaming: boolean
   isInterimStreaming: boolean
+  interimShowCharCount: boolean
   interimCharCount: number
   interrupted?: boolean
 }

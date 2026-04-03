@@ -134,6 +134,7 @@ class Session:
     skills_path: str | None = None
     custom_tools_path: str | None = None
     startup_tool_calls: list = field(default_factory=list)
+    interim_response_as_thinking: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -235,6 +236,7 @@ def session_to_dict(session: Session) -> dict:
         "skills_path": session.skills_path,
         "custom_tools_path": session.custom_tools_path,
         "startup_tool_calls": session.startup_tool_calls,
+        "interim_response_as_thinking": session.interim_response_as_thinking,
     }
 
 
@@ -251,4 +253,5 @@ def session_from_dict(d: dict) -> Session:
         skills_path=d.get("skills_path"),
         custom_tools_path=d.get("custom_tools_path"),
         startup_tool_calls=d.get("startup_tool_calls", []),
+        interim_response_as_thinking=d.get("interim_response_as_thinking", False),
     )
