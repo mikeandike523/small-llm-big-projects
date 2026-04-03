@@ -18,6 +18,11 @@ def check_eol(text: str) -> str:
       - CRLF  counted first (\\r\\n pairs)
       - LF    \\n not preceded by \\r
       - CR    \\r not followed by \\n
+
+    Note: bare \\r (CR alone) is NOT treated as a line terminator by this
+    toolkit.  It is a regular character used in terminal output (progress
+    bars, spinners, etc.) that happens to appear in captured text.  It is
+    reported here for visibility but is not modified by line operations.
     """
     crlf_count = text.count("\r\n")
     lf_count = len(re.findall(r"(?<!\r)\n", text))
@@ -34,7 +39,10 @@ def check_eol(text: str) -> str:
     if lf_count:
         present.append(f"  LF   (\\n):   {lf_count}")
     if cr_count:
-        present.append(f"  CR   (\\r):   {cr_count}")
+        present.append(
+            f"  CR   (\\r):   {cr_count}"
+            "  (bare carriage return -- treated as a character, not a line terminator)"
+        )
 
     verdict = "uniform" if len(present) == 1 else "mixed"
     lines = [f"Total line endings: {total} ({verdict})"] + present
@@ -42,7 +50,10 @@ def check_eol(text: str) -> str:
 
 
 def normalize_eol(text: str, eol: str) -> str:
-    """Normalize all line endings in *text* to *eol* (one of: lf, crlf, cr).
+    """Normalize line endings in *text* to *eol* (one of: lf, crlf, cr).
+
+    Only CRLF (\\r\\n) and LF (\\n) are recognised as line terminators.
+    Bare \\r is NOT a line terminator and is left unchanged.
 
     Raises ValueError for an unknown eol value.
     """
@@ -50,8 +61,9 @@ def normalize_eol(text: str, eol: str) -> str:
     if target is None:
         raise ValueError(f"Unknown EOL type: {eol!r}. Choose from: {', '.join(EOL_CHOICES)}")
 
-    # Collapse everything to bare LF first, then convert to target.
-    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    # Collapse CRLF to plain LF, then convert LF to the target style.
+    # Bare \r is intentionally NOT touched -- it is a character, not a terminator.
+    text = text.replace("\r\n", "\n")
     if target != "\n":
         text = text.replace("\n", target)
     return text
