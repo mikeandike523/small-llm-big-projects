@@ -20,8 +20,14 @@ MAX_TIMEOUT = 300
 DEFAULT_TIMEOUT = 120
 TIMEOUT_HINT = "Consider using a dedicated tool, or running a fast command on the shell"
 
-MAX_HANG_TIMEOUT = 20
-DEFAULT_HANG_TIMEOUT = 10
+# Seconds of stdout idle before the LLM hang-watchdog fires for the first time.
+# Should be generous enough for slow operations (npm install, compilation, etc.)
+# but short enough to catch genuinely stuck processes.
+DEFAULT_HANG_TIMEOUT = 30
+
+# Agent may request up to this many seconds of idle tolerance via the hang_timeout
+# argument. The overall command timeout is still the hard cap on total runtime.
+MAX_HANG_TIMEOUT = 120
 
 
 DEFINITION = {

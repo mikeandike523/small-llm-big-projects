@@ -13,23 +13,43 @@ from src.utils.exceptions import ToolHangError, ToolTimeoutError
 from src.utils.log import log
 
 
-# How often the watchdog wakes to flush partial output and check autoresponses.
-# This also sets the latency before a non-newline-terminated prompt is flushed
-# to the GUI (one READ_INTERVAL after the pipe goes idle).
+# ---------------------------------------------------------------------------
+# I/O polling constants
+# ---------------------------------------------------------------------------
+
+# How often the watchdog thread wakes to flush partial output and check
+# autoresponses. This also controls how quickly a non-newline-terminated
+# prompt appears in the GUI: it will be flushed one READ_INTERVAL after
+# the pipe goes idle.
 READ_INTERVAL = 0.05  # seconds
 
-# How long the stdout pipe must be idle (no new data) before an autoresponse
-# is triggered. Must be >= READ_INTERVAL. Should be long enough that the
-# process has finished writing the full prompt before we respond.
+# How long stdout must be idle before an autoresponse rule is checked.
+# Must be >= READ_INTERVAL. Give the process enough time to finish printing
+# its full prompt before we fire a response.
 WAIT_UNTIL_RESPONSE = 0.3  # seconds
 
-# Maximum time (seconds) the LLM is allowed to respond during hang triage.
-# If the LLM exceeds this, treat the process as hung (no decision = hang).
+# ---------------------------------------------------------------------------
+# LLM hang-triage constants
+# ---------------------------------------------------------------------------
+
+# Maximum seconds the LLM is given to respond during any single triage call.
+# Applies to both Stage 1 (WAITING/INPUT classification) and Stage 1b
+# (dynamic extension estimate) and Stage 2 (key injection). If the LLM
+# exceeds this budget, the call is treated as failed and we fall back or kill.
 HANG_DECISION_TIMEOUT = 30  # seconds
 
-# Maximum number of WAITING extensions the LLM can grant before we kill
-# the process regardless. Prevents infinite deferral of a truly stuck process.
-MAX_TRIAGE_EXTENSIONS = 5
+# When Stage 1 returns WAITING, Stage 1b asks the LLM how long to wait before
+# checking again. Its answer is clamped to [MIN_EXTENSION_WAIT, MAX_EXTENSION_WAIT].
+# If the answer is outside this range, unparseable, or the LLM call fails, we
+# fall back silently to the caller-supplied hang_timeout value.
+#
+# MIN_EXTENSION_WAIT: shortest extension the LLM may request. Prevents the
+#   watchdog from polling more aggressively than this even if the LLM says so.
+# MAX_EXTENSION_WAIT: longest single extension the LLM may request. Prevents
+#   indefinite deferral — but note the overall command timeout is the true hard
+#   cap; extensions simply control how often we re-check.
+MIN_EXTENSION_WAIT = 15   # seconds
+MAX_EXTENSION_WAIT = 180  # seconds
 
 
 def _llm_triage(
@@ -40,12 +60,20 @@ def _llm_triage(
     lock: threading.Lock,
     on_log: Callable[[str], None] | None,
     triage_count: list[int],
+    hang_timeout: float,
+    start_time: float,
 ) -> bool:
     """
     Out-of-band LLM triage called when idle >= hang_timeout.
 
-    Stage 1: classify output as WAITING (still computing) or INPUT (waiting for a key).
-    Stage 2 (only if INPUT): ask what keys to send; inject them if SIMPLE, kill if EXOTIC.
+    Stage 1:  Classify output as WAITING (still computing) or INPUT (waiting for key).
+    Stage 1b: (WAITING path only) Ask LLM how many seconds to wait before next check.
+              Clamped to [MIN_EXTENSION_WAIT, MAX_EXTENSION_WAIT]; falls back to
+              hang_timeout on any error or out-of-range answer.
+    Stage 2:  (INPUT path only) Ask what keys to send; inject if SIMPLE, kill if EXOTIC.
+
+    The overall command timeout (proc.wait(timeout=...)) is the hard cap on total
+    runtime — this function never needs to enforce a separate extensions limit.
 
     Returns True  -> extended the hang timer (caller should keep watching).
     Returns False -> decided to kill (hung_flag set, proc killed, caller breaks).
@@ -62,8 +90,8 @@ def _llm_triage(
         _log(reason)
         hung_flag[0] = True
         proc.kill()
-        # Close pipes immediately so the blocked read() in _read_stdout/_read_stderr
-        # gets an exception and the reader threads exit without waiting for EOF.
+        # Close pipes immediately so the blocked read() in the reader threads
+        # gets an exception and they exit without waiting for EOF.
         for pipe in (proc.stdout, proc.stderr):
             try:
                 if pipe and not pipe.closed:
@@ -73,17 +101,16 @@ def _llm_triage(
         return False
 
     triage_count[0] += 1
-    attempt = triage_count[0]
-
-    if attempt > MAX_TRIAGE_EXTENSIONS:
-        return _kill(colored(
-            f"Max hang extensions reached ({MAX_TRIAGE_EXTENSIONS}) — killing process", "red"
-        ))
+    extension_num = triage_count[0]
+    elapsed = time.monotonic() - start_time
 
     with lock:
         buffer_snapshot = auto_buffer[0]
 
-    _log(colored(f"Hang triage started (attempt {attempt}/{MAX_TRIAGE_EXTENSIONS})", "yellow"))
+    _log(colored(
+        f"Hang triage extension #{extension_num} — total watched: {elapsed:.0f}s",
+        "yellow",
+    ))
 
     from src.utils.llm.factory import make_llm
     llm = make_llm(timeout_s=HANG_DECISION_TIMEOUT)
@@ -114,13 +141,52 @@ def _llm_triage(
         return _kill(colored(f"LLM error in stage 1: {exc} — killing process", "red"))
 
     if "WAITING" in decision1:
-        _log(colored(
-            f"Stage 1: WAITING — extending hang timer "
-            f"(attempt {attempt}/{MAX_TRIAGE_EXTENSIONS})",
-            "cyan",
-        ))
+        # ------------------------------------------------------------------
+        # Stage 1b — how many seconds to wait before the next triage check?
+        # An independent LLM call; any failure falls back to hang_timeout.
+        # ------------------------------------------------------------------
+        stage1b_system = (
+            "A CLI process is actively working (e.g. installing packages, downloading, "
+            "compiling, running tests) and has produced no new output for a short while.\n"
+            "Based on the output so far, estimate how many more seconds to wait "
+            "before checking on it again.\n"
+            "\n"
+            f"Reply with a single integer between {MIN_EXTENSION_WAIT} and {MAX_EXTENSION_WAIT}. "
+            "Reply with the number only, nothing else."
+        )
+        chosen_wait = hang_timeout  # fallback if call fails or answer is invalid
+        try:
+            r1b = llm.fetch([
+                {"role": "system", "content": stage1b_system},
+                {"role": "user", "content": buffer_snapshot or "(no output yet)"},
+            ])
+            raw = r1b.content.strip()
+            parsed = float(raw)
+            if MIN_EXTENSION_WAIT <= parsed <= MAX_EXTENSION_WAIT:
+                chosen_wait = parsed
+                _log(colored(
+                    f"Stage 1b: next check in {chosen_wait:.0f}s (LLM estimate)",
+                    "cyan",
+                ))
+            else:
+                _log(colored(
+                    f"Stage 1b: LLM returned {parsed:.0f}s which is outside "
+                    f"[{MIN_EXTENSION_WAIT}, {MAX_EXTENSION_WAIT}] "
+                    f"— falling back to {hang_timeout:.0f}s",
+                    "yellow",
+                ))
+        except Exception as exc:
+            _log(colored(
+                f"Stage 1b: LLM error ({exc}) — falling back to {hang_timeout:.0f}s",
+                "yellow",
+            ))
+
+        # Advance last_data_time so the next triage fires in chosen_wait seconds.
+        # The watchdog triggers when (now - last_data_time) >= hang_timeout, so:
+        #   last_data_time = now - hang_timeout + chosen_wait
+        # gives exactly chosen_wait seconds until next triage.
         with lock:
-            last_data_time[0] = time.monotonic()
+            last_data_time[0] = time.monotonic() - hang_timeout + chosen_wait
         return True
 
     _log(colored("Stage 1: INPUT — process is waiting for a key response", "yellow"))
@@ -202,11 +268,18 @@ def run_command_streaming(
         against the rule list; the first matching rule's response is written
         to stdin and the buffer is reset.
 
+    The overall timeout is enforced by proc.wait(timeout=timeout) on the main
+    thread. This is the hard cap — the watchdog triage loop runs independently
+    and can grant as many extensions as it likes within that window.
+
     Raises subprocess.TimeoutExpired if the overall timeout is exceeded.
     Raises ToolHangError if hang_timeout elapses with no output and LLM triage
     decides to kill the process.
     """
     use_auto = bool(autoresponses)
+
+    # Record wall-clock start so triage can report total watched time.
+    start_time = time.monotonic()
 
     # Always open stdin as a pipe so the LLM-based hang triage (Stage 2) can
     # inject key responses even when no static autoresponses are configured.
@@ -240,7 +313,7 @@ def run_command_streaming(
     reader_done = threading.Event()
     hung_flag: list[bool] = [False]
 
-    # Counts how many times triage has granted a WAITING extension.
+    # Simple counter for labelling triage log messages (extension #N).
     triage_count: list[int] = [0]
 
     # ------------------------------------------------------------------
@@ -305,6 +378,11 @@ def run_command_streaming(
     #   1. Flush partial tail to GUI after idle >= READ_INTERVAL
     #   2. Trigger autoresponse after idle >= WAIT_UNTIL_RESPONSE
     #   3. Run LLM triage after idle >= hang_timeout
+    #
+    # Note: the watchdog runs until reader_done is set (stdout EOF) or it
+    # decides to kill the process. The hard runtime cap is proc.wait() on
+    # the main thread, which kills the process on overall timeout regardless
+    # of what the watchdog is doing.
     # ------------------------------------------------------------------
     def _watchdog() -> None:
         while not reader_done.wait(timeout=READ_INTERVAL):
@@ -365,11 +443,14 @@ def run_command_streaming(
             # 3. Hang detection with LLM triage.
             #    When idle exceeds hang_timeout and the process is still alive,
             #    ask the LLM whether to wait longer or kill.
+            #    No extensions cap here — the overall command timeout is the hard limit.
             if hang_timeout is not None and idle >= hang_timeout:
                 if proc.poll() is None:  # only triage if process hasn't already exited
                     if not _llm_triage(
                         proc, auto_buffer, last_data_time, hung_flag,
                         lock, on_log, triage_count,
+                        hang_timeout=hang_timeout,
+                        start_time=start_time,
                     ):
                         break  # triage decided to kill — watchdog exits
                     # triage extended the timer — continue the loop
@@ -416,10 +497,11 @@ def run_command_streaming(
 
     # Use timeouts on joins: on Windows, orphaned child processes can keep the pipe
     # open after the parent is killed, causing read() to block indefinitely.
-    # Watchdog timeout is generous enough to cover an in-flight LLM triage call.
+    # Watchdog timeout must cover an in-flight triage call: Stage 1 + Stage 1b each
+    # cost up to HANG_DECISION_TIMEOUT, so allow 2x plus a small buffer.
     t_out.join(timeout=2)
     t_err.join(timeout=2)
-    t_watch.join(timeout=max(5, HANG_DECISION_TIMEOUT + 2))
+    t_watch.join(timeout=max(5, HANG_DECISION_TIMEOUT * 2 + 5))
 
     try:
         proc.stdin.close()  # type: ignore[union-attr]
