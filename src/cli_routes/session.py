@@ -41,7 +41,7 @@ def session():
     help='Working directory for this session. Defaults to the current directory.',
 )
 @click.option(
-    '--interim-response-as-thinking', is_flag=True, default=False,
+    '--interim-response-as-thinking', '--irat', is_flag=True, default=False,
     help=(
         'Emit interim assistant content (between tool call rounds) as reasoning tokens '
         'so they appear in the thinking panel instead of the char-count bubble. '

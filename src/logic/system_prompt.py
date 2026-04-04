@@ -123,6 +123,9 @@ Look up articles on the internet (e.g. brave_web_search) for up-to-date apis to 
 Save important articles with their date into project memory, so you can check your project memory for api data
 instead of always searching the web.
 
+Before working on a new feature, scan the repo for files like agents.md, AGENTS.md, agents.txt, AGENTS.txt,
+CLAUDE.md, and claude.md. These files provide important context about coding style and development techniques.
+
 """
 ]
 
@@ -215,14 +218,12 @@ Use session_memory(action="set") to store any text you like — prose, JSON, TOM
 CSV, code, or any other format. The memory system treats the value as an opaque
 string and never encodes or decodes it.
 
-Text-based operations (session_memory: append, concat, search_by_regex;
-session_memory_text_editor: read_lines, count_lines, insert_lines, delete_lines,
-replace_lines, insert_chars, replace_chars, delete_chars,
-normalize_eol, check_eol, check_indentation, convert_indentation)
-all require the key to hold a string value. The `text` parameter in
-session_memory(action="append") and
-session_memory_text_editor(action="insert_lines"/"replace_lines"/"insert_chars"/"replace_chars")
-is the literal text to write.
+USE SESSION AND PROJECT MEMORY OFTEN
+
+Use session memory for temproary items, and project memory to take
+notes on important findings and development tips
+
+Taking notes in session and project memory is the key to being a sucessful agent
 
 == Extracting Values from JSON in Session Memory ==
 
