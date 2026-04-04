@@ -183,15 +183,16 @@ def _request_approval(
     args: dict,
     turn_id: str = "",
     cancel_event: threading.Event | None = None,
-) -> bool:
+) -> tuple[bool, str | None]:
     """
     Emit an approval_request event and block until approved, denied, timed out,
     or the turn is cancelled.
-    Returns True if approved, False otherwise.
+    Returns (approved, redirect_message). redirect_message is set when the user
+    chose "Deny & Redirect" and typed a reason/suggestion.
     Polls every 0.5s so cancel_event is checked promptly.
     """
     ev = threading.Event()
-    _pending_approvals[sid] = {"event": ev, "approved": None, "turn_id": turn_id}
+    _pending_approvals[sid] = {"event": ev, "approved": None, "redirect_message": None, "turn_id": turn_id}
     _emit_and_log(session_id, "approval_request", {"id": tool_id, "tool_name": tool_name, "args": args, "turn_id": turn_id})
 
     deadline = time.monotonic() + _APPROVAL_TIMEOUT
@@ -204,13 +205,13 @@ def _request_approval(
     entry = _pending_approvals.pop(sid, {})
 
     if cancel_event is not None and cancel_event.is_set():
-        return False
+        return False, None
 
     if not ev.is_set():
         _emit_and_log(session_id, "approval_timeout", {"id": tool_id, "tool_name": tool_name, "turn_id": turn_id})
-        return False
+        return False, None
 
-    return bool(entry.get("approved", False))
+    return bool(entry.get("approved", False)), entry.get("redirect_message")
 
 
 # ---------------------------------------------------------------------------
@@ -610,7 +611,7 @@ def _execute_tools(
             tool_record = ToolCallRecord(id=tc.id, name=tc.name, args=tc.arguments)
 
             if check_needs_approval(tc.name, tc.arguments, tool_map=actual_tool_map):
-                approved = _request_approval(
+                approved, redirect_message = _request_approval(
                     sid, session_id, tc.id, tc.name, tc.arguments,
                     turn_id=turn_id, cancel_event=cancel_event,
                 )
@@ -627,6 +628,16 @@ def _execute_tools(
                     _emit_and_log(session_id, "tool_result", {
                         "id": tc.id, "result": denial, "turn_id": turn_id,
                     })
+
+                    if redirect_message:
+                        # User chose "Deny & Redirect" — inject their guidance as a user
+                        # continuation so the LLM pivots instead of ending the turn.
+                        exchange.user_continuation = (
+                            f"The user denied the tool call '{tc.name}' and provided this guidance: "
+                            f"{redirect_message}\n\nPlease shift gears and follow the user's suggestion."
+                        )
+                        return False, None, exchange
+
                     reason = f"User denied approval to run '{tc.name}'."
                     session.session_data["_report_impossible"] = reason
                     was_impossible = True
@@ -1170,6 +1181,7 @@ def handle_approval_response(data: dict):
     pending = _pending_approvals.get(sid)
     if pending:
         pending["approved"] = approved
+        pending["redirect_message"] = data.get("redirect_message") or None
         _emit_and_log(session_id, "approval_resolved", {"id": tool_id, "approved": approved, "turn_id": pending.get("turn_id", "")})
         pending["event"].set()
 

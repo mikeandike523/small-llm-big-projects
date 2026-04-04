@@ -634,6 +634,76 @@ const denyButtonCss = css`
   &:hover { background: #7f1d1d; }
 `
 
+const denyRedirectButtonCss = css`
+  flex: 1;
+  background: #78350f;
+  color: #fbbf24;
+  border: 1px solid #92400e;
+  border-radius: 5px;
+  padding: 5px 0;
+  font-size: 12px;
+  cursor: pointer;
+  font-family: 'Consolas', monospace;
+  transition: background 0.15s;
+  &:hover { background: #92400e; }
+`
+
+const redirectInputAreaCss = css`
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-top: 6px;
+`
+
+const redirectTextareaCss = css`
+  width: 100%;
+  box-sizing: border-box;
+  background: #0f0a00;
+  color: #e8d0a0;
+  border: 1px solid #6a4800;
+  border-radius: 4px;
+  padding: 5px 7px;
+  font-size: 12px;
+  font-family: 'Consolas', monospace;
+  resize: vertical;
+  outline: none;
+  &:focus { border-color: #d4a030; }
+`
+
+const redirectActionRowCss = css`
+  display: flex;
+  gap: 5px;
+`
+
+const redirectSendButtonCss = css`
+  flex: 1;
+  background: #14532d;
+  color: #4ade80;
+  border: 1px solid #166534;
+  border-radius: 4px;
+  padding: 4px 0;
+  font-size: 12px;
+  cursor: pointer;
+  font-family: 'Consolas', monospace;
+  transition: background 0.15s;
+  &:hover { background: #166534; }
+  &:disabled { opacity: 0.4; cursor: default; }
+`
+
+const redirectCancelButtonCss = css`
+  flex: 1;
+  background: #1f1f1f;
+  color: #9ca3af;
+  border: 1px solid #374151;
+  border-radius: 4px;
+  padding: 4px 0;
+  font-size: 12px;
+  cursor: pointer;
+  font-family: 'Consolas', monospace;
+  transition: background 0.15s;
+  &:hover { background: #374151; }
+`
+
 const approvalScrollContainerCss = css`
   ${scrollbarCss}
   display: flex;
@@ -1003,11 +1073,16 @@ function ToolApprovalBubble({
   item,
   onApprove,
   onDeny,
+  onDenyWithRedirect,
 }: {
   item: ApprovalItem
   onApprove: (id: string) => void
   onDeny: (id: string) => void
+  onDenyWithRedirect: (id: string, message: string) => void
 }) {
+  const [showRedirect, setShowRedirect] = useState(false)
+  const [redirectText, setRedirectText] = useState('')
+
   if (item.timedOut) {
     return <div css={approvalTimedOutBubbleCss}>⏱ timed out: {item.tool_name}</div>
   }
@@ -1027,7 +1102,35 @@ function ToolApprovalBubble({
       <div css={approvalButtonRowCss}>
         <button css={approveButtonCss} onClick={() => onApprove(item.id)}>Approve</button>
         <button css={denyButtonCss} onClick={() => onDeny(item.id)}>Deny</button>
+        <button css={denyRedirectButtonCss} onClick={() => setShowRedirect(r => !r)}>Deny &amp; Redirect</button>
       </div>
+      {showRedirect && (
+        <div css={redirectInputAreaCss}>
+          <textarea
+            css={redirectTextareaCss}
+            rows={3}
+            placeholder="Explain why and suggest an alternative..."
+            value={redirectText}
+            onChange={e => setRedirectText(e.target.value)}
+            autoFocus
+          />
+          <div css={redirectActionRowCss}>
+            <button
+              css={redirectSendButtonCss}
+              disabled={!redirectText.trim()}
+              onClick={() => onDenyWithRedirect(item.id, redirectText.trim())}
+            >
+              Send
+            </button>
+            <button
+              css={redirectCancelButtonCss}
+              onClick={() => { setShowRedirect(false); setRedirectText('') }}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -1041,11 +1144,13 @@ function TurnContainer({
   onViewFull,
   onApprove,
   onDeny,
+  onDenyWithRedirect,
 }: {
   turn: Turn
   onViewFull: (content: string) => void
   onApprove: (id: string) => void
   onDeny: (id: string) => void
+  onDenyWithRedirect: (id: string, message: string) => void
 }) {
   const { todoItems, approvalItems, impossible, cancelled, exchanges, streaming, isInterimStreaming, interimShowCharCount, interimCharCount, interrupted } = turn
 
@@ -1158,7 +1263,7 @@ function TurnContainer({
           <>
             <div css={approvalScrollContainerCss} ref={approvalScrollRef}>
               {approvalItems.map(item => (
-                <ToolApprovalBubble key={item.id} item={item} onApprove={onApprove} onDeny={onDeny} />
+                <ToolApprovalBubble key={item.id} item={item} onApprove={onApprove} onDeny={onDeny} onDenyWithRedirect={onDenyWithRedirect} />
               ))}
             </div>
             {hasPendingApproval && (
@@ -1823,6 +1928,10 @@ export default function Chat() {
     socket.emit('approval_response', { id, approved: false })
   }, [])
 
+  const denyWithRedirect = useCallback((id: string, message: string) => {
+    socket.emit('approval_response', { id, approved: false, redirect_message: message })
+  }, [])
+
   const cancelTurn = useCallback(() => {
     socket.emit('cancel_turn')
     setCancelling(true)
@@ -1918,6 +2027,7 @@ export default function Chat() {
                 onViewFull={setModalContent}
                 onApprove={approve}
                 onDeny={deny}
+                onDenyWithRedirect={denyWithRedirect}
               />
             ))}
           </div>
