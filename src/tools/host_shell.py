@@ -37,6 +37,8 @@ DEFINITION = {
         "description": (
             "Run a command in the host shell. "
             "Highly privileged — use dedicated tools when possible. "
+            "Commands must be non-interactive; interactive prompts will hang indefinitely (ToolHangError). "
+            "use_known_autoresponse=true (default) handles common prompts automatically. "
             "Result is returned inline (target='return_value', default) "
             "or stored in a memory key (target='session_memory' or 'project_memory')."
         ),

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from io import StringIO
 from typing import List, Optional, Tuple
 
@@ -18,6 +19,7 @@ LEAVE_OUT = "KEEP"  # module-level fallback; per-action policy takes precedence
 LEAVE_OUT_PER_ACTION = {
     "read_lines":          ("SHORT",       500),
     "read_char_range":     ("SHORT",       500),
+    "search_by_regex":     ("SHORT",       500),
     "insert_lines":        ("PARAMS_ONLY", 0),
     "replace_lines":       ("PARAMS_ONLY", 0),
     "delete_lines":        ("PARAMS_ONLY", 0),
@@ -58,7 +60,8 @@ DEFINITION: dict = {
             "apply_patch always respects the patch's own trailing-newline specification "
             "(the '\\ No newline at end of file' marker), independent of disable_auto_eol. "
             "\n\n"
-            "Actions: read_lines, read_char_range, insert_lines, replace_lines, delete_lines, "
+            "Actions: read_lines, read_char_range, search_by_regex, "
+            "insert_lines, replace_lines, delete_lines, "
             "insert_chars, replace_chars, delete_chars, "
             "count_chars, count_lines, check_eol, normalize_eol, "
             "check_indentation, convert_indentation, apply_patch."
@@ -69,7 +72,7 @@ DEFINITION: dict = {
                 "action": {
                     "type": "string",
                     "enum": [
-                        "read_lines", "read_char_range",
+                        "read_lines", "read_char_range", "search_by_regex",
                         "insert_lines", "replace_lines", "delete_lines",
                         "insert_chars", "replace_chars", "delete_chars",
                         "count_chars", "count_lines",
@@ -81,6 +84,7 @@ DEFINITION: dict = {
                         "The operation to perform:\n"
                         "  read_lines          -- read all or a line range (1-based inclusive).\n"
                         "  read_char_range     -- read all or a char range (0-based, end exclusive).\n"
+                        "  search_by_regex     -- search for lines matching a regex; returns matching lines with line numbers.\n"
                         "  insert_lines        -- insert text before a 1-based line number; "
                         "auto-matches EOL style; trailing newline not added unless ensure_newline=true.\n"
                         "  replace_lines       -- replace a 1-based inclusive line range with new text; "
@@ -213,6 +217,10 @@ DEFINITION: dict = {
                         f"Number of spaces per tab stop (used in both directions). "
                         f"Default: {DEFAULT_SPACES_PER_TAB}. Used by: convert_indentation."
                     ),
+                },
+                "pattern": {
+                    "type": "string",
+                    "description": "Python regular expression to search for. Used by: search_by_regex.",
                 },
                 "patch": {
                     "type": "string",
@@ -676,6 +684,46 @@ def _do_delete_chars(args: dict, key: str, value: str, memory: dict) -> str:
     return f"Deleted {len(deleted)} character(s) ({start_char}-{end_char}) from {key!r}."
 
 
+def _do_search_by_regex(args: dict, key: str, value: str) -> str:
+    pattern = args.get("pattern")
+    if not pattern:
+        return "Error: 'pattern' is required for action 'search_by_regex'."
+    try:
+        compiled = re.compile(pattern)
+    except re.error as e:
+        return f"Error: invalid regex pattern: {e}"
+
+    lines = value.split("\n")
+    # Strip one trailing \r per line (CRLF files) without affecting bare \r characters mid-line.
+    content_lines = [ln[:-1] if ln.endswith("\r") else ln for ln in lines]
+    # Remove phantom empty entry from trailing newline.
+    if content_lines and content_lines[-1] == "" and value.endswith("\n"):
+        content_lines = content_lines[:-1]
+
+    total = len(content_lines)
+    if total == 0:
+        return f"Key {key!r} is empty -- no matches."
+
+    width = len(str(total))
+    _BOLD = "\033[1m"
+    _RESET = "\033[0m"
+
+    def _highlight(line: str) -> str:
+        try:
+            return re.sub(pattern, lambda m: f"{_BOLD}{m.group(0)}{_RESET}", line)
+        except re.error:
+            return line
+
+    matches: list[str] = []
+    for i, line in enumerate(content_lines, start=1):
+        if compiled.search(line):
+            matches.append(f"{str(i).rjust(width)} | {_highlight(line)}")
+
+    if not matches:
+        return f"No matches found in {key!r}."
+    return f"{len(matches)} match(es) in {key!r}:\n" + "\n".join(matches)
+
+
 def _do_count_chars(args: dict, key: str, value: str) -> str:
     return str(len(value))
 
@@ -745,6 +793,7 @@ def _do_apply_patch(args: dict, key: str, value: str, memory: dict) -> str:
 _READ_ONLY_ACTIONS = {
     "read_lines": _do_read_lines,
     "read_char_range": _do_read_char_range,
+    "search_by_regex": _do_search_by_regex,
     "count_chars": _do_count_chars,
     "count_lines": _do_count_lines,
     "check_eol": _do_check_eol,

@@ -26,7 +26,14 @@ DEFINITION: dict = {
     "type": "function",
     "function": {
         "name": "basic_web_request",
-        "description": "Make a basic http or https request",
+        "description": (
+            "Make an HTTP or HTTPS request. "
+            "Supports service tokens: list provider names in load_service_tokens and reference "
+            "them in header values as 'service_token:<provider_name>'. "
+            "If exactly one token is loaded and no Authorization header is provided, "
+            "Bearer auth is injected automatically. "
+            "For large responses use target='session_memory' to avoid inline context bloat."
+        ),
         "parameters": {
             "type": "object",
             "properties": {

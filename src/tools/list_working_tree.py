@@ -13,7 +13,10 @@ DEFINITION: dict = {
     "type": "function",
     "function": {
         "name": "list_working_tree",
-        "description": "List all tracked and untracked (non-ignored) files in the git working tree.",
+        "description": (
+            "List all tracked and untracked (non-ignored) files in the git working tree. "
+            "Prefer this over list_dir when inside a git repository."
+        ),
         "parameters": {
             "type": "object",
             "properties": {
