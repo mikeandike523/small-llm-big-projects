@@ -59,6 +59,16 @@ and informs the user. Appropriate when:
 
 Do not use it to avoid difficult steps. Try alternatives first.
 
+When you call report_impossible, the user may choose to redirect you with a message instead of
+ending the turn. If they do, you will receive an injected continuation — treat it as new guidance
+and continue working.
+
+== HUMAN IN THE LOOP ==
+
+ask_human: pause the task and ask the user a question. Use it when you genuinely need
+clarification, a decision, or information you cannot determine yourself. The loop resumes
+once the user answers. Do not use it to confirm steps you are already confident about.
+
 == TOOL ERRORS ==
 
 Tool results that begin with "TIMEOUT:" or "HANG:" indicate the tool timed out or hung.

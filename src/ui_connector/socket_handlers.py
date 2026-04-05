@@ -215,6 +215,95 @@ def _request_approval(
 
 
 # ---------------------------------------------------------------------------
+# report_impossible redirect gate
+# ---------------------------------------------------------------------------
+
+# Maps socket session ID to pending redirect state
+_pending_impossible_redirects: dict[str, dict] = {}
+
+_IMPOSSIBLE_REDIRECT_TIMEOUT = 300  # 5 minutes — user needs time to read and type
+
+
+def _request_impossible_redirect(
+    sid: str,
+    session_id: str,
+    reason: str,
+    turn_id: str,
+    cancel_event: threading.Event | None,
+) -> str | None:
+    """
+    Emit report_impossible_request and block until the user responds or times out.
+    Returns redirect_message (str) if the user chose to redirect the LLM, or
+    None if they chose "Truly Impossible" / timed out / cancelled.
+    """
+    ev = threading.Event()
+    _pending_impossible_redirects[sid] = {
+        "event": ev, "redirect_message": None, "turn_id": turn_id,
+    }
+    _emit_and_log(session_id, "report_impossible_request", {
+        "reason": reason, "turn_id": turn_id,
+    })
+
+    deadline = time.monotonic() + _IMPOSSIBLE_REDIRECT_TIMEOUT
+    while time.monotonic() < deadline:
+        if ev.wait(timeout=0.5):
+            break
+        if cancel_event is not None and cancel_event.is_set():
+            break
+
+    entry = _pending_impossible_redirects.pop(sid, {})
+
+    if cancel_event is not None and cancel_event.is_set():
+        return None
+
+    return entry.get("redirect_message") or None
+
+
+# ---------------------------------------------------------------------------
+# ask_human gate
+# ---------------------------------------------------------------------------
+
+# Maps session_id to pending human input state (keyed by session_id, not sid,
+# because the tool only has access to session_id via special_resources)
+_pending_human_inputs: dict[str, dict] = {}
+
+_ASK_HUMAN_TIMEOUT = 600  # 10 minutes
+
+
+def _request_human_input(
+    session_id: str,
+    question: str,
+    turn_id: str,
+    cancel_event: threading.Event | None,
+) -> str | None:
+    """
+    Emit ask_human_request and block until the user answers, cancels, or times out.
+    Returns the user's answer string, or None on cancel / timeout.
+    """
+    ev = threading.Event()
+    _pending_human_inputs[session_id] = {
+        "event": ev, "answer": None, "turn_id": turn_id,
+    }
+    _emit_and_log(session_id, "ask_human_request", {
+        "question": question, "turn_id": turn_id,
+    })
+
+    deadline = time.monotonic() + _ASK_HUMAN_TIMEOUT
+    while time.monotonic() < deadline:
+        if ev.wait(timeout=0.5):
+            break
+        if cancel_event is not None and cancel_event.is_set():
+            break
+
+    entry = _pending_human_inputs.pop(session_id, {})
+
+    if cancel_event is not None and cancel_event.is_set():
+        return None
+
+    return entry.get("answer")
+
+
+# ---------------------------------------------------------------------------
 # Redis helpers
 # ---------------------------------------------------------------------------
 
@@ -570,13 +659,14 @@ def _execute_tools(
     Returns (was_impossible, reason_or_none, exchange).
     Always pops _report_impossible from session_data before returning.
     """
+    turn_id = current_turn.id
     special_resources = {
         "emitting_kv_manager": EmittingKVManager(get_pool(), socketio, session_id),
         "on_log": lambda msg: _emit_backend_log(session_id, msg),
         "session_id": session_id,
         "cancel_event": cancel_event,
+        "ask_human_fn": lambda q: _request_human_input(session_id, q, turn_id, cancel_event),
     }
-    turn_id = current_turn.id
 
     actual_tool_map = tool_map if tool_map is not None else _TOOL_MAP
     if _hotfix_bad_parser:
@@ -844,6 +934,19 @@ async def _async_agent_loop(
                     break
 
                 if impossible:
+                    redirect = _request_impossible_redirect(
+                        sid, session_id, reason, turn_id, cancel_event,
+                    )
+                    if redirect:
+                        # User chose to redirect — inject guidance and continue the loop.
+                        # exchange is already appended above; mutate it in place.
+                        exchange.user_continuation = (
+                            f"The user thinks your task is possible if you do the following: "
+                            f"{redirect}"
+                        )
+                        _save_session(session_id, session)
+                        continue
+                    # User confirmed truly impossible (or timed out / cancelled).
                     was_impossible = True
                     impossible_reason = reason
                     _emit_and_log(session_id, "report_impossible", {
@@ -1183,6 +1286,28 @@ def handle_approval_response(data: dict):
         pending["approved"] = approved
         pending["redirect_message"] = data.get("redirect_message") or None
         _emit_and_log(session_id, "approval_resolved", {"id": tool_id, "approved": approved, "turn_id": pending.get("turn_id", "")})
+        pending["event"].set()
+
+
+@socketio.on("impossible_redirect_response")
+def handle_impossible_redirect_response(data: dict):
+    sid = request.sid
+    pending = _pending_impossible_redirects.get(sid)
+    if pending:
+        pending["redirect_message"] = data.get("redirect_message") or None
+        pending["event"].set()
+
+
+@socketio.on("ask_human_response")
+def handle_ask_human_response(data: dict):
+    sid = request.sid
+    session_id = _sid_to_session_id.get(sid, sid)
+    pending = _pending_human_inputs.get(session_id)
+    if pending:
+        pending["answer"] = data.get("answer") or ""
+        _emit_and_log(session_id, "ask_human_resolved", {
+            "answer": pending["answer"], "turn_id": pending.get("turn_id", ""),
+        })
         pending["event"].set()
 
 

@@ -8,7 +8,7 @@ import { useStickToBottom } from 'use-stick-to-bottom'
 import { TextPresenter } from './TextPresenter'
 import { DebugPanel } from './DebugPanel'
 import Ansi from 'ansi-to-react'
-import type { Turn, ToolCallEntry, TodoItem, ApprovalItem } from '../types'
+import type { Turn, ToolCallEntry, TodoItem, ApprovalItem, AskHumanItem, ImpossibleRedirectItem } from '../types'
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -48,6 +48,7 @@ function newTurn(id: string, userText: string): Turn {
     exchanges: [],
     todoItems: [],
     approvalItems: [],
+    askHumanItems: [],
     completed: false,
     streaming: true,
     isInterimStreaming: false,
@@ -98,6 +99,7 @@ function backendTurnToFrontendTurn(d: {
     })),
     todoItems: d.todo_snapshot ?? [],
     approvalItems: [],
+    askHumanItems: [],
     impossible: d.was_impossible ? (d.impossible_reason ?? 'Task was impossible') : undefined,
     cancelled: d.was_cancelled ? 'Turn was cancelled' : undefined,
     completed: d.completed,
@@ -756,6 +758,150 @@ const approvalBannerCss = css`
   flex-shrink: 0;
 `
 
+// ---------------------------------------------------------------------------
+// ImpossibleRedirectBubble styles
+// ---------------------------------------------------------------------------
+
+const impossibleRedirectCardCss = css`
+  background: #1a0a00;
+  border: 1px solid #7a3000;
+  border-radius: 8px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+`
+
+const impossibleRedirectReasonCss = css`
+  font-size: 13px;
+  color: #d08040;
+  line-height: 1.5;
+  word-break: break-word;
+`
+
+const impossibleRedirectLabelCss = css`
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: #c05010;
+  font-weight: 600;
+`
+
+const trulyImpossibleButtonCss = css`
+  flex: 1;
+  background: #450a0a;
+  color: #f87171;
+  border: 1px solid #7f1d1d;
+  border-radius: 5px;
+  padding: 5px 0;
+  font-size: 12px;
+  cursor: pointer;
+  font-family: 'Consolas', monospace;
+  transition: background 0.15s;
+  &:hover { background: #7f1d1d; }
+`
+
+const redirectLLMButtonCss = css`
+  flex: 1;
+  background: #78350f;
+  color: #fbbf24;
+  border: 1px solid #92400e;
+  border-radius: 5px;
+  padding: 5px 0;
+  font-size: 12px;
+  cursor: pointer;
+  font-family: 'Consolas', monospace;
+  transition: background 0.15s;
+  &:hover { background: #92400e; }
+`
+
+const impossibleRedirectResolvedCss = (redirected: boolean) => css`
+  font-family: 'Consolas', monospace;
+  font-size: 12px;
+  color: ${redirected ? '#fbbf24' : '#f87171'};
+  padding: 4px 8px;
+  border-radius: 4px;
+  background: ${redirected ? '#1a0e00' : '#1a0a0a'};
+  border: 1px solid ${redirected ? '#92400e' : '#4a1a1a'};
+  word-break: break-word;
+`
+
+// ---------------------------------------------------------------------------
+// AskHumanBubble styles
+// ---------------------------------------------------------------------------
+
+const askHumanCardCss = css`
+  background: #001a1a;
+  border: 1px solid #007a7a;
+  border-radius: 8px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+`
+
+const askHumanLabelCss = css`
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: #40c0c0;
+  font-weight: 600;
+`
+
+const askHumanQuestionCss = css`
+  font-size: 13px;
+  color: #80e0e0;
+  line-height: 1.5;
+  word-break: break-word;
+`
+
+const askHumanTextareaCss = css`
+  width: 100%;
+  box-sizing: border-box;
+  background: #000f0f;
+  color: #a0e8e8;
+  border: 1px solid #007a7a;
+  border-radius: 4px;
+  padding: 5px 7px;
+  font-size: 12px;
+  font-family: 'Consolas', monospace;
+  resize: vertical;
+  outline: none;
+  &:focus { border-color: #40c0c0; }
+`
+
+const askHumanResolvedCss = css`
+  font-family: 'Consolas', monospace;
+  font-size: 12px;
+  color: #4ade80;
+  padding: 4px 8px;
+  border-radius: 4px;
+  background: #0a1a0a;
+  border: 1px solid #1a4a1a;
+  word-break: break-word;
+`
+
+const _askHumanPulse = keyframes`
+  0%, 100% { opacity: 0.75; box-shadow: 0 0 6px #40c0c060; }
+  50%       { opacity: 1;    box-shadow: 0 0 18px #40c0c0b0; }
+`
+
+const askHumanBannerCss = css`
+  background: #001a1a;
+  border: 1px solid #007a7a;
+  border-radius: 6px;
+  padding: 5px 10px;
+  font-family: 'Consolas', monospace;
+  font-size: 11px;
+  font-weight: 600;
+  color: #40c0c0;
+  text-align: center;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  animation: ${_askHumanPulse} 1.8s ease-in-out infinite;
+  flex-shrink: 0;
+`
+
 const loadingOverlayCss = css`
   position: fixed;
   inset: 0;
@@ -1136,6 +1282,124 @@ function ToolApprovalBubble({
 }
 
 // ---------------------------------------------------------------------------
+// ImpossibleRedirectBubble
+// ---------------------------------------------------------------------------
+
+function ImpossibleRedirectBubble({
+  item,
+  onTrulyImpossible,
+  onRedirect,
+}: {
+  item: ImpossibleRedirectItem
+  onTrulyImpossible: () => void
+  onRedirect: (message: string) => void
+}) {
+  const [showRedirect, setShowRedirect] = useState(false)
+  const [redirectText, setRedirectText] = useState('')
+
+  if (item.state === 'ended') {
+    return (
+      <div css={impossibleRedirectResolvedCss(false)}>
+        ✗ Confirmed impossible
+      </div>
+    )
+  }
+  if (item.state === 'redirected') {
+    return (
+      <div css={impossibleRedirectResolvedCss(true)}>
+        ↪ Redirected: {item.redirectText}
+      </div>
+    )
+  }
+  return (
+    <div css={impossibleRedirectCardCss}>
+      <span css={impossibleRedirectLabelCss}>Task impossible</span>
+      <span css={impossibleRedirectReasonCss}>{item.reason}</span>
+      <div css={approvalButtonRowCss}>
+        <button css={trulyImpossibleButtonCss} onClick={onTrulyImpossible}>Truly Impossible</button>
+        <button css={redirectLLMButtonCss} onClick={() => setShowRedirect(r => !r)}>Redirect LLM</button>
+      </div>
+      {showRedirect && (
+        <div css={redirectInputAreaCss}>
+          <textarea
+            css={redirectTextareaCss}
+            rows={3}
+            placeholder="Explain how to proceed..."
+            value={redirectText}
+            onChange={e => setRedirectText(e.target.value)}
+            autoFocus
+          />
+          <div css={redirectActionRowCss}>
+            <button
+              css={redirectSendButtonCss}
+              disabled={!redirectText.trim()}
+              onClick={() => onRedirect(redirectText.trim())}
+            >
+              Send
+            </button>
+            <button
+              css={redirectCancelButtonCss}
+              onClick={() => { setShowRedirect(false); setRedirectText('') }}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// AskHumanBubble
+// ---------------------------------------------------------------------------
+
+function AskHumanBubble({
+  item,
+  idx,
+  onAnswer,
+}: {
+  item: AskHumanItem
+  idx: number
+  onAnswer: (idx: number, answer: string) => void
+}) {
+  const [answerText, setAnswerText] = useState('')
+
+  if (item.state === 'answered') {
+    return (
+      <div css={askHumanCardCss}>
+        <span css={askHumanLabelCss}>Question answered</span>
+        <span css={askHumanQuestionCss}>{item.question}</span>
+        <div css={askHumanResolvedCss}>↩ {item.answer}</div>
+      </div>
+    )
+  }
+  return (
+    <div css={askHumanCardCss}>
+      <span css={askHumanLabelCss}>Question from AI</span>
+      <span css={askHumanQuestionCss}>{item.question}</span>
+      <textarea
+        css={askHumanTextareaCss}
+        rows={3}
+        placeholder="Type your answer..."
+        value={answerText}
+        onChange={e => setAnswerText(e.target.value)}
+        autoFocus
+      />
+      <div css={redirectActionRowCss}>
+        <button
+          css={redirectSendButtonCss}
+          disabled={!answerText.trim()}
+          onClick={() => onAnswer(idx, answerText.trim())}
+        >
+          Send
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // TurnContainer
 // ---------------------------------------------------------------------------
 
@@ -1145,19 +1409,26 @@ function TurnContainer({
   onApprove,
   onDeny,
   onDenyWithRedirect,
+  onTrulyImpossible,
+  onImpossibleRedirect,
+  onAskHumanAnswer,
 }: {
   turn: Turn
   onViewFull: (content: string) => void
   onApprove: (id: string) => void
   onDeny: (id: string) => void
   onDenyWithRedirect: (id: string, message: string) => void
+  onTrulyImpossible: (turnId: string) => void
+  onImpossibleRedirect: (turnId: string, message: string) => void
+  onAskHumanAnswer: (turnId: string, idx: number, answer: string) => void
 }) {
-  const { todoItems, approvalItems, impossible, cancelled, exchanges, streaming, isInterimStreaming, interimShowCharCount, interimCharCount, interrupted } = turn
+  const { todoItems, approvalItems, askHumanItems, impossibleRedirectItem, impossible, cancelled, exchanges, streaming, isInterimStreaming, interimShowCharCount, interimCharCount, interrupted } = turn
 
   const { scrollRef: toolsScrollRef, contentRef: toolsContentRef } = useStickToBottom()
 
   const approvalScrollRef = useRef<HTMLDivElement>(null)
   const hasPendingApproval = approvalItems.some(a => !a.resolved && !a.timedOut)
+  const hasPendingAskHuman = askHumanItems.some(i => i.state === 'pending')
   useEffect(() => {
     if (approvalScrollRef.current) {
       approvalScrollRef.current.scrollTop = approvalScrollRef.current.scrollHeight
@@ -1203,12 +1474,18 @@ function TurnContainer({
         {showPlaceholder && (
           <div css={streamingPlaceholderCss}>…</div>
         )}
-        {impossible && (
+        {impossibleRedirectItem ? (
+          <ImpossibleRedirectBubble
+            item={impossibleRedirectItem}
+            onTrulyImpossible={() => onTrulyImpossible(turn.id)}
+            onRedirect={(msg) => onImpossibleRedirect(turn.id, msg)}
+          />
+        ) : impossible ? (
           <div css={impossibleBubbleCss}>
             <span css={impossibleLabelCss}>Task impossible</span>
             <span css={impossibleReasonCss}>{impossible}</span>
           </div>
-        )}
+        ) : null}
         {cancelled && (
           <div css={cancelledBubbleCss}>
             <span css={cancelledLabelCss}>Turn cancelled</span>
@@ -1254,10 +1531,10 @@ function TurnContainer({
         }
       </div>
 
-      {/* Fourth column: approval */}
+      {/* Fourth column: approval + ask_human */}
       <div css={approvalColumnCss}>
         <div css={approvalHeaderCss}>Approval</div>
-        {approvalItems.length === 0 ? (
+        {approvalItems.length === 0 && askHumanItems.length === 0 ? (
           <div css={approvalEmptyCss}>—</div>
         ) : (
           <>
@@ -1265,9 +1542,20 @@ function TurnContainer({
               {approvalItems.map(item => (
                 <ToolApprovalBubble key={item.id} item={item} onApprove={onApprove} onDeny={onDeny} onDenyWithRedirect={onDenyWithRedirect} />
               ))}
+              {askHumanItems.map((item, idx) => (
+                <AskHumanBubble
+                  key={idx}
+                  item={item}
+                  idx={idx}
+                  onAnswer={(i, answer) => onAskHumanAnswer(turn.id, i, answer)}
+                />
+              ))}
             </div>
             {hasPendingApproval && (
               <div css={approvalBannerCss}>⚠ Approval needed</div>
+            )}
+            {hasPendingAskHuman && (
+              <div css={askHumanBannerCss}>? Answer needed</div>
             )}
           </>
         )}
@@ -1501,6 +1789,24 @@ export default function Chat() {
           }
           return { ...t, completed: true, streaming: false, exchanges }
         })
+        break
+      }
+      case 'report_impossible_request':
+        updateTurn(turnId, t => ({
+          ...t,
+          impossibleRedirectItem: { reason: data.reason as string, state: 'pending' },
+        }))
+        break
+      case 'ask_human_request': {
+        const question = data.question as string
+        updateTurn(turnId, t => ({
+          ...t,
+          askHumanItems: [...(t.askHumanItems ?? []), { question, state: 'pending' }],
+        }))
+        break
+      }
+      case 'ask_human_resolved': {
+        // Resolved by user action; no state change needed during replay
         break
       }
       case 'pwd_update':
@@ -1846,6 +2152,30 @@ export default function Chat() {
       }))
     }
 
+    function onReportImpossibleRequest(data: { event_id?: string; turn_id?: string; reason: string }) {
+      if (data.event_id) updateLastEventId(data.event_id)
+      const turnId = data.turn_id ?? ''
+      updateTurn(turnId, t => ({
+        ...t,
+        impossibleRedirectItem: { reason: data.reason, state: 'pending' },
+      }))
+    }
+
+    function onAskHumanRequest(data: { event_id?: string; turn_id?: string; question: string }) {
+      if (data.event_id) updateLastEventId(data.event_id)
+      const turnId = data.turn_id ?? ''
+      updateTurn(turnId, t => ({
+        ...t,
+        askHumanItems: [...(t.askHumanItems ?? []), { question: data.question, state: 'pending' }],
+      }))
+    }
+
+    function onAskHumanResolved(data: { event_id?: string; turn_id?: string; answer: string }) {
+      if (data.event_id) updateLastEventId(data.event_id)
+      // The turn state is updated optimistically when the user clicks Send,
+      // so this event mainly serves as a confirmation log; no state change needed.
+    }
+
     socket.on('connect', onConnect)
     socket.on('disconnect', onDisconnect)
     socket.on('pwd_update', onPwdUpdate)
@@ -1875,6 +2205,9 @@ export default function Chat() {
     socket.on('approval_request', onApprovalRequest)
     socket.on('approval_resolved', onApprovalResolved)
     socket.on('approval_timeout', onApprovalTimeout)
+    socket.on('report_impossible_request', onReportImpossibleRequest)
+    socket.on('ask_human_request', onAskHumanRequest)
+    socket.on('ask_human_resolved', onAskHumanResolved)
     socket.on('shell_output_snapshot', onShellOutputSnapshot)
 
     // Connect after all handlers are registered so we never miss the connect event
@@ -1910,6 +2243,9 @@ export default function Chat() {
       socket.off('approval_request', onApprovalRequest)
       socket.off('approval_resolved', onApprovalResolved)
       socket.off('approval_timeout', onApprovalTimeout)
+      socket.off('report_impossible_request', onReportImpossibleRequest)
+      socket.off('ask_human_request', onAskHumanRequest)
+      socket.off('ask_human_resolved', onAskHumanResolved)
       socket.off('shell_output_snapshot', onShellOutputSnapshot)
       socket.disconnect()
     }
@@ -1931,6 +2267,36 @@ export default function Chat() {
   const denyWithRedirect = useCallback((id: string, message: string) => {
     socket.emit('approval_response', { id, approved: false, redirect_message: message })
   }, [])
+
+  const trulyImpossible = useCallback((turnId: string) => {
+    socket.emit('impossible_redirect_response', { redirect_message: null })
+    updateTurn(turnId, t => ({
+      ...t,
+      impossibleRedirectItem: t.impossibleRedirectItem
+        ? { ...t.impossibleRedirectItem, state: 'ended' }
+        : t.impossibleRedirectItem,
+    }))
+  }, [socket, updateTurn])
+
+  const impossibleRedirect = useCallback((turnId: string, message: string) => {
+    socket.emit('impossible_redirect_response', { redirect_message: message })
+    updateTurn(turnId, t => ({
+      ...t,
+      impossibleRedirectItem: t.impossibleRedirectItem
+        ? { ...t.impossibleRedirectItem, state: 'redirected', redirectText: message }
+        : t.impossibleRedirectItem,
+    }))
+  }, [socket, updateTurn])
+
+  const answerAskHuman = useCallback((turnId: string, idx: number, answer: string) => {
+    socket.emit('ask_human_response', { answer })
+    updateTurn(turnId, t => ({
+      ...t,
+      askHumanItems: t.askHumanItems.map((item, i) =>
+        i === idx ? { ...item, state: 'answered', answer } : item
+      ),
+    }))
+  }, [socket, updateTurn])
 
   const cancelTurn = useCallback(() => {
     socket.emit('cancel_turn')
@@ -2028,6 +2394,9 @@ export default function Chat() {
                 onApprove={approve}
                 onDeny={deny}
                 onDenyWithRedirect={denyWithRedirect}
+                onTrulyImpossible={trulyImpossible}
+                onImpossibleRedirect={impossibleRedirect}
+                onAskHumanAnswer={answerAskHuman}
               />
             ))}
           </div>

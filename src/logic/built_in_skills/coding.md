@@ -102,3 +102,12 @@ Important findings to always record:
 
 These notes make every subsequent step faster and protect you from rediscovering the same
 information repeatedly across a long task.
+
+### 8. Ask for human input when genuinely stuck
+
+If you hit a genuine blocker — missing credentials, an ambiguous requirement, or a decision
+only the human can make — call `ask_human` rather than guessing or giving up. The turn pauses,
+the user answers, and you continue.
+
+Do not use `ask_human` to confirm steps you are already confident about. Reserve it for
+information you cannot determine yourself.

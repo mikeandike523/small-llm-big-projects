@@ -26,6 +26,18 @@ export interface ApprovalItem {
   timedOut?: boolean
 }
 
+export interface ImpossibleRedirectItem {
+  reason: string
+  state: 'pending' | 'redirected' | 'ended'
+  redirectText?: string
+}
+
+export interface AskHumanItem {
+  question: string
+  state: 'pending' | 'answered'
+  answer?: string
+}
+
 export interface LLMExchange {
   assistantContent: string
   reasoning: string
@@ -39,6 +51,8 @@ export interface Turn {
   exchanges: LLMExchange[]
   todoItems: TodoItem[]
   approvalItems: ApprovalItem[]
+  askHumanItems: AskHumanItem[]
+  impossibleRedirectItem?: ImpossibleRedirectItem
   impossible?: string
   cancelled?: string
   completed: boolean
