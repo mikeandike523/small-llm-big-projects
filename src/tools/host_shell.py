@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+import platform
+import shlex
 import shutil
 import subprocess
 import threading
@@ -28,6 +30,72 @@ DEFAULT_HANG_TIMEOUT = 30
 # Agent may request up to this many seconds of idle tolerance via the hang_timeout
 # argument. The overall command timeout is still the hard cap on total runtime.
 MAX_HANG_TIMEOUT = 120
+
+
+def _find_git_bash() -> str | None:
+    """Find Git Bash on Windows, preferring 64-bit installation over 32-bit."""
+    candidates = [
+        r"C:\Program Files\Git\bin\bash.exe",
+        r"C:\Program Files (x86)\Git\bin\bash.exe",
+    ]
+    for path in candidates:
+        if os.path.isfile(path):
+            return path
+    # Fall back to PATH lookup — accept only if it looks like Git Bash (has "git",
+    # no "wsl") so we don't accidentally pick up WSL bash.
+    found = shutil.which("bash")
+    if found:
+        found_lower = found.lower()
+        if "git" in found_lower and "wsl" not in found_lower:
+            return found
+    return None
+
+
+_GIT_BASH_NOT_FOUND_ERROR = (
+    "Error: Git Bash not found on this Windows system. "
+    "Git Bash is a prerequisite of slbp on Windows. "
+    "Use the report_impossible tool and direct the user to "
+    "https://github.com/mikeandike523/small-llm-big-projects for installation instructions."
+)
+
+
+def _resolve_cmd(command: str, command_args: list[str]) -> list[str] | str:
+    """
+    Build the final argv list for the given command + args.
+
+    If `command` is a directly resolvable executable, run it as-is.
+    Otherwise, wrap it in the platform-preferred interactive shell:
+      - Windows: Git Bash  (bash -lc "...")
+      - macOS:   zsh       (zsh  -lc "...")
+      - Linux:   bash      (bash -lc "...")
+
+    Returns a list[str] on success, or an error string if the required shell
+    cannot be found.
+    """
+    resolved = shutil.which(command)
+    if resolved:
+        return [resolved] + command_args
+
+    system = platform.system()
+    shell_cmd = shlex.join([command] + command_args)
+
+    if system == "Windows":
+        git_bash = _find_git_bash()
+        if git_bash is None:
+            return _GIT_BASH_NOT_FOUND_ERROR
+        return [git_bash, "-lc", shell_cmd]
+
+    if system == "Darwin":
+        zsh = shutil.which("zsh")
+        if zsh is None:
+            return "Error: zsh not found. zsh is the preferred shell for slbp on macOS."
+        return [zsh, "-lc", shell_cmd]
+
+    # Linux / other Unix
+    bash = shutil.which("bash")
+    if bash is None:
+        return "Error: bash not found. bash is the preferred shell for slbp on Linux."
+    return [bash, "-lc", shell_cmd]
 
 
 DEFINITION = {
@@ -147,8 +215,9 @@ def execute(args: dict, session_data: dict | None = None, special_resources: dic
     session_id: str | None = sr.get("session_id")
 
     try:
-        resolved = shutil.which(command)
-        cmd = [resolved or command] + command_args
+        cmd = _resolve_cmd(command, command_args)
+        if isinstance(cmd, str):
+            return cmd  # error message from shell resolution
         if on_chunk is not None:
             autoresponses = get_applicable_rules(cmd) if use_known_autoresponse else None
 
