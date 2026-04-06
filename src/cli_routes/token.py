@@ -7,6 +7,68 @@ from src.cli_obj import cli
 from src.data import get_pool
 from src.utils.sql.kv_manager import KVManager
 
+
+def _mask_token(token_value: str) -> str:
+    if not token_value:
+        return "(empty)"
+    return f"{token_value[:2]}...{token_value[-2:]}"
+
+
+def _resolve_token(cursor, provider: str, token_name: str, yes: bool) -> Optional[str]:
+    """
+    Try to resolve a (provider, token_name) pair to a confirmed token_name.
+
+    - Exact match found -> return token_name as-is.
+    - No match, but exactly 1 token exists for provider -> prompt (or auto-accept with yes).
+    - No match and 0 tokens for provider -> print error, return None.
+    - No match and 2+ tokens for provider -> print error, return None.
+    """
+    cursor.execute(
+        """
+        SELECT token_name
+        FROM tokens
+        WHERE BINARY provider = BINARY %s
+          AND BINARY token_name = BINARY %s
+        LIMIT 1
+        """,
+        (provider, token_name),
+    )
+    if cursor.fetchone() is not None:
+        return token_name
+
+    # Exact match not found — check how many tokens exist for this provider.
+    cursor.execute(
+        "SELECT token_name FROM tokens WHERE BINARY provider = BINARY %s",
+        (provider,),
+    )
+    rows = cursor.fetchall()
+
+    if not rows:
+        click.echo(
+            f'No tokens found for provider "{provider}". '
+            'Use "slbp token list" to see available tokens.'
+        )
+        return None
+
+    if len(rows) == 1:
+        (only_name,) = rows[0]
+        display = f'"{only_name}"' if only_name else "(no name)"
+        if yes or click.confirm(
+            f'Token {display} is the only token for provider "{provider}". Use it?',
+            default=True,
+        ):
+            return only_name
+        return None
+
+    # 2+ tokens for provider
+    requested_display = f'"{token_name}"' if token_name else "(no name)"
+    click.echo(
+        f'Token {requested_display} not found for provider "{provider}". '
+        'Multiple tokens exist — use "slbp token list" to see available tokens.'
+    )
+    return None
+
+
 @cli.group()
 def token():
     ...
@@ -15,13 +77,13 @@ def token():
 def sub_cmd_list():
     """
     List the tokens currently stored, including provider, optional name, and endpoint URL.
-    Token value is showns securely as the first 2 and last 2 characters, with ellipses in between.
-    
-    If you have a desparate need to recover the token for another purpose
-    Use "slbp token export -p <provider> -n <name> -o <>" to export to a plaintext file
-    (TODO: implement the export command) 
+    Token value is shown securely as the first 2 and last 2 characters, with ellipses in between.
+
+    If you have a desperate need to recover the token for another purpose
+    use "slbp token export -p <provider> -n <name> -o <>" to export to a plaintext file
+    (TODO: implement the export command)
     """
-    
+
     pool = get_pool()
 
     with pool.get_connection() as conn:
@@ -31,8 +93,10 @@ def sub_cmd_list():
             print(f"{'Provider':<20} {'Name':<20} {'Endpoint URL':<40} {'Token Value'}")
             print("-" * 100)
             for provider, token_name, endpoint_url, token_value in rows:
-                display_token = f"{token_value[:2]}...{token_value[-2:]}" if token_value else "(empty)"
-                print(f"{provider:<20} {token_name or '(no name)':<20} {endpoint_url:<40} {display_token}")
+                print(
+                    f"{provider:<20} {token_name or '(no name)':<20} "
+                    f"{endpoint_url:<40} {_mask_token(token_value)}"
+                )
 
 
 @token.command(name="set")
@@ -59,22 +123,20 @@ def sub_cmd_set(
     token: str
 ):
     """
-    Usage: slbp token [OPTIONS] PROVIDER TOKEN
-    
+    Usage: slbp token set [OPTIONS] PROVIDER TOKEN
+
     Add a token for a given provider.
 
-    Optionally, add a name of the token
+    Optionally, add a name for the token.
 
-    the (case sensitive) token name and provider pair
-    is a unique item in the database, 
-    calling token with the same name and provider, but with a different value,
-    will update the token value in the database
+    The (case-sensitive) token name and provider pair is a unique item in the
+    database. Calling set with the same name and provider but a different value
+    will update the stored token value.
 
-    examples:
+    Examples:
 
-    slbp token openai <token_value>
-    slbp token -n token1 anthropic <token_value>
-
+    slbp token set openai <token_value>
+    slbp token set -n token1 anthropic <token_value>
     """
 
     pool = get_pool()
@@ -205,29 +267,152 @@ def sub_cmd_set(
 Note: token not immediately used (set as active).
 If you want to use the token, run
 
-slbp token use <provider> <name>
+slbp token use <provider> [name]
 (name is optional)
-                    
 """.strip())
-            
+
+
 @token.command(name="use")
+@click.option("-y", "--yes", is_flag=True, help="Auto-accept single-token suggestion without prompting")
 @click.argument("provider", type=str, required=True, nargs=1)
 @click.argument("name", type=str, required=False, nargs=1, default="")
-def sub_cmd_use(provider: str, name: str):
+def sub_cmd_use(yes: bool, provider: str, name: str):
     """
-    Set the active token for this session by provider and optional name.
+    Set the active token by provider and optional name.
+
+    Use "none" as the provider to clear the active token (logout):
+
+        slbp token use none
     """
 
-    pool= get_pool()
+    pool = get_pool()
+
+    if provider.lower() == "none":
+        with pool.get_connection() as conn:
+            KVManager(conn).delete_value("active_token")
+            conn.commit()
+        click.echo("Active token cleared.")
+        return
+
     token_name = name or ""
+
     with pool.get_connection() as conn:
+        with conn.cursor() as cursor:
+            resolved_name = _resolve_token(cursor, provider, token_name, yes)
+
+        if resolved_name is None:
+            return
+
         KVManager(conn).set_value("active_token", {
             "provider": provider,
-            "name": token_name,
+            "name": resolved_name,
         })
         conn.commit()
-    click.echo(f"""\
-Set active token to provider="{provider}" and name="{token_name}" for this session.
-               """.strip())
+
+    display = f'"{resolved_name}"' if resolved_name else "(no name)"
+    click.echo(f'Active token set to provider="{provider}" name={display}.')
 
 
+@token.command(name="remove")
+@click.option("-y", "--yes", is_flag=True, help="Auto-accept single-token suggestion without prompting")
+@click.argument("provider", type=str, required=True, nargs=1)
+@click.argument("name", type=str, required=False, nargs=1, default="")
+def sub_cmd_remove(yes: bool, provider: str, name: str):
+    """
+    Remove a stored token by provider and optional name.
+
+    If the token being removed is currently active, you will be prompted
+    to clear the active token first.
+    """
+
+    pool = get_pool()
+    token_name = name or ""
+
+    with pool.get_connection() as conn:
+        kv = KVManager(conn)
+
+        with conn.cursor() as cursor:
+            resolved_name = _resolve_token(cursor, provider, token_name, yes)
+
+        if resolved_name is None:
+            return
+
+        # Check whether the resolved token is currently active.
+        active_token = kv.get_value("active_token")
+        is_active = (
+            active_token is not None
+            and active_token.get("provider") == provider
+            and active_token.get("name", "") == resolved_name
+        )
+
+        if is_active:
+            display = f'"{resolved_name}"' if resolved_name else "(no name)"
+            click.echo(
+                f'Warning: token {display} for provider "{provider}" is currently active.'
+            )
+            if not click.confirm("Clear the active token and proceed with removal?", default=False):
+                click.echo("Aborted. No changes made.")
+                return
+            kv.delete_value("active_token")
+
+        with conn.cursor() as cursor:
+            cursor.execute(
+                """
+                DELETE FROM tokens
+                WHERE BINARY provider = BINARY %s
+                  AND BINARY token_name = BINARY %s
+                """,
+                (provider, resolved_name),
+            )
+
+        conn.commit()
+
+    display = f'"{resolved_name}"' if resolved_name else "(no name)"
+    click.echo(f'Token {display} for provider "{provider}" removed.')
+
+
+@token.command(name="show")
+def sub_cmd_show():
+    """
+    Show the currently active token (provider, name, endpoint, masked value).
+    """
+
+    pool = get_pool()
+
+    with pool.get_connection() as conn:
+        kv = KVManager(conn)
+        active_token = kv.get_value("active_token")
+
+        if not active_token:
+            click.echo("No token currently active.")
+            return
+
+        provider = active_token.get("provider", "")
+        token_name = active_token.get("name", "")
+
+        with conn.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT token_value, endpoint_url
+                FROM tokens
+                WHERE BINARY provider = BINARY %s
+                  AND BINARY token_name = BINARY %s
+                LIMIT 1
+                """,
+                (provider, token_name),
+            )
+            row = cursor.fetchone()
+
+    if row is None:
+        click.echo(
+            f'Active token (provider="{provider}", name="{token_name}") '
+            "was not found in the database. It may have been removed."
+        )
+        return
+
+    token_value, endpoint_url = row
+    name_display = token_name if token_name else "(no name)"
+    click.echo(f"{'Provider':<20} {provider}")
+    click.echo(f"{'Name':<20} {name_display}")
+    click.echo(f"{'Endpoint URL':<20} {endpoint_url or '(none)'}")
+    click.echo(f"{'Token Value':<20} {_mask_token(token_value)}")
