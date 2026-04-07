@@ -3,6 +3,7 @@ mysql-connector-python
 termcolor
 prompt_toolkit
 requests
+brotli
 flask
 flask-socketio
 eventlet

@@ -40,11 +40,18 @@ DEFINITION: dict = {
                 "url": {"type": "string", "description": "The url to request"},
                 "content_type": {
                     "type": "string",
-                    "description": "The MIME content type of the request.",
+                    "description": (
+                        "The MIME content type of the request body. "
+                        "Omit for requests with no body (e.g. GET). "
+                        "Required when body is a JSON object."
+                    ),
                 },
                 "accept": {
                     "type": "string",
-                    "description": "The expected MIME content type of the response.",
+                    "description": (
+                        "The expected MIME content type of the response (default '*/*'). "
+                        "Set to 'application/json' to enable JSON parsing of the response."
+                    ),
                 },
                 "method": {
                     "type": "string",
@@ -112,7 +119,7 @@ DEFINITION: dict = {
                     ),
                 },
             },
-            "required": ["url", "content_type", "accept", "method", "timeout"],
+            "required": ["url", "method", "timeout"],
             "additionalProperties": False,
         },
     },
@@ -125,8 +132,8 @@ def needs_approval(args: dict) -> bool:
 
 def execute(args, session_data):
     url: str = args["url"]
-    content_type: str = args["content_type"]
-    accept: str = args["accept"]
+    content_type: str | None = args.get("content_type")
+    accept: str = args.get("accept") or "*/*"
     method: str = args["method"]
     timeout: int = args["timeout"]
 
@@ -134,6 +141,8 @@ def execute(args, session_data):
     body: str | dict | None = args.get("body")
 
     if isinstance(body, dict):
+        if content_type is None:
+            return "Error: 'body' is an object but 'content_type' was not provided. Specify a JSON content type or pass a string body."
         if is_json_content_type(content_type):
             body = json.dumps(body)
         else:
@@ -174,7 +183,8 @@ def execute(args, session_data):
     if target in ("session_memory", "project_memory") and not args.get("memory_key"):
         return "Error: 'memory_key' is required when target is 'session_memory' or 'project_memory'."
 
-    headers.setdefault("Content-Type", content_type)
+    if content_type is not None:
+        headers.setdefault("Content-Type", content_type)
     headers.setdefault("Accept", accept)
 
     status_code: int | None = None
@@ -194,7 +204,7 @@ def execute(args, session_data):
 
         status_code = resp.status_code
         resp_ct = resp.headers.get("content-type")
-        resp_text = resp.text
+        resp_text = resp.content.decode("utf-8", errors="replace")
 
         if is_json_content_type(accept):
             try:

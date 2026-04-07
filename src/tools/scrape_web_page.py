@@ -27,8 +27,7 @@ _USER_AGENT = (
 )
 _HEADERS = {
     "User-Agent": _USER_AGENT,
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-    "Accept-Language": "en-US,en;q=0.8",
+    "Accept": "*/*",
     "Accept-Encoding": "gzip, deflate, br",
     "Connection": "keep-alive",
 }
@@ -89,6 +88,21 @@ DEFINITION: dict = {
                         "Whether to check robots.txt before fetching (default true). "
                         "If robots.txt cannot be fetched or parsed, the request proceeds anyway (fail-open). "
                         "Set to false to skip the check entirely."
+                    ),
+                },
+                "accept": {
+                    "type": "string",
+                    "description": (
+                        "Value for the Accept header (default '*/*'). "
+                        "Use to request a specific content type, e.g. 'text/html' or 'application/json'."
+                    ),
+                },
+                "language": {
+                    "type": "string",
+                    "description": (
+                        "Value for the Accept-Language header. "
+                        "Omit to send no language preference (server decides). "
+                        "Examples: 'fr', 'ja', 'en-US,en;q=0.9'."
                     ),
                 },
                 "target": {
@@ -235,6 +249,8 @@ def execute(args: dict, session_data: dict | None = None) -> str:
     max_retries: int = args.get("max_retries", DEFAULT_MAX_RETRIES)
     min_delay: float = args.get("min_delay_seconds", DEFAULT_MIN_DELAY)
     check_robots_flag: bool = args.get("check_robots", True)
+    accept: str | None = args.get("accept")
+    language: str | None = args.get("language")
     target: str = args.get("target", "return_value")
     memory_key: str | None = args.get("memory_key")
 
@@ -246,6 +262,12 @@ def execute(args: dict, session_data: dict | None = None) -> str:
         return f"Error: Invalid URL {url!r}."
 
     session = _make_session(max_retries)
+
+    # --- apply optional per-call header overrides ---
+    if accept:
+        session.headers["Accept"] = accept
+    if language:
+        session.headers["Accept-Language"] = language
 
     # --- robots.txt check (fail-open) ---
     if check_robots_flag:
@@ -287,7 +309,7 @@ def execute(args: dict, session_data: dict | None = None) -> str:
     # --- build result ---
     content_type = resp.headers.get("content-type", "")
     header_line = f"HTTP {resp.status_code} | {content_type}"
-    result = f"{header_line}\n\n{resp.text}"
+    result = f"{header_line}\n\n{resp.content.decode('utf-8', errors='replace')}"
 
     # --- deliver ---
     if target == "return_value":
