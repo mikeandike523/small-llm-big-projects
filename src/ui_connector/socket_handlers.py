@@ -1067,6 +1067,10 @@ async def _async_agent_loop(
                                 "summary_text": summary,
                                 "item_label": item_label,
                             })
+                            _emit_backend_log(
+                                session_id,
+                                colored(f"[compaction] Compacted {len(new_indices)} exchange(s) after closing: {item_label}", "magenta"),
+                            )
                         else:
                             _emit_backend_log(
                                 session_id,

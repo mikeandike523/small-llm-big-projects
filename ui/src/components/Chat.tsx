@@ -50,6 +50,7 @@ function newTurn(id: string, userText: string): Turn {
     approvalItems: [],
     askHumanItems: [],
     completed: false,
+    compactionBubbles: [],
     streaming: true,
     isInterimStreaming: false,
     interimShowCharCount: false,
@@ -100,6 +101,7 @@ function backendTurnToFrontendTurn(d: {
     todoItems: d.todo_snapshot ?? [],
     approvalItems: [],
     askHumanItems: [],
+    compactionBubbles: [],
     impossible: d.was_impossible ? (d.impossible_reason ?? 'Task was impossible') : undefined,
     cancelled: d.was_cancelled ? 'Turn was cancelled' : undefined,
     completed: d.completed,
@@ -286,6 +288,29 @@ const interruptedBubbleCss = css`
   padding: 6px 12px;
   font-size: 11px;
   color: #8060a0;
+  font-style: italic;
+`
+
+const compactionBubbleCss = css`
+  background: #1f0a18;
+  border: 1px solid #7a1a5a;
+  border-radius: 8px;
+  padding: 7px 12px;
+  font-size: 11px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+`
+
+const compactionLabelCss = css`
+  color: #c060a0;
+  font-family: 'Consolas', monospace;
+  font-weight: bold;
+`
+
+const compactionSummaryCss = css`
+  color: #d090b8;
+  line-height: 1.4;
   font-style: italic;
 `
 
@@ -1422,7 +1447,7 @@ function TurnContainer({
   onImpossibleRedirect: (turnId: string, message: string) => void
   onAskHumanAnswer: (turnId: string, idx: number, answer: string) => void
 }) {
-  const { todoItems, approvalItems, askHumanItems, impossibleRedirectItem, impossible, cancelled, exchanges, streaming, isInterimStreaming, interimShowCharCount, interimCharCount, interrupted } = turn
+  const { todoItems, approvalItems, askHumanItems, impossibleRedirectItem, impossible, cancelled, compactionBubbles, exchanges, streaming, isInterimStreaming, interimShowCharCount, interimCharCount, interrupted } = turn
 
   const { scrollRef: toolsScrollRef, contentRef: toolsContentRef } = useStickToBottom()
 
@@ -1494,6 +1519,14 @@ function TurnContainer({
         {interrupted && (
           <div css={interruptedBubbleCss}>Connection interrupted</div>
         )}
+        {compactionBubbles.map((cb, idx) => (
+          <div key={idx} css={compactionBubbleCss}>
+            <span css={compactionLabelCss}>
+              {cb.pending ? 'Compacting...' : `Compacted: ${cb.itemLabel}`}
+            </span>
+            {cb.summary && <span css={compactionSummaryCss}>{cb.summary}</span>}
+          </div>
+        ))}
       </div>
 
       {/* Right column: reasoning + tool calls */}
@@ -1807,6 +1840,26 @@ export default function Chat() {
       }
       case 'ask_human_resolved': {
         // Resolved by user action; no state change needed during replay
+        break
+      }
+      case 'compaction_start': {
+        const itemLabel = data.item_label as string
+        updateTurn(turnId, t => ({
+          ...t,
+          compactionBubbles: [...t.compactionBubbles, { itemLabel, pending: true }],
+        }))
+        break
+      }
+      case 'compaction_done': {
+        const summary = data.summary_text as string
+        updateTurn(turnId, t => {
+          const bubbles = [...t.compactionBubbles]
+          const lastPendingIdx = bubbles.map((b, i) => b.pending ? i : -1).filter(i => i >= 0).pop()
+          if (lastPendingIdx !== undefined) {
+            bubbles[lastPendingIdx] = { ...bubbles[lastPendingIdx], pending: false, summary }
+          }
+          return { ...t, compactionBubbles: bubbles }
+        })
         break
       }
       case 'pwd_update':
@@ -2176,6 +2229,28 @@ export default function Chat() {
       // so this event mainly serves as a confirmation log; no state change needed.
     }
 
+    function onCompactionStart(data: { event_id?: string; turn_id?: string; item_label: string }) {
+      if (data.event_id) updateLastEventId(data.event_id)
+      const turnId = data.turn_id ?? ''
+      updateTurn(turnId, t => ({
+        ...t,
+        compactionBubbles: [...t.compactionBubbles, { itemLabel: data.item_label, pending: true }],
+      }))
+    }
+
+    function onCompactionDone(data: { event_id?: string; turn_id?: string; summary_text: string }) {
+      if (data.event_id) updateLastEventId(data.event_id)
+      const turnId = data.turn_id ?? ''
+      updateTurn(turnId, t => {
+        const bubbles = [...t.compactionBubbles]
+        const lastPendingIdx = bubbles.map((b, i) => b.pending ? i : -1).filter(i => i >= 0).pop()
+        if (lastPendingIdx !== undefined) {
+          bubbles[lastPendingIdx] = { ...bubbles[lastPendingIdx], pending: false, summary: data.summary_text }
+        }
+        return { ...t, compactionBubbles: bubbles }
+      })
+    }
+
     socket.on('connect', onConnect)
     socket.on('disconnect', onDisconnect)
     socket.on('pwd_update', onPwdUpdate)
@@ -2208,6 +2283,8 @@ export default function Chat() {
     socket.on('report_impossible_request', onReportImpossibleRequest)
     socket.on('ask_human_request', onAskHumanRequest)
     socket.on('ask_human_resolved', onAskHumanResolved)
+    socket.on('compaction_start', onCompactionStart)
+    socket.on('compaction_done', onCompactionDone)
     socket.on('shell_output_snapshot', onShellOutputSnapshot)
 
     // Connect after all handlers are registered so we never miss the connect event
@@ -2246,6 +2323,8 @@ export default function Chat() {
       socket.off('report_impossible_request', onReportImpossibleRequest)
       socket.off('ask_human_request', onAskHumanRequest)
       socket.off('ask_human_resolved', onAskHumanResolved)
+      socket.off('compaction_start', onCompactionStart)
+      socket.off('compaction_done', onCompactionDone)
       socket.off('shell_output_snapshot', onShellOutputSnapshot)
       socket.disconnect()
     }
