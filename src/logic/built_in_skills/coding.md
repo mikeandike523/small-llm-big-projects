@@ -1,5 +1,8 @@
 ## Skill: Writing Code and Working in Large Repos
 
+WHEN ANY TASK APPEARS TO BE CODING-RELATED
+ADHERE STRICTLY TO THESE RULES
+
 ### 1. Orient yourself before writing a single line
 
 At the start of any new coding task, search the repository root for orientation files:
@@ -30,14 +33,29 @@ Look for files that reveal the project's toolchain and structure:
 Record key findings (root layout, entry points, config file locations) in project memory
 so you don't have to re-scan later.
 
-### 3. Consult project memory before each major step
+### 3. Research and Match Codebase Code Style
+
+In addition to exploring the repo for config files, upon each request,
+explore the repo with tools such as `list_working_tree` or `list_dir`
+to find files that serve as examples of code style.
+
+For example, if you are writing a react component, search the codebase for
+exising react components to see if they use any component libraries, theming libraries,
+styling rules, etc.
+
+DO NOT WRITE CODE THAT DOESN"T MATCH REPO STYLE
+
+Use the `ask_human` tool if there arent enough existing examples in the repo.
+And you have questions about code style.
+
+### 4. Consult project memory before each major step
 
 Before starting each significant phase of work (e.g. implementing a feature, refactoring
 a module, writing tests), list your project memory keys and read any relevant entries.
 You may have noted something earlier in this session or a prior one that saves you from
 repeating a failed approach or re-researching something you already know.
 
-### 4. Validate with the actual toolchain — don't assume
+### 5. Validate with the actual toolchain — don't assume
 
 Use `host_shell` to run the project's real tools as you go:
 - Type-check: `tsc --noEmit`, `mypy`, `pyright`, etc.
@@ -54,7 +72,7 @@ Watch for `HANG:` or `TIMEOUT:` results — interactive commands (prompts, REPLs
 will hang indefinitely. Always pass non-interactive flags (`--no-interactive`, `--yes`, `CI=1`,
 etc.) and prefer single-pass commands over long-running watchers.
 
-### 5. Security — handle sensitive files and secrets with care
+### 6. Security — handle sensitive files and secrets with care
 
 Do NOT read `.env` files, secret files, private keys, credentials, or any file whose
 name or path suggests it contains sensitive data (e.g. `.env`, `.env.local`, `secrets.yaml`,
@@ -68,7 +86,7 @@ More broadly:
 - If you encounter a secret incidentally (e.g. in a tool result), do not repeat it back
 - Treat `.gitignore` entries as hints about what the project considers sensitive
 
-### 6. Search the web when in doubt about APIs or library versions
+### 7. Search the web when in doubt about APIs or library versions
 
 Library APIs change. Documentation goes stale. If you are about to write code that
 calls a third-party library, framework, or CLI tool — especially one that moves fast or
@@ -88,7 +106,7 @@ Things that are almost always worth a quick search before coding:
 Save useful references (URL, date, key facts) in project memory so you don't re-search
 the same thing multiple times in a long task.
 
-### 7. Keep running notes in project memory
+### 8. Keep running notes in project memory
 
 After each major step, write a brief summary note to project memory:
 what you did, what you found, and any gotchas encountered. Use short, descriptive key names
@@ -103,7 +121,7 @@ Important findings to always record:
 These notes make every subsequent step faster and protect you from rediscovering the same
 information repeatedly across a long task.
 
-### 8. Ask for human input when genuinely stuck
+### 9. Ask for human input when genuinely stuck
 
 If you hit a genuine blocker — missing credentials, an ambiguous requirement, or a decision
 only the human can make — call `ask_human` rather than guessing or giving up. The turn pauses,
@@ -111,3 +129,7 @@ the user answers, and you continue.
 
 Do not use `ask_human` to confirm steps you are already confident about. Reserve it for
 information you cannot determine yourself.
+
+### 10. Use the session_memory_text_editor to edit code
+Do NOT use `host_shell` to write to files.
+Read files to session memory --> use `session_memory_text_editor` --> write back to file from session memory

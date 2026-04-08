@@ -12,6 +12,8 @@ _ALLOWED_PARAMS = {
     "model.top_p",
     "model.top_k",
     "model.max_tokens",
+    "model.compaction_max_tokens",
+    "model.watchdog_max_tokens",
     "model.request_extra_params",
     "system.return_value_max_chars",
     "system.assistant_strip_truncation_chars",
@@ -47,6 +49,26 @@ _PARAM_DOCS = {
         "description": (
             "Maximum number of tokens to generate in a single response. "
             "The model may stop earlier if it produces an end-of-sequence token."
+        ),
+    },
+    "model.compaction_max_tokens": {
+        "type": "integer > 0",
+        "description": (
+            "Maximum tokens for the out-of-band compaction LLM call that summarises "
+            "completed todo-item steps. "
+            "When not set, falls back to model.max_tokens (or the model default if "
+            "that is also unset). Set this to a small value (e.g. 300) to keep "
+            "compaction summaries short."
+        ),
+    },
+    "model.watchdog_max_tokens": {
+        "type": "integer > 0",
+        "description": (
+            "Maximum tokens for the host_shell hang-watchdog LLM calls (Stage 1 "
+            "triage, Stage 1b extension estimate, Stage 2 input injection). "
+            "When not set, falls back to model.max_tokens (or the model default). "
+            "These calls only need a few tokens (a single word or short string), "
+            "so a small value such as 16-64 is sufficient."
         ),
     },
     "model.request_extra_params": {
@@ -115,6 +137,16 @@ def _parse_and_validate(name: str, raw_value: str):
             if value <= 0:
                 raise click.BadParameter("model.max_tokens must be > 0", param_hint="value")
             return value
+        elif name == "model.compaction_max_tokens":
+            value = int(raw_value)
+            if value <= 0:
+                raise click.BadParameter("model.compaction_max_tokens must be > 0", param_hint="value")
+            return value
+        elif name == "model.watchdog_max_tokens":
+            value = int(raw_value)
+            if value <= 0:
+                raise click.BadParameter("model.watchdog_max_tokens must be > 0", param_hint="value")
+            return value
         elif name == "system.return_value_max_chars":
             value = int(raw_value)
             if value <= 0:
@@ -133,7 +165,7 @@ def _parse_and_validate(name: str, raw_value: str):
                 raise click.BadParameter("model.top_p must be between 0.0 and 1.0", param_hint="value")
             return value
     except ValueError:
-        int_params = {"model.top_k", "model.max_tokens", "system.return_value_max_chars", "system.assistant_strip_truncation_chars"}
+        int_params = {"model.top_k", "model.max_tokens", "model.compaction_max_tokens", "model.watchdog_max_tokens", "system.return_value_max_chars", "system.assistant_strip_truncation_chars"}
         type_hint = "integer" if name in int_params else "float"
         raise click.BadParameter(f"value for '{name}' must be a {type_hint}", param_hint="value")
 

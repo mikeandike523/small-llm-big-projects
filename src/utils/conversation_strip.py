@@ -130,6 +130,10 @@ def strip_down_messages(
             result.append(msg)
 
         else:
+            # User and system messages pass through unchanged.
+            # This includes compacted-summary messages (agentic_loop_control_type="compacted_steps"),
+            # which are always KEEP by design — their metadata key is stripped later by
+            # sanitize_messages_for_llm before the payload reaches the LLM.
             result.append(msg)
 
     return result

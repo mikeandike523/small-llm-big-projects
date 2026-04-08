@@ -112,10 +112,12 @@ def _llm_triage(
         "yellow",
     ))
 
-    from src.utils.llm.factory import make_llm
+    from src.utils.llm.factory import make_llm, load_llm_config
     llm = make_llm(timeout_s=HANG_DECISION_TIMEOUT)
     if llm is None:
         return _kill(colored("No LLM available — killing process", "red"))
+    _llm_cfg = load_llm_config() or {}
+    _watchdog_max_tokens: int | None = (_llm_cfg.get("system_params") or {}).get("watchdog_max_tokens")
 
     # ------------------------------------------------------------------
     # Stage 1 — still processing (WAITING) or waiting for a key (INPUT)?
@@ -135,7 +137,7 @@ def _llm_triage(
         r1 = llm.fetch([
             {"role": "system", "content": stage1_system},
             {"role": "user", "content": buffer_snapshot or "(no output yet)"},
-        ])
+        ], max_tokens=_watchdog_max_tokens)
         decision1 = r1.content.strip().upper()
     except Exception as exc:
         return _kill(colored(f"LLM error in stage 1: {exc} — killing process", "red"))
@@ -159,7 +161,7 @@ def _llm_triage(
             r1b = llm.fetch([
                 {"role": "system", "content": stage1b_system},
                 {"role": "user", "content": buffer_snapshot or "(no output yet)"},
-            ])
+            ], max_tokens=_watchdog_max_tokens)
             raw = r1b.content.strip()
             parsed = float(raw)
             if MIN_EXTENSION_WAIT <= parsed <= MAX_EXTENSION_WAIT:
@@ -211,7 +213,7 @@ def _llm_triage(
         r2 = llm.fetch([
             {"role": "system", "content": stage2_system},
             {"role": "user", "content": buffer_snapshot or "(no output yet)"},
-        ])
+        ], max_tokens=_watchdog_max_tokens)
         decision2 = r2.content.strip()
     except Exception as exc:
         return _kill(colored(f"LLM error in stage 2: {exc} — killing process", "red"))

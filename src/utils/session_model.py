@@ -19,6 +19,18 @@ class ToolCallRecord:
 
 
 @dataclass
+class CompactionRecord:
+    """Summary of a contiguous slice of Turn.exchanges, produced by an out-of-band LLM call.
+
+    covers_exchange_indices — sorted list of indices into Turn.exchanges that this record
+    replaces in the LLM payload.  Raw exchanges at those positions are skipped; a single
+    user message carrying summary_text is injected instead.
+    """
+    summary_text: str
+    covers_exchange_indices: list[int]
+
+
+@dataclass
 class LLMExchange:
     assistant_content: str = ""
     reasoning: str = ""
@@ -72,15 +84,44 @@ class Turn:
     completed: bool = False
     condensed_user: str = ""
     condensed_assistant: str = ""
+    compaction_records: list[CompactionRecord] = field(default_factory=list)
 
     def to_messages(self) -> list[dict]:
         """
         Rebuild OpenAI-format messages list from all exchanges.
-        Format: [user_msg, (assistant_with_tools, tool_results)*, final_assistant_msg]
+
+        Exchanges covered by a CompactionRecord are replaced by a single user
+        message carrying the compaction summary (tagged with
+        agentic_loop_control_type="compacted_steps" for internal routing).
+        Uncovered exchanges are emitted as raw messages as before.
+
+        Format: [user_msg, (compaction_summary | raw_exchange_messages)*, ...]
         """
         msgs: list[dict] = [{"role": "user", "content": self.user_text_with_context}]
-        for exchange in self.exchanges:
-            msgs.extend(exchange.to_messages())
+
+        # Build a map: exchange_idx -> index into self.compaction_records
+        covered_by: dict[int, int] = {}
+        for cr_idx, cr in enumerate(self.compaction_records):
+            for ex_idx in cr.covers_exchange_indices:
+                covered_by[ex_idx] = cr_idx
+
+        emitted_cr_indices: set[int] = set()
+
+        for ex_idx, exchange in enumerate(self.exchanges):
+            if ex_idx in covered_by:
+                cr_idx = covered_by[ex_idx]
+                if cr_idx not in emitted_cr_indices:
+                    cr = self.compaction_records[cr_idx]
+                    msgs.append({
+                        "role": "user",
+                        "content": cr.summary_text,
+                        "agentic_loop_control_type": "compacted_steps",
+                    })
+                    emitted_cr_indices.add(cr_idx)
+                # Skip the raw exchange — it is represented by the compaction summary above.
+            else:
+                msgs.extend(exchange.to_messages())
+
         return msgs
 
     def count_tool_calls(self) -> int:
@@ -141,6 +182,20 @@ class Session:
 # Serialization helpers
 # ---------------------------------------------------------------------------
 
+def compaction_record_to_dict(cr: CompactionRecord) -> dict:
+    return {
+        "summary_text": cr.summary_text,
+        "covers_exchange_indices": cr.covers_exchange_indices,
+    }
+
+
+def compaction_record_from_dict(d: dict) -> CompactionRecord:
+    return CompactionRecord(
+        summary_text=d.get("summary_text", ""),
+        covers_exchange_indices=d.get("covers_exchange_indices", []),
+    )
+
+
 def tool_call_record_to_dict(tc: ToolCallRecord) -> dict:
     return {
         "id": tc.id,
@@ -198,6 +253,7 @@ def turn_to_dict(turn: Turn) -> dict:
         "completed": turn.completed,
         "condensed_user": turn.condensed_user,
         "condensed_assistant": turn.condensed_assistant,
+        "compaction_records": [compaction_record_to_dict(cr) for cr in turn.compaction_records],
     }
 
 
@@ -214,6 +270,7 @@ def turn_from_dict(d: dict) -> Turn:
         completed=d.get("completed", False),
         condensed_user=d.get("condensed_user", ""),
         condensed_assistant=d.get("condensed_assistant", ""),
+        compaction_records=[compaction_record_from_dict(cr) for cr in d.get("compaction_records", [])],
     )
 
 

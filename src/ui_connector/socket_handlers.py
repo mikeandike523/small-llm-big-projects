@@ -28,7 +28,7 @@ from src.utils.redis_dict import RedisDict
 from src.utils.request_error_formatting import format_http_error
 from src.utils.env_info import get_env_context, get_os, get_shell
 from src.utils.session_model import (
-    Session, Turn, LLMExchange, ToolCallRecord,
+    Session, Turn, LLMExchange, ToolCallRecord, CompactionRecord,
     session_to_dict, session_from_dict, turn_to_dict, turn_from_dict,
     CURRENT_SCHEMA_VERSION,
 )
@@ -466,6 +466,26 @@ def _load_llm_config() -> dict | None:
 
 
 # ---------------------------------------------------------------------------
+# Message sanitization
+# ---------------------------------------------------------------------------
+
+# Keys that are part of the OpenAI chat-completion message spec.
+# Internal control keys (e.g. agentic_loop_control_type) are stripped here
+# before any payload is sent to the LLM.
+_OPENAI_MESSAGE_KEYS: frozenset[str] = frozenset(
+    {"role", "content", "tool_calls", "tool_call_id", "name"}
+)
+
+
+def sanitize_messages_for_llm(messages: list[dict]) -> list[dict]:
+    """Return a new list with all non-OpenAI-spec keys removed from every message."""
+    return [
+        {k: v for k, v in msg.items() if k in _OPENAI_MESSAGE_KEYS}
+        for msg in messages
+    ]
+
+
+# ---------------------------------------------------------------------------
 # Payload construction
 # ---------------------------------------------------------------------------
 
@@ -561,7 +581,10 @@ async def _async_run_llm_call(
             if token_count % 50 == 0:
                 _emit_content_snapshot(session_id, turn_id, exchange_idx, acc["content"], acc["reasoning"])
 
-    result = await streaming_llm.stream(payload, on_data, tools=(tool_defs if tool_defs is not None else ALL_TOOL_DEFINITIONS))
+    result = await streaming_llm.stream(
+        sanitize_messages_for_llm(payload), on_data,
+        tools=(tool_defs if tool_defs is not None else ALL_TOOL_DEFINITIONS),
+    )
     _emit_content_snapshot(session_id, turn_id, exchange_idx, acc["content"], acc["reasoning"])
     return result, acc["content"], acc["reasoning"]
 
@@ -814,6 +837,81 @@ def _get_open_items(todo_list: list) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
+# Early compaction helpers
+# ---------------------------------------------------------------------------
+
+def _closed_items_from_exchange(exchange: LLMExchange) -> list[tuple[str, str]]:
+    """
+    Return a list of (item_path, display_message) for every todo item that was
+    successfully closed in this exchange batch.
+
+    Detection: look for todo_list calls with action=close_item whose result JSON
+    contains "status": "closed" (the success shape from the tool).  Any result
+    that does not parse or lacks that field is treated as a failure and ignored.
+    """
+    closed: list[tuple[str, str]] = []
+    for tc in exchange.tool_calls:
+        if tc.name != "todo_list" or tc.args.get("action") != "close_item":
+            continue
+        result_str = tc.result or ""
+        try:
+            result_json = json.loads(result_str)
+        except (json.JSONDecodeError, ValueError):
+            continue
+        if result_json.get("status") == "closed":
+            item_path = result_json.get("item_path") or tc.args.get("item_path", "?")
+            message = result_json.get("message") or f"Closed item '{item_path}'"
+            closed.append((item_path, message))
+    return closed
+
+
+async def _compact_exchanges(
+    streaming_llm: StreamingLLM,
+    exchanges: list[LLMExchange],
+    max_tokens: int | None = None,
+) -> str | None:
+    """
+    Make a non-streaming LLM call to summarise a sequence of exchanges.
+    Returns the summary text, or None if the call fails or returns nothing useful.
+
+    The payload is a minimal conversation:
+      [user: ask to summarise]
+      [assistant/tool messages from each exchange]
+      [user: produce the summary]
+    Internal control keys are stripped via sanitize_messages_for_llm before the
+    payload is sent.
+    """
+    raw_messages: list[dict] = [
+        {
+            "role": "user",
+            "content": (
+                "Here are some problem-solving steps from an AI agent "
+                "(tool calls and their results). Summarise them concisely "
+                "in 2-4 sentences, highlighting the key actions and outcomes."
+            ),
+        }
+    ]
+    for exchange in exchanges:
+        raw_messages.extend(exchange.to_messages())
+    raw_messages.append({
+        "role": "user",
+        "content": "Provide your concise summary now.",
+    })
+
+    compaction_messages = sanitize_messages_for_llm(raw_messages)
+
+    try:
+        fetch_result = await asyncio.to_thread(
+            streaming_llm.fetch, compaction_messages, max_tokens,
+        )
+        text = (fetch_result.content or "").strip()
+        return text or None
+    except Exception as exc:
+        print(f"[compaction] LLM call failed: {exc}", flush=True)
+        return None
+
+
+# ---------------------------------------------------------------------------
 # Async agent loop
 # ---------------------------------------------------------------------------
 
@@ -827,6 +925,7 @@ async def _async_agent_loop(
     return_value_max_chars: int | None,
     assistant_truncation_chars: int | None,
     cancel_event: threading.Event,
+    compaction_max_tokens: int | None = None,
 ) -> None:
     """
     Main agentic loop. Runs inside a private asyncio event loop in the SocketIO thread.
@@ -932,6 +1031,48 @@ async def _async_agent_loop(
                 if cancel_event.is_set():
                     was_cancelled = True
                     break
+
+                # Early compaction: if any todo item was just closed, compact all
+                # exchanges since the last compaction into a summary so the LLM
+                # context does not grow unbounded during multi-step work.
+                # exchange_idx of the newly appended exchange = len(exchanges) - 1.
+                closed_items = _closed_items_from_exchange(exchange)
+                if closed_items:
+                    last_covered_idx = max(
+                        (max(cr.covers_exchange_indices) for cr in current_turn.compaction_records),
+                        default=-1,
+                    )
+                    # new_indices covers from right after the last compacted exchange
+                    # up to and including the just-appended exchange.
+                    new_indices = list(range(last_covered_idx + 1, len(current_turn.exchanges)))
+                    if new_indices:
+                        item_label = ", ".join(path for path, _ in closed_items)
+                        _emit_and_log(session_id, "compaction_start", {
+                            "turn_id": turn_id,
+                            "exchange_indices": new_indices,
+                            "item_label": item_label,
+                        })
+                        exchanges_to_compact = [current_turn.exchanges[i] for i in new_indices]
+                        summary = await _compact_exchanges(
+                            streaming_llm, exchanges_to_compact, max_tokens=compaction_max_tokens,
+                        )
+                        if summary:
+                            cr = CompactionRecord(
+                                summary_text=summary,
+                                covers_exchange_indices=new_indices,
+                            )
+                            current_turn.compaction_records.append(cr)
+                            _emit_and_log(session_id, "compaction_done", {
+                                "turn_id": turn_id,
+                                "summary_text": summary,
+                                "item_label": item_label,
+                            })
+                        else:
+                            _emit_backend_log(
+                                session_id,
+                                colored("Compaction LLM call failed, continuing without summary.", "yellow"),
+                            )
+                        _save_session(session_id, session)
 
                 if impossible:
                     redirect = _request_impossible_redirect(
@@ -1405,6 +1546,7 @@ def handle_user_message(data: dict):
     )
     return_value_max_chars: int | None = llm_config["system_params"].get("return_value_max_chars")
     assistant_truncation_chars: int | None = llm_config["system_params"].get("assistant_strip_truncation_chars")
+    compaction_max_tokens: int | None = llm_config["system_params"].get("compaction_max_tokens")
 
     session = _load_session(session_id)
     session.session_data["todo_list"] = []
@@ -1446,6 +1588,7 @@ def handle_user_message(data: dict):
                 turn_id, current_turn,
                 return_value_max_chars, assistant_truncation_chars,
                 cancel_event,
+                compaction_max_tokens=compaction_max_tokens,
             )
         except asyncio.CancelledError:
             # cancel_event already set inside _async_agent_loop's finally
