@@ -11,5 +11,5 @@ Use `brave_web_search` to find relevant URLs, then fetch content with one of:
 Once content is in session memory:
 - `session_memory_text_editor(action="count_lines")` to check size before reading
 - `session_memory_text_editor(action="read_lines", number_lines=true)` to page through in chunks
-- `session_memory(action="search_by_regex")` to find relevant sections without reading everything
+- `session_memory_text_editor(action="search_by_regex")` to find relevant sections without reading everything
 - `session_memory(action="set")` to save important snippets under a named key for later recall

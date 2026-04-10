@@ -1,135 +1,77 @@
-## Skill: Writing Code and Working in Large Repos
+## Skill: Writing Code
 
-WHEN ANY TASK APPEARS TO BE CODING-RELATED
-ADHERE STRICTLY TO THESE RULES
+### Editing Files
 
-### 1. Orient yourself before writing a single line
+ALL CODE EDITS ARE DONE IN SESSION MEMORY BEFORE BEING WRITTEN TO DISK
 
-At the start of any new coding task, search the repository root for orientation files:
-`AGENTS.md`, `AGENTS.txt`, `CLAUDE.md`, `claude.md` (and `.txt` variants).
-Read every one you find. These files contain the project's coding conventions, tooling
-setup, environment requirements, and security guidelines — ignoring them is the most
-common cause of doing work that has to be redone.
+Creating New Files:
 
-Take notes in project memory immediately after reading them. Focus on:
-- What language(s), runtime(s), and package managers are in use
-- How to run tests, linters, and build steps
-- Any non-obvious security rules or constraints
-- Any preferred patterns or things to explicitly avoid
+    Use `create_text_file` to create a new file.
+    Use `session_memory(action="set")` to store the initial content.
+    Use `write_text_file_from_session_memory` to write the content to the file on disk.
 
-### 2. Survey the repository structure early
+Editing Existing Files:
 
-Before diving into code, get a high-level picture of what is in the repo. In a git
-repository, use `list_working_tree` — it respects `.gitignore` and gives a clean view
-of all tracked and untracked files. In a non-git directory, use `list_dir` with a small
-`depth` (2–3) to avoid noise.
+    Use `read_text_file_to_session_memory` to read a file on disk.
+    Perform edits with `session_memory_text_editor` tool.
+    Save the contents back to disk with `write_text_file_from_session_memory`
 
-Look for files that reveal the project's toolchain and structure:
-- Package manifests: `package.json`, `pyproject.toml`, `Cargo.toml`, `go.mod`, `pom.xml`
-- Lock files: which exact package manager is in use (`yarn.lock` vs `package-lock.json`, etc.)
-- Config files: `tsconfig.json`, `.eslintrc`, `jest.config.*`, `vite.config.*`, `Dockerfile`
-- CI definitions: `.github/workflows/`, `.gitlab-ci.yml` — these show exactly how the project is built and tested
+### Match Project Style and Enviornment
 
-Record key findings (root layout, entry points, config file locations) in project memory
-so you don't have to re-scan later.
+Always explore the repo thoroughly before starting a new coding task.
+Use the `project_memory` tool to take notes on the purpose of each file and other important details.
+Check existing items in project memory for any prior notes as well.
 
-### 3. Research and Match Codebase Code Style
+Before writing code, scan the environment for AGENTS.md, CLAUDE.md, AGENTS.txt, and CLAUDE.txt.
+Read those to get an idea of the coding style and environments.
 
-In addition to exploring the repo for config files, upon each request,
-explore the repo with tools such as `list_working_tree` or `list_dir`
-to find files that serve as examples of code style.
+When writing new code, LOOK FOR EXAMPLE FILES that show how different functions,
+components, classes, and data is used.
+FOCUS on MATCHING CODEBASE style and design patterns.
 
-For example, if you are writing a react component, search the codebase for
-exising react components to see if they use any component libraries, theming libraries,
-styling rules, etc.
+### Security
 
-DO NOT WRITE CODE THAT DOESN"T MATCH REPO STYLE
+Do NOT read .env, or any sensitive files, unless you get explicit permission from the user.
 
-Use the `ask_human` tool if there arent enough existing examples in the repo.
-And you have questions about code style.
 
-### 4. Consult project memory before each major step
+### Stay Up to Date
 
-Before starting each significant phase of work (e.g. implementing a feature, refactoring
-a module, writing tests), list your project memory keys and read any relevant entries.
-You may have noted something earlier in this session or a prior one that saves you from
-repeating a failed approach or re-researching something you already know.
+Do not just guess if there is something you don't know. Use your "browsing the web" skill to
+find up to date information.
 
-### 5. Validate with the actual toolchain — don't assume
+---
 
-Use `host_shell` to run the project's real tools as you go:
-- Type-check: `tsc --noEmit`, `mypy`, `pyright`, etc.
-- Lint: `eslint`, `ruff`, `flake8`, etc.
-- Test: `pytest`, `jest`, `cargo test`, `go test ./...`, etc.
-- Build: `npm run build`, `cargo build`, etc.
+## Summary of Coding Tools
 
-Read errors carefully. A compile error or import failure often reveals something important
-about how the project is structured — which version of a library is actually installed,
-which module paths are canonical, which features are enabled. Take a note in project memory
-when an error teaches you something non-obvious about the tooling or environment.
+### Exploring the Codebase
 
-Watch for `HANG:` or `TIMEOUT:` results — interactive commands (prompts, REPLs, watchers)
-will hang indefinitely. Always pass non-interactive flags (`--no-interactive`, `--yes`, `CI=1`,
-etc.) and prefer single-pass commands over long-running watchers.
+- **`list_working_tree`** — List all tracked and untracked (non-ignored) files in a git repo.
+  Scoped to the current working directory (subdirectory-aware). Falls back to gitignore-filtered
+  recursive listing when not in a git repo. Prefer this over `list_dir` for code repos.
 
-### 6. Security — handle sensitive files and secrets with care
+- **`list_dir`** — List directory contents with configurable recursion, depth limits, filters
+  (files/folders/both), symlink handling, and optional `.gitignore` filtering. Use when you need
+  fine-grained control over traversal (e.g., depth=1 for a quick overview).
 
-Do NOT read `.env` files, secret files, private keys, credentials, or any file whose
-name or path suggests it contains sensitive data (e.g. `.env`, `.env.local`, `secrets.yaml`,
-`credentials.json`, `*.pem`, `*.key`) unless the user has explicitly instructed you to.
-These files frequently contain tokens, passwords, and private keys. Even if a task seems
-to require it, stop and ask the user rather than reading them on your own initiative.
+- **`search_filesystem_by_regex`** — Search file *contents* by regex across the filesystem.
+  Use this to find where a function, class, variable, or string is defined or used.
 
-More broadly:
-- Do not log, print, or store secret values in project or session memory
-- Do not include real credentials in any code you write — use placeholder names like `YOUR_API_KEY`
-- If you encounter a secret incidentally (e.g. in a tool result), do not repeat it back
-- Treat `.gitignore` entries as hints about what the project considers sensitive
+### Reading and Editing Files
 
-### 7. Search the web when in doubt about APIs or library versions
+All edits flow through session memory:
 
-Library APIs change. Documentation goes stale. If you are about to write code that
-calls a third-party library, framework, or CLI tool — especially one that moves fast or
-that you are not certain about — use `brave_web_search` first.
+1. `read_text_file_to_session_memory` — Read a file from disk into a session memory key.
+2. `session_memory_text_editor` — Perform precise edits (insert/replace/delete lines or chars).
+3. `write_text_file_from_session_memory` — Write the modified session memory key back to disk.
 
-Err heavily on the side of searching more rather than less. The cost of one extra search
-is low; the cost of writing code against a deprecated API and then having to unpick it is
-high. Always prefer a current source (official docs, a recent changelog, a release note)
-over your training knowledge when the two might differ.
+For new files: use `create_text_file` + `session_memory(action="set")` + `write_text_file_from_session_memory`.
 
-Things that are almost always worth a quick search before coding:
-- The correct import path or package name for an unfamiliar library
-- Whether a specific method or flag still exists in the current version
-- The recommended way to do something that may have changed recently
-- Any error message you don't immediately recognise
+### Running Commands
 
-Save useful references (URL, date, key facts) in project memory so you don't re-search
-the same thing multiple times in a long task.
+- **`host_shell`** — Run shell commands on the host. Use for building, testing, running scripts,
+  package installs, git operations, etc.
 
-### 8. Keep running notes in project memory
+### Web Research
 
-After each major step, write a brief summary note to project memory:
-what you did, what you found, and any gotchas encountered. Use short, descriptive key names
-like `notes.auth-refactor`, `notes.test-setup`, `notes.env-vars`.
-
-Important findings to always record:
-- Which commands actually work (and with what flags)
-- Non-obvious file locations (config files, entry points, generated files)
-- Environment variables or secrets the project needs
-- Any workaround you had to apply and why
-
-These notes make every subsequent step faster and protect you from rediscovering the same
-information repeatedly across a long task.
-
-### 9. Ask for human input when genuinely stuck
-
-If you hit a genuine blocker — missing credentials, an ambiguous requirement, or a decision
-only the human can make — call `ask_human` rather than guessing or giving up. The turn pauses,
-the user answers, and you continue.
-
-Do not use `ask_human` to confirm steps you are already confident about. Reserve it for
-information you cannot determine yourself.
-
-### 10. Use the session_memory_text_editor to edit code
-Do NOT use `host_shell` to write to files.
-Read files to session memory --> use `session_memory_text_editor` --> write back to file from session memory
+- **`brave_web_search`** — Search the web for up-to-date information (library docs, API changes, etc.).
+- **`basic_web_request`** — Fetch a specific URL (docs page, raw file, API endpoint).

@@ -15,6 +15,8 @@ DEFINITION: dict = {
         "name": "list_working_tree",
         "description": (
             "List all tracked and untracked (non-ignored) files in the git working tree. "
+            "When run from a subdirectory of the repo root, only files under that subdirectory are shown. "
+            "Falls back to list_dir behavior (recursive, with .gitignore filtering) if not inside a git repository. "
             "Prefer this over list_dir when inside a git repository."
         ),
         "parameters": {
@@ -25,7 +27,7 @@ DEFINITION: dict = {
                     "description": (
                         "Optional path to restrict the listing to a subdirectory. "
                         "Accepts relative (to cwd) or absolute paths. "
-                        "Defaults to the entire working tree."
+                        "Defaults to the current working directory."
                     ),
                 }
             },
@@ -57,5 +59,12 @@ def execute(args: dict, _session_data={}) -> str:
         from src.utils.exceptions import ToolTimeoutError
         raise ToolTimeoutError("list_working_tree", DEFAULT_TIMEOUT)
     if not result.success:
+        stderr_lower = result.stderr.lower()
+        if "not a git repository" in stderr_lower or result.returncode == 128:
+            from src.tools import list_dir as _list_dir
+            fallback_args: dict = {"use_gitignore": True, "recursive": True}
+            if path is not None:
+                fallback_args["path"] = path
+            return _list_dir.execute(fallback_args, _session_data)
         return f"Error (exit {result.returncode}): {result.stderr.strip()}"
     return result.stdout.strip()
