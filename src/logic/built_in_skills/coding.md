@@ -2,9 +2,14 @@
 
 ### Exploring the Codebase
 
+Before diving in, add each area or file group you need to understand as a todo item — check them off as you go so nothing gets skipped.
+
 - **`list_working_tree`** — List all tracked/untracked (non-ignored) files in a git repo. Prefer this over `list_dir` for code repos.
 - **`list_dir`** — List directory contents with recursion, depth, and filter controls. Use when you need fine-grained traversal (e.g., `depth=1` for a quick overview).
 - **`search_filesystem_by_regex`** — Search file *contents* by regex. Use to find where a function, class, variable, or string is defined or used.
+
+As you explore, write your findings to `project_memory` — the purpose of key files and directories,
+the overall project structure, and anything else that would save time in a future session.
 
 ### Reading and Editing Files
 
@@ -39,12 +44,16 @@ Editing Existing Files:
 
 ### Match Project Style and Enviornment
 
-Always explore the repo thoroughly before starting a new coding task.
+Always explore the repo thoroughly before starting a new coding task — add exploration steps to the
+todo list up front so nothing gets skipped.
 Use the `project_memory` tool to take notes on the purpose of each file and other important details.
 Check existing items in project memory for any prior notes as well.
 
 Before writing code, scan the environment for AGENTS.md, CLAUDE.md, AGENTS.txt, and CLAUDE.txt.
-Read those to get an idea of the coding style and environments.
+Read those to get an idea of the coding style and environment. After reading them, write your key
+takeaways to `project_memory` — coding conventions, build/lint/typecheck commands, framework
+choices, and any constraints the project enforces. This ensures future sessions start with full
+context rather than re-discovering the same files.
 
 When writing new code, LOOK FOR EXAMPLE FILES that show how different functions,
 components, classes, and data is used.
@@ -57,8 +66,16 @@ Do NOT read .env, or any sensitive files, unless you get explicit permission fro
 
 ### Running Commands
 
-Use **`host_shell`** for building, testing, running scripts, package installs, git operations, and other shell tasks.
-Do NOT use it for file writing (cat/sed/awk/echo redirects) — always route file edits through session memory.
+Always use a dedicated tool instead of **`host_shell`** if one is available. host_shell is
+well-suited for environment-specific tasks that have no dedicated equivalent: building, linting,
+typechecking, running tests, package installs, and git operations.
+
+Before running any of these, check `project_memory` for notes from your code exploration —
+particularly anything about project structure, style, and AGENTS.md. That is where you will find
+the correct build, lint, and typecheck commands for the active project.
+
+Do NOT use host_shell for file writing (cat/sed/awk/echo redirects) — always route file edits through session memory.
+After a build or test run, check the todo list — close verification steps only when they actually pass.
 
 ### Stay Up to Date
 
