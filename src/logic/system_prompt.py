@@ -79,10 +79,11 @@ Try a different approach (different flags, a simpler command, a dedicated tool) 
 
 == READING FILES ==
 
-To read a file from disk, use file_line_reader:
+For small files: read_text_file(path=...) returns the full contents in one call.
+For large files, use file_line_reader to read in chunks:
   - file_line_reader(action="count_lines", path=...) to get the total line count.
   - file_line_reader(action="read_lines", path=..., start_line=..., end_line=..., number_lines=true) to read a chunk.
-Read in chunks; do not try to read an entire large file at once.
+When in doubt, prefer file_line_reader — it scales to any file size.
 
 == MEMORY ==
 

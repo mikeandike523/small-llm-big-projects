@@ -1,5 +1,11 @@
 ## Skill: Writing Code
 
+### Exploring the Codebase
+
+- **`list_working_tree`** — List all tracked/untracked (non-ignored) files in a git repo. Prefer this over `list_dir` for code repos.
+- **`list_dir`** — List directory contents with recursion, depth, and filter controls. Use when you need fine-grained traversal (e.g., `depth=1` for a quick overview).
+- **`search_filesystem_by_regex`** — Search file *contents* by regex. Use to find where a function, class, variable, or string is defined or used.
+
 ### Reading and Editing Files
 
 Reading: use `read_text_file` for small files, or `file_line_reader` (count_lines + read_lines) for large files.
@@ -49,64 +55,11 @@ FOCUS on MATCHING CODEBASE style and design patterns.
 Do NOT read .env, or any sensitive files, unless you get explicit permission from the user.
 
 
-### Stay Up to Date
-
-Do not just guess if there is something you don't know. Use your "browsing the web" skill to
-find up to date information.
-
----
-
-## Summary of Coding Tools
-
-### Exploring the Codebase
-
-- **`list_working_tree`** — List all tracked and untracked (non-ignored) files in a git repo.
-  Scoped to the current working directory (subdirectory-aware). Falls back to gitignore-filtered
-  recursive listing when not in a git repo. Prefer this over `list_dir` for code repos.
-
-- **`list_dir`** — List directory contents with configurable recursion, depth limits, filters
-  (files/folders/both), symlink handling, and optional `.gitignore` filtering. Use when you need
-  fine-grained control over traversal (e.g., depth=1 for a quick overview).
-
-- **`search_filesystem_by_regex`** — Search file *contents* by regex across the filesystem.
-  Use this to find where a function, class, variable, or string is defined or used.
-
-### Reading Files
-
-For small files: use `read_text_file(path=...)` to get the full contents in one call.
-
-For large files: use `file_line_reader` to read in chunks — less context pressure:
-
-1. `file_line_reader(action="count_lines", path=...)` — Get the total line count.
-2. `file_line_reader(action="read_lines", path=..., start_line=..., end_line=..., number_lines=true)` — Read a chunk.
-
-When in doubt, prefer `file_line_reader` — it scales to any file size.
-
-### Writing and Editing Files
-
-For small files or complete rewrites: `write_text_file(path=..., content=...)` — one step, no session memory needed.
-
-For editing existing files, all edits flow through session memory:
-
-1. `read_text_file_to_session_memory` — Read a file from disk into a session memory key.
-2. `session_memory_text_editor` — Perform precise edits (insert/replace/delete lines or chars).
-3. `write_text_file_from_session_memory` — Write the modified session memory key back to disk.
-
-For new larger files: `create_text_file` + `session_memory(action="set")` + `write_text_file_from_session_memory`.
-
-### Reading Stubbed Tool Results
-
-When a tool result begins with `** STUBBED LONG RETURN VALUE **`, use `return_stub_line_reader`:
-
-1. `return_stub_line_reader(action="count_lines", session_memory_key=...)` — Get total lines.
-2. `return_stub_line_reader(action="read_lines", session_memory_key=..., start_line=..., end_line=...)` — Read a chunk.
-
 ### Running Commands
 
-- **`host_shell`** — Run shell commands on the host. Use for building, testing, running scripts,
-  package installs, git operations, etc.
+Use **`host_shell`** for building, testing, running scripts, package installs, git operations, and other shell tasks.
+Do NOT use it for file writing (cat/sed/awk/echo redirects) — always route file edits through session memory.
 
-### Web Research
+### Stay Up to Date
 
-- **`brave_web_search`** — Search the web for up-to-date information (library docs, API changes, etc.).
-- **`basic_web_request`** — Fetch a specific URL (docs page, raw file, API endpoint).
+If you don't know something, search the web — see the Browsing the Web skill.
