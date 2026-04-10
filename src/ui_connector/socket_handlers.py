@@ -35,6 +35,7 @@ from src.utils.session_model import (
 from src.utils.event_log import log_event, get_events_since, REPLAY_EXCLUDED_EVENTS
 from src.utils.exceptions import ToolHangError, ToolTimeoutError
 from src.utils.docker_compose import get_service_port
+from src.utils.compaction_transcript import build_compaction_messages
 from termcolor import colored
 
 _BASE_SYSTEM_PROMPT: str = build_system_prompt(use_custom_skills=False)
@@ -898,31 +899,11 @@ async def _compact_exchanges(
     Make a non-streaming LLM call to summarise a sequence of exchanges.
     Returns the summary text, or None if the call fails or returns nothing useful.
 
-    The payload is a minimal conversation:
-      [user: ask to summarise]
-      [assistant/tool messages from each exchange]
-      [user: produce the summary]
-    Internal control keys are stripped via sanitize_messages_for_llm before the
-    payload is sent.
+    The payload is a plain-text transcript (system + user) built by
+    build_compaction_messages — no tool-call wire format, so the compaction
+    model cannot echo function-call syntax into the summary.
     """
-    raw_messages: list[dict] = [
-        {
-            "role": "user",
-            "content": (
-                "Here are some problem-solving steps from an AI agent "
-                "(tool calls and their results). Summarise them concisely "
-                "in 2-4 sentences, highlighting the key actions and outcomes."
-            ),
-        }
-    ]
-    for exchange in exchanges:
-        raw_messages.extend(exchange.to_messages())
-    raw_messages.append({
-        "role": "user",
-        "content": "Provide your concise summary now.",
-    })
-
-    compaction_messages = sanitize_messages_for_llm(raw_messages)
+    compaction_messages = build_compaction_messages(exchanges)
 
     try:
         fetch_result = await asyncio.to_thread(
