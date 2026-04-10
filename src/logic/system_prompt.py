@@ -79,9 +79,9 @@ Try a different approach (different flags, a simpler command, a dedicated tool) 
 
 == READING FILES ==
 
-To read a file from disk, use file_reader:
-  - file_reader(action="count_lines", path=...) to get the total line count.
-  - file_reader(action="read_lines", path=..., start_line=..., end_line=..., number_lines=true) to read a chunk.
+To read a file from disk, use file_line_reader:
+  - file_line_reader(action="count_lines", path=...) to get the total line count.
+  - file_line_reader(action="read_lines", path=..., start_line=..., end_line=..., number_lines=true) to read a chunk.
 Read in chunks; do not try to read an entire large file at once.
 
 == MEMORY ==
@@ -93,9 +93,9 @@ Memory values are plain text strings; store JSON, code, prose, or any format as-
 == STUBBED RETURN VALUES ==
 
 If a tool result begins with "** STUBBED LONG RETURN VALUE **", the full content is stored
-in session memory at the key shown in the header. Use return_stub_reader to page through it:
-  - return_stub_reader(action="count_lines", session_memory_key=...) for total lines.
-  - return_stub_reader(action="read_lines", session_memory_key=..., start_line=..., end_line=...) for a chunk.
+in session memory at the key shown in the header. Use return_stub_line_reader to page through it:
+  - return_stub_line_reader(action="count_lines", session_memory_key=...) for total lines.
+  - return_stub_line_reader(action="read_lines", session_memory_key=..., start_line=..., end_line=...) for a chunk.
 
 == SKILLS ==
 

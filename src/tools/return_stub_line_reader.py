@@ -15,7 +15,7 @@ _STUB_MARKER = "** STUBBED LONG RETURN VALUE **"
 DEFINITION: dict = {
     "type": "function",
     "function": {
-        "name": "return_stub_reader",
+        "name": "return_stub_line_reader",
         "description": (
             "Read a stubbed tool return value by line range. "
             "When a tool result begins with '** STUBBED LONG RETURN VALUE **', the full content "

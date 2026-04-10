@@ -13,7 +13,7 @@ LEAVE_OUT_PER_ACTION = {
 DEFINITION: dict = {
     "type": "function",
     "function": {
-        "name": "file_reader",
+        "name": "file_line_reader",
         "description": (
             "Read text file contents directly from disk by line range. "
             "Designed for chunked reading: use count_lines first to know the total, "

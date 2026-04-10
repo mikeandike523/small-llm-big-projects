@@ -2,8 +2,8 @@
 
 ### Reading and Editing Files
 
-Reading: use `file_reader` (count_lines, read_lines) to read files directly from disk in chunks.
-Use `file_reader` when exploring and understanding code — it is fast and lightweight.
+Reading: use `read_text_file` for small files, or `file_line_reader` (count_lines + read_lines) for large files.
+Use these when exploring and understanding code — they are fast and lightweight.
 Use `read_text_file_to_session_memory` when you are ready to analyze closely or make edits,
 since the session memory toolkit enables precise line-level editing.
 
@@ -13,10 +13,15 @@ Routing edits through session memory increases accuracy and prevents corrupted o
 files. Do NOT circumvent this with host_shell using cat, sed, awk, echo redirects, or any other
 shell-based file writing. Always use the session memory toolkit for file edits.
 
-Creating New Files:
+Writing Small Files (new or complete rewrite):
 
-    For small files: use `create_text_file(path=..., initial_content=...)` to create and populate in one step.
-    For larger files: use `create_text_file` to create the file, then `session_memory(action="set")`
+    Use `write_text_file(path=..., content=...)` to write the full content in one step.
+    Best for small files (configs, short scripts, stubs) where you have the entire content ready.
+    Also works as a complete overwrite of an existing file when a full rewrite is appropriate.
+
+Creating New Files (larger content via session memory):
+
+    Use `create_text_file` to create the file, then `session_memory(action="set")`
     to build the content, then `write_text_file_from_session_memory` to write it to disk.
 
 Editing Existing Files:
@@ -68,29 +73,33 @@ find up to date information.
 
 ### Reading Files
 
-Use `file_reader` to read files directly from disk — no session memory step required:
+For small files: use `read_text_file(path=...)` to get the full contents in one call.
 
-1. `file_reader(action="count_lines", path=...)` — Get the total line count.
-2. `file_reader(action="read_lines", path=..., start_line=..., end_line=..., number_lines=true)` — Read a chunk.
+For large files: use `file_line_reader` to read in chunks — less context pressure:
 
-Read in chunks; do not try to read a large file all at once.
+1. `file_line_reader(action="count_lines", path=...)` — Get the total line count.
+2. `file_line_reader(action="read_lines", path=..., start_line=..., end_line=..., number_lines=true)` — Read a chunk.
 
-### Editing Files
+When in doubt, prefer `file_line_reader` — it scales to any file size.
 
-All edits flow through session memory:
+### Writing and Editing Files
+
+For small files or complete rewrites: `write_text_file(path=..., content=...)` — one step, no session memory needed.
+
+For editing existing files, all edits flow through session memory:
 
 1. `read_text_file_to_session_memory` — Read a file from disk into a session memory key.
 2. `session_memory_text_editor` — Perform precise edits (insert/replace/delete lines or chars).
 3. `write_text_file_from_session_memory` — Write the modified session memory key back to disk.
 
-For new files: use `create_text_file` + `session_memory(action="set")` + `write_text_file_from_session_memory`.
+For new larger files: `create_text_file` + `session_memory(action="set")` + `write_text_file_from_session_memory`.
 
 ### Reading Stubbed Tool Results
 
-When a tool result begins with `** STUBBED LONG RETURN VALUE **`, use `return_stub_reader`:
+When a tool result begins with `** STUBBED LONG RETURN VALUE **`, use `return_stub_line_reader`:
 
-1. `return_stub_reader(action="count_lines", session_memory_key=...)` — Get total lines.
-2. `return_stub_reader(action="read_lines", session_memory_key=..., start_line=..., end_line=...)` — Read a chunk.
+1. `return_stub_line_reader(action="count_lines", session_memory_key=...)` — Get total lines.
+2. `return_stub_line_reader(action="read_lines", session_memory_key=..., start_line=..., end_line=...)` — Read a chunk.
 
 ### Running Commands
 
