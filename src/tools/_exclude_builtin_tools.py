@@ -16,9 +16,4 @@
 #       "basic_web_request": {"testing": True},
 #   }
 
-EXCLUDE: dict[str, dict] = {
-    "load_skill_files_from_url_to_session_memory":{
-        "loading":True,
-        "testing":True
-    }
-}
+EXCLUDE: dict[str, dict] = {}

@@ -1,8 +1,17 @@
 ## Skill: Writing Code
 
-### Editing Files
+### Reading and Editing Files
+
+Reading: use `file_reader` (count_lines, read_lines) to read files directly from disk in chunks.
+Use `file_reader` when exploring and understanding code — it is fast and lightweight.
+Use `read_text_file_to_session_memory` when you are ready to analyze closely or make edits,
+since the session memory toolkit enables precise line-level editing.
 
 ALL CODE EDITS ARE DONE IN SESSION MEMORY BEFORE BEING WRITTEN TO DISK
+
+Routing edits through session memory increases accuracy and prevents corrupted or partially-written
+files. Do NOT circumvent this with host_shell using cat, sed, awk, echo redirects, or any other
+shell-based file writing. Always use the session memory toolkit for file edits.
 
 Creating New Files:
 
@@ -12,7 +21,7 @@ Creating New Files:
 
 Editing Existing Files:
 
-    Use `read_text_file_to_session_memory` to read a file on disk.
+    Use `read_text_file_to_session_memory` to read a file on disk into session memory.
     Perform edits with `session_memory_text_editor` tool.
     Save the contents back to disk with `write_text_file_from_session_memory`
 
@@ -56,7 +65,16 @@ find up to date information.
 - **`search_filesystem_by_regex`** — Search file *contents* by regex across the filesystem.
   Use this to find where a function, class, variable, or string is defined or used.
 
-### Reading and Editing Files
+### Reading Files
+
+Use `file_reader` to read files directly from disk — no session memory step required:
+
+1. `file_reader(action="count_lines", path=...)` — Get the total line count.
+2. `file_reader(action="read_lines", path=..., start_line=..., end_line=..., number_lines=true)` — Read a chunk.
+
+Read in chunks; do not try to read a large file all at once.
+
+### Editing Files
 
 All edits flow through session memory:
 
@@ -65,6 +83,13 @@ All edits flow through session memory:
 3. `write_text_file_from_session_memory` — Write the modified session memory key back to disk.
 
 For new files: use `create_text_file` + `session_memory(action="set")` + `write_text_file_from_session_memory`.
+
+### Reading Stubbed Tool Results
+
+When a tool result begins with `** STUBBED LONG RETURN VALUE **`, use `return_stub_reader`:
+
+1. `return_stub_reader(action="count_lines", session_memory_key=...)` — Get total lines.
+2. `return_stub_reader(action="read_lines", session_memory_key=..., start_line=..., end_line=...)` — Read a chunk.
 
 ### Running Commands
 

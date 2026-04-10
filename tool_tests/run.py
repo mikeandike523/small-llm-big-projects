@@ -64,7 +64,6 @@ _TEST_MODULES = [
     "tool_tests.individual.test_wikipedia",
     "tool_tests.individual.test_report_impossible",
     "tool_tests.individual.test_todo_list",
-    "tool_tests.individual.test_load_skill_files_from_url_to_session_memory",
 ]
 
 

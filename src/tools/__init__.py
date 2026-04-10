@@ -14,16 +14,17 @@ from src.tools import change_pwd
 from src.tools import create_dir
 from src.tools import create_text_file
 from src.tools import delete_file
+from src.tools import file_reader
 from src.tools import get_pwd
 from src.tools import host_check_command
 from src.tools import host_shell
 from src.tools import list_dir
 from src.tools import list_working_tree
-from src.tools import load_skill_files_from_url_to_session_memory
 from src.tools import project_memory
 from src.tools import read_text_file_to_session_memory
 from src.tools import remove_dir
 from src.tools import report_impossible
+from src.tools import return_stub_reader
 from src.tools import scrape_web_page
 from src.tools import search_filesystem_by_regex
 from src.tools import session_memory
@@ -42,16 +43,17 @@ ALL_TOOL_DEFINITIONS: list[dict] = [
     create_dir.DEFINITION,
     create_text_file.DEFINITION,
     delete_file.DEFINITION,
+    file_reader.DEFINITION,
     get_pwd.DEFINITION,
     host_check_command.DEFINITION,
     host_shell.DEFINITION,
     list_dir.DEFINITION,
     list_working_tree.DEFINITION,
-    load_skill_files_from_url_to_session_memory.DEFINITION,
     project_memory.DEFINITION,
     read_text_file_to_session_memory.DEFINITION,
     remove_dir.DEFINITION,
     report_impossible.DEFINITION,
+    return_stub_reader.DEFINITION,
     scrape_web_page.DEFINITION,
     search_filesystem_by_regex.DEFINITION,
     session_memory.DEFINITION,
@@ -70,16 +72,17 @@ _TOOL_MAP: dict[str, object] = {
     "create_dir": create_dir,
     "create_text_file": create_text_file,
     "delete_file": delete_file,
+    "file_reader": file_reader,
     "get_pwd": get_pwd,
     "host_check_command": host_check_command,
     "host_shell": host_shell,
     "list_dir": list_dir,
     "list_working_tree": list_working_tree,
-    "load_skill_files_from_url_to_session_memory": load_skill_files_from_url_to_session_memory,
     "project_memory": project_memory,
     "read_text_file": read_text_file_to_session_memory,
     "remove_dir": remove_dir,
     "report_impossible": report_impossible,
+    "return_stub_reader": return_stub_reader,
     "scrape_web_page": scrape_web_page,
     "search_filesystem_by_regex": search_filesystem_by_regex,
     "session_memory": session_memory,

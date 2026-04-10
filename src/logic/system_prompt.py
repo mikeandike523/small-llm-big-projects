@@ -74,20 +74,25 @@ once the user answers. Do not use it to confirm steps you are already confident 
 Tool results that begin with "TIMEOUT:" or "HANG:" indicate the tool timed out or hung.
 Try a different approach (different flags, a simpler command, a dedicated tool) before giving up.
 
+== READING FILES ==
+
+To read a file from disk, use file_reader:
+  - file_reader(action="count_lines", path=...) to get the total line count.
+  - file_reader(action="read_lines", path=..., start_line=..., end_line=..., number_lines=true) to read a chunk.
+Read in chunks; do not try to read an entire large file at once.
+
 == MEMORY ==
 
-Use session_memory often — for scratchpads, working buffers, and any intermediate data.
+Use session_memory for scratchpads, working buffers, and intermediate data that needs editing.
 Use project_memory for important findings and notes that should persist across sessions.
 Memory values are plain text strings; store JSON, code, prose, or any format as-is.
-
-For large tool results, always route to session_memory (target='session_memory') and read in chunks.
-Never return large content inline — it wastes context and degrades performance.
 
 == STUBBED RETURN VALUES ==
 
 If a tool result begins with "** STUBBED LONG RETURN VALUE **", the full content is stored
-in session memory. The stub shows the key and total size. Use session_memory_text_editor
-(count_lines, read_lines) to page through it, or session_memory(search_by_regex) to find sections.
+in session memory at the key shown in the header. Use return_stub_reader to page through it:
+  - return_stub_reader(action="count_lines", session_memory_key=...) for total lines.
+  - return_stub_reader(action="read_lines", session_memory_key=..., start_line=..., end_line=...) for a chunk.
 
 == SKILLS ==
 
