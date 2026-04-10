@@ -32,6 +32,7 @@ DEFINITION: dict = {
                         "update_item",
                         "delete_item",
                         "close_item",
+                        "close_many_items",
                         "reopen_item",
                     ],
                     "description": (
@@ -52,9 +53,12 @@ DEFINITION: dict = {
                         "Works on leaf items and sub-list parents (renames the group).\n"
                         "delete_item: remove item at item_path. "
                         "Errors if item has children unless cascade_delete=true.\n"
-                        "close_item: mark a leaf item as done. "
+                        "close_item: mark a single leaf item as done. "
                         "Sub-list parents close automatically when all descendants are closed "
                         "and cannot be closed directly.\n"
+                        "close_many_items: mark multiple leaf items as done in one call. "
+                        "Requires item_paths (array of path strings). "
+                        "Each path is attempted independently; errors are reported per-item.\n"
                         "reopen_item: mark a leaf item as open again. "
                         "Sub-list parents have no direct open/closed state — reopen a child instead."
                     ),
@@ -66,6 +70,11 @@ DEFINITION: dict = {
                         "Required for: get_item, update_item, delete_item, close_item, reopen_item. "
                         "Optional for: list, list_formatted (shows that item's children when given)."
                     ),
+                },
+                "item_paths": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Array of item paths to close. Required for: close_many_items.",
                 },
                 "parent_path": {
                     "type": "string",
@@ -351,6 +360,7 @@ def execute(args: dict, session_data: dict | None = None) -> str:
     after = args.get("after")
     text = args.get("text")
     texts = args.get("texts")
+    item_paths = args.get("item_paths")
     cascade_delete = args.get("cascade_delete", False)
     auto_strip = args.get("auto_strip_leading_numbers", True)
 
@@ -583,6 +593,46 @@ def execute(args: dict, session_data: dict | None = None) -> str:
             "item_path": item_path_str,
             "status": "closed",
             "message": msg,
+        })
+
+    # ---- close_many_items ----
+    if action == "close_many_items":
+        if not item_paths:
+            return json.dumps({"error": "close_many_items requires item_paths (a non-empty array of path strings)."})
+        closed_list: list[dict] = []
+        errors_list: list[dict] = []
+        for path_str in item_paths:
+            segs, err = _parse_path(path_str)
+            if err:
+                errors_list.append({"item_path": path_str, "error": err})
+                continue
+            parent_list, last, err = _resolve_item(root_items, segs)
+            if err:
+                errors_list.append({"item_path": path_str, "error": err})
+                continue
+            item = parent_list[last - 1]
+            if _is_promoted(item):
+                errors_list.append({
+                    "item_path": path_str,
+                    "error": (
+                        f"Item '{path_str}' is a sub-list parent and cannot be closed directly. "
+                        "It closes automatically when all its children are closed."
+                    ),
+                })
+                continue
+            item["status"] = "closed"
+            msg = f"Closed item '{path_str}': \"{item['text']}\""
+            closed_list.append({"item_path": path_str, "message": msg})
+        all_done_note = ""
+        if root_items and _all_closed(root_items):
+            all_done_note = " -- all todo list items are now complete"
+        summary = f"Closed {len(closed_list)} item(s): {', '.join(d['item_path'] for d in closed_list)}"
+        if errors_list:
+            summary += f"; {len(errors_list)} error(s)"
+        return json.dumps({
+            "closed": closed_list,
+            "errors": errors_list,
+            "message": summary + all_done_note,
         })
 
     # ---- reopen_item ----

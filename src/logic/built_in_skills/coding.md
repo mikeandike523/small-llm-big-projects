@@ -15,15 +15,16 @@ shell-based file writing. Always use the session memory toolkit for file edits.
 
 Creating New Files:
 
-    Use `create_text_file` to create a new file.
-    Use `session_memory(action="set")` to store the initial content.
-    Use `write_text_file_from_session_memory` to write the content to the file on disk.
+    For small files: use `create_text_file(path=..., initial_content=...)` to create and populate in one step.
+    For larger files: use `create_text_file` to create the file, then `session_memory(action="set")`
+    to build the content, then `write_text_file_from_session_memory` to write it to disk.
 
 Editing Existing Files:
 
     Use `read_text_file_to_session_memory` to read a file on disk into session memory.
     Perform edits with `session_memory_text_editor` tool.
-    Save the contents back to disk with `write_text_file_from_session_memory`
+    Save the contents back to disk with `write_text_file_from_session_memory`.
+    After each write, pause and check the todo list — if a step is now complete, close it.
 
 ### Match Project Style and Enviornment
 

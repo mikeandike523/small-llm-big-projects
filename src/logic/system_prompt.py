@@ -31,7 +31,10 @@ Upon receiving any new user request that requires tool calls, your VERY FIRST ac
 to create a todo list (todo_list add_item / add_many_items). Do NOT respond or take any other
 action before the list exists. Plan all concrete steps before beginning work.
 
-Close each item (close_item) when done. The loop re-prompts you as long as open items remain.
+Close each item (close_item) immediately when done — do not batch up closures at the end.
+After completing any significant chunk of work, pause and ask yourself: have I finished a step?
+If yes, close it before continuing. Keeping the list current is mandatory.
+The loop re-prompts you as long as open items remain.
 If you respond with no tool calls while items are still open, the system injects a continuation
 forcing you to keep going. Once all items are closed, the system re-prompts for a final summary.
 

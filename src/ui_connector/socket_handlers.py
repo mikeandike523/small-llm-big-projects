@@ -840,28 +840,52 @@ def _get_open_items(todo_list: list) -> list[str]:
 # Early compaction helpers
 # ---------------------------------------------------------------------------
 
+# Skip compaction when the total chars of the exchanges to compact is below this
+# threshold.  Prevents unnecessary LLM calls when only a small amount of context
+# has accumulated (e.g. two or three quick todo closures in rapid succession).
+MIN_COMPACTION_CHARS = 8192
+
+
+def _exchange_chars(exchange: LLMExchange) -> int:
+    """Return a rough char count of the significant content in an exchange."""
+    total = len(exchange.assistant_content or "")
+    for tc in exchange.tool_calls:
+        total += len(tc.result or "")
+    total += len(exchange.user_continuation or "")
+    return total
+
+
 def _closed_items_from_exchange(exchange: LLMExchange) -> list[tuple[str, str]]:
     """
     Return a list of (item_path, display_message) for every todo item that was
     successfully closed in this exchange batch.
 
-    Detection: look for todo_list calls with action=close_item whose result JSON
-    contains "status": "closed" (the success shape from the tool).  Any result
-    that does not parse or lacks that field is treated as a failure and ignored.
+    Handles both close_item (single) and close_many_items (batch).
+    Any result that does not parse or lacks the expected shape is ignored.
     """
     closed: list[tuple[str, str]] = []
     for tc in exchange.tool_calls:
-        if tc.name != "todo_list" or tc.args.get("action") != "close_item":
+        if tc.name != "todo_list":
             continue
+        action = tc.args.get("action")
         result_str = tc.result or ""
         try:
             result_json = json.loads(result_str)
         except (json.JSONDecodeError, ValueError):
             continue
-        if result_json.get("status") == "closed":
-            item_path = result_json.get("item_path") or tc.args.get("item_path", "?")
-            message = result_json.get("message") or f"Closed item '{item_path}'"
-            closed.append((item_path, message))
+
+        if action == "close_item":
+            if result_json.get("status") == "closed":
+                item_path = result_json.get("item_path") or tc.args.get("item_path", "?")
+                message = result_json.get("message") or f"Closed item '{item_path}'"
+                closed.append((item_path, message))
+
+        elif action == "close_many_items":
+            for entry in result_json.get("closed") or []:
+                item_path = entry.get("item_path", "?")
+                message = entry.get("message") or f"Closed item '{item_path}'"
+                closed.append((item_path, message))
+
     return closed
 
 
@@ -1045,7 +1069,10 @@ async def _async_agent_loop(
                     # new_indices covers from right after the last compacted exchange
                     # up to and including the just-appended exchange.
                     new_indices = list(range(last_covered_idx + 1, len(current_turn.exchanges)))
-                    if new_indices:
+                    total_chars = sum(
+                        _exchange_chars(current_turn.exchanges[i]) for i in new_indices
+                    )
+                    if new_indices and total_chars >= MIN_COMPACTION_CHARS:
                         item_label = ", ".join(path for path, _ in closed_items)
                         _emit_and_log(session_id, "compaction_start", {
                             "turn_id": turn_id,
