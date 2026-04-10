@@ -6,6 +6,7 @@ Before diving in, add each area or file group you need to understand as a todo i
 
 - **`list_working_tree`** — List all tracked/untracked (non-ignored) files in a git repo. Prefer this over `list_dir` for code repos.
 - **`list_dir`** — List directory contents with recursion, depth, and filter controls. Use when you need fine-grained traversal (e.g., `depth=1` for a quick overview).
+- **`find_files_by_name`** — Search for files by name pattern (glob or regex) across the tree. Use this to locate files when you know part of the name but not the path. Complements `list_working_tree` and `list_dir` for exploration. Prefer this over `host_shell` with `find` — on some systems (e.g. Git Bash on Windows) the `find` command is not available.
 - **`search_filesystem_by_regex`** — Search file *contents* by regex. Use to find where a function, class, variable, or string is defined or used.
 
 As you explore, write your findings to `project_memory` — the purpose of key files and directories,
