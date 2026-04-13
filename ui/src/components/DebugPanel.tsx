@@ -460,6 +460,33 @@ const memEventEmptyCss = css`
   font-style: italic;
 `
 
+const saveTracesBtnCss = css`
+  background: transparent;
+  border: 1px solid #2a2a2a;
+  color: #555;
+  cursor: pointer;
+  font-family: 'Consolas', monospace;
+  font-size: 9px;
+  padding: 3px 10px;
+  border-radius: 3px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  &:hover { color: #aaa; border-color: #444; }
+  &:disabled { opacity: 0.5; cursor: not-allowed; }
+  &:disabled:hover { color: #555; border-color: #2a2a2a; }
+`
+
+const saveTracesStatusCss = (ok: boolean) => css`
+  font-family: 'Consolas', monospace;
+  font-size: 9px;
+  color: ${ok ? '#5a8a5a' : '#8a3535'};
+  margin-top: 4px;
+  word-break: break-all;
+`
+
 // ---------------------------------------------------------------------------
 // Modal styles
 // ---------------------------------------------------------------------------
@@ -777,6 +804,8 @@ export function DebugPanel({ open, onToggle, pwd, sessionId, envInfo, skillsInfo
   const [projectMemLoading, setProjectMemLoading] = useState(false)
   const [lastProjectMemEvent, setLastProjectMemEvent] = useState<MemKeyEvent | null>(null)
   const [projectMemModal, setProjectMemModal] = useState<MemModal | null>(null)
+  const [savingTraces, setSavingTraces] = useState(false)
+  const [traceSaveStatus, setTraceSaveStatus] = useState<{ ok: boolean; message: string } | null>(null)
 
   // Listen for session and project memory socket events
   useEffect(() => {
@@ -816,12 +845,27 @@ export function DebugPanel({ open, onToggle, pwd, sessionId, envInfo, skillsInfo
         return { ...prev, notification: type }
       })
     }
+    function onTracesSaved({ count, filename }: { count: number; filename: string | null }) {
+      setSavingTraces(false)
+      if (count === 0) {
+        setTraceSaveStatus({ ok: true, message: 'No buffered traces.' })
+      } else {
+        setTraceSaveStatus({ ok: true, message: `Saved ${count} trace${count !== 1 ? 's' : ''} → ${filename}` })
+      }
+    }
+    function onTracesSaveError({ message }: { message: string }) {
+      setSavingTraces(false)
+      setTraceSaveStatus({ ok: false, message: `Error: ${message}` })
+    }
+
     socket.on('session_memory_keys_update', onSessionMemoryKeys)
     socket.on('session_memory_value', onSessionMemoryValue)
     socket.on('project_memory_keys_update', onProjectMemoryKeys)
     socket.on('project_memory_value', onProjectMemoryValue)
     socket.on('session_memory_key_event', onSessionMemoryKeyEvent)
     socket.on('project_memory_key_event', onProjectMemoryKeyEvent)
+    socket.on('traces_saved', onTracesSaved)
+    socket.on('traces_save_error', onTracesSaveError)
     return () => {
       socket.off('session_memory_keys_update', onSessionMemoryKeys)
       socket.off('session_memory_value', onSessionMemoryValue)
@@ -829,6 +873,8 @@ export function DebugPanel({ open, onToggle, pwd, sessionId, envInfo, skillsInfo
       socket.off('project_memory_value', onProjectMemoryValue)
       socket.off('session_memory_key_event', onSessionMemoryKeyEvent)
       socket.off('project_memory_key_event', onProjectMemoryKeyEvent)
+      socket.off('traces_saved', onTracesSaved)
+      socket.off('traces_save_error', onTracesSaveError)
     }
   }, [])
 
@@ -862,6 +908,12 @@ export function DebugPanel({ open, onToggle, pwd, sessionId, envInfo, skillsInfo
   function viewProjectMemoryValue(key: string) {
     setProjectMemModal({ key, value: '', loading: true, notification: null })
     socket.emit('get_project_memory_value', { key })
+  }
+
+  function saveTraces() {
+    setSavingTraces(true)
+    setTraceSaveStatus(null)
+    socket.emit('save_traces')
   }
 
   if (!open) {
@@ -957,6 +1009,15 @@ export function DebugPanel({ open, onToggle, pwd, sessionId, envInfo, skillsInfo
         <div css={tabContentAreaCss}>
           <div css={tabPanelCss(activeTab === 'system')}>
             <SystemTab pwd={pwd} sessionId={sessionId} envInfo={envInfo} skillsInfo={skillsInfo} toolsInfo={toolsInfo} />
+            <div css={rowCss}>
+              <button css={saveTracesBtnCss} onClick={saveTraces} disabled={savingTraces}>
+                {savingTraces && <span css={refreshSpinnerCss} />}
+                Save Fine-Tuning Traces
+              </button>
+              {traceSaveStatus && (
+                <span css={saveTracesStatusCss(traceSaveStatus.ok)}>{traceSaveStatus.message}</span>
+              )}
+            </div>
           </div>
 
           {/* Session memory tab: flex column with scrollable content + fixed footer */}

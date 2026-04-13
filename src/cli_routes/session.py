@@ -48,7 +48,15 @@ def session():
         'Useful for non-thinking models that reason aloud through interim output.'
     ),
 )
-def session_new(pin_project_memory, load_skills, load_tools, load_startup_tool_calls, cwd, interim_response_as_thinking):
+@click.option(
+    '--enable-trace-recording', '--etr', is_flag=True, default=False,
+    help=(
+        'Record every LLM completion (full request payload + response) in memory '
+        'for this session. Use the "Save fine-tuning traces" button in the UI to '
+        'flush the buffer to disk as an XML file.'
+    ),
+)
+def session_new(pin_project_memory, load_skills, load_tools, load_startup_tool_calls, cwd, interim_response_as_thinking, enable_trace_recording):
     """
     Create a new agentic session and open it in the default web browser.
 
@@ -76,6 +84,7 @@ def session_new(pin_project_memory, load_skills, load_tools, load_startup_tool_c
         "initial_cwd": session_cwd,
         "pin_project_memory": pin_project_memory,
         "interim_response_as_thinking": interim_response_as_thinking,
+        "record_traces": enable_trace_recording,
     }
     if load_skills:
         payload["skills_path"] = os.path.join(session_cwd, "skills")

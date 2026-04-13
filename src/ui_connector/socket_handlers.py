@@ -5,6 +5,7 @@ import json
 import os
 import threading
 import time
+from collections import deque
 from typing import Any
 
 import httpx
@@ -45,6 +46,15 @@ _env_shell = get_shell()
 _hotfix_bad_parser: bool = os.environ.get("SLBP_HOTFIX_GPT_OSS_20B_BAD_PARSER") == "1"
 _hotfix_void_call: bool = os.environ.get("SLBP_HOTFIX_GPT_OSS_20B_BAD_VOID_CALL") == "1"
 
+# Trace recording config (set by slbp server run)
+_server_cwd: str = os.environ.get("SLBP_SERVER_CWD", os.getcwd())
+_traces_dir: str = os.path.join(_server_cwd, ".slbp-traces")
+_trace_folder_max_bytes: int | None = (
+    int(float(os.environ["SLBP_TRACE_FOLDER_MAX_GB"]) * 1024 ** 3)
+    if "SLBP_TRACE_FOLDER_MAX_GB" in os.environ
+    else None
+)
+
 # ---------------------------------------------------------------------------
 # Per-session state caches (rebuilt from session data on load)
 # ---------------------------------------------------------------------------
@@ -57,6 +67,8 @@ _session_system_prompts: dict[str, str] = {}
 _session_project_config: dict[str, dict] = {}
 # session_id -> current working directory for this session (updated by change_pwd tool)
 _session_current_cwd: dict[str, str] = {}
+# session_id -> deque of TraceEntry objects (only populated when session.record_traces=True)
+_session_trace_buffers: dict[str, deque] = {}
 
 
 def _get_default_project(session_id: str) -> str:
@@ -120,6 +132,10 @@ def _init_session_caches(session: "Session", session_id: str) -> None:
     # navigation (change_pwd) survives across calls to _init_session_caches.
     if session_id not in _session_current_cwd:
         _session_current_cwd[session_id] = session.initial_cwd
+
+    # Re-create the trace buffer if the session was loaded from Redis after a restart.
+    if session.record_traces and session_id not in _session_trace_buffers:
+        _session_trace_buffers[session_id] = deque()
 
 
 # ---------------------------------------------------------------------------
@@ -402,6 +418,7 @@ def api_create_session():
     custom_tools_path = data.get("custom_tools_path") or None
     startup_tool_calls_path = data.get("startup_tool_calls_path") or None
     interim_response_as_thinking = bool(data.get("interim_response_as_thinking", False))
+    record_traces = bool(data.get("record_traces", False))
 
     startup_tool_calls: list = []
     if startup_tool_calls_path:
@@ -421,7 +438,11 @@ def api_create_session():
         custom_tools_path=custom_tools_path,
         startup_tool_calls=startup_tool_calls,
         interim_response_as_thinking=interim_response_as_thinking,
+        record_traces=record_traces,
     )
+
+    if record_traces:
+        _session_trace_buffers[session_id] = deque()
 
     # Pre-validate and cache custom tools so errors surface at creation time.
     if custom_tools_path:
@@ -552,6 +573,7 @@ async def _async_run_llm_call(
     exchange_idx: int,
     tool_defs: list[dict] | None = None,
     interim_response_as_thinking: bool = False,
+    record: bool = False,
 ) -> tuple[object, str, str]:
     """
     Run one async LLM call (streaming) and emit token events.
@@ -559,6 +581,7 @@ async def _async_run_llm_call(
     Raises on HTTP/network errors. Immediately cancellable via asyncio task cancellation.
     When interim_response_as_thinking=True, content tokens are emitted as type "reasoning"
     so the frontend displays them in the thinking panel instead of counting chars.
+    When record=True, the completed TraceEntry is appended to the session trace buffer.
     """
     acc: dict[str, str] = {"content": "", "reasoning": ""}
     token_count = 0
@@ -585,8 +608,17 @@ async def _async_run_llm_call(
     result = await streaming_llm.stream(
         sanitize_messages_for_llm(payload), on_data,
         tools=(tool_defs if tool_defs is not None else ALL_TOOL_DEFINITIONS),
+        record=record,
     )
     _emit_content_snapshot(session_id, turn_id, exchange_idx, acc["content"], acc["reasoning"])
+
+    if result.trace is not None:
+        result.trace.turn_id = turn_id
+        result.trace.exchange_idx = exchange_idx
+        buf = _session_trace_buffers.get(session_id)
+        if buf is not None:
+            buf.append(result.trace)
+
     return result, acc["content"], acc["reasoning"]
 
 
@@ -617,14 +649,16 @@ async def _async_run_llm_call_with_retry(
     tool_defs: list[dict] | None = None,
     tool_map: dict | None = None,
     interim_response_as_thinking: bool = False,
+    record: bool = False,
 ) -> tuple[object, str, str]:
     """
     Run an async LLM call; on timeout or context-limit error, strip the payload
     and retry once.
     Returns (result, content_for_history, reasoning).
+    Each attempt (original and retry) produces its own TraceEntry if record=True.
     """
     try:
-        return await _async_run_llm_call(streaming_llm, payload, session_id, turn_id, exchange_idx, tool_defs, interim_response_as_thinking)
+        return await _async_run_llm_call(streaming_llm, payload, session_id, turn_id, exchange_idx, tool_defs, interim_response_as_thinking, record=record)
     except Exception as exc:
         if not _is_retryable_error(exc):
             raise
@@ -640,7 +674,65 @@ async def _async_run_llm_call_with_retry(
             payload, actual_tool_map,
             assistant_truncation_chars=assistant_truncation_chars,
         )
-        return await _async_run_llm_call(streaming_llm, stripped, session_id, turn_id, exchange_idx, tool_defs, interim_response_as_thinking)
+        return await _async_run_llm_call(streaming_llm, stripped, session_id, turn_id, exchange_idx, tool_defs, interim_response_as_thinking, record=record)
+
+
+# ---------------------------------------------------------------------------
+# Trace save helpers
+# ---------------------------------------------------------------------------
+
+def _build_traces_xml(session_id: str, entries: list) -> str:
+    """Serialize a list of TraceEntry objects to an XML string."""
+    import xml.etree.ElementTree as ET
+    from datetime import datetime, timezone
+
+    root = ET.Element("traces")
+    root.set("session_id", session_id)
+    root.set("saved_at", datetime.now(timezone.utc).isoformat())
+
+    for entry in entries:
+        trace_el = ET.SubElement(root, "trace")
+        trace_el.set("turn_id", entry.turn_id)
+        trace_el.set("exchange_idx", str(entry.exchange_idx))
+        trace_el.set("captured_at", str(entry.captured_at))
+
+        req_el = ET.SubElement(trace_el, "request")
+        # Store the full request payload as JSON — includes model, messages, tools,
+        # temperature, and any other params that were sent to the endpoint.
+        req_el.text = json.dumps(entry.request_payload, ensure_ascii=False)
+
+        resp_el = ET.SubElement(trace_el, "response")
+        ET.SubElement(resp_el, "content").text = entry.content
+        ET.SubElement(resp_el, "reasoning").text = entry.reasoning
+
+        tcs_el = ET.SubElement(resp_el, "tool_calls")
+        for tc in entry.tool_calls:
+            tc_el = ET.SubElement(tcs_el, "tool_call")
+            tc_el.set("id", tc.id)
+            tc_el.set("name", tc.name)
+            ET.SubElement(tc_el, "arguments").text = json.dumps(tc.arguments, ensure_ascii=False)
+
+        if entry.usage is not None:
+            ET.SubElement(resp_el, "usage").text = json.dumps(entry.usage, ensure_ascii=False)
+
+    ET.indent(root, space="  ")
+    return '<?xml version="1.0" encoding="utf-8"?>\n' + ET.tostring(root, encoding="unicode")
+
+
+def _rotate_traces_folder() -> None:
+    """Delete oldest trace files until the folder is within _trace_folder_max_bytes."""
+    if _trace_folder_max_bytes is None:
+        return
+    from pathlib import Path
+    files = sorted(
+        Path(_traces_dir).glob("*.xml"),
+        key=lambda p: p.stat().st_mtime,
+    )
+    total = sum(f.stat().st_size for f in files)
+    while total > _trace_folder_max_bytes and files:
+        oldest = files.pop(0)
+        total -= oldest.stat().st_size
+        oldest.unlink(missing_ok=True)
 
 
 # ---------------------------------------------------------------------------
@@ -974,6 +1066,7 @@ async def _async_agent_loop(
                     tool_defs=session_tool_defs,
                     tool_map=session_tool_map,
                     interim_response_as_thinking=session.interim_response_as_thinking and is_interim_call,
+                    record=session.record_traces,
                 )
             except asyncio.CancelledError:
                 was_cancelled = True
@@ -1462,6 +1555,50 @@ def handle_ask_human_response(data: dict):
             "answer": pending["answer"], "turn_id": pending.get("turn_id", ""),
         })
         pending["event"].set()
+
+
+@socketio.on("save_traces")
+def handle_save_traces():
+    """Flush the session trace buffer to an XML file in _traces_dir."""
+    from datetime import datetime, timezone
+    import uuid as _uuid
+
+    sid = request.sid
+    session_id = _sid_to_session_id.get(sid)
+    if not session_id:
+        emit("traces_saved", {"count": 0, "filename": None})
+        return
+
+    buf = _session_trace_buffers.get(session_id)
+    if not buf:
+        emit("traces_saved", {"count": 0, "filename": None})
+        return
+
+    entries = []
+    while buf:
+        entries.append(buf.popleft())
+
+    if not entries:
+        emit("traces_saved", {"count": 0, "filename": None})
+        return
+
+    try:
+        os.makedirs(_traces_dir, exist_ok=True)
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        short_id = str(_uuid.uuid4())[:8]
+        filename = f"{timestamp}_{short_id}.xml"
+        filepath = os.path.join(_traces_dir, filename)
+
+        xml = _build_traces_xml(session_id, entries)
+        with open(filepath, "w", encoding="utf-8") as fh:
+            fh.write(xml)
+
+        _rotate_traces_folder()
+
+        emit("traces_saved", {"count": len(entries), "filename": filename})
+    except Exception as exc:
+        print(f"[ui_connector] Failed to save traces: {exc}", flush=True)
+        emit("traces_save_error", {"message": str(exc)})
 
 
 @socketio.on("run_startup_tool_calls")

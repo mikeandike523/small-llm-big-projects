@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import click
@@ -43,7 +44,15 @@ def server():
     '--hotfix-suite-gpt-oss-20b', is_flag=True, default=False,
     help='Enable all gpt-oss-20b hotfixes at once (equivalent to --hotfix-gpt-oss-20b-bad-parser and --hotfix-gpt-oss-20b-bad-void-call).',
 )
-def server_run(tool_tracebacks, hotfix_gpt_oss_20b_bad_parser, hotfix_gpt_oss_20b_bad_void_call, hotfix_suite_gpt_oss_20b):
+@click.option(
+    '--trace-folder-max-gb', default=None, type=float,
+    help=(
+        'Maximum size in GB for the .slbp-traces folder. When saving traces would '
+        'exceed this limit, oldest trace files are deleted until under the limit. '
+        'Defaults to no limit.'
+    ),
+)
+def server_run(tool_tracebacks, hotfix_gpt_oss_20b_bad_parser, hotfix_gpt_oss_20b_bad_void_call, hotfix_suite_gpt_oss_20b, trace_folder_max_gb):
     """
     Start the server: launches the logging relay, static UI server, and the
     Flask/SocketIO backend concurrently, forwarding all streams to stdout.
@@ -68,10 +77,13 @@ def server_run(tool_tracebacks, hotfix_gpt_oss_20b_bad_parser, hotfix_gpt_oss_20
         f"[slbp] Allocated ports — flask:{flask_port}  ui:{ui_port}  logging:{logging_port}"
     )
 
+    server_cwd = os.getcwd()
+
     flask_env: dict[str, str] = {
         "FLASK_PORT": str(flask_port),
         "LOGGING_PORT": str(logging_port),
         "CORS_ORIGIN": f"http://localhost:{ui_port}",
+        "SLBP_SERVER_CWD": server_cwd,
     }
     if tool_tracebacks:
         flask_env["SLBP_TOOL_TRACEBACKS"] = "1"
@@ -79,6 +91,8 @@ def server_run(tool_tracebacks, hotfix_gpt_oss_20b_bad_parser, hotfix_gpt_oss_20
         flask_env["SLBP_HOTFIX_GPT_OSS_20B_BAD_PARSER"] = "1"
     if hotfix_gpt_oss_20b_bad_void_call or hotfix_suite_gpt_oss_20b:
         flask_env["SLBP_HOTFIX_GPT_OSS_20B_BAD_VOID_CALL"] = "1"
+    if trace_folder_max_gb is not None:
+        flask_env["SLBP_TRACE_FOLDER_MAX_GB"] = str(trace_folder_max_gb)
 
     processes = [
         ManagedProcess(
