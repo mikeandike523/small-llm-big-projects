@@ -189,8 +189,6 @@ def _emit_and_log(session_id: str, event_type: str, data: dict) -> None:
 # Maps socket session ID to {"event": threading.Event, "approved": bool | None}
 _pending_approvals: dict[str, dict] = {}
 
-_APPROVAL_TIMEOUT = 60  # seconds
-
 
 def _request_approval(
     sid: str,
@@ -202,18 +200,17 @@ def _request_approval(
     cancel_event: threading.Event | None = None,
 ) -> tuple[bool, str | None]:
     """
-    Emit an approval_request event and block until approved, denied, timed out,
-    or the turn is cancelled.
+    Emit an approval_request event and block until approved, denied, or the
+    turn is cancelled. Waits indefinitely — there is no timeout.
+    Polls every 0.5s so cancel_event is checked promptly.
     Returns (approved, redirect_message). redirect_message is set when the user
     chose "Deny & Redirect" and typed a reason/suggestion.
-    Polls every 0.5s so cancel_event is checked promptly.
     """
     ev = threading.Event()
     _pending_approvals[sid] = {"event": ev, "approved": None, "redirect_message": None, "turn_id": turn_id}
     _emit_and_log(session_id, "approval_request", {"id": tool_id, "tool_name": tool_name, "args": args, "turn_id": turn_id})
 
-    deadline = time.monotonic() + _APPROVAL_TIMEOUT
-    while time.monotonic() < deadline:
+    while True:
         if ev.wait(timeout=0.5):
             break
         if cancel_event is not None and cancel_event.is_set():
@@ -222,10 +219,6 @@ def _request_approval(
     entry = _pending_approvals.pop(sid, {})
 
     if cancel_event is not None and cancel_event.is_set():
-        return False, None
-
-    if not ev.is_set():
-        _emit_and_log(session_id, "approval_timeout", {"id": tool_id, "tool_name": tool_name, "turn_id": turn_id})
         return False, None
 
     return bool(entry.get("approved", False)), entry.get("redirect_message")
@@ -822,32 +815,26 @@ def _execute_tools(
                     turn_id=turn_id, cancel_event=cancel_event,
                 )
                 if not approved:
-                    # If cancelled during approval, return without setting impossible flag —
+                    # If cancelled during approval, return without injecting anything —
                     # the caller checks cancel_event and handles the cancellation path.
                     if cancel_event is not None and cancel_event.is_set():
                         exchange.tool_calls.append(tool_record)
                         return False, None, exchange
 
-                    denial = "DENIED: User did not approve this action."
+                    if redirect_message:
+                        denial = (
+                            f"Error: NOT Approved. User did not approve this action. "
+                            f"User suggests: {redirect_message}"
+                        )
+                    else:
+                        denial = "Error: NOT Approved. User did not approve this action."
+
                     tool_record.result = denial
                     exchange.tool_calls.append(tool_record)
                     _emit_and_log(session_id, "tool_result", {
                         "id": tc.id, "result": denial, "turn_id": turn_id,
                     })
-
-                    if redirect_message:
-                        # User chose "Deny & Redirect" — inject their guidance as a user
-                        # continuation so the LLM pivots instead of ending the turn.
-                        exchange.user_continuation = (
-                            f"The user denied the tool call '{tc.name}' and provided this guidance: "
-                            f"{redirect_message}\n\nPlease shift gears and follow the user's suggestion."
-                        )
-                        return False, None, exchange
-
-                    reason = f"User denied approval to run '{tc.name}'."
-                    session.session_data["_report_impossible"] = reason
-                    was_impossible = True
-                    return was_impossible, reason, exchange
+                    continue  # Let the LLM see the denial and decide how to proceed
 
             # Inject streaming callback into special_resources if the tool supports it
             module = actual_tool_map.get(tc.name)

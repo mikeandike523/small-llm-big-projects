@@ -291,15 +291,31 @@ const interruptedBubbleCss = css`
   font-style: italic;
 `
 
+const compactionScrollContainerCss = css`
+  ${scrollbarCss}
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 300px;
+  overflow-y: auto;
+`
+
 const compactionBubbleCss = css`
   background: #1f0a18;
   border: 1px solid #7a1a5a;
   border-radius: 8px;
-  padding: 7px 12px;
   font-size: 11px;
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  overflow: hidden;
+`
+
+const compactionHeaderCss = css`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 12px;
 `
 
 const compactionLabelCss = css`
@@ -308,10 +324,27 @@ const compactionLabelCss = css`
   font-weight: bold;
 `
 
+const compactionViewFullButtonCss = css`
+  background: transparent;
+  color: #906080;
+  border: 1px solid #5a2a4a;
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-size: 11px;
+  cursor: pointer;
+  font-family: 'Consolas', monospace;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: background 0.15s, color 0.15s;
+  &:hover { background: #3a1a2a; color: #d090c0; }
+`
+
 const compactionSummaryCss = css`
   color: #d090b8;
   line-height: 1.4;
   font-style: italic;
+  padding: 0 12px 7px 12px;
+  word-break: break-word;
 `
 
 const cancelledBubbleCss = css`
@@ -427,6 +460,16 @@ const toolResultCss = css`
     padding: 0;
     margin: 0;
   }
+`
+
+const deniedToolResultCss = css`
+  background: #1a0505;
+  color: #f87171;
+  padding: 8px 14px;
+  font-family: 'Consolas', monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+  border-top: 1px solid #5a1a1a;
 `
 
 const toolCallsGroupCss = css`
@@ -675,6 +718,20 @@ const denyRedirectButtonCss = css`
   &:hover { background: #92400e; }
 `
 
+const denyAndStopButtonCss = css`
+  flex: 1;
+  background: #3b0a0a;
+  color: #fca5a5;
+  border: 1px solid #991b1b;
+  border-radius: 5px;
+  padding: 5px 0;
+  font-size: 12px;
+  cursor: pointer;
+  font-family: 'Consolas', monospace;
+  transition: background 0.15s;
+  &:hover { background: #7f1d1d; }
+`
+
 const redirectInputAreaCss = css`
   display: flex;
   flex-direction: column;
@@ -748,17 +805,6 @@ const approvalResolvedBubbleCss = (approved: boolean) => css`
   border-radius: 4px;
   background: ${approved ? '#0a1a0a' : '#1a0a0a'};
   border: 1px solid ${approved ? '#1a4a1a' : '#4a1a1a'};
-  word-break: break-all;
-`
-
-const approvalTimedOutBubbleCss = css`
-  font-family: 'Consolas', monospace;
-  font-size: 12px;
-  color: #888840;
-  padding: 4px 8px;
-  border-radius: 4px;
-  background: #111100;
-  border: 1px solid #333300;
   word-break: break-all;
 `
 
@@ -1194,6 +1240,7 @@ function ToolCallCard({ tc, onViewFull }: { tc: ToolCallEntry; onViewFull: (c: s
   const hasResult = tc.result !== undefined
   const isStreaming = !hasResult && tc.streamingResult !== undefined
   const truncated = hasResult && tc.result!.length > MAX_TOOL_CHARS
+  const isDenied = hasResult && tc.result!.startsWith('Error: NOT Approved.')
 
   let displayResult: string | undefined
   if (hasResult) {
@@ -1230,7 +1277,7 @@ function ToolCallCard({ tc, onViewFull }: { tc: ToolCallEntry; onViewFull: (c: s
         <div css={streamingResultCss}><Ansi>{displayResult}</Ansi></div>
       )}
       {hasResult && (
-        <div css={toolResultCss}><Ansi>{displayResult}</Ansi></div>
+        <div css={isDenied ? deniedToolResultCss : toolResultCss}><Ansi>{displayResult}</Ansi></div>
       )}
     </div>
   )
@@ -1245,18 +1292,17 @@ function ToolApprovalBubble({
   onApprove,
   onDeny,
   onDenyWithRedirect,
+  onDenyAndStop,
 }: {
   item: ApprovalItem
   onApprove: (id: string) => void
   onDeny: (id: string) => void
   onDenyWithRedirect: (id: string, message: string) => void
+  onDenyAndStop: (id: string) => void
 }) {
   const [showRedirect, setShowRedirect] = useState(false)
   const [redirectText, setRedirectText] = useState('')
 
-  if (item.timedOut) {
-    return <div css={approvalTimedOutBubbleCss}>⏱ timed out: {item.tool_name}</div>
-  }
   if (item.resolved) {
     return (
       <div css={approvalResolvedBubbleCss(item.resolved.approved)}>
@@ -1274,6 +1320,7 @@ function ToolApprovalBubble({
         <button css={approveButtonCss} onClick={() => onApprove(item.id)}>Approve</button>
         <button css={denyButtonCss} onClick={() => onDeny(item.id)}>Deny</button>
         <button css={denyRedirectButtonCss} onClick={() => setShowRedirect(r => !r)}>Deny &amp; Redirect</button>
+        <button css={denyAndStopButtonCss} onClick={() => onDenyAndStop(item.id)}>Deny &amp; Stop</button>
       </div>
       {showRedirect && (
         <div css={redirectInputAreaCss}>
@@ -1434,6 +1481,7 @@ function TurnContainer({
   onApprove,
   onDeny,
   onDenyWithRedirect,
+  onDenyAndStop,
   onTrulyImpossible,
   onImpossibleRedirect,
   onAskHumanAnswer,
@@ -1443,6 +1491,7 @@ function TurnContainer({
   onApprove: (id: string) => void
   onDeny: (id: string) => void
   onDenyWithRedirect: (id: string, message: string) => void
+  onDenyAndStop: (id: string) => void
   onTrulyImpossible: (turnId: string) => void
   onImpossibleRedirect: (turnId: string, message: string) => void
   onAskHumanAnswer: (turnId: string, idx: number, answer: string) => void
@@ -1450,9 +1499,10 @@ function TurnContainer({
   const { todoItems, approvalItems, askHumanItems, impossibleRedirectItem, impossible, cancelled, compactionBubbles, exchanges, streaming, isInterimStreaming, interimShowCharCount, interimCharCount, interrupted } = turn
 
   const { scrollRef: toolsScrollRef, contentRef: toolsContentRef } = useStickToBottom()
+  const { scrollRef: compactionScrollRef, contentRef: compactionContentRef } = useStickToBottom()
 
   const approvalScrollRef = useRef<HTMLDivElement>(null)
-  const hasPendingApproval = approvalItems.some(a => !a.resolved && !a.timedOut)
+  const hasPendingApproval = approvalItems.some(a => !a.resolved)
   const hasPendingAskHuman = askHumanItems.some(i => i.state === 'pending')
   useEffect(() => {
     if (approvalScrollRef.current) {
@@ -1519,14 +1569,34 @@ function TurnContainer({
         {interrupted && (
           <div css={interruptedBubbleCss}>Connection interrupted</div>
         )}
-        {compactionBubbles.map((cb, idx) => (
-          <div key={idx} css={compactionBubbleCss}>
-            <span css={compactionLabelCss}>
-              {cb.pending ? 'Compacting...' : `Compacted: ${cb.itemLabel}`}
-            </span>
-            {cb.summary && <span css={compactionSummaryCss}>{cb.summary}</span>}
+        {compactionBubbles.length > 0 && (
+          <div css={compactionScrollContainerCss} ref={compactionScrollRef}>
+            <div ref={compactionContentRef}>
+              {compactionBubbles.map((cb, idx) => {
+                const previewLen = 160
+                const isTruncated = cb.summary !== undefined && cb.summary.length > previewLen
+                const previewText = isTruncated
+                  ? cb.summary!.slice(0, previewLen) + `... (${cb.summary!.length - previewLen} more)`
+                  : cb.summary
+                return (
+                  <div key={idx} css={compactionBubbleCss}>
+                    <div css={compactionHeaderCss}>
+                      <span css={compactionLabelCss}>
+                        {cb.pending ? 'Compacting...' : `Compacted: ${cb.itemLabel}`}
+                      </span>
+                      {isTruncated && (
+                        <button css={compactionViewFullButtonCss} onClick={() => onViewFull(cb.summary!)}>
+                          view full
+                        </button>
+                      )}
+                    </div>
+                    {previewText && <span css={compactionSummaryCss}>{previewText}</span>}
+                  </div>
+                )
+              })}
+            </div>
           </div>
-        ))}
+        )}
       </div>
 
       {/* Right column: reasoning + tool calls */}
@@ -1573,7 +1643,7 @@ function TurnContainer({
           <>
             <div css={approvalScrollContainerCss} ref={approvalScrollRef}>
               {approvalItems.map(item => (
-                <ToolApprovalBubble key={item.id} item={item} onApprove={onApprove} onDeny={onDeny} onDenyWithRedirect={onDenyWithRedirect} />
+                <ToolApprovalBubble key={item.id} item={item} onApprove={onApprove} onDeny={onDeny} onDenyWithRedirect={onDenyWithRedirect} onDenyAndStop={onDenyAndStop} />
               ))}
               {askHumanItems.map((item, idx) => (
                 <AskHumanBubble
@@ -1784,16 +1854,6 @@ export default function Chat() {
           ...t,
           approvalItems: t.approvalItems.map(a =>
             a.id === id ? { ...a, resolved: { approved } } : a
-          ),
-        }))
-        break
-      }
-      case 'approval_timeout': {
-        const id = data.id as string
-        updateTurn(turnId, t => ({
-          ...t,
-          approvalItems: t.approvalItems.map(a =>
-            a.id === id ? { ...a, timedOut: true } : a
           ),
         }))
         break
@@ -2194,17 +2254,6 @@ export default function Chat() {
       }))
     }
 
-    function onApprovalTimeout(data: { event_id?: string; turn_id?: string; id: string; tool_name: string }) {
-      if (data.event_id) updateLastEventId(data.event_id)
-      const turnId = data.turn_id ?? ''
-      updateTurn(turnId, t => ({
-        ...t,
-        approvalItems: t.approvalItems.map(a =>
-          a.id === data.id ? { ...a, timedOut: true } : a
-        ),
-      }))
-    }
-
     function onReportImpossibleRequest(data: { event_id?: string; turn_id?: string; reason: string }) {
       if (data.event_id) updateLastEventId(data.event_id)
       const turnId = data.turn_id ?? ''
@@ -2279,7 +2328,6 @@ export default function Chat() {
     socket.on('todo_list_update', onTodoListUpdate)
     socket.on('approval_request', onApprovalRequest)
     socket.on('approval_resolved', onApprovalResolved)
-    socket.on('approval_timeout', onApprovalTimeout)
     socket.on('report_impossible_request', onReportImpossibleRequest)
     socket.on('ask_human_request', onAskHumanRequest)
     socket.on('ask_human_resolved', onAskHumanResolved)
@@ -2319,7 +2367,6 @@ export default function Chat() {
       socket.off('todo_list_update', onTodoListUpdate)
       socket.off('approval_request', onApprovalRequest)
       socket.off('approval_resolved', onApprovalResolved)
-      socket.off('approval_timeout', onApprovalTimeout)
       socket.off('report_impossible_request', onReportImpossibleRequest)
       socket.off('ask_human_request', onAskHumanRequest)
       socket.off('ask_human_resolved', onAskHumanResolved)
@@ -2346,6 +2393,12 @@ export default function Chat() {
   const denyWithRedirect = useCallback((id: string, message: string) => {
     socket.emit('approval_response', { id, approved: false, redirect_message: message })
   }, [])
+
+  const denyAndStop = useCallback((id: string) => {
+    socket.emit('approval_response', { id, approved: false })
+    socket.emit('cancel_turn')
+    setCancelling(true)
+  }, [socket])
 
   const trulyImpossible = useCallback((turnId: string) => {
     socket.emit('impossible_redirect_response', { redirect_message: null })
@@ -2473,6 +2526,7 @@ export default function Chat() {
                 onApprove={approve}
                 onDeny={deny}
                 onDenyWithRedirect={denyWithRedirect}
+                onDenyAndStop={denyAndStop}
                 onTrulyImpossible={trulyImpossible}
                 onImpossibleRedirect={impossibleRedirect}
                 onAskHumanAnswer={answerAskHuman}

@@ -23,7 +23,6 @@ export interface ApprovalItem {
   tool_name: string
   args: Record<string, unknown>
   resolved?: { approved: boolean }
-  timedOut?: boolean
 }
 
 export interface ImpossibleRedirectItem {
