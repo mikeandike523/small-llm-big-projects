@@ -403,7 +403,7 @@ def _save_session(session_id: str, session: Session) -> None:
 
 
 def _delete_session(session_id: str) -> None:
-    """Only called from CLI/test utilities, not from handle_disconnect."""
+    """Delete all data for a session from Redis and in-memory caches."""
     r = _get_redis()
     r.delete(f"session:{session_id}")
     r.delete(f"session:{session_id}:memory")
@@ -412,6 +412,23 @@ def _delete_session(session_id: str) -> None:
     _session_system_prompts.pop(session_id, None)
     _session_project_config.pop(session_id, None)
     _session_current_cwd.pop(session_id, None)
+    _session_trace_buffers.pop(session_id, None)
+    _redirect_events.pop(session_id, None)
+    _redirect_messages.pop(session_id, None)
+
+
+def clear_all_sessions_on_startup() -> None:
+    """Delete every session:* key from Redis at server startup to avoid stale data."""
+    try:
+        r = _get_redis()
+        keys = list(r.scan_iter("session:*"))
+        if keys:
+            r.delete(*keys)
+            print(f"[ui_connector] Cleared {len(keys)} stale session key(s) from Redis.", flush=True)
+        else:
+            print("[ui_connector] No stale sessions to clear.", flush=True)
+    except Exception as exc:
+        print(f"[ui_connector] Warning: could not clear sessions on startup: {exc}", flush=True)
 
 
 # ---------------------------------------------------------------------------
@@ -526,17 +543,39 @@ def api_list_sessions():
         completed_turns = d.get("completed_turns") or []
         current_turn = d.get("current_turn")
         turn_count = len(completed_turns) + (1 if current_turn else 0)
+        # Collect task titles from completed turns (most recent last → display newest at top)
+        task_titles = [
+            t["task_title"] for t in completed_turns
+            if t.get("task_title")
+        ]
+        if current_turn and current_turn.get("task_title"):
+            task_titles.append(current_turn["task_title"])
         results.append({
             "session_id": session_id,
             "initial_cwd": d.get("initial_cwd", ""),
+            "current_cwd": _session_current_cwd.get(session_id) or d.get("initial_cwd", ""),
             "created_at": d.get("created_at", 0.0),
             "turn_count": turn_count,
             "active_turn": session_id in _session_active_turns,
+            "task_titles": task_titles,
             "interim_response_as_thinking": d.get("interim_response_as_thinking", False),
             "record_traces": d.get("record_traces", False),
+            "pin_project_memory": d.get("pin_project_memory", True),
+            "skills_path": d.get("skills_path") or None,
+            "custom_tools_path": d.get("custom_tools_path") or None,
         })
     results.sort(key=lambda s: s["created_at"], reverse=True)
     return jsonify(results)
+
+
+@app.route("/api/sessions/<session_id>", methods=["DELETE"])
+def api_delete_session(session_id: str):
+    """Delete all data for a session from Redis and in-memory caches."""
+    if session_id in _session_active_turns:
+        return jsonify({"error": "Cannot delete a session with an active turn"}), 409
+    _delete_session(session_id)
+    print(f"[ui_connector] Session deleted via API: {session_id}", flush=True)
+    return jsonify({"ok": True})
 
 
 @app.route("/api/system-info", methods=["GET"])

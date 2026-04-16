@@ -15,8 +15,10 @@ import sys
 sys.path.insert(0,os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 
 from src.ui_connector.app import app, socketio  # noqa: E402
+from src.ui_connector.socket_handlers import clear_all_sessions_on_startup  # noqa: E402
 
 if __name__ == "__main__":
+    clear_all_sessions_on_startup()
     port = int(os.environ.get("FLASK_PORT", 5000))
     print(f"[ui_connector] Starting on port {port}")
     socketio.run(app, host="0.0.0.0", port=port)

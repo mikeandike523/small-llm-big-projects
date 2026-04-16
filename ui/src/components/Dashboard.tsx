@@ -26,11 +26,16 @@ const FLASK_URL =
 interface SessionSummary {
   session_id: string
   initial_cwd: string
+  current_cwd: string
   created_at: number
   turn_count: number
   active_turn: boolean
   interim_response_as_thinking: boolean
   record_traces: boolean
+  task_titles: string[]
+  pin_project_memory: boolean
+  skills_path: string | null
+  custom_tools_path: string | null
 }
 
 // ---------------------------------------------------------------------------
@@ -217,6 +222,115 @@ const metaBadgeCss = css`
   color: #666;
 `
 
+const currentCwdLineCss = css`
+  font-size: 10px;
+  color: #3a8a5a;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+`
+
+const taskTitlesCss = css`
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 2px;
+`
+
+const taskTitleItemCss = css`
+  font-size: 11px;
+  color: #686868;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+`
+
+const trashBtnCss = css`
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #cc2222;
+  font-size: 15px;
+  padding: 2px 4px;
+  border-radius: 4px;
+  line-height: 1;
+  opacity: 0.7;
+  transition: opacity 0.12s, background 0.12s;
+  flex-shrink: 0;
+  &:hover {
+    opacity: 1;
+    background: #2a0a0a;
+  }
+`
+
+const modalOverlayCss = css`
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+`
+
+const modalBoxCss = css`
+  background: #181818;
+  border: 1px solid #3a1a1a;
+  border-radius: 10px;
+  padding: 28px 32px;
+  max-width: 420px;
+  width: 90%;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  font-family: 'Fira Code', 'Consolas', monospace;
+`
+
+const modalTitleCss = css`
+  font-size: 15px;
+  font-weight: 700;
+  color: #cc4444;
+  letter-spacing: 1px;
+`
+
+const modalBodyCss = css`
+  font-size: 12px;
+  color: #888;
+  line-height: 1.6;
+`
+
+const modalActionsCss = css`
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+`
+
+const modalCancelBtnCss = css`
+  background: none;
+  border: 1px solid #333;
+  border-radius: 5px;
+  color: #777;
+  padding: 7px 18px;
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  &:hover { border-color: #555; color: #aaa; }
+`
+
+const modalDeleteBtnCss = css`
+  background: #2a0a0a;
+  border: 1px solid #cc2222;
+  border-radius: 5px;
+  color: #ee4444;
+  padding: 7px 18px;
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  font-weight: 600;
+  &:hover { background: #3a0a0a; border-color: #ff4444; }
+  &:disabled { opacity: 0.5; cursor: not-allowed; }
+`
+
 const emptyStateCss = css`
   display: flex;
   flex-direction: column;
@@ -264,6 +378,8 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [showNewSession, setShowNewSession] = useState(false)
+  const [deleteTarget, setDeleteTarget] = useState<SessionSummary | null>(null)
+  const [deleting, setDeleting] = useState(false)
 
   const fetchSessions = useCallback(async () => {
     try {
@@ -292,6 +408,25 @@ export default function Dashboard() {
   function handleSessionCreated(sessionId: string) {
     setShowNewSession(false)
     navigate(`/session?sessionId=${sessionId}`)
+  }
+
+  async function confirmDelete() {
+    if (!deleteTarget) return
+    setDeleting(true)
+    try {
+      const res = await fetch(`${FLASK_URL}/api/sessions/${deleteTarget.session_id}`, { method: 'DELETE' })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        alert(body.error ?? `Delete failed (${res.status})`)
+      } else {
+        setSessions(prev => prev.filter(s => s.session_id !== deleteTarget.session_id))
+      }
+    } catch {
+      alert('Could not reach server')
+    } finally {
+      setDeleting(false)
+      setDeleteTarget(null)
+    }
   }
 
   return (
@@ -331,6 +466,7 @@ export default function Dashboard() {
                 key={s.session_id}
                 session={s}
                 onClick={() => openSession(s.session_id)}
+                onDelete={e => { e.stopPropagation(); setDeleteTarget(s) }}
               />
             ))}
           </div>
@@ -344,6 +480,28 @@ export default function Dashboard() {
           onClose={() => setShowNewSession(false)}
         />
       )}
+
+      {deleteTarget && (
+        <div css={modalOverlayCss} onClick={() => !deleting && setDeleteTarget(null)}>
+          <div css={modalBoxCss} onClick={e => e.stopPropagation()}>
+            <div css={modalTitleCss}>Delete Session?</div>
+            <div css={modalBodyCss}>
+              This will permanently delete all data for session{' '}
+              <strong style={{ color: '#ccc' }}>{deleteTarget.session_id.slice(0, 8)}</strong>
+              {' '}({cwdBasename(deleteTarget.initial_cwd)}), including all turns, memory, and cached state.
+              This cannot be undone.
+            </div>
+            <div css={modalActionsCss}>
+              <button css={modalCancelBtnCss} onClick={() => setDeleteTarget(null)} disabled={deleting}>
+                Cancel
+              </button>
+              <button css={modalDeleteBtnCss} onClick={confirmDelete} disabled={deleting}>
+                {deleting ? 'Deleting...' : 'Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -352,9 +510,22 @@ export default function Dashboard() {
 // Session card
 // ---------------------------------------------------------------------------
 
-function SessionCard({ session, onClick }: { session: SessionSummary; onClick: () => void }) {
+function SessionCard({
+  session,
+  onClick,
+  onDelete,
+}: {
+  session: SessionSummary
+  onClick: () => void
+  onDelete: (e: React.MouseEvent) => void
+}) {
   const base = cwdBasename(session.initial_cwd)
   const fullPath = session.initial_cwd.replace(/\\/g, '/')
+  const currentPath = session.current_cwd?.replace(/\\/g, '/')
+  const cwdChanged = currentPath && currentPath !== fullPath
+
+  const titles = session.task_titles ?? []
+  const MAX_TITLES = 4
 
   return (
     <div css={sessionCardCss} onClick={onClick}>
@@ -363,14 +534,47 @@ function SessionCard({ session, onClick }: { session: SessionSummary; onClick: (
           <span css={cwdBaseCss} title={fullPath}>{base}</span>
           <span css={cwdPathCss} title={fullPath}>{fullPath}</span>
         </div>
-        <div css={session.active_turn ? activeDotCss : idleDotCss} title={session.active_turn ? 'Turn in progress' : 'Idle'} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+          <div css={session.active_turn ? activeDotCss : idleDotCss} title={session.active_turn ? 'Turn in progress' : 'Idle'} />
+          <button
+            css={trashBtnCss}
+            onClick={onDelete}
+            title="Delete session"
+          >
+            🗑
+          </button>
+        </div>
       </div>
+
+      {cwdChanged && (
+        <div css={currentCwdLineCss} title={`Current CWD: ${currentPath}`}>
+          ↳ {currentPath}
+        </div>
+      )}
+
+      {titles.length > 0 && (
+        <div css={taskTitlesCss}>
+          {titles.slice(-MAX_TITLES).map((t, i) => (
+            <div key={i} css={taskTitleItemCss} title={t}>• {t}</div>
+          ))}
+          {titles.length > MAX_TITLES && (
+            <div css={taskTitleItemCss} style={{ color: '#444' }}>
+              + {titles.length - MAX_TITLES} more
+            </div>
+          )}
+        </div>
+      )}
+
       <div css={cardMetaCss}>
         <span>{session.turn_count} {session.turn_count === 1 ? 'turn' : 'turns'}</span>
         <span>{relativeTime(session.created_at)}</span>
         {session.interim_response_as_thinking && <span css={metaBadgeCss}>irat</span>}
         {session.record_traces && <span css={metaBadgeCss}>traces</span>}
+        {session.pin_project_memory && <span css={metaBadgeCss}>pin-mem</span>}
+        {session.skills_path && <span css={metaBadgeCss} title={session.skills_path}>skills</span>}
+        {session.custom_tools_path && <span css={metaBadgeCss} title={session.custom_tools_path}>tools</span>}
       </div>
+
       <div style={{ fontSize: 10, color: '#2e2e2e', fontFamily: 'monospace' }}>
         {session.session_id.slice(0, 8)}
       </div>
