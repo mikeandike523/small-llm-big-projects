@@ -114,7 +114,7 @@ def session_new(pin_project_memory, load_skills, load_tools, load_startup_tool_c
     if not session_id:
         raise click.ClickException("Server did not return a session_id.")
 
-    url = f"http://localhost:{ui_port}?sessionId={session_id}"
+    url = f"http://localhost:{ui_port}/session?sessionId={session_id}"
     click.echo(f"[slbp] Session created: {session_id}")
     click.echo(f"[slbp] CWD: {session_cwd}")
     click.echo(f"[slbp] Opening {url}")

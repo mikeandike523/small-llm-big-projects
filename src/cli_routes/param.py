@@ -14,6 +14,7 @@ _ALLOWED_PARAMS = {
     "model.max_tokens",
     "model.compaction_max_tokens",
     "model.watchdog_max_tokens",
+    "model.title_summary_max_tokens",
     "model.request_extra_params",
     "system.return_value_max_chars",
     "system.assistant_strip_truncation_chars",
@@ -69,6 +70,17 @@ _PARAM_DOCS = {
             "When not set, falls back to model.max_tokens (or the model default). "
             "These calls only need a few tokens (a single word or short string), "
             "so a small value such as 16-64 is sufficient."
+        ),
+    },
+    "model.title_summary_max_tokens": {
+        "type": "integer > 0",
+        "description": (
+            "Maximum tokens for the out-of-band LLM call that generates a short "
+            "task title for each turn bubble in the UI. "
+            "When not set, falls back to model.max_tokens (or the model default). "
+            "For instruct models a small value (e.g. 20-40) is sufficient. "
+            "Thinking models may spend extra tokens on reasoning before outputting "
+            "the title; display truncation (TITLE_MAX_CHARS) handles overflow."
         ),
     },
     "model.request_extra_params": {
@@ -147,6 +159,11 @@ def _parse_and_validate(name: str, raw_value: str):
             if value <= 0:
                 raise click.BadParameter("model.watchdog_max_tokens must be > 0", param_hint="value")
             return value
+        elif name == "model.title_summary_max_tokens":
+            value = int(raw_value)
+            if value <= 0:
+                raise click.BadParameter("model.title_summary_max_tokens must be > 0", param_hint="value")
+            return value
         elif name == "system.return_value_max_chars":
             value = int(raw_value)
             if value <= 0:
@@ -165,7 +182,7 @@ def _parse_and_validate(name: str, raw_value: str):
                 raise click.BadParameter("model.top_p must be between 0.0 and 1.0", param_hint="value")
             return value
     except ValueError:
-        int_params = {"model.top_k", "model.max_tokens", "model.compaction_max_tokens", "model.watchdog_max_tokens", "system.return_value_max_chars", "system.assistant_strip_truncation_chars"}
+        int_params = {"model.top_k", "model.max_tokens", "model.compaction_max_tokens", "model.watchdog_max_tokens", "model.title_summary_max_tokens", "system.return_value_max_chars", "system.assistant_strip_truncation_chars"}
         type_hint = "integer" if name in int_params else "float"
         raise click.BadParameter(f"value for '{name}' must be a {type_hint}", param_hint="value")
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -37,6 +38,10 @@ class LLMExchange:
     tool_calls: list[ToolCallRecord] = field(default_factory=list)
     is_final: bool = False
     user_continuation: str | None = None  # injected user message after this exchange (e.g. unclosed-todo reprompt)
+    has_human_content: bool = False  # True when human-authored content lives in this exchange
+    # (approval denial result, ask_human answer, or report_impossible redirect in user_continuation).
+    # Exchanges flagged here are NEVER included in a CompactionRecord — they are always emitted
+    # verbatim so the LLM always sees exact human instructions rather than a lossy summary.
 
     def to_messages(self) -> list[dict]:
         """Convert this exchange to OpenAI-format message(s)."""
@@ -85,6 +90,7 @@ class Turn:
     condensed_user: str = ""
     condensed_assistant: str = ""
     compaction_records: list[CompactionRecord] = field(default_factory=list)
+    task_title: str | None = None  # Short LLM-generated title, fetched at turn start
 
     def to_messages(self) -> list[dict]:
         """
@@ -177,6 +183,7 @@ class Session:
     startup_tool_calls: list = field(default_factory=list)
     interim_response_as_thinking: bool = False
     record_traces: bool = False
+    created_at: float = field(default_factory=time.time)
 
 
 # ---------------------------------------------------------------------------
@@ -228,6 +235,7 @@ def llm_exchange_to_dict(ex: LLMExchange) -> dict:
         "tool_calls": [tool_call_record_to_dict(tc) for tc in ex.tool_calls],
         "is_final": ex.is_final,
         "user_continuation": ex.user_continuation,
+        "has_human_content": ex.has_human_content,
     }
 
 
@@ -238,6 +246,7 @@ def llm_exchange_from_dict(d: dict) -> LLMExchange:
         tool_calls=[tool_call_record_from_dict(tc) for tc in d.get("tool_calls", [])],
         is_final=d.get("is_final", False),
         user_continuation=d.get("user_continuation"),
+        has_human_content=d.get("has_human_content", False),
     )
 
 
@@ -255,6 +264,7 @@ def turn_to_dict(turn: Turn) -> dict:
         "condensed_user": turn.condensed_user,
         "condensed_assistant": turn.condensed_assistant,
         "compaction_records": [compaction_record_to_dict(cr) for cr in turn.compaction_records],
+        "task_title": turn.task_title,
     }
 
 
@@ -272,6 +282,7 @@ def turn_from_dict(d: dict) -> Turn:
         condensed_user=d.get("condensed_user", ""),
         condensed_assistant=d.get("condensed_assistant", ""),
         compaction_records=[compaction_record_from_dict(cr) for cr in d.get("compaction_records", [])],
+        task_title=d.get("task_title"),
     )
 
 
@@ -296,6 +307,7 @@ def session_to_dict(session: Session) -> dict:
         "startup_tool_calls": session.startup_tool_calls,
         "interim_response_as_thinking": session.interim_response_as_thinking,
         "record_traces": session.record_traces,
+        "created_at": session.created_at,
     }
 
 
@@ -314,4 +326,5 @@ def session_from_dict(d: dict) -> Session:
         startup_tool_calls=d.get("startup_tool_calls", []),
         interim_response_as_thinking=d.get("interim_response_as_thinking", False),
         record_traces=d.get("record_traces", False),
+        created_at=d.get("created_at", 0.0),
     )

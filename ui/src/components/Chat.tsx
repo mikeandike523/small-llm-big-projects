@@ -18,6 +18,97 @@ const MAX_TOOL_CHARS = 80
 const MAX_LOGS = 100
 
 // ---------------------------------------------------------------------------
+// Help document
+// ---------------------------------------------------------------------------
+
+const HELP_MARKDOWN = `# small-llm-big-projects (slbp) — Agentic Loop Architecture
+
+## Overview
+
+slbp is an agentic loop designed to work with smaller LLMs (sub-100B parameter
+models) by augmenting decision-making with structured memory tools and explicit
+task management. Each user message creates an autonomous "Task" — a self-contained
+planning and execution cycle.
+
+## Turn / Task Model
+
+Each turn bubble in this UI corresponds to one Task. The LLM operates in a
+Plan-Execute loop:
+
+1. The user sends a message (the task description).
+2. An LLM-generated title is assigned to the turn immediately ("Task: ...").
+3. The LLM uses the todo_list tool to break down the work into steps.
+4. For each step, the LLM picks tools, executes them, and checks off items.
+5. When all items are closed, the turn ends with a final response.
+
+Between turns, completed exchanges are condensed into a compact summary
+(condensed_user + condensed_assistant) so the context window stays manageable.
+
+## Human-in-the-Loop
+
+The LLM may pause the task at any point to involve you:
+
+- **Tool Approval**: The LLM requests permission before executing flagged tools
+  (e.g. shell commands, file writes). You can approve, deny, deny with a redirect
+  message, or deny-and-stop the whole task.
+
+- **ask_human**: Used for two purposes:
+  1. Requirements clarification — when the task description is ambiguous or
+     underspecified, the LLM asks a targeted question before proceeding.
+  2. Behavior boundaries — when an action is sensitive or potentially harmful,
+     the LLM asks for explicit confirmation rather than guessing.
+  This is a normal, common interaction, not an error condition.
+
+- **report_impossible**: If the LLM determines the task cannot be completed as
+  stated, it reports the reason and asks you to either confirm it is truly
+  impossible (ending the turn) or redirect it with a revised instruction.
+
+While any of these dialogs is active, the main input bar is disabled. Respond
+using the dialog widget in the turn bubble.
+
+## Compaction
+
+Long turns accumulate many tool calls. When a todo item is closed, slbp
+compacts the exchanges for that item into a short summary bubble (shown in
+pink/magenta). Human-authored content (denials, ask_human answers, redirect
+messages) is never compacted — it is always kept verbatim.
+
+## Memory
+
+The LLM has two persistent key-value memory stores:
+
+- **Session Memory**: scoped to the current session. Used for intermediate
+  results, scratch notes, large tool outputs too big to fit in context.
+- **Project Memory**: scoped to a project directory. Used for long-lived facts
+  like architecture decisions, naming conventions, ongoing work items.
+
+Both are accessible via the Debug Panel (right side, memory tabs).
+
+## Context Strip / Retry
+
+If the LLM hits a context-length or timeout error mid-turn, slbp automatically
+strips down the message history (applying per-tool compaction policies) and
+retries the request once. You will not normally notice this.
+
+## Parameters
+
+Use the CLI to tune model behavior:
+
+  slbp param set model.temperature 0.4
+  slbp param set model.max_tokens 2048
+  slbp param set model.title_summary_max_tokens 30
+  slbp param manual   # full documentation for all params
+
+## CLI Quick Reference
+
+  slbp server run            # start the orchestration server
+  slbp session new           # open a new task session in the browser
+  slbp param set <k> <v>     # set a generation parameter
+  slbp param unset <k>       # remove a parameter
+  slbp param show            # list active parameters
+`
+
+// ---------------------------------------------------------------------------
 // Shared scrollbar styles
 // ---------------------------------------------------------------------------
 
@@ -61,6 +152,7 @@ function newTurn(id: string, userText: string): Turn {
 function backendTurnToFrontendTurn(d: {
   id: string
   user_text: string
+  task_title?: string
   exchanges: {
     assistant_content: string
     reasoning: string
@@ -84,6 +176,7 @@ function backendTurnToFrontendTurn(d: {
   return {
     id: d.id,
     userText: d.user_text,
+    taskTitle: d.task_title ?? undefined,
     exchanges: d.exchanges.map(ex => ({
       assistantContent: ex.assistant_content,
       reasoning: ex.reasoning,
@@ -547,9 +640,118 @@ const sessionIdCss = css`
   cursor: default;
 `
 
+const helpButtonCss = css`
+  background: transparent;
+  color: #555;
+  border: 1px solid #333;
+  border-radius: 50%;
+  width: 20px;
+  height: 20px;
+  font-size: 11px;
+  font-family: 'Consolas', monospace;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  line-height: 1;
+  padding: 0;
+  transition: color 0.15s, border-color 0.15s;
+  &:hover { color: #aaa; border-color: #666; }
+`
+
+const helpModalBodyCss = css`
+  ${scrollbarCss}
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px 24px;
+  font-family: 'Consolas', monospace;
+  font-size: 13px;
+  color: #c0c0c0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: #0f0f0f;
+  line-height: 1.7;
+`
+
+const helpModalFooterCss = css`
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 12px 20px;
+  border-top: 1px solid #2a2a2a;
+  background: #1a1a1a;
+  flex-shrink: 0;
+`
+
+const downloadButtonCss = css`
+  background: #1e3a1e;
+  color: #4ade80;
+  border: 1px solid #166534;
+  border-radius: 6px;
+  padding: 6px 16px;
+  font-size: 12px;
+  font-family: 'Consolas', monospace;
+  cursor: pointer;
+  transition: background 0.15s;
+  &:hover { background: #166534; }
+`
+
+const turnWrapperCss = css`
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+`
+
+const taskTitleCss = css`
+  font-size: 11px;
+  font-family: 'Consolas', monospace;
+  color: #6a9a6a;
+  background: #0d180d;
+  border: 1px solid #1e3a1e;
+  border-bottom: none;
+  border-radius: 8px 8px 0 0;
+  padding: 5px 16px;
+  letter-spacing: 0.04em;
+  align-self: flex-start;
+  max-width: 60%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+`
+
+const _taskTitlePulse = keyframes`
+  0%, 100% { color: #334a33; }
+  50%       { color: #4a6a4a; }
+`
+
+const taskTitleLoadingCss = css`
+  font-size: 11px;
+  font-family: 'Consolas', monospace;
+  background: #0d180d;
+  border: 1px solid #1a2e1a;
+  border-bottom: none;
+  border-radius: 8px 8px 0 0;
+  padding: 5px 16px;
+  letter-spacing: 0.04em;
+  align-self: flex-start;
+  animation: ${_taskTitlePulse} 1.6s ease-in-out infinite;
+`
+
 const turnContainerCss = css`
   display: grid;
-  grid-template-columns: 3fr 2fr 2fr 1.5fr;
+  grid-template-columns: 3fr 2fr 2fr;
+  gap: 24px;
+  padding: 20px 24px;
+  border: 1px solid #3a3a3a;
+  border-radius: 0 12px 12px 12px;
+  background: #141414;
+  box-shadow: 0 3px 16px rgba(0, 0, 0, 0.5);
+`
+
+const turnContainerNoTitleCss = css`
+  display: grid;
+  grid-template-columns: 3fr 2fr 2fr;
   gap: 24px;
   padding: 20px 24px;
   border: 1px solid #3a3a3a;
@@ -619,27 +821,177 @@ const todoEmptyCss = css`
   font-style: italic;
 `
 
-const approvalColumnCss = css`
+const approvalRowCss = css`
+  grid-column: 1 / -1;
   display: flex;
   flex-direction: column;
   gap: 8px;
-  border-left: 1px solid #2a2a2a;
-  padding-left: 16px;
+  border-top: 1px solid #2a2a2a;
+  padding-top: 16px;
+  min-height: 120px;
+`
+
+// Inner 3-column grid for the approval/questions row
+const approvalInnerGridCss = css`
+  display: grid;
+  grid-template-columns: 150px 1.2fr 1fr;
+  min-height: 100px;
+`
+
+// Base for each column inside the grid
+const approvalCol1Css = css`
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 0 14px 4px 2px;
   min-width: 0;
 `
 
-const approvalHeaderCss = css`
-  font-size: 11px;
-  color: #555;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  margin-bottom: 4px;
+const approvalCol2Css = css`
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0 14px 4px 14px;
+  border-left: 1px solid #1e1e1e;
+  min-width: 0;
 `
 
-const approvalEmptyCss = css`
+const approvalCol3Css = css`
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0 4px 4px 14px;
+  border-left: 1px solid #1e1e1e;
+  min-width: 0;
+`
+
+const approvalColHeaderCss = css`
+  font-size: 10px;
+  color: #444;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  font-family: 'Consolas', monospace;
+  margin-bottom: 4px;
+  flex-shrink: 0;
+`
+
+const _approvalColHeaderPulse = keyframes`
+  0%, 100% { color: #a07030; }
+  50%       { color: #d4a030; }
+`
+
+const approvalColHeaderPendingCss = css`
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  font-family: 'Consolas', monospace;
+  margin-bottom: 4px;
+  flex-shrink: 0;
+  font-weight: 600;
+  animation: ${_approvalColHeaderPulse} 1.8s ease-in-out infinite;
+`
+
+const _askColHeaderPulse = keyframes`
+  0%, 100% { color: #207070; }
+  50%       { color: #40c0c0; }
+`
+
+const approvalColHeaderAskPendingCss = css`
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  font-family: 'Consolas', monospace;
+  margin-bottom: 4px;
+  flex-shrink: 0;
+  font-weight: 600;
+  animation: ${_askColHeaderPulse} 1.8s ease-in-out infinite;
+`
+
+// Col 1: outcome chips
+const outcomesScrollCss = css`
+  ${scrollbarCss}
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  overflow-y: auto;
+  max-height: 200px;
+`
+
+const outcomeApprovalChipCss = (approved: boolean) => css`
+  font-family: 'Consolas', monospace;
+  font-size: 11px;
+  color: ${approved ? '#4ade80' : '#f87171'};
+  background: ${approved ? '#071207' : '#120707'};
+  border: 1px solid ${approved ? '#14532d' : '#450a0a'};
+  border-radius: 3px;
+  padding: 2px 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+`
+
+const outcomeAskChipCss = css`
+  font-family: 'Consolas', monospace;
+  font-size: 11px;
+  color: #3a9090;
+  background: #001010;
+  border: 1px solid #003838;
+  border-radius: 3px;
+  padding: 2px 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+`
+
+// Col 2: active dialog placeholder (nothing pending)
+const activeDialogPlaceholderCss = css`
   font-size: 12px;
-  color: #3a3a3a;
+  color: #2a2a2a;
   font-style: italic;
+  font-family: 'Consolas', monospace;
+`
+
+// Col 3: Q&A history
+const qaHistoryScrollCss = css`
+  ${scrollbarCss}
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow-y: auto;
+  max-height: 200px;
+`
+
+const qaHistoryEmptyCss = css`
+  font-size: 12px;
+  color: #2a2a2a;
+  font-style: italic;
+  font-family: 'Consolas', monospace;
+`
+
+const qaHistoryCardCss = css`
+  background: #001212;
+  border: 1px solid #002828;
+  border-radius: 5px;
+  padding: 6px 9px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+`
+
+const qaHistoryQuestionCss = css`
+  font-family: 'Consolas', monospace;
+  font-size: 10px;
+  color: #3a7070;
+  line-height: 1.4;
+  word-break: break-word;
+`
+
+const qaHistoryAnswerCss = css`
+  font-family: 'Consolas', monospace;
+  font-size: 12px;
+  color: #50b0b0;
+  word-break: break-word;
+  line-height: 1.4;
 `
 
 const approvalPendingCardCss = css`
@@ -788,14 +1140,6 @@ const redirectCancelButtonCss = css`
   &:hover { background: #374151; }
 `
 
-const approvalScrollContainerCss = css`
-  ${scrollbarCss}
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  max-height: 260px;
-  overflow-y: auto;
-`
 
 const approvalResolvedBubbleCss = (approved: boolean) => css`
   font-family: 'Consolas', monospace;
@@ -808,26 +1152,6 @@ const approvalResolvedBubbleCss = (approved: boolean) => css`
   word-break: break-all;
 `
 
-const _approvalPulse = keyframes`
-  0%, 100% { opacity: 0.75; box-shadow: 0 0 6px #d4a03060; }
-  50%       { opacity: 1;    box-shadow: 0 0 18px #d4a030b0; }
-`
-
-const approvalBannerCss = css`
-  background: #1a1200;
-  border: 1px solid #6a4800;
-  border-radius: 6px;
-  padding: 5px 10px;
-  font-family: 'Consolas', monospace;
-  font-size: 11px;
-  font-weight: 600;
-  color: #d4a030;
-  text-align: center;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  animation: ${_approvalPulse} 1.8s ease-in-out infinite;
-  flex-shrink: 0;
-`
 
 // ---------------------------------------------------------------------------
 // ImpossibleRedirectBubble styles
@@ -933,11 +1257,12 @@ const askHumanTextareaCss = css`
   color: #a0e8e8;
   border: 1px solid #007a7a;
   border-radius: 4px;
-  padding: 5px 7px;
-  font-size: 12px;
+  padding: 7px 9px;
+  font-size: 13px;
   font-family: 'Consolas', monospace;
   resize: vertical;
   outline: none;
+  min-height: 60px;
   &:focus { border-color: #40c0c0; }
 `
 
@@ -952,26 +1277,6 @@ const askHumanResolvedCss = css`
   word-break: break-word;
 `
 
-const _askHumanPulse = keyframes`
-  0%, 100% { opacity: 0.75; box-shadow: 0 0 6px #40c0c060; }
-  50%       { opacity: 1;    box-shadow: 0 0 18px #40c0c0b0; }
-`
-
-const askHumanBannerCss = css`
-  background: #001a1a;
-  border: 1px solid #007a7a;
-  border-radius: 6px;
-  padding: 5px 10px;
-  font-family: 'Consolas', monospace;
-  font-size: 11px;
-  font-weight: 600;
-  color: #40c0c0;
-  text-align: center;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  animation: ${_askHumanPulse} 1.8s ease-in-out infinite;
-  flex-shrink: 0;
-`
 
 const loadingOverlayCss = css`
   position: fixed;
@@ -1501,14 +1806,24 @@ function TurnContainer({
   const { scrollRef: toolsScrollRef, contentRef: toolsContentRef } = useStickToBottom()
   const { scrollRef: compactionScrollRef, contentRef: compactionContentRef } = useStickToBottom()
 
-  const approvalScrollRef = useRef<HTMLDivElement>(null)
+  const outcomesScrollRef = useRef<HTMLDivElement>(null)
+  const qaHistoryScrollRef = useRef<HTMLDivElement>(null)
   const hasPendingApproval = approvalItems.some(a => !a.resolved)
   const hasPendingAskHuman = askHumanItems.some(i => i.state === 'pending')
+  const resolvedApprovals = approvalItems.filter(a => a.resolved)
+  const pendingApprovals = approvalItems.filter(a => !a.resolved)
+  const answeredAskHuman = askHumanItems.filter(i => i.state === 'answered')
+  const pendingAskHuman = askHumanItems.filter(i => i.state === 'pending')
   useEffect(() => {
-    if (approvalScrollRef.current) {
-      approvalScrollRef.current.scrollTop = approvalScrollRef.current.scrollHeight
+    if (outcomesScrollRef.current) {
+      outcomesScrollRef.current.scrollTop = outcomesScrollRef.current.scrollHeight
     }
-  }, [approvalItems.length, hasPendingApproval])
+  }, [resolvedApprovals.length, answeredAskHuman.length])
+  useEffect(() => {
+    if (qaHistoryScrollRef.current) {
+      qaHistoryScrollRef.current.scrollTop = qaHistoryScrollRef.current.scrollHeight
+    }
+  }, [answeredAskHuman.length])
 
   // Collect all tool calls from all exchanges (for the tool calls panel)
   const allToolCalls = exchanges.flatMap(ex => ex.toolCalls)
@@ -1527,8 +1842,16 @@ function TurnContainer({
   const isStreamingFinal = streaming && !isInterimStreaming
   const showPlaceholder = streaming && !displayContent && !isInterimStreaming && allToolCalls.length === 0
 
+  const hasTitle = !!(turn.taskTitle || turn.streaming)
+
   return (
-    <div css={turnContainerCss}>
+    <div css={turnWrapperCss}>
+      {turn.taskTitle ? (
+        <div css={taskTitleCss}>Task: {turn.taskTitle}</div>
+      ) : turn.streaming ? (
+        <div css={taskTitleLoadingCss}>Task</div>
+      ) : null}
+      <div css={hasTitle ? turnContainerCss : turnContainerNoTitleCss}>
       {/* Left column: user message + AI content + impossible notice */}
       <div css={leftColumnCss}>
         <div css={userBubbleCss}>{turn.userText}</div>
@@ -1634,34 +1957,82 @@ function TurnContainer({
         }
       </div>
 
-      {/* Fourth column: approval + ask_human */}
-      <div css={approvalColumnCss}>
-        <div css={approvalHeaderCss}>Approval</div>
-        {approvalItems.length === 0 && askHumanItems.length === 0 ? (
-          <div css={approvalEmptyCss}>—</div>
-        ) : (
-          <>
-            <div css={approvalScrollContainerCss} ref={approvalScrollRef}>
-              {approvalItems.map(item => (
-                <ToolApprovalBubble key={item.id} item={item} onApprove={onApprove} onDeny={onDeny} onDenyWithRedirect={onDenyWithRedirect} onDenyAndStop={onDenyAndStop} />
-              ))}
-              {askHumanItems.map((item, idx) => (
-                <AskHumanBubble
-                  key={idx}
-                  item={item}
-                  idx={idx}
-                  onAnswer={(i, answer) => onAskHumanAnswer(turn.id, i, answer)}
-                />
-              ))}
+      {/* Full-width bottom row: 3-column approval/questions panel */}
+      {(approvalItems.length > 0 || askHumanItems.length > 0) && (
+        <div css={approvalRowCss}>
+          <div css={approvalInnerGridCss}>
+
+            {/* Col 1: Outcome chips — resolved approvals + answered question tags */}
+            <div css={approvalCol1Css}>
+              <div css={approvalColHeaderCss}>Outcomes</div>
+              {resolvedApprovals.length === 0 && answeredAskHuman.length === 0 ? (
+                <div css={activeDialogPlaceholderCss}>—</div>
+              ) : (
+                <div css={outcomesScrollCss} ref={outcomesScrollRef}>
+                  {resolvedApprovals.map(item => (
+                    <div key={item.id} css={outcomeApprovalChipCss(item.resolved!.approved)} title={item.tool_name}>
+                      {item.resolved!.approved ? '✓' : '✗'} {item.tool_name}
+                    </div>
+                  ))}
+                  {answeredAskHuman.map((item, idx) => (
+                    <div key={idx} css={outcomeAskChipCss} title={item.question}>
+                      ? {item.question.length > 28 ? item.question.slice(0, 28) + '…' : item.question}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
-            {hasPendingApproval && (
-              <div css={approvalBannerCss}>⚠ Approval needed</div>
-            )}
-            {hasPendingAskHuman && (
-              <div css={askHumanBannerCss}>? Answer needed</div>
-            )}
-          </>
-        )}
+
+            {/* Col 2: Active dialog — pending approval or pending ask_human */}
+            <div css={approvalCol2Css}>
+              {hasPendingApproval ? (
+                <div css={approvalColHeaderPendingCss}>⚠ Approval Needed</div>
+              ) : hasPendingAskHuman ? (
+                <div css={approvalColHeaderAskPendingCss}>? Question</div>
+              ) : (
+                <div css={approvalColHeaderCss}>Active</div>
+              )}
+              {pendingApprovals.length === 0 && pendingAskHuman.length === 0 ? (
+                <div css={activeDialogPlaceholderCss}>—</div>
+              ) : (
+                <>
+                  {pendingApprovals.map(item => (
+                    <ToolApprovalBubble
+                      key={item.id} item={item}
+                      onApprove={onApprove} onDeny={onDeny}
+                      onDenyWithRedirect={onDenyWithRedirect} onDenyAndStop={onDenyAndStop}
+                    />
+                  ))}
+                  {pendingAskHuman.map((item, idx) => (
+                    <AskHumanBubble
+                      key={idx} item={item} idx={askHumanItems.indexOf(item)}
+                      onAnswer={(i, answer) => onAskHumanAnswer(turn.id, i, answer)}
+                    />
+                  ))}
+                </>
+              )}
+            </div>
+
+            {/* Col 3: Q&A history — scrollable answered question cards */}
+            <div css={approvalCol3Css}>
+              <div css={approvalColHeaderCss}>Questions</div>
+              {answeredAskHuman.length === 0 ? (
+                <div css={qaHistoryEmptyCss}>—</div>
+              ) : (
+                <div css={qaHistoryScrollCss} ref={qaHistoryScrollRef}>
+                  {answeredAskHuman.map((item, idx) => (
+                    <div key={idx} css={qaHistoryCardCss}>
+                      <div css={qaHistoryQuestionCss}>Q: {item.question}</div>
+                      <div css={qaHistoryAnswerCss}>A: {item.answer}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+          </div>
+        </div>
+      )}
       </div>
     </div>
   )
@@ -1720,6 +2091,7 @@ export default function Chat() {
   const [systemPrompt, setSystemPrompt] = useState<string | null>(null)
   const [backendLogs, setBackendLogs] = useState<BackendLogEntry[]>([])
   const [isLoadingBackendState, setIsLoadingBackendState] = useState(false)
+  const [showHelpModal, setShowHelpModal] = useState(false)
 
   const { scrollRef: threadRef, contentRef: threadContentRef, scrollToBottom } = useStickToBottom()
 
@@ -1922,6 +2294,9 @@ export default function Chat() {
         })
         break
       }
+      case 'task_title':
+        updateTurn(turnId, t => ({ ...t, taskTitle: data.title as string }))
+        break
       case 'pwd_update':
         setPwd(data.path as string)
         break
@@ -2334,6 +2709,9 @@ export default function Chat() {
     socket.on('compaction_start', onCompactionStart)
     socket.on('compaction_done', onCompactionDone)
     socket.on('shell_output_snapshot', onShellOutputSnapshot)
+    socket.on('task_title', (data: { turn_id: string; title: string }) => {
+      applyReplayEvent('task_title', data)
+    })
 
     // Connect after all handlers are registered so we never miss the connect event
     socket.connect()
@@ -2373,6 +2751,7 @@ export default function Chat() {
       socket.off('compaction_start', onCompactionStart)
       socket.off('compaction_done', onCompactionDone)
       socket.off('shell_output_snapshot', onShellOutputSnapshot)
+      socket.off('task_title')
       socket.disconnect()
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2505,9 +2884,34 @@ export default function Chat() {
           </div>
         </div>
 
+        {/* Help modal */}
+        {showHelpModal && (
+          <div css={[modalOverlayBaseCss, modalOverlayVisibleCss]} onClick={() => setShowHelpModal(false)}>
+            <div css={modalCardCss} onClick={e => e.stopPropagation()}>
+              <div css={modalHeaderCss}>
+                <span css={modalTitleCss}>How this works</span>
+                <button css={modalCloseButtonCss} onClick={() => setShowHelpModal(false)}>×</button>
+              </div>
+              <div css={helpModalBodyCss}>{HELP_MARKDOWN}</div>
+              <div css={helpModalFooterCss}>
+                <button css={downloadButtonCss} onClick={() => {
+                  const blob = new Blob([HELP_MARKDOWN], { type: 'text/markdown' })
+                  const url = URL.createObjectURL(blob)
+                  const a = document.createElement('a')
+                  a.href = url
+                  a.download = 'slbp-agentic-loop.md'
+                  a.click()
+                  URL.revokeObjectURL(url)
+                }}>Download .md</button>
+              </div>
+            </div>
+          </div>
+        )}
+
         <div css={headerBarCss}>
           <span css={statusCss}>{connected ? '●' : '○'} {connected ? 'connected' : 'disconnected'}</span>
           <span css={sessionIdCss} title={sessionId}>session: {sessionId.slice(0, 8)}</span>
+          <button css={helpButtonCss} onClick={() => setShowHelpModal(true)} title="Help">?</button>
         </div>
         <div css={threadCss} ref={threadRef}>
           <div ref={threadContentRef}>

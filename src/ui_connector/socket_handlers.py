@@ -3,6 +3,9 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import pathlib
+import subprocess
+import sys
 import threading
 import time
 from collections import deque
@@ -69,6 +72,8 @@ _session_project_config: dict[str, dict] = {}
 _session_current_cwd: dict[str, str] = {}
 # session_id -> deque of TraceEntry objects (only populated when session.record_traces=True)
 _session_trace_buffers: dict[str, deque] = {}
+# Set of session_ids that are currently executing a turn
+_session_active_turns: set[str] = set()
 
 
 def _get_default_project(session_id: str) -> str:
@@ -231,9 +236,6 @@ def _request_approval(
 # Maps socket session ID to pending redirect state
 _pending_impossible_redirects: dict[str, dict] = {}
 
-_IMPOSSIBLE_REDIRECT_TIMEOUT = 300  # 5 minutes — user needs time to read and type
-
-
 def _request_impossible_redirect(
     sid: str,
     session_id: str,
@@ -242,9 +244,11 @@ def _request_impossible_redirect(
     cancel_event: threading.Event | None,
 ) -> str | None:
     """
-    Emit report_impossible_request and block until the user responds or times out.
+    Emit report_impossible_request and block until the user responds or the
+    turn is cancelled.  Waits indefinitely — there is no timeout.  Polls every
+    0.5 s so cancel_event is checked promptly.
     Returns redirect_message (str) if the user chose to redirect the LLM, or
-    None if they chose "Truly Impossible" / timed out / cancelled.
+    None if they chose "Truly Impossible" / cancelled.
     """
     ev = threading.Event()
     _pending_impossible_redirects[sid] = {
@@ -254,8 +258,7 @@ def _request_impossible_redirect(
         "reason": reason, "turn_id": turn_id,
     })
 
-    deadline = time.monotonic() + _IMPOSSIBLE_REDIRECT_TIMEOUT
-    while time.monotonic() < deadline:
+    while True:
         if ev.wait(timeout=0.5):
             break
         if cancel_event is not None and cancel_event.is_set():
@@ -277,9 +280,6 @@ def _request_impossible_redirect(
 # because the tool only has access to session_id via special_resources)
 _pending_human_inputs: dict[str, dict] = {}
 
-_ASK_HUMAN_TIMEOUT = 600  # 10 minutes
-
-
 def _request_human_input(
     session_id: str,
     question: str,
@@ -287,8 +287,10 @@ def _request_human_input(
     cancel_event: threading.Event | None,
 ) -> str | None:
     """
-    Emit ask_human_request and block until the user answers, cancels, or times out.
-    Returns the user's answer string, or None on cancel / timeout.
+    Emit ask_human_request and block until the user answers or the turn is
+    cancelled.  Waits indefinitely — there is no timeout.  Polls every 0.5 s
+    so cancel_event is checked promptly.
+    Returns the user's answer string, or None on cancel.
     """
     ev = threading.Event()
     _pending_human_inputs[session_id] = {
@@ -298,8 +300,7 @@ def _request_human_input(
         "question": question, "turn_id": turn_id,
     })
 
-    deadline = time.monotonic() + _ASK_HUMAN_TIMEOUT
-    while time.monotonic() < deadline:
+    while True:
         if ev.wait(timeout=0.5):
             break
         if cancel_event is not None and cancel_event.is_set():
@@ -469,6 +470,83 @@ def api_create_session():
 
     print(f"[ui_connector] Session created: {session_id} cwd={initial_cwd!r}", flush=True)
     return jsonify({"session_id": session_id})
+
+
+@app.route("/api/sessions", methods=["GET"])
+def api_list_sessions():
+    """
+    List all persisted sessions with lightweight metadata.
+    Returns a JSON array sorted by created_at descending.
+    """
+    r = _get_redis()
+    results = []
+    for raw_key in r.scan_iter("session:*"):
+        key = raw_key.decode() if isinstance(raw_key, bytes) else raw_key
+        # Skip sub-keys like session:{id}:events, session:{id}:memory
+        parts = key.split(":")
+        if len(parts) != 2:
+            continue
+        session_id = parts[1]
+        raw = r.get(key)
+        if not raw:
+            continue
+        try:
+            d = json.loads(raw)
+        except Exception:
+            continue
+        completed_turns = d.get("completed_turns") or []
+        current_turn = d.get("current_turn")
+        turn_count = len(completed_turns) + (1 if current_turn else 0)
+        results.append({
+            "session_id": session_id,
+            "initial_cwd": d.get("initial_cwd", ""),
+            "created_at": d.get("created_at", 0.0),
+            "turn_count": turn_count,
+            "active_turn": session_id in _session_active_turns,
+            "interim_response_as_thinking": d.get("interim_response_as_thinking", False),
+            "record_traces": d.get("record_traces", False),
+        })
+    results.sort(key=lambda s: s["created_at"], reverse=True)
+    return jsonify(results)
+
+
+@app.route("/api/system-info", methods=["GET"])
+def api_system_info():
+    """Return basic system information useful for the dashboard."""
+    return jsonify({"home_dir": str(pathlib.Path.home()).replace("\\", "/")})
+
+
+@app.route("/api/folder-pick", methods=["POST"])
+def api_folder_pick():
+    """
+    Open a native OS folder-picker dialog (tkinter) in a subprocess and return
+    the chosen path.  Returns {"path": "<chosen>"} or {"path": null} if cancelled.
+    """
+    data = request.get_json(force=True, silent=True) or {}
+    initial_dir = data.get("initial_dir") or str(pathlib.Path.home())
+
+    script = (
+        "import tkinter, tkinter.filedialog, sys; "
+        "root = tkinter.Tk(); root.withdraw(); root.wm_attributes('-topmost', 1); "
+        f"result = tkinter.filedialog.askdirectory(initialdir={initial_dir!r}, title='Select working directory'); "
+        "print(result or '', end='')"
+    )
+    try:
+        proc = subprocess.run(
+            [sys.executable, "-c", script],
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        chosen = proc.stdout.strip() or None
+    except subprocess.TimeoutExpired:
+        chosen = None
+    except Exception as exc:
+        return jsonify({"error": str(exc), "path": None}), 500
+
+    if chosen:
+        chosen = chosen.replace("\\", "/")
+    return jsonify({"path": chosen})
 
 
 # ---------------------------------------------------------------------------
@@ -831,6 +909,9 @@ def _execute_tools(
 
                     tool_record.result = denial
                     exchange.tool_calls.append(tool_record)
+                    # Human authored this denial — preserve the exchange verbatim so
+                    # compaction never overwrites the exact reason with a vague summary.
+                    exchange.has_human_content = True
                     _emit_and_log(session_id, "tool_result", {
                         "id": tc.id, "result": denial, "turn_id": turn_id,
                     })
@@ -872,6 +953,13 @@ def _execute_tools(
 
             tool_record.result = tool_result
             exchange.tool_calls.append(tool_record)
+
+            # ask_human result is authored by the human — never compress it.
+            # (Distinguish real answers from the canned "user did not respond" message.)
+            if tc.name == "ask_human" and tool_result and not tool_result.startswith(
+                "The user did not respond"
+            ):
+                exchange.has_human_content = True
 
             _emit_and_log(session_id, "tool_result", {
                 "id": tc.id, "result": tool_result, "turn_id": turn_id,
@@ -925,6 +1013,11 @@ def _get_open_items(todo_list: list) -> list[str]:
 # has accumulated (e.g. two or three quick todo closures in rapid succession).
 MIN_COMPACTION_CHARS = 8192
 
+# Maximum display length for LLM-generated task titles.  Titles that exceed this
+# (e.g. from thinking models that output reasoning before the short title) are
+# truncated with an ellipsis before being stored and emitted.
+TITLE_MAX_CHARS = 80
+
 
 def _exchange_chars(exchange: LLMExchange) -> int:
     """Return a rough char count of the significant content in an exchange."""
@@ -969,6 +1062,36 @@ def _closed_items_from_exchange(exchange: LLMExchange) -> list[tuple[str, str]]:
     return closed
 
 
+def _split_compactable_segments(
+    exchanges: list[LLMExchange],
+    indices: list[int],
+) -> list[list[int]]:
+    """
+    Split a list of exchange indices into contiguous sub-lists that exclude any
+    exchange tagged with has_human_content=True.
+
+    Human-content exchanges (approval denials, ask_human answers, report_impossible
+    redirects) are kept raw — they are never included in any CompactionRecord so
+    the LLM always sees exact human instructions verbatim rather than a lossy summary.
+
+    Example: indices [0,1,2,3,4] where exchanges 1 and 3 have human content →
+      returns [[0], [2], [4]]  (three separate compactable segments)
+    """
+    segments: list[list[int]] = []
+    current: list[int] = []
+    for idx in indices:
+        if exchanges[idx].has_human_content:
+            if current:
+                segments.append(current)
+                current = []
+            # Human-content exchange: skip (always kept raw)
+        else:
+            current.append(idx)
+    if current:
+        segments.append(current)
+    return segments
+
+
 async def _compact_exchanges(
     streaming_llm: StreamingLLM,
     exchanges: list[LLMExchange],
@@ -992,6 +1115,44 @@ async def _compact_exchanges(
         return text or None
     except Exception as exc:
         print(f"[compaction] LLM call failed: {exc}", flush=True)
+        return None
+
+
+async def _fetch_task_title(
+    streaming_llm: StreamingLLM,
+    user_text: str,
+    max_tokens: int | None,
+) -> str | None:
+    """
+    Make a non-streaming LLM call to generate a short title for the task.
+    Returns the title string (truncated to TITLE_MAX_CHARS), or None on failure.
+
+    max_tokens follows the same fallback pattern as watchdog_max_tokens: when set
+    it caps the token budget; when None the model default is used.  TITLE_MAX_CHARS
+    provides a hard display truncation for thinking-model overflow.
+    """
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "You are a labelling assistant. "
+                "Given a user request, output a short title of 3-7 words that captures "
+                "the essence of what the user wants to accomplish. "
+                "Output ONLY the title — no punctuation, no quotes, no explanation."
+            ),
+        },
+        {"role": "user", "content": user_text},
+    ]
+    try:
+        result = await asyncio.to_thread(streaming_llm.fetch, messages, max_tokens)
+        title = (result.content or "").strip()
+        if not title:
+            return None
+        if len(title) > TITLE_MAX_CHARS:
+            title = title[:TITLE_MAX_CHARS - 1] + "…"
+        return title
+    except Exception as exc:
+        print(f"[task_title] LLM call failed: {exc}", flush=True)
         return None
 
 
@@ -1117,9 +1278,17 @@ async def _async_agent_loop(
                     was_cancelled = True
                     break
 
-                # Early compaction: if any todo item was just closed, compact all
-                # exchanges since the last compaction into a summary so the LLM
-                # context does not grow unbounded during multi-step work.
+                # Pre-compaction: if this exchange is about to trigger an impossible
+                # redirect dialog, tag it NOW so the compaction logic below will not
+                # include it in any CompactionRecord.  The redirect (human-authored
+                # guidance) will be injected as user_continuation after compaction runs.
+                if impossible:
+                    exchange.has_human_content = True
+
+                # Early compaction: if any todo item was just closed, compact exchanges
+                # since the last compaction.  Human-content exchanges (approvals, ask_human
+                # answers, impossible redirects) are excluded from compaction and always kept
+                # verbatim — the range is split into disjoint compactable segments around them.
                 # exchange_idx of the newly appended exchange = len(exchanges) - 1.
                 closed_items = _closed_items_from_exchange(exchange)
                 if closed_items:
@@ -1135,34 +1304,56 @@ async def _async_agent_loop(
                     )
                     if new_indices and total_chars >= MIN_COMPACTION_CHARS:
                         item_label = ", ".join(path for path, _ in closed_items)
-                        _emit_and_log(session_id, "compaction_start", {
-                            "turn_id": turn_id,
-                            "exchange_indices": new_indices,
-                            "item_label": item_label,
-                        })
-                        exchanges_to_compact = [current_turn.exchanges[i] for i in new_indices]
-                        summary = await _compact_exchanges(
-                            streaming_llm, exchanges_to_compact, max_tokens=compaction_max_tokens,
-                        )
-                        if summary:
-                            cr = CompactionRecord(
-                                summary_text=summary,
-                                covers_exchange_indices=new_indices,
-                            )
-                            current_turn.compaction_records.append(cr)
-                            _emit_and_log(session_id, "compaction_done", {
+                        # Split into contiguous compactable segments, skipping any exchange
+                        # that has human-authored content so it stays verbatim in context.
+                        segments = _split_compactable_segments(current_turn.exchanges, new_indices)
+                        compacted_any = False
+                        for segment in segments:
+                            if not segment:
+                                continue
+                            _emit_and_log(session_id, "compaction_start", {
                                 "turn_id": turn_id,
-                                "summary_text": summary,
+                                "exchange_indices": segment,
                                 "item_label": item_label,
                             })
-                            _emit_backend_log(
-                                session_id,
-                                colored(f"[compaction] Compacted {len(new_indices)} exchange(s) after closing: {item_label}", "magenta"),
+                            seg_exchanges = [current_turn.exchanges[i] for i in segment]
+                            summary = await _compact_exchanges(
+                                streaming_llm, seg_exchanges, max_tokens=compaction_max_tokens,
                             )
-                        else:
+                            if summary:
+                                cr = CompactionRecord(
+                                    summary_text=summary,
+                                    covers_exchange_indices=segment,
+                                )
+                                current_turn.compaction_records.append(cr)
+                                _emit_and_log(session_id, "compaction_done", {
+                                    "turn_id": turn_id,
+                                    "summary_text": summary,
+                                    "item_label": item_label,
+                                })
+                                compacted_any = True
+                            else:
+                                _emit_backend_log(
+                                    session_id,
+                                    colored("Compaction LLM call failed for a segment, continuing without summary.", "yellow"),
+                                )
+                        if compacted_any:
+                            human_count = sum(
+                                1 for i in new_indices
+                                if current_turn.exchanges[i].has_human_content
+                            )
+                            note = (
+                                f" ({human_count} human-content exchange(s) preserved verbatim)"
+                                if human_count else ""
+                            )
                             _emit_backend_log(
                                 session_id,
-                                colored("Compaction LLM call failed, continuing without summary.", "yellow"),
+                                colored(
+                                    f"[compaction] Compacted {len(segments)} segment(s) "
+                                    f"({len(new_indices) - human_count} exchanges) "
+                                    f"after closing: {item_label}{note}",
+                                    "magenta",
+                                ),
                             )
                         _save_session(session_id, session)
 
@@ -1683,6 +1874,7 @@ def handle_user_message(data: dict):
     return_value_max_chars: int | None = llm_config["system_params"].get("return_value_max_chars")
     assistant_truncation_chars: int | None = llm_config["system_params"].get("assistant_strip_truncation_chars")
     compaction_max_tokens: int | None = llm_config["system_params"].get("compaction_max_tokens")
+    title_summary_max_tokens: int | None = llm_config["system_params"].get("title_summary_max_tokens")
 
     session = _load_session(session_id)
     session.session_data["todo_list"] = []
@@ -1715,10 +1907,20 @@ def handle_user_message(data: dict):
     asyncio.set_event_loop(loop)
     _cancel_loops[session_id] = loop
 
+    async def _fetch_and_store_title() -> None:
+        """Fire-and-forget: fetch a short title and emit it to the frontend."""
+        title = await _fetch_task_title(streaming_llm, text, title_summary_max_tokens)
+        if title:
+            current_turn.task_title = title
+            _emit_and_log(session_id, "task_title", {"turn_id": turn_id, "title": title})
+            _save_session(session_id, session)
+
     async def _run() -> None:
         task = asyncio.current_task()
         _cancel_tasks[session_id] = task
         try:
+            # Fire title fetch concurrently — it resolves independently of the agent loop.
+            asyncio.create_task(_fetch_and_store_title())
             await _async_agent_loop(
                 sid, session_id, session, streaming_llm,
                 turn_id, current_turn,
@@ -1733,7 +1935,9 @@ def handle_user_message(data: dict):
             _cancel_tasks.pop(session_id, None)
             _cancel_loops.pop(session_id, None)
 
+    _session_active_turns.add(session_id)
     try:
         loop.run_until_complete(_run())
     finally:
+        _session_active_turns.discard(session_id)
         loop.close()

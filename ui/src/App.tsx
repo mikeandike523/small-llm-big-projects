@@ -1,6 +1,8 @@
 /** @jsxImportSource @emotion/react */
 import { Global, css } from '@emotion/react'
+import { Routes, Route } from 'react-router-dom'
 import Chat from './components/Chat'
+import Dashboard from './components/Dashboard'
 
 const globalCss = css`
   *, *::before, *::after {
@@ -22,7 +24,10 @@ export default function App() {
   return (
     <>
       <Global styles={globalCss} />
-      <Chat />
+      <Routes>
+        <Route path="/" element={<Dashboard />} />
+        <Route path="/session" element={<Chat />} />
+      </Routes>
     </>
   )
 }

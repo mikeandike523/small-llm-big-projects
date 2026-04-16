@@ -52,7 +52,11 @@ def server():
         'Defaults to no limit.'
     ),
 )
-def server_run(tool_tracebacks, hotfix_gpt_oss_20b_bad_parser, hotfix_gpt_oss_20b_bad_void_call, hotfix_suite_gpt_oss_20b, trace_folder_max_gb):
+@click.option(
+    '--dashboard-port', default=None, type=int,
+    help='Port for the UI/dashboard server. Defaults to a random free port.',
+)
+def server_run(tool_tracebacks, hotfix_gpt_oss_20b_bad_parser, hotfix_gpt_oss_20b_bad_void_call, hotfix_suite_gpt_oss_20b, trace_folder_max_gb, dashboard_port):
     """
     Start the server: launches the logging relay, static UI server, and the
     Flask/SocketIO backend concurrently, forwarding all streams to stdout.
@@ -69,7 +73,7 @@ def server_run(tool_tracebacks, hotfix_gpt_oss_20b_bad_parser, hotfix_gpt_oss_20
 
     # Allocate three free ports upfront so all processes know where to connect.
     flask_port = find_free_port()
-    ui_port = find_free_port()
+    ui_port = dashboard_port if dashboard_port is not None else find_free_port()
     logging_port = find_free_port()
 
     write_state(flask_port=flask_port, ui_port=ui_port, logging_port=logging_port)
@@ -116,7 +120,8 @@ def server_run(tool_tracebacks, hotfix_gpt_oss_20b_bad_parser, hotfix_gpt_oss_20
     ]
 
     click.echo("[slbp] Starting server processes. Press Ctrl+C to stop.")
-    click.echo("[slbp] Run `slbp session new` to open a new session in your browser.")
+    click.echo(f"[slbp] Dashboard: http://localhost:{ui_port}/")
+    click.echo("[slbp] Run `slbp session new` to open a new session, or `slbp dashboard` to open the dashboard.")
 
     try:
         run_processes(processes)

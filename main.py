@@ -8,6 +8,7 @@ importlib.import_module("src.cli_routes.chat")
 importlib.import_module("src.cli_routes.session")
 importlib.import_module("src.cli_routes.server")
 importlib.import_module("src.cli_routes.service_token")
+importlib.import_module("src.cli_routes.dashboard")
 
 from src.cli_obj import cli
 

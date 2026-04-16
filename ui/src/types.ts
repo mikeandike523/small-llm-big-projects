@@ -53,6 +53,7 @@ export interface CompactionBubble {
 export interface Turn {
   id: string
   userText: string
+  taskTitle?: string          // Short LLM-generated title, arrives asynchronously
   exchanges: LLMExchange[]
   todoItems: TodoItem[]
   approvalItems: ApprovalItem[]

@@ -1,0 +1,379 @@
+/** @jsxImportSource @emotion/react */
+import { css, keyframes } from '@emotion/react'
+import { useEffect, useState, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
+import NewSessionDialog from './NewSessionDialog'
+
+// ---------------------------------------------------------------------------
+// Flask URL (same pattern as socket.ts)
+// ---------------------------------------------------------------------------
+
+declare global {
+  interface Window {
+    __FLASK_URL__?: string
+  }
+}
+
+const FLASK_URL =
+  (typeof window !== 'undefined' && window.__FLASK_URL__)
+    ? window.__FLASK_URL__
+    : (import.meta.env.VITE_FLASK_URL ?? 'http://localhost:5000')
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+interface SessionSummary {
+  session_id: string
+  initial_cwd: string
+  created_at: number
+  turn_count: number
+  active_turn: boolean
+  interim_response_as_thinking: boolean
+  record_traces: boolean
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function relativeTime(ts: number): string {
+  if (!ts) return 'unknown'
+  const diff = Math.floor(Date.now() / 1000 - ts)
+  if (diff < 60) return 'just now'
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`
+  return `${Math.floor(diff / 86400)}d ago`
+}
+
+function cwdBasename(cwd: string): string {
+  const norm = cwd.replace(/\\/g, '/')
+  return norm.split('/').filter(Boolean).pop() ?? cwd
+}
+
+// ---------------------------------------------------------------------------
+// Animations
+// ---------------------------------------------------------------------------
+
+const pulse = keyframes`
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%       { opacity: 0.5; transform: scale(1.3); }
+`
+
+// ---------------------------------------------------------------------------
+// Styles
+// ---------------------------------------------------------------------------
+
+const scrollbarCss = css`
+  &::-webkit-scrollbar { width: 6px; }
+  &::-webkit-scrollbar-track { background: #0a0a0a; }
+  &::-webkit-scrollbar-thumb { background: #3a3a3a; border-radius: 3px; }
+  &::-webkit-scrollbar-thumb:hover { background: #555; }
+`
+
+const containerCss = css`
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: #0f0f0f;
+  color: #e0e0e0;
+  font-family: 'Fira Code', 'Consolas', monospace;
+`
+
+const headerCss = css`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 28px;
+  border-bottom: 1px solid #1e1e1e;
+  flex-shrink: 0;
+`
+
+const titleCss = css`
+  font-size: 18px;
+  font-weight: 700;
+  color: #c8c8c8;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+`
+
+const subtitleCss = css`
+  font-size: 11px;
+  color: #444;
+  margin-top: 2px;
+  letter-spacing: 1px;
+`
+
+const newSessionBtnCss = css`
+  background: #1a1a2e;
+  color: #7b9cff;
+  border: 1px solid #2a3a6e;
+  border-radius: 6px;
+  padding: 8px 18px;
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+  &:hover {
+    background: #222244;
+    border-color: #4a6aee;
+  }
+`
+
+const bodyScrollCss = css`
+  ${scrollbarCss};
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px 28px;
+`
+
+const sessionGridCss = css`
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 14px;
+`
+
+const sessionCardCss = css`
+  background: #141414;
+  border: 1px solid #222;
+  border-radius: 8px;
+  padding: 16px 18px;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  &:hover {
+    background: #1a1a1a;
+    border-color: #3a3a3a;
+  }
+`
+
+const cardHeaderCss = css`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+`
+
+const cwdLineCss = css`
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+`
+
+const cwdBaseCss = css`
+  font-size: 14px;
+  font-weight: 600;
+  color: #d0d0d0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+`
+
+const cwdPathCss = css`
+  font-size: 11px;
+  color: #444;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex-shrink: 1;
+  min-width: 0;
+`
+
+const activeDotCss = css`
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #3ccc6c;
+  flex-shrink: 0;
+  animation: ${pulse} 1.4s ease-in-out infinite;
+`
+
+const idleDotCss = css`
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #2a2a2a;
+  border: 1px solid #333;
+  flex-shrink: 0;
+`
+
+const cardMetaCss = css`
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  font-size: 11px;
+  color: #555;
+`
+
+const metaBadgeCss = css`
+  background: #1e1e1e;
+  border: 1px solid #2a2a2a;
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-size: 10px;
+  color: #666;
+`
+
+const emptyStateCss = css`
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  height: 60%;
+  color: #333;
+  font-size: 14px;
+  text-align: center;
+`
+
+const errorBannerCss = css`
+  background: #1a0a0a;
+  border: 1px solid #3a1a1a;
+  border-radius: 6px;
+  padding: 12px 18px;
+  color: #cc6666;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+`
+
+const retryBtnCss = css`
+  background: none;
+  border: 1px solid #3a1a1a;
+  border-radius: 4px;
+  color: #cc6666;
+  padding: 4px 10px;
+  cursor: pointer;
+  font-size: 11px;
+  font-family: inherit;
+  &:hover { border-color: #cc6666; }
+`
+
+// ---------------------------------------------------------------------------
+// Component
+// ---------------------------------------------------------------------------
+
+export default function Dashboard() {
+  const navigate = useNavigate()
+  const [sessions, setSessions] = useState<SessionSummary[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [showNewSession, setShowNewSession] = useState(false)
+
+  const fetchSessions = useCallback(async () => {
+    try {
+      const res = await fetch(`${FLASK_URL}/api/sessions`)
+      if (!res.ok) throw new Error(`Server returned ${res.status}`)
+      const data: SessionSummary[] = await res.json()
+      setSessions(data)
+      setError(null)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not reach server')
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    fetchSessions()
+    const interval = setInterval(fetchSessions, 3000)
+    return () => clearInterval(interval)
+  }, [fetchSessions])
+
+  function openSession(sessionId: string) {
+    navigate(`/session?sessionId=${sessionId}`)
+  }
+
+  function handleSessionCreated(sessionId: string) {
+    setShowNewSession(false)
+    navigate(`/session?sessionId=${sessionId}`)
+  }
+
+  return (
+    <div css={containerCss}>
+      <div css={headerCss}>
+        <div>
+          <div css={titleCss}>SLBP</div>
+          <div css={subtitleCss}>small llm, big projects</div>
+        </div>
+        <button css={newSessionBtnCss} onClick={() => setShowNewSession(true)}>
+          + New Session
+        </button>
+      </div>
+
+      <div css={bodyScrollCss}>
+        {error && (
+          <div css={errorBannerCss}>
+            <span>Server unreachable: {error}</span>
+            <button css={retryBtnCss} onClick={fetchSessions}>Retry</button>
+          </div>
+        )}
+
+        {!loading && sessions.length === 0 && !error && (
+          <div css={emptyStateCss}>
+            <div style={{ fontSize: 32, opacity: 0.15 }}>◈</div>
+            <div>No sessions yet.</div>
+            <div style={{ fontSize: 12, color: '#2a2a2a' }}>
+              Click <strong style={{ color: '#444' }}>+ New Session</strong> to start one.
+            </div>
+          </div>
+        )}
+
+        {sessions.length > 0 && (
+          <div css={sessionGridCss}>
+            {sessions.map(s => (
+              <SessionCard
+                key={s.session_id}
+                session={s}
+                onClick={() => openSession(s.session_id)}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+
+      {showNewSession && (
+        <NewSessionDialog
+          flaskUrl={FLASK_URL}
+          onCreated={handleSessionCreated}
+          onClose={() => setShowNewSession(false)}
+        />
+      )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Session card
+// ---------------------------------------------------------------------------
+
+function SessionCard({ session, onClick }: { session: SessionSummary; onClick: () => void }) {
+  const base = cwdBasename(session.initial_cwd)
+  const fullPath = session.initial_cwd.replace(/\\/g, '/')
+
+  return (
+    <div css={sessionCardCss} onClick={onClick}>
+      <div css={cardHeaderCss}>
+        <div css={cwdLineCss}>
+          <span css={cwdBaseCss} title={fullPath}>{base}</span>
+          <span css={cwdPathCss} title={fullPath}>{fullPath}</span>
+        </div>
+        <div css={session.active_turn ? activeDotCss : idleDotCss} title={session.active_turn ? 'Turn in progress' : 'Idle'} />
+      </div>
+      <div css={cardMetaCss}>
+        <span>{session.turn_count} {session.turn_count === 1 ? 'turn' : 'turns'}</span>
+        <span>{relativeTime(session.created_at)}</span>
+        {session.interim_response_as_thinking && <span css={metaBadgeCss}>irat</span>}
+        {session.record_traces && <span css={metaBadgeCss}>traces</span>}
+      </div>
+      <div style={{ fontSize: 10, color: '#2e2e2e', fontFamily: 'monospace' }}>
+        {session.session_id.slice(0, 8)}
+      </div>
+    </div>
+  )
+}

@@ -22,6 +22,7 @@ def write_state(flask_port: int, ui_port: int, logging_port: int) -> None:
                 "flask_port": flask_port,
                 "ui_port": ui_port,
                 "logging_port": logging_port,
+                "dashboard_port": ui_port,
             },
             indent=2,
         )
