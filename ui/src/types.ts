@@ -69,4 +69,7 @@ export interface Turn {
   interimShowCharCount: boolean
   interimCharCount: number
   interrupted?: boolean
+  // Stop-and-redirect state (local only, not replayed from backend):
+  stopRedirectState?: 'widget-open' | 'redirected'
+  stopRedirectText?: string
 }

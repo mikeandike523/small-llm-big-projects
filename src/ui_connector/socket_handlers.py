@@ -154,6 +154,12 @@ _sid_to_session_id: dict[str, str] = {}
 _cancel_loops: dict[str, asyncio.AbstractEventLoop] = {}
 _cancel_tasks: dict[str, asyncio.Task] = {}
 
+# Stop-and-redirect: soft interrupt that injects guidance without ending the turn.
+# redirect_event is set by handle_stop_and_redirect; the loop injects the message
+# as user_continuation and continues (unlike cancel_event which ends the turn).
+_redirect_events: dict[str, threading.Event] = {}
+_redirect_messages: dict[str, str] = {}
+
 
 # ---------------------------------------------------------------------------
 # Backend log emitter
@@ -203,11 +209,12 @@ def _request_approval(
     args: dict,
     turn_id: str = "",
     cancel_event: threading.Event | None = None,
+    redirect_event: threading.Event | None = None,
 ) -> tuple[bool, str | None]:
     """
     Emit an approval_request event and block until approved, denied, or the
     turn is cancelled. Waits indefinitely — there is no timeout.
-    Polls every 0.5s so cancel_event is checked promptly.
+    Polls every 0.5s so cancel_event/redirect_event are checked promptly.
     Returns (approved, redirect_message). redirect_message is set when the user
     chose "Deny & Redirect" and typed a reason/suggestion.
     """
@@ -220,10 +227,15 @@ def _request_approval(
             break
         if cancel_event is not None and cancel_event.is_set():
             break
+        if redirect_event is not None and redirect_event.is_set():
+            break
 
     entry = _pending_approvals.pop(sid, {})
 
     if cancel_event is not None and cancel_event.is_set():
+        return False, None
+
+    if redirect_event is not None and redirect_event.is_set():
         return False, None
 
     return bool(entry.get("approved", False)), entry.get("redirect_message")
@@ -242,13 +254,16 @@ def _request_impossible_redirect(
     reason: str,
     turn_id: str,
     cancel_event: threading.Event | None,
+    redirect_event: threading.Event | None = None,
 ) -> str | None:
     """
     Emit report_impossible_request and block until the user responds or the
     turn is cancelled.  Waits indefinitely — there is no timeout.  Polls every
-    0.5 s so cancel_event is checked promptly.
+    0.5 s so cancel_event/redirect_event are checked promptly.
     Returns redirect_message (str) if the user chose to redirect the LLM, or
     None if they chose "Truly Impossible" / cancelled.
+    If redirect_event fires, the stored redirect message is used as the redirect
+    guidance (stop-and-redirect resolves the impossible dialog automatically).
     """
     ev = threading.Event()
     _pending_impossible_redirects[sid] = {
@@ -263,11 +278,16 @@ def _request_impossible_redirect(
             break
         if cancel_event is not None and cancel_event.is_set():
             break
+        if redirect_event is not None and redirect_event.is_set():
+            break
 
     entry = _pending_impossible_redirects.pop(sid, {})
 
     if cancel_event is not None and cancel_event.is_set():
         return None
+
+    if redirect_event is not None and redirect_event.is_set():
+        return _redirect_messages.get(session_id) or None
 
     return entry.get("redirect_message") or None
 
@@ -285,12 +305,15 @@ def _request_human_input(
     question: str,
     turn_id: str,
     cancel_event: threading.Event | None,
+    redirect_event: threading.Event | None = None,
 ) -> str | None:
     """
     Emit ask_human_request and block until the user answers or the turn is
     cancelled.  Waits indefinitely — there is no timeout.  Polls every 0.5 s
-    so cancel_event is checked promptly.
+    so cancel_event/redirect_event are checked promptly.
     Returns the user's answer string, or None on cancel.
+    If redirect_event fires, returns the redirect message as the "answer" so
+    the LLM sees the guidance in tool results.
     """
     ev = threading.Event()
     _pending_human_inputs[session_id] = {
@@ -305,11 +328,17 @@ def _request_human_input(
             break
         if cancel_event is not None and cancel_event.is_set():
             break
+        if redirect_event is not None and redirect_event.is_set():
+            break
 
     entry = _pending_human_inputs.pop(session_id, {})
 
     if cancel_event is not None and cancel_event.is_set():
         return None
+
+    if redirect_event is not None and redirect_event.is_set():
+        msg = _redirect_messages.get(session_id, "")
+        return f"(User interrupted this question with guidance: {msg})" if msg else None
 
     return entry.get("answer")
 
@@ -840,6 +869,7 @@ def _execute_tools(
     return_value_max_chars: int | None = None,
     cancel_event: threading.Event | None = None,
     tool_map: dict | None = None,
+    redirect_event: threading.Event | None = None,
 ) -> tuple[bool, str | None, LLMExchange]:
     """
     Execute all tool calls in result, emit events, and build an LLMExchange record.
@@ -852,7 +882,9 @@ def _execute_tools(
         "on_log": lambda msg: _emit_backend_log(session_id, msg),
         "session_id": session_id,
         "cancel_event": cancel_event,
-        "ask_human_fn": lambda q: _request_human_input(session_id, q, turn_id, cancel_event),
+        "ask_human_fn": lambda q: _request_human_input(
+            session_id, q, turn_id, cancel_event, redirect_event=redirect_event
+        ),
     }
 
     actual_tool_map = tool_map if tool_map is not None else _TOOL_MAP
@@ -880,6 +912,10 @@ def _execute_tools(
 
     try:
         for tc in result.tool_calls:
+            # Check redirect before starting each tool; caller will inject guidance.
+            if redirect_event is not None and redirect_event.is_set():
+                return False, None, exchange
+
             _emit_and_log(session_id, "tool_call", {
                 "id": tc.id, "name": tc.name, "args": tc.arguments,
                 "turn_id": turn_id,
@@ -891,12 +927,14 @@ def _execute_tools(
                 approved, redirect_message = _request_approval(
                     sid, session_id, tc.id, tc.name, tc.arguments,
                     turn_id=turn_id, cancel_event=cancel_event,
+                    redirect_event=redirect_event,
                 )
                 if not approved:
-                    # If cancelled during approval, return without injecting anything —
-                    # the caller checks cancel_event and handles the cancellation path.
+                    # If cancelled or redirected, return early — caller handles it.
                     if cancel_event is not None and cancel_event.is_set():
                         exchange.tool_calls.append(tool_record)
+                        return False, None, exchange
+                    if redirect_event is not None and redirect_event.is_set():
                         return False, None, exchange
 
                     if redirect_message:
@@ -973,6 +1011,10 @@ def _execute_tools(
                 _emit_and_log(session_id, "todo_list_update", {
                     "items": _todo_format_items_for_ui(_raw), "turn_id": turn_id,
                 })
+
+            # Check redirect after tool completes; return partial exchange — caller injects guidance.
+            if redirect_event is not None and redirect_event.is_set():
+                return False, None, exchange
 
         if session.session_data.get("_report_impossible"):
             reason = session.session_data.get("_report_impossible")
@@ -1160,6 +1202,16 @@ async def _fetch_task_title(
 # Async agent loop
 # ---------------------------------------------------------------------------
 
+async def _redirect_watcher_coro(
+    redirect_event: threading.Event,
+    target_task: asyncio.Task,
+) -> None:
+    """Poll redirect_event every 0.3 s and cancel target_task when it fires."""
+    while not redirect_event.is_set():
+        await asyncio.sleep(0.3)
+    target_task.cancel()
+
+
 async def _async_agent_loop(
     sid: str,
     session_id: str,
@@ -1171,6 +1223,7 @@ async def _async_agent_loop(
     assistant_truncation_chars: int | None,
     cancel_event: threading.Event,
     compaction_max_tokens: int | None = None,
+    redirect_event: threading.Event | None = None,
 ) -> None:
     """
     Main agentic loop. Runs inside a private asyncio event loop in the SocketIO thread.
@@ -1204,6 +1257,13 @@ async def _async_agent_loop(
             exchange_idx = len(current_turn.exchanges)
             payload = _build_llm_payload(session, current_turn)
 
+            # Run LLM call with a redirect watcher that cancels this task when
+            # redirect_event fires, allowing us to inject the guidance message.
+            _watcher = (
+                asyncio.create_task(_redirect_watcher_coro(redirect_event, asyncio.current_task()))
+                if redirect_event is not None else None
+            )
+            _llm_redirected = False
             try:
                 result, content_for_history, reasoning = await _async_run_llm_call_with_retry(
                     streaming_llm, payload,
@@ -1217,8 +1277,13 @@ async def _async_agent_loop(
                     record=session.record_traces,
                 )
             except asyncio.CancelledError:
-                was_cancelled = True
-                raise
+                if redirect_event is not None and redirect_event.is_set() and not cancel_event.is_set():
+                    _llm_redirected = True
+                else:
+                    was_cancelled = True
+                    if _watcher is not None:
+                        _watcher.cancel()
+                    raise
             except httpx.HTTPStatusError as exc:
                 if cancel_event.is_set():
                     was_cancelled = True
@@ -1237,6 +1302,23 @@ async def _async_agent_loop(
                     "turn_id": turn_id,
                 })
                 break
+            finally:
+                if _watcher is not None:
+                    _watcher.cancel()
+
+            if _llm_redirected:
+                redirect_msg = _redirect_messages.pop(session_id, "User interrupted.")
+                if redirect_event is not None:
+                    redirect_event.clear()
+                redir_ex = LLMExchange(assistant_content="", is_final=False)
+                redir_ex.user_continuation = (
+                    f"User interrupted you, and gave the following guidance: {redirect_msg}"
+                )
+                redir_ex.has_human_content = True
+                had_tool_calls = True
+                current_turn.exchanges.append(redir_ex)
+                _save_session(session_id, session)
+                continue
 
             usage = getattr(result, "usage", None)
             if usage:
@@ -1260,7 +1342,7 @@ async def _async_agent_loop(
                         _execute_tools,
                         result, content_for_history, session, sid, session_id,
                         current_turn, return_value_max_chars, cancel_event,
-                        session_tool_map,
+                        session_tool_map, redirect_event,
                     )
                 except asyncio.CancelledError:
                     cancel_event.set()
@@ -1273,10 +1355,21 @@ async def _async_agent_loop(
                 # Save in-progress turn state to Redis after each tool batch
                 _save_session(session_id, session)
 
-                # Check cancel BEFORE processing impossible — cancel takes priority.
+                # Check cancel first — cancel takes priority over redirect.
                 if cancel_event.is_set():
                     was_cancelled = True
                     break
+
+                # Check redirect: _execute_tools returned early; inject guidance and continue.
+                if redirect_event is not None and redirect_event.is_set():
+                    redirect_msg = _redirect_messages.pop(session_id, "User interrupted.")
+                    redirect_event.clear()
+                    exchange.user_continuation = (
+                        f"User interrupted you, and gave the following guidance: {redirect_msg}"
+                    )
+                    exchange.has_human_content = True
+                    _save_session(session_id, session)
+                    continue
 
                 # Pre-compaction: if this exchange is about to trigger an impossible
                 # redirect dialog, tag it NOW so the compaction logic below will not
@@ -1360,7 +1453,11 @@ async def _async_agent_loop(
                 if impossible:
                     redirect = _request_impossible_redirect(
                         sid, session_id, reason, turn_id, cancel_event,
+                        redirect_event=redirect_event,
                     )
+                    if redirect_event is not None and redirect_event.is_set():
+                        redirect_event.clear()
+                        _redirect_messages.pop(session_id, None)
                     if redirect:
                         # User chose to redirect — inject guidance and continue the loop.
                         # exchange is already appended above; mutate it in place.
@@ -1586,6 +1683,30 @@ def handle_cancel_turn():
     if loop is not None and task is not None:
         loop.call_soon_threadsafe(task.cancel)
     print(f"[ui_connector] Cancel requested for session {session_id}", flush=True)
+
+
+@socketio.on("stop_and_redirect")
+def handle_stop_and_redirect(data):
+    sid = request.sid
+    session_id = _sid_to_session_id.get(sid)
+    if not session_id:
+        return
+    message = (data or {}).get("message", "User interrupted turn, please try again.")
+    _redirect_messages[session_id] = message
+    ev = _redirect_events.get(session_id)
+    if ev is not None:
+        ev.set()
+    # Wake up any pending blocking waits so they check redirect_event promptly.
+    pending_approval = _pending_approvals.get(sid)
+    if pending_approval:
+        pending_approval["event"].set()
+    pending_human = _pending_human_inputs.get(session_id)
+    if pending_human:
+        pending_human["event"].set()
+    pending_redirect = _pending_impossible_redirects.get(sid)
+    if pending_redirect:
+        pending_redirect["event"].set()
+    print(f"[ui_connector] Stop-and-redirect for session {session_id}: {message!r}", flush=True)
 
 
 @socketio.on("get_pwd")
@@ -1899,9 +2020,11 @@ def handle_user_message(data: dict):
 
     _emit_and_log(session_id, "turn_start", {"turn_id": turn_id, "user_text": text})
 
-    # Create a threading.Event for subprocess tools and a private asyncio event loop
+    # Create threading.Events for subprocess tools and a private asyncio event loop
     # for real httpx-level LLM cancellation.
     cancel_event = threading.Event()
+    redirect_event = threading.Event()
+    _redirect_events[session_id] = redirect_event
 
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
@@ -1927,6 +2050,7 @@ def handle_user_message(data: dict):
                 return_value_max_chars, assistant_truncation_chars,
                 cancel_event,
                 compaction_max_tokens=compaction_max_tokens,
+                redirect_event=redirect_event,
             )
         except asyncio.CancelledError:
             # cancel_event already set inside _async_agent_loop's finally
@@ -1940,4 +2064,6 @@ def handle_user_message(data: dict):
         loop.run_until_complete(_run())
     finally:
         _session_active_turns.discard(session_id)
+        _redirect_events.pop(session_id, None)
+        _redirect_messages.pop(session_id, None)
         loop.close()
