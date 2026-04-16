@@ -16,7 +16,7 @@ def dashboard_open():
         raise click.ClickException(
             ".slbp-server.json not found. Start the server with `slbp server run` first."
         )
-    ui_port = state.get("ui_port") or state.get("dashboard_port")
+    ui_port = state.get("ui_port")
     if not ui_port:
         raise click.ClickException(
             ".slbp-server.json is missing port info. Re-run `slbp server run`."
