@@ -1,4 +1,5 @@
 const express = require('express');
+const httpProxy = require('http-proxy');
 const { createProxyMiddleware } = require('http-proxy-middleware');
 
 const PROXY_PORT   = parseInt(process.env.PROXY_PORT   || '0', 10);
@@ -19,16 +20,14 @@ app.get('/runtime-config.js', (_req, res) => {
   res.end(`window.__GATEWAY_URL__ = ${JSON.stringify(`http://localhost:${PROXY_PORT}`)};`);
 });
 
-// /api/** → Flask (REST + Socket.IO WebSocket upgrade).
+// /api/** → Flask (REST only; WebSocket upgrades handled separately below).
 // Mounted at root with pathFilter so Express does NOT strip the /api prefix —
 // Flask needs to receive the full path (e.g. /api/sessions, /api/socket.io).
-const apiProxy = createProxyMiddleware({
+app.use(createProxyMiddleware({
   pathFilter: '/api',
   target: FLASK_ORIGIN,
   changeOrigin: true,
-  ws: true,
-});
-app.use(apiProxy);
+}));
 
 // /logging/** → Logging server. Strip /logging prefix before forwarding.
 app.use(createProxyMiddleware({
@@ -52,5 +51,20 @@ const server = app.listen(PROXY_PORT, () => {
   console.log(`[proxy] /**         → ${UI_ORIGIN}`);
 });
 
-// Wire WebSocket upgrades to the api proxy (bypasses Express routing).
-server.on('upgrade', apiProxy.upgrade);
+// WebSocket upgrade handling — bypasses Express entirely.
+// http-proxy-middleware v3 does not expose an .upgrade method, so we use
+// http-proxy directly, which is the reliable underlying library for this.
+const wsProxy = httpProxy.createProxyServer({ target: FLASK_ORIGIN, ws: true, changeOrigin: true });
+
+wsProxy.on('error', (err, _req, socket) => {
+  console.error('[proxy] WS error:', err.message);
+  socket.destroy();
+});
+
+server.on('upgrade', (req, socket, head) => {
+  if (req.url.startsWith('/api/')) {
+    wsProxy.ws(req, socket, head);
+  } else {
+    socket.destroy();
+  }
+});
