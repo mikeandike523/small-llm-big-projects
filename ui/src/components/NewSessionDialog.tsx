@@ -7,7 +7,6 @@ import { useEffect, useState } from 'react'
 // ---------------------------------------------------------------------------
 
 interface Props {
-  flaskUrl: string
   onCreated: (sessionId: string) => void
   onClose: () => void
 }
@@ -231,7 +230,7 @@ const OPTIONS: CheckOption[] = [
 // Component
 // ---------------------------------------------------------------------------
 
-export default function NewSessionDialog({ flaskUrl, onCreated, onClose }: Props) {
+export default function NewSessionDialog({ onCreated, onClose }: Props) {
   const [cwd, setCwd] = useState('')
   const [flags, setFlags] = useState<Record<string, boolean>>(() =>
     Object.fromEntries(OPTIONS.map(o => [o.key, o.defaultValue]))
@@ -242,11 +241,11 @@ export default function NewSessionDialog({ flaskUrl, onCreated, onClose }: Props
 
   // Fetch home directory as default CWD on mount
   useEffect(() => {
-    fetch(`${flaskUrl}/api/system-info`)
+    fetch('/api/system-info')
       .then(r => r.json())
       .then(d => { if (d.home_dir) setCwd(d.home_dir) })
       .catch(() => {})
-  }, [flaskUrl])
+  }, [])
 
   // Close on Escape
   useEffect(() => {
@@ -260,7 +259,7 @@ export default function NewSessionDialog({ flaskUrl, onCreated, onClose }: Props
   async function handleBrowse() {
     setBrowsing(true)
     try {
-      const res = await fetch(`${flaskUrl}/api/folder-pick`, {
+      const res = await fetch('/api/folder-pick', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ initial_dir: cwd }),
@@ -290,7 +289,7 @@ export default function NewSessionDialog({ flaskUrl, onCreated, onClose }: Props
     if (flags.load_startup_tool_calls) payload.startup_tool_calls_path = `${cwd}/startup_tool_calls.json`
 
     try {
-      const res = await fetch(`${flaskUrl}/api/sessions`, {
+      const res = await fetch('/api/sessions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),

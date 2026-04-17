@@ -5,21 +5,6 @@ import { useNavigate } from 'react-router-dom'
 import NewSessionDialog from './NewSessionDialog'
 
 // ---------------------------------------------------------------------------
-// Flask URL (same pattern as socket.ts)
-// ---------------------------------------------------------------------------
-
-declare global {
-  interface Window {
-    __FLASK_URL__?: string
-  }
-}
-
-const FLASK_URL =
-  (typeof window !== 'undefined' && window.__FLASK_URL__)
-    ? window.__FLASK_URL__
-    : (import.meta.env.VITE_FLASK_URL ?? 'http://localhost:5000')
-
-// ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
@@ -383,7 +368,7 @@ export default function Dashboard() {
 
   const fetchSessions = useCallback(async () => {
     try {
-      const res = await fetch(`${FLASK_URL}/api/sessions`)
+      const res = await fetch('/api/sessions')
       if (!res.ok) throw new Error(`Server returned ${res.status}`)
       const data: SessionSummary[] = await res.json()
       setSessions(data)
@@ -414,7 +399,7 @@ export default function Dashboard() {
     if (!deleteTarget) return
     setDeleting(true)
     try {
-      const res = await fetch(`${FLASK_URL}/api/sessions/${deleteTarget.session_id}`, { method: 'DELETE' })
+      const res = await fetch(`/api/sessions/${deleteTarget.session_id}`, { method: 'DELETE' })
       if (!res.ok) {
         const body = await res.json().catch(() => ({}))
         alert(body.error ?? `Delete failed (${res.status})`)
@@ -475,7 +460,6 @@ export default function Dashboard() {
 
       {showNewSession && (
         <NewSessionDialog
-          flaskUrl={FLASK_URL}
           onCreated={handleSessionCreated}
           onClose={() => setShowNewSession(false)}
         />
