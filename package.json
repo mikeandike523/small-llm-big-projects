@@ -1,0 +1,13 @@
+{
+  "name": "small-llm-big-projects",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "db-first-time-setup":"bash scripts/db-first-time-setup.sh"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "packageManager": "pnpm@10.28.2"
+}
