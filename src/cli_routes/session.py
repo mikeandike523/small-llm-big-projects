@@ -72,8 +72,8 @@ def session_new(pin_project_memory, load_skills, load_tools, load_startup_tool_c
             ".slbp-server.json not found. Start the server with `slbp server run` first."
         )
     flask_port = state.get("flask_port")
-    ui_port = state.get("ui_port")
-    if not flask_port or not ui_port:
+    proxy_port = state.get("proxy_port")
+    if not flask_port or not proxy_port:
         raise click.ClickException(
             ".slbp-server.json is missing port info. Re-run `slbp server run`."
         )
@@ -114,7 +114,7 @@ def session_new(pin_project_memory, load_skills, load_tools, load_startup_tool_c
     if not session_id:
         raise click.ClickException("Server did not return a session_id.")
 
-    url = f"http://localhost:{ui_port}/session?sessionId={session_id}"
+    url = f"http://localhost:{proxy_port}/session?sessionId={session_id}"
     click.echo(f"[slbp] Session created: {session_id}")
     click.echo(f"[slbp] CWD: {session_cwd}")
     click.echo(f"[slbp] Opening {url}")

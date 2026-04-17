@@ -1,0 +1,13 @@
+{
+  "name": "@slbp/proxy-server",
+  "version": "1.0.0",
+  "description": "Gateway proxy unifying all SLBP dynamic ports behind a single entry point.",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "http-proxy-middleware": "^3.0.3"
+  }
+}

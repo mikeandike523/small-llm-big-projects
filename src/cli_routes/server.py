@@ -56,7 +56,11 @@ def server():
     '--dashboard-port', default=None, type=int,
     help='Port for the UI/dashboard server. Defaults to a random free port.',
 )
-def server_run(tool_tracebacks, hotfix_gpt_oss_20b_bad_parser, hotfix_gpt_oss_20b_bad_void_call, hotfix_suite_gpt_oss_20b, trace_folder_max_gb, dashboard_port):
+@click.option(
+    '--proxy-port', default=None, type=int,
+    help='Port for the gateway proxy (single public entry point). Defaults to a random free port. Useful for VM/containerized deployments where a fixed entry point is required.',
+)
+def server_run(tool_tracebacks, hotfix_gpt_oss_20b_bad_parser, hotfix_gpt_oss_20b_bad_void_call, hotfix_suite_gpt_oss_20b, trace_folder_max_gb, dashboard_port, proxy_port):
     """
     Start the server: launches the logging relay, static UI server, and the
     Flask/SocketIO backend concurrently, forwarding all streams to stdout.
@@ -71,22 +75,24 @@ def server_run(tool_tracebacks, hotfix_gpt_oss_20b_bad_parser, hotfix_gpt_oss_20
     """
     bash = find_bash()
 
-    # Allocate three free ports upfront so all processes know where to connect.
+    # Allocate four free ports upfront so all processes know where to connect.
     flask_port = find_free_port()
     ui_port = dashboard_port if dashboard_port is not None else find_free_port()
     logging_port = find_free_port()
+    gw_port = proxy_port if proxy_port is not None else find_free_port()
 
-    write_state(flask_port=flask_port, ui_port=ui_port, logging_port=logging_port)
+    write_state(flask_port=flask_port, ui_port=ui_port, logging_port=logging_port, proxy_port=gw_port)
     click.echo(
-        f"[slbp] Allocated ports — flask:{flask_port}  ui:{ui_port}  logging:{logging_port}"
+        f"[slbp] Allocated ports — proxy:{gw_port}  flask:{flask_port}  ui:{ui_port}  logging:{logging_port}"
     )
 
     server_cwd = os.getcwd()
 
     flask_env: dict[str, str] = {
         "FLASK_PORT": str(flask_port),
+        "PROXY_PORT": str(gw_port),
         "LOGGING_PORT": str(logging_port),
-        "CORS_ORIGIN": f"http://localhost:{ui_port}",
+        "CORS_ORIGIN": f"http://localhost:{gw_port}",
         "SLBP_SERVER_CWD": server_cwd,
     }
     if tool_tracebacks:
@@ -109,7 +115,18 @@ def server_run(tool_tracebacks, hotfix_gpt_oss_20b_bad_parser, hotfix_gpt_oss_20
             label="ui",
             cmd=["node", str(PROJECT_ROOT / "ui" / "serve.cjs")],
             cwd=PROJECT_ROOT / "ui",
-            env={"UI_PORT": str(ui_port), "FLASK_PORT": str(flask_port)},
+            env={"UI_PORT": str(ui_port)},
+        ),
+        ManagedProcess(
+            label="proxy",
+            cmd=["node", str(PROJECT_ROOT / "proxy-server" / "index.js")],
+            cwd=PROJECT_ROOT / "proxy-server",
+            env={
+                "PROXY_PORT": str(gw_port),
+                "FLASK_PORT": str(flask_port),
+                "UI_PORT": str(ui_port),
+                "LOGGING_PORT": str(logging_port),
+            },
         ),
         ManagedProcess(
             label="flask",
@@ -120,7 +137,7 @@ def server_run(tool_tracebacks, hotfix_gpt_oss_20b_bad_parser, hotfix_gpt_oss_20
     ]
 
     click.echo("[slbp] Starting server processes. Press Ctrl+C to stop.")
-    click.echo(f"[slbp] Dashboard: http://localhost:{ui_port}/")
+    click.echo(f"[slbp] Gateway: http://localhost:{gw_port}/")
     click.echo("[slbp] Run `slbp session new` to open a new session, or `slbp dashboard` to open the dashboard.")
 
     try:

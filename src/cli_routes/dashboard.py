@@ -16,11 +16,11 @@ def dashboard_open():
         raise click.ClickException(
             ".slbp-server.json not found. Start the server with `slbp server run` first."
         )
-    ui_port = state.get("ui_port")
-    if not ui_port:
+    proxy_port = state.get("proxy_port")
+    if not proxy_port:
         raise click.ClickException(
             ".slbp-server.json is missing port info. Re-run `slbp server run`."
         )
-    url = f"http://localhost:{ui_port}/"
+    url = f"http://localhost:{proxy_port}/"
     click.echo(f"[slbp] Opening dashboard: {url}")
     webbrowser.open(url, new=0, autoraise=True)

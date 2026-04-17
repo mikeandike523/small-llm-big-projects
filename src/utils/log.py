@@ -4,7 +4,11 @@ import os
 
 import requests
 
-_LOG_URL = f"http://localhost:{os.environ.get('LOGGING_PORT', '8080')}"
+_LOG_URL = (
+    f"http://localhost:{os.environ['PROXY_PORT']}/logging"
+    if os.environ.get('PROXY_PORT')
+    else f"http://localhost:{os.environ.get('LOGGING_PORT', '8080')}"
+)
 
 
 def log(message: str) -> None:
