@@ -1,7 +1,7 @@
 #!/bin/bash
 
 dn="$(dirname "$(realpath "${BASH_SOURCE[0]}")")"
-cd "$dn/server"
+cd "$dn/../server"
 
 STRUCTURE_DIR="./migrations/structure"
 SEED_DIR="./migrations/seed"
