@@ -192,7 +192,18 @@ def param():
     ...
 
 @param.command("list")
-def sub_cmd_list():
+@click.option("--available", is_flag=True, default=False, help="List all available params with their types and descriptions.")
+def sub_cmd_list(available):
+    if available:
+        entries = sorted(_PARAM_DOCS.items())
+        for i, (name, doc) in enumerate(entries):
+            if i:
+                click.echo("")
+            click.echo(colored(name, "blue") + f"  ({doc['type']})")
+            for line in doc["description"].splitlines():
+                click.echo(f"  {line}")
+        return
+
     click.echo('')
     pool = get_pool()
     with pool.get_connection() as conn:
@@ -206,19 +217,20 @@ SELECT * FROM `kv_store` where `key` like "params.%"
                 click.echo("No params set.")
             for i, result in enumerate(results):
                 is_last = i == len(results) - 1
-                key=result['key']
-                value_str=result["value"]
+                raw_key = result['key']
+                display_key = raw_key[len("params."):] if raw_key.startswith("params.") else raw_key
+                value_str = result["value"]
                 try:
-                    value=json.loads(value_str)
+                    value = json.loads(value_str)
                     print(f"""
-{colored(key,'blue')}:
+{colored(display_key,'blue')}:
 
 {json.dumps(value, indent=2)}
 """.strip()+("\n\n" if not is_last else ""))
 
-                except json.JSONDecodeError as e:
+                except json.JSONDecodeError:
                     click.echo(f"""
-{colored(key,'blue')}:
+{colored(display_key,'blue')}:
 
 [Invalid JSON]
 
@@ -237,7 +249,7 @@ def sub_cmd_set(name, value):
     with pool.get_connection() as conn:
         KVManager(conn).set_value(f"params.{name}", typed_value)
         conn.commit()
-    click.echo(f"Set params.{name} = {typed_value}")
+    click.echo(f"Set {name} = {typed_value}")
 
 
 @param.command(name="show")
@@ -273,11 +285,11 @@ def sub_cmd_unset(name):
     with pool.get_connection() as conn:
         kv = KVManager(conn)
         if not kv.exists(f"params.{name}"):
-            click.echo(f"params.{name} is not set.")
+            click.echo(f"{name} is not set.")
             return
         kv.delete_value(f"params.{name}")
         conn.commit()
-    click.echo(f"Unset params.{name}")
+    click.echo(f"Unset {name}")
 
 
 @param.command(name="manual")
