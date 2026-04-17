@@ -13,13 +13,6 @@ const LOGGING_ORIGIN = `http://localhost:${LOGGING_PORT}`;
 
 const app = express();
 
-// Must be declared before proxy middleware so Express handles it directly.
-app.get('/runtime-config.js', (_req, res) => {
-  res.setHeader('Content-Type', 'application/javascript');
-  res.setHeader('Cache-Control', 'no-store');
-  res.end(`window.__GATEWAY_URL__ = ${JSON.stringify(`http://localhost:${PROXY_PORT}`)};`);
-});
-
 // /api/** → Flask (REST only; WebSocket upgrades handled separately below).
 // Mounted at root with pathFilter so Express does NOT strip the /api prefix —
 // Flask needs to receive the full path (e.g. /api/sessions, /api/socket.io).
