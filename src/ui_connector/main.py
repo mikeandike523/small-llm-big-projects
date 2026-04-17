@@ -21,4 +21,4 @@ if __name__ == "__main__":
     clear_all_sessions_on_startup()
     port = int(os.environ.get("FLASK_PORT", 5000))
     print(f"[ui_connector] Starting on port {port}")
-    socketio.run(app, host="0.0.0.0", port=port)
+    socketio.run(app, host="0.0.0.0", port=port, allow_unsafe_werkzeug=True)
