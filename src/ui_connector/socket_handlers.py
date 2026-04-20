@@ -1450,6 +1450,9 @@ async def _async_agent_loop(
     Tool calls run in a thread pool (asyncio.to_thread) so the event loop stays responsive.
     """
     had_tool_calls = False
+    # Latched True the first time any todo item is created during this turn.
+    # Never reset — guards the reprompt and title-fetch gates against item deletions.
+    had_todo_items = False
     # One-shot latch: after we inject the explicit final-summary continuation,
     # the next no-tool response is accepted as final.
     final_summary_reprompt_sent = False
@@ -1572,6 +1575,8 @@ async def _async_agent_loop(
 
                 exchange.reasoning = reasoning
                 had_tool_calls = True
+                if not had_todo_items and session.session_data.get("todo_list"):
+                    had_todo_items = True
                 current_turn.exchanges.append(exchange)
                 # Save in-progress turn state to Redis after each tool batch
                 _save_session(session_id, session)
@@ -1718,7 +1723,7 @@ async def _async_agent_loop(
                 _save_session(session_id, session)
                 continue
 
-            if had_tool_calls and not final_summary_reprompt_sent:
+            if had_tool_calls and not final_summary_reprompt_sent and had_todo_items:
                 has_content = bool(content_for_history and content_for_history.strip())
                 is_sufficient = False
                 if has_content:
@@ -1800,6 +1805,7 @@ async def _async_agent_loop(
             session.current_turn = None
 
         _save_session(session_id, session)
+        return had_todo_items
 
 
 # ---------------------------------------------------------------------------
@@ -2276,9 +2282,7 @@ def handle_user_message(data: dict):
         task = asyncio.current_task()
         _cancel_tasks[session_id] = task
         try:
-            # Fire title fetch concurrently — it resolves independently of the agent loop.
-            asyncio.create_task(_fetch_and_store_title())
-            await _async_agent_loop(
+            _had_todos = await _async_agent_loop(
                 sid, session_id, session, streaming_llm,
                 turn_id, current_turn,
                 return_value_max_chars, assistant_truncation_chars,
@@ -2287,6 +2291,9 @@ def handle_user_message(data: dict):
                 watchdog_max_tokens=watchdog_max_tokens,
                 redirect_event=redirect_event,
             )
+            # Generate a title only if a todo list was ever created this turn.
+            if _had_todos:
+                await _fetch_and_store_title()
         except asyncio.CancelledError:
             # cancel_event already set inside _async_agent_loop's finally
             cancel_event.set()

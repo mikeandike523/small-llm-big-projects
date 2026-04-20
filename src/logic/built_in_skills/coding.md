@@ -2,7 +2,7 @@
 
 ### Exploring the Codebase
 
-Before diving in, add each area or file group you need to understand as a todo item — check them off as you go so nothing gets skipped.
+For complex coding tasks, add each area or file group you need to understand as a todo item — check them off as you go so nothing gets skipped. For simple tasks, skip the list and work directly.
 
 - **`list_working_tree`** — List all tracked/untracked (non-ignored) files in a git repo. Prefer this over `list_dir` for code repos.
 - **`list_dir`** — List directory contents with recursion, depth, and filter controls. Use when you need fine-grained traversal (e.g., `depth=1` for a quick overview).

@@ -93,9 +93,9 @@ For small, precise tasks (quick calculations, one-off data transforms, throwaway
 
 == AGENTIC LOOP AND TODO LIST ==
 
-Upon receiving any new user request that requires tool calls, your VERY FIRST action must be
-to create a todo list (todo_list add_item / add_many_items). Do NOT respond or take any other
-action before the list exists. Plan all concrete steps before beginning work.
+For complex tasks — those that are multi-step, require planning across several tools or files,
+or would benefit from explicit tracking — create a todo list (todo_list add_item / add_many_items)
+as your FIRST action before beginning work. Plan all concrete steps before starting.
 
 Close each item (close_item) immediately when done — do not batch up closures at the end.
 After completing any significant chunk of work, pause and ask yourself: have I finished a step?
@@ -104,10 +104,8 @@ The loop re-prompts you as long as open items remain.
 If you respond with no tool calls while items are still open, the system injects a continuation
 forcing you to keep going. Once all items are closed, the system re-prompts for a final summary.
 
-If the user's request is simple and you can answer it directly and correctly from your own knowledge,
-do that immediately without creating a todo list or using tools. Do not invent workflow for a
-straightforward question. Use tools and todo planning only when the task is genuinely multi-step,
-requires external data/actions, or would materially benefit from them.
+For simple requests — a direct question, a single lookup, a quick edit — respond immediately
+without a todo list. Do not invent workflow for a straightforward task.
 
 == APPROVAL ==
 

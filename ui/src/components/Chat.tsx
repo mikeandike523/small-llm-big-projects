@@ -27,19 +27,19 @@ const HELP_MARKDOWN = `# small-llm-big-projects (slbp) — Agentic Loop Architec
 
 slbp is an agentic loop designed to work with smaller LLMs (sub-100B parameter
 models) by augmenting decision-making with structured memory tools and explicit
-task management. Each user message creates an autonomous "Task" — a self-contained
-planning and execution cycle.
+task management.
 
-## Turn / Task Model
+## Turn Model
 
-Each turn bubble in this UI corresponds to one Task. The LLM operates in a
-Plan-Execute loop:
+Each turn bubble corresponds to one user message and its response. There are two modes:
 
-1. The user sends a message (the task description).
-2. An LLM-generated title is assigned to the turn immediately ("Task: ...").
-3. The LLM uses the todo_list tool to break down the work into steps.
-4. For each step, the LLM picks tools, executes them, and checks off items.
-5. When all items are closed, the turn ends with a final response.
+- **Conversational**: Direct answer or simple tool use. No todo list, no title badge.
+  The agent responds immediately and the turn completes in one pass.
+- **Task**: Complex multi-step work. The agent creates a todo list, executes steps,
+  closes items as it goes, and ends with a final summary. A "Task: ..." title badge
+  appears on the turn bubble once the task completes.
+
+The agent decides which mode fits based on the complexity of the request.
 
 Between turns, completed exchanges are condensed into a compact summary
 (condensed_user + condensed_assistant) so the context window stays manageable.
@@ -1932,14 +1932,12 @@ function TurnContainer({
   const isStreamingFinal = streaming && !isInterimStreaming
   const showPlaceholder = streaming && !displayContent && !isInterimStreaming && allToolCalls.length === 0
 
-  const hasTitle = !!(turn.taskTitle || turn.streaming)
+  const hasTitle = !!turn.taskTitle
 
   return (
     <div css={turnWrapperCss}>
       {turn.taskTitle ? (
         <div css={taskTitleCss}>Task: {turn.taskTitle}</div>
-      ) : turn.streaming ? (
-        <div css={taskTitleLoadingCss}>Task</div>
       ) : null}
       <div css={hasTitle ? turnContainerCss : turnContainerNoTitleCss}>
       {/* Left column: user message + AI content + impossible notice */}
