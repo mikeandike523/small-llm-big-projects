@@ -23,6 +23,8 @@ from src.tools import get_pwd
 from src.tools import host_check_command
 from src.tools import host_shell
 from src.tools import list_dir
+from src.tools import list_skill_files
+from src.tools import read_skill_file
 from src.tools import list_working_tree
 from src.tools import project_memory
 from src.tools import read_text_file
@@ -58,8 +60,10 @@ ALL_TOOL_DEFINITIONS: list[dict] = [
     host_check_command.DEFINITION,
     host_shell.DEFINITION,
     list_dir.DEFINITION,
+    list_skill_files.DEFINITION,
     list_working_tree.DEFINITION,
     project_memory.DEFINITION,
+    read_skill_file.DEFINITION,
     read_text_file.DEFINITION,
     read_text_file_to_session_memory.DEFINITION,
     remove_dir.DEFINITION,
@@ -93,8 +97,10 @@ _TOOL_MAP: dict[str, object] = {
     "host_check_command": host_check_command,
     "host_shell": host_shell,
     "list_dir": list_dir,
+    "list_skill_files": list_skill_files,
     "list_working_tree": list_working_tree,
     "project_memory": project_memory,
+    "read_skill_file": read_skill_file,
     "read_text_file": read_text_file,
     "remove_dir": remove_dir,
     "report_impossible": report_impossible,

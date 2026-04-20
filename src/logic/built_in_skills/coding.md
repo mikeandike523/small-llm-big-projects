@@ -110,6 +110,12 @@ string and `arg_values` as a flat list of JSON values (strings pass through as-i
 are JSON-serialised into argv). It runs Python in a sandboxed environment (Piston/Docker);
 nothing inside the sandbox persists to the host or project filesystem.
 
+Scripts must be non-interactive: never use `input()`, `getpass()`, or any blocking key/input
+call. Design every script as a one-shot run — receive all data via argv or session memory,
+produce all output via stdout, then exit. For stateful programs (games like tic-tac-toe or chess,
+quizzes, simulations), store the game/quiz state in session memory between interpreter calls and
+pass it in as an argument each turn.
+
 If you need to load code or arguments from session memory, write output to session memory,
 set a custom timeout, or control traceback output, use `advanced_code_interpreter` instead —
 see the "Advanced Code Interpreter" skill for full details.

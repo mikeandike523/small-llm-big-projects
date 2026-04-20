@@ -8,6 +8,11 @@ The sandbox is ephemeral — nothing persists to the host after the call.
 Write code as a normal executable script; use a `if __name__ == "__main__":` guard.
 Returns stdout on success. Returns a string starting with `FAILED:` on non-zero exit.
 
+Scripts must be non-interactive: never use `input()`, `getpass()`, or any blocking key/input
+call. Every script is a one-shot run — receive all data via argv or session memory, produce all
+output via stdout, then exit. For stateful programs (games, quizzes, simulations), store state
+in session memory between calls and pass it in as an argument each turn.
+
 ### Passing the Code
 
 Inline (short scripts, one-offs):

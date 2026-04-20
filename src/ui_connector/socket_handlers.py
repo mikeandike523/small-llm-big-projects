@@ -26,7 +26,7 @@ from src.utils.llm.streaming import StreamingLLM
 from src.utils.llm.factory import load_llm_config
 from src.tools import ALL_TOOL_DEFINITIONS, execute_tool, check_needs_approval, _TOOL_MAP, load_custom_tools
 from src.tools.todo_list import format_items_for_ui as _todo_format_items_for_ui
-from src.logic.system_prompt import build_system_prompt
+from src.logic.system_prompt import build_system_prompt, build_skill_registry
 from src.utils.conversation_strip import strip_down_messages
 from src.utils.emitting_kv_manager import EmittingKVManager
 from src.utils.redis_dict import RedisDict
@@ -45,7 +45,8 @@ from termcolor import colored
 
 logger = logging.getLogger(__name__)
 
-_BASE_SYSTEM_PROMPT: str = build_system_prompt(use_custom_skills=False)
+_BASE_SYSTEM_PROMPT: str = build_system_prompt()
+_BASE_SKILL_REGISTRY: list[dict] = build_skill_registry()
 
 _env_os = get_os()
 _env_shell = get_shell()
@@ -69,6 +70,8 @@ _trace_folder_max_bytes: int | None = (
 _session_tool_sets: dict[str, tuple[list, dict, list]] = {}
 # session_id -> system_prompt_string
 _session_system_prompts: dict[str, str] = {}
+# session_id -> list of skill file descriptors {title, filename, path, source}
+_session_skill_registries: dict[str, list[dict]] = {}
 # session_id -> {initial_cwd, pin_project_memory} — lightweight cache for info handlers
 _session_project_config: dict[str, dict] = {}
 # session_id -> current working directory for this session (updated by change_pwd tool)
@@ -138,10 +141,15 @@ def _init_session_caches(session: "Session", session_id: str) -> None:
 
     if session_id not in _session_system_prompts:
         _session_system_prompts[session_id] = build_system_prompt(
-            use_custom_skills=bool(session.skills_path),
-            custom_skills_path=session.skills_path,
             starting_environment_info=_build_starting_environment_info(session),
         )
+
+    if session_id not in _session_skill_registries:
+        registry = build_skill_registry(custom_skills_path=session.skills_path)
+        _session_skill_registries[session_id] = registry
+        session.session_data["__skill_files__"] = registry
+    else:
+        session.session_data["__skill_files__"] = _session_skill_registries[session_id]
 
     _session_project_config[session_id] = {
         "initial_cwd": session.initial_cwd,
@@ -425,6 +433,7 @@ def _delete_session(session_id: str) -> None:
     r.delete(f"session:{session_id}:events")
     _session_tool_sets.pop(session_id, None)
     _session_system_prompts.pop(session_id, None)
+    _session_skill_registries.pop(session_id, None)
     _session_project_config.pop(session_id, None)
     _session_current_cwd.pop(session_id, None)
     _session_trace_buffers.pop(session_id, None)
@@ -518,10 +527,11 @@ def api_create_session():
         _session_tool_sets[session_id] = (ALL_TOOL_DEFINITIONS, _TOOL_MAP, [])
 
     _session_system_prompts[session_id] = build_system_prompt(
-        use_custom_skills=bool(skills_path),
-        custom_skills_path=skills_path,
         starting_environment_info=_build_starting_environment_info(session),
     )
+    registry = build_skill_registry(custom_skills_path=skills_path)
+    _session_skill_registries[session_id] = registry
+    session.session_data["__skill_files__"] = registry
     _session_project_config[session_id] = {
         "initial_cwd": initial_cwd,
         "pin_project_memory": pin_project_memory,

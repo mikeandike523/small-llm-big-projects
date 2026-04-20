@@ -2,18 +2,64 @@ import os
 
 _BUILT_IN_SKILLS_DIR = os.path.join(os.path.dirname(__file__), "built_in_skills")
 
-def _load_built_in_skills() -> list[str]:
-    try:
-        files = sorted(f for f in os.listdir(_BUILT_IN_SKILLS_DIR) if f.lower().endswith(".md"))
-        skills = []
-        for name in files:
-            with open(os.path.join(_BUILT_IN_SKILLS_DIR, name), encoding="utf-8") as fh:
-                skills.append(fh.read().strip())
-        return skills
-    except OSError:
-        return []
 
-BUILT_IN_SKILLS = _load_built_in_skills()
+def parse_skill_title(content: str) -> str:
+    """Extract a display title from skill file content.
+    Uses the first non-blank line if it's a markdown header (starts with #),
+    stripping the leading # characters. Otherwise uses the first 50 chars of
+    the first non-blank line, appending '...' if longer.
+    """
+    for line in content.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if stripped.startswith("#"):
+            return stripped.lstrip("#").strip()
+        if len(stripped) > 50:
+            return stripped[:50] + "..."
+        return stripped
+    return "(untitled)"
+
+
+def build_skill_registry(custom_skills_path: str | None = None) -> list[dict]:
+    """Return a list of skill file descriptors for built-in and custom skills.
+
+    Each entry: {title, filename, path, source}
+    where source is 'builtin' or 'custom'.
+    """
+    registry: list[dict] = []
+
+    try:
+        builtin_files = sorted(f for f in os.listdir(_BUILT_IN_SKILLS_DIR) if f.lower().endswith(".md"))
+        for filename in builtin_files:
+            path = os.path.join(_BUILT_IN_SKILLS_DIR, filename)
+            try:
+                with open(path, encoding="utf-8") as fh:
+                    content = fh.read()
+                title = parse_skill_title(content)
+            except OSError:
+                title = filename
+            registry.append({"title": title, "filename": filename, "path": path, "source": "builtin"})
+    except OSError:
+        pass
+
+    if custom_skills_path:
+        try:
+            custom_files = sorted(f for f in os.listdir(custom_skills_path) if f.lower().endswith(".md"))
+            for filename in custom_files:
+                path = os.path.join(custom_skills_path, filename)
+                try:
+                    with open(path, encoding="utf-8") as fh:
+                        content = fh.read()
+                    title = parse_skill_title(content)
+                except OSError:
+                    title = filename
+                registry.append({"title": title, "filename": filename, "path": path, "source": "custom"})
+        except OSError:
+            pass
+
+    return registry
+
 
 SYSTEM_PROMPT = """\
 You are a helpful assistant with access to tools that let you perform many useful actions.
@@ -37,6 +83,10 @@ For small, precise tasks (quick calculations, one-off data transforms, throwaway
 - Use `advanced_code_interpreter` only when you need session memory routing for code or
   arguments, output written into session memory, a custom timeout, or traceback control.
   See the "Advanced Code Interpreter" skill for full details.
+- Scripts must be non-interactive: never use input(), getpass(), or any blocking key/input
+  call. Design every script as a one-shot run — receive all data via argv or session memory,
+  produce all output via stdout, then exit. For stateful programs (games, quizzes, simulations),
+  store state in session memory between calls and pass it in as an argument each turn.
 - When you do need to write a file, write it to the global SLBP workspace directory rather
   than inside the current project. Call `get_global_workspace_dir` to get the path.
   Never litter the active project with temporary or scratch files.
@@ -150,27 +200,14 @@ in session memory at the key shown in the header. Use return_stub_line_reader to
 == SKILLS ==
 
 Skills are guides for solving common problems using your existing tools.
-
-<<CUSTOM_SKILLS_TEXT>>
+Use list_skill_files to see all available skills (built-in and custom).
+Use read_skill_file(filename=...) to read a skill by its filename.
+The result may be stubbed if the file is long — use return_stub_line_reader to read it in chunks.
 
 """
 
-def build_system_prompt(use_custom_skills=False,
-                        custom_skills_path=None,
-                        starting_environment_info: str | None = None):
-    custom_skills = []
-    if use_custom_skills:
-        if not custom_skills_path:
-            custom_skills_path = os.path.join(os.getcwd(),"skills")
-        custom_skill_files = [
-            file for file in os.listdir(custom_skills_path)
-            if file.lower().endswith(".md")
-                         ]
-        for skill_file in custom_skill_files:
-            with open(os.path.join(custom_skills_path, skill_file)) as fl:
-                custom_skills.append(fl.read().strip())
-    skills_text = "\n\n".join(skill_text.strip() for skill_text in (BUILT_IN_SKILLS + custom_skills))
-    prompt = SYSTEM_PROMPT.replace("<<CUSTOM_SKILLS_TEXT>>", skills_text)
+def build_system_prompt(starting_environment_info: str | None = None):
+    prompt = SYSTEM_PROMPT
     if starting_environment_info:
         env_block = (
             "Starting Agent Environment Info:\n"
