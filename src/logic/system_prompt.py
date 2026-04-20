@@ -24,9 +24,10 @@ searching, and memory operations, prefer the dedicated tools.
 
 == ENVIRONMENT ==
 
-Each user message includes an injected note such as:
-  "Note: Current environment -- OS: ..., Shell: ..., CWD: ..."
-Use it to inform shell commands, file paths, and any OS-specific behavior.
+Use `get_environment_info` when OS, shell, current working directory, or initial working
+directory matter to the task. Check it before environment-specific actions such as shell
+commands, path-sensitive work, builds, or debugging. Do not assume the environment details
+without checking when they are important.
 
 == AGENTIC LOOP AND TODO LIST ==
 
@@ -143,7 +144,8 @@ Skills are guides for solving common problems using your existing tools.
 """
 
 def build_system_prompt(use_custom_skills=False,
-                        custom_skills_path=None):
+                        custom_skills_path=None,
+                        starting_environment_info: str | None = None):
     custom_skills = []
     if use_custom_skills:
         if not custom_skills_path:
@@ -156,4 +158,12 @@ def build_system_prompt(use_custom_skills=False,
             with open(os.path.join(custom_skills_path, skill_file)) as fl:
                 custom_skills.append(fl.read().strip())
     skills_text = "\n\n".join(skill_text.strip() for skill_text in (BUILT_IN_SKILLS + custom_skills))
-    return SYSTEM_PROMPT.replace("<<CUSTOM_SKILLS_TEXT>>", skills_text)
+    prompt = SYSTEM_PROMPT.replace("<<CUSTOM_SKILLS_TEXT>>", skills_text)
+    if starting_environment_info:
+        env_block = (
+            "Starting Agent Environment Info:\n"
+            f"{starting_environment_info}\n"
+            "Please call the get_environment_info tool to get up-to-date info when needed.\n\n"
+        )
+        prompt = env_block + prompt
+    return prompt

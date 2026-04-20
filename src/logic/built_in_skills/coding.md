@@ -54,6 +54,10 @@ Use the `project_memory` tool to take notes on the purpose of each file and othe
 Use `pwd` to scope reads and writes to the relevant subdirectory.
 Check existing items in project memory (with the appropriate `pwd`) for any prior notes as well.
 
+Before writing code, use `get_environment_info` when OS, shell, or working-directory details
+matter to the task. This is especially important before running shell commands, debugging
+environment-specific issues, or interpreting relative paths.
+
 Before writing code, scan the environment for AGENTS.md, CLAUDE.md, AGENTS.txt, and CLAUDE.txt.
 Read those to get an idea of the coding style and environment. After reading them, write your key
 takeaways to `project_memory` — coding conventions, build/lint/typecheck commands, framework

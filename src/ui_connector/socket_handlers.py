@@ -30,7 +30,7 @@ from src.utils.conversation_strip import strip_down_messages
 from src.utils.emitting_kv_manager import EmittingKVManager
 from src.utils.redis_dict import RedisDict
 from src.utils.request_error_formatting import format_http_error
-from src.utils.env_info import get_env_context, get_os, get_shell
+from src.utils.env_info import format_environment_info, get_default_workspace_dir, get_os, get_shell
 from src.utils.session_model import (
     Session, Turn, LLMExchange, ToolCallRecord, CompactionRecord,
     session_to_dict, session_from_dict, turn_to_dict, turn_from_dict,
@@ -74,6 +74,17 @@ _session_current_cwd: dict[str, str] = {}
 _session_trace_buffers: dict[str, deque] = {}
 # Set of session_ids that are currently executing a turn
 _session_active_turns: set[str] = set()
+
+
+def _build_starting_environment_info(session: "Session") -> str:
+    """
+    Build the one-time environment snapshot embedded in the per-session system prompt.
+    """
+    snapshot_cwd = session.initial_cwd or os.getcwd()
+    return format_environment_info(
+        current_cwd=snapshot_cwd,
+        initial_cwd=session.initial_cwd or None,
+    )
 
 
 def _get_default_project(session_id: str) -> str:
@@ -126,6 +137,7 @@ def _init_session_caches(session: "Session", session_id: str) -> None:
         _session_system_prompts[session_id] = build_system_prompt(
             use_custom_skills=bool(session.skills_path),
             custom_skills_path=session.skills_path,
+            starting_environment_info=_build_starting_environment_info(session),
         )
 
     _session_project_config[session_id] = {
@@ -505,6 +517,7 @@ def api_create_session():
     _session_system_prompts[session_id] = build_system_prompt(
         use_custom_skills=bool(skills_path),
         custom_skills_path=skills_path,
+        starting_environment_info=_build_starting_environment_info(session),
     )
     _session_project_config[session_id] = {
         "initial_cwd": initial_cwd,
@@ -619,7 +632,10 @@ def api_session_defaults():
 @app.route("/api/system-info", methods=["GET"])
 def api_system_info():
     """Return basic system information useful for the dashboard."""
-    return jsonify({"home_dir": str(pathlib.Path.home()).replace("\\", "/")})
+    return jsonify({
+        "home_dir": str(pathlib.Path.home()).replace("\\", "/"),
+        "workspace_dir": get_default_workspace_dir(),
+    })
 
 
 @app.route("/api/folder-pick", methods=["POST"])
@@ -958,6 +974,7 @@ def _execute_tools(
         "emitting_kv_manager": EmittingKVManager(get_pool(), socketio, session_id),
         "on_log": lambda msg: _emit_backend_log(session_id, msg),
         "session_id": session_id,
+        "initial_cwd": session.initial_cwd,
         "cancel_event": cancel_event,
         "ask_human_fn": lambda q: _request_human_input(
             session_id, q, turn_id, cancel_event, redirect_event=redirect_event
@@ -2130,6 +2147,7 @@ def handle_run_startup_tool_calls():
     special_resources = {
         "emitting_kv_manager": EmittingKVManager(get_pool(), socketio, session_id),
         "on_log": lambda msg: _emit_backend_log(session_id, msg),
+        "initial_cwd": session.initial_cwd,
     }
     startup_tool_map = _get_session_tool_map(session_id)
 
@@ -2212,7 +2230,7 @@ def handle_user_message(data: dict):
         except OSError as _chdir_err:
             _emit_backend_log(session_id, f"Warning: could not chdir to {_effective_cwd!r}: {_chdir_err}")
 
-    user_text_with_context = f"{text}\n\n{get_env_context(initial_cwd=session.initial_cwd or None)}"
+    user_text_with_context = text
     current_turn = Turn(
         id=turn_id,
         user_text=text,

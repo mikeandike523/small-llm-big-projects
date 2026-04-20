@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import sys
+from pathlib import Path
 
 
 def get_os() -> str:
@@ -82,19 +83,28 @@ def get_shell() -> str:
     return "unknown"
 
 
-def get_env_context(initial_cwd: str | None = None) -> str:
+def format_environment_info(
+    current_cwd: str | None = None,
+    initial_cwd: str | None = None,
+) -> str:
     """
-    Return a single-line environment note suitable for appending to a user
-    message before it is sent to the LLM.
-
-    Example output:
-        Note: Current environment -- OS: Windows, Shell: Git Bash, CWD: C:/Users/micha/Projects/foo
-        Note: Current environment -- OS: Windows, Shell: Git Bash, CWD: C:/Users/micha/Projects/foo, Initial CWD: C:/Users/micha/Projects/bar
+    Return a multi-line environment snapshot for prompts and tool output.
     """
-    cwd = os.getcwd().replace("\\", "/")
-    note = f"Note: Current environment -- OS: {get_os()}, Shell: {get_shell()}, CWD: {cwd}"
-    if initial_cwd is not None:
+    cwd = (current_cwd or os.getcwd()).replace("\\", "/")
+    lines = [
+        f"OS: {get_os()}",
+        f"Shell: {get_shell()}",
+        f"Current CWD: {cwd}",
+    ]
+    if initial_cwd:
         initial_cwd_norm = initial_cwd.replace("\\", "/")
         if initial_cwd_norm != cwd:
-            note += f", Initial CWD: {initial_cwd_norm}"
-    return note
+            lines.append(f"Initial CWD: {initial_cwd_norm}")
+    return "\n".join(lines)
+
+
+def get_default_workspace_dir() -> str:
+    """
+    Return the app-managed default workspace directory under the user's home directory.
+    """
+    return str(Path.home() / ".slbp" / "workspace").replace("\\", "/")

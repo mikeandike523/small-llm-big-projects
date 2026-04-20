@@ -244,11 +244,14 @@ export default function NewSessionDialog({ sessionDefaults, onCreated, onClose }
   const [creating, setCreating] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // Fetch home directory as default CWD on mount
+  // Fetch default workspace directory as default CWD on mount
   useEffect(() => {
     fetch('/api/system-info')
       .then(r => r.json())
-      .then(d => { if (d.home_dir) setCwd(d.home_dir) })
+      .then(d => {
+        if (d.workspace_dir) setCwd(d.workspace_dir)
+        else if (d.home_dir) setCwd(d.home_dir)
+      })
       .catch(() => {})
   }, [])
 

@@ -6,6 +6,7 @@ from pathlib import Path
 import click
 
 from src.cli_obj import cli
+from src.utils.env_info import get_default_workspace_dir
 from src.utils.process import ManagedProcess, find_bash, run_processes
 from src.utils.free_port import find_free_port
 from src.utils.server_state import write_state, clear_state
@@ -74,6 +75,8 @@ def server_run(tool_tracebacks, hotfix_gpt_oss_20b_bad_parser, hotfix_gpt_oss_20
       - .env exists at the project root (copy from .env.example)
     """
     bash = find_bash()
+    workspace_dir = get_default_workspace_dir()
+    Path(workspace_dir).mkdir(parents=True, exist_ok=True)
 
     # Allocate four free ports upfront so all processes know where to connect.
     flask_port = find_free_port()
@@ -85,6 +88,7 @@ def server_run(tool_tracebacks, hotfix_gpt_oss_20b_bad_parser, hotfix_gpt_oss_20
     click.echo(
         f"[slbp] Allocated ports — proxy:{gw_port}  flask:{flask_port}  ui:{ui_port}  logging:{logging_port}"
     )
+    click.echo(f"[slbp] Workspace: {workspace_dir}")
 
     server_cwd = os.getcwd()
 
