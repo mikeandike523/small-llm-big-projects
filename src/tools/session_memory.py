@@ -11,13 +11,13 @@ LEAVE_OUT = "KEEP"  # module-level fallback; per-action policy takes precedence
 
 LEAVE_OUT_PER_ACTION = {
     "get":              ("SHORT",       500),
-    "set":              ("PARAMS_ONLY", 0),
-    "delete":           ("PARAMS_ONLY", 0),
+    "set":              ("SHORT",       200),
+    "delete":           ("SHORT",       200),
     "list":             ("KEEP",        0),
-    "append":           ("PARAMS_ONLY", 0),
-    "concat":           ("PARAMS_ONLY", 0),
-    "copy":             ("PARAMS_ONLY", 0),
-    "rename":           ("PARAMS_ONLY", 0),
+    "append":           ("SHORT",       200),
+    "concat":           ("SHORT",       200),
+    "copy":             ("SHORT",       200),
+    "rename":           ("SHORT",       200),
     "extract_json":     ("SHORT",       500),
     "search_by_regex":  ("SHORT",       500),
 }

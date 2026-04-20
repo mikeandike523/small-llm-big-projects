@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-LEAVE_OUT = "PARAMS_ONLY"
+LEAVE_OUT = "SHORT"
+TOOL_SHORT_AMOUNT = 200
 
 DEFINITION: dict = {
     "type": "function",

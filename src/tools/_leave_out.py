@@ -6,7 +6,6 @@ from enum import Enum
 class LeaveOut(str, Enum):
     """Controls how a tool's call + result are treated when stripping context for retry."""
     KEEP = "KEEP"
-    PARAMS_ONLY = "PARAMS_ONLY"
     OMIT = "OMIT"
     SHORT = "SHORT"
 

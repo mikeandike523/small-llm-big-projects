@@ -3,7 +3,8 @@ from src.utils.git_heuristic_is_binary import git_heuristic_is_binary
 import os
 
 
-LEAVE_OUT = "PARAMS_ONLY"
+LEAVE_OUT = "SHORT"
+TOOL_SHORT_AMOUNT = 200
 
 DEFINITION: dict = {
     "type": "function",

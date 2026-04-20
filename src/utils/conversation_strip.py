@@ -2,22 +2,21 @@
 Helper to strip down a conversation for context-limit / timeout retry.
 
 Each tool module may declare:
-  LEAVE_OUT: str   ("KEEP" | "PARAMS_ONLY" | "OMIT" | "SHORT")
+  LEAVE_OUT: str   ("KEEP" | "OMIT" | "SHORT")
   TOOL_SHORT_AMOUNT: int  (only used when LEAVE_OUT == "SHORT")
 
 Policy semantics
 ----------------
 KEEP         — no change (default when attribute is absent)
-PARAMS_ONLY  — keep the assistant tool_calls entry (params visible), replace the
-               tool result content with "Tool Successful (N chars)"
 OMIT         — remove the tool_calls entry from the assistant message AND drop the
                tool result message entirely
 SHORT        — truncate the tool result to TOOL_SHORT_AMOUNT chars and append
                "... (N more chars)"
 
 Already-stubbed results (produced by _stub_tool_result, start with the marker
-below) are always treated as PARAMS_ONLY regardless of the declared policy —
-showing the preview again wastes tokens.
+below) are preserved as-is regardless of the declared policy — the stub is
+already a token-budgeted preview plus a pointer to the full value in session
+memory.
 """
 from __future__ import annotations
 
@@ -117,11 +116,11 @@ def strip_down_messages(
             policy = tool_call_policies.get(tc_id, LeaveOut.KEEP)
             content: str = msg.get("content") or ""
 
-            if policy == LeaveOut.PARAMS_ONLY or _is_stubbed(content):
-                n = len(content)
-                msg["content"] = f"Tool Successful ({n} chars)"
+            if _is_stubbed(content):
+                result.append(msg)
+                continue
 
-            elif policy == LeaveOut.SHORT:
+            if policy == LeaveOut.SHORT:
                 limit = tool_call_short_amounts.get(tc_id, 500)
                 if len(content) > limit:
                     overflow = len(content) - limit

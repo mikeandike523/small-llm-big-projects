@@ -1275,6 +1275,117 @@ async def _fetch_task_title(
         return None
 
 
+def _truncate_watchdog_text(text: Any, max_chars: int) -> str:
+    if text is None:
+        return ""
+    if not isinstance(text, str):
+        try:
+            text = json.dumps(text, ensure_ascii=False)
+        except Exception:
+            text = str(text)
+    if len(text) <= max_chars:
+        return text
+    overflow = len(text) - max_chars
+    return text[:max_chars] + f"... ({overflow} more chars)"
+
+
+def _messages_to_watchdog_transcript(messages: list[dict]) -> str:
+    """Render stripped messages into plain text for the final-answer watchdog."""
+    lines: list[str] = []
+    for idx, msg in enumerate(messages, start=1):
+        role = msg.get("role", "?")
+        lines.append(f"[Message {idx}] {role.upper()}")
+
+        content = _truncate_watchdog_text(msg.get("content") or "", 700).strip()
+        if content:
+            lines.append(content)
+
+        if role == "assistant":
+            for tc in msg.get("tool_calls") or []:
+                name = tc.get("function", {}).get("name", "")
+                args = _truncate_watchdog_text(tc.get("function", {}).get("arguments", "") or "", 400)
+                lines.append(f"Tool Call: {name}")
+                if args:
+                    lines.append(f"Args: {args}")
+        elif role == "tool":
+            tc_id = msg.get("tool_call_id", "")
+            if tc_id:
+                lines.append(f"Tool Call ID: {tc_id}")
+
+        lines.append("")
+
+    return "\n".join(lines).strip()
+
+
+async def _is_sufficient_final_answer(
+    streaming_llm: StreamingLLM,
+    session: Session,
+    current_turn: Turn,
+    candidate_text: str,
+    assistant_truncation_chars: int | None,
+    tool_map: dict,
+    watchdog_max_tokens: int | None,
+) -> bool:
+    """
+    Ask a small out-of-band evaluator whether candidate_text already serves as a
+    sufficient direct answer or final summary for the current turn.
+    """
+    payload = _build_llm_payload(session, current_turn)
+    stripped = strip_down_messages(
+        payload,
+        tool_map,
+        assistant_truncation_chars=assistant_truncation_chars,
+    )
+    transcript = _messages_to_watchdog_transcript(stripped)
+
+    todo_list = session.session_data.get("todo_list") or []
+    open_items = _get_open_items(todo_list)
+    closed_items = _get_closed_items(todo_list)
+    todo_status = (
+        f"todo_items_created={len(todo_list)}, "
+        f"todo_items_closed={len(closed_items)}, "
+        f"todo_items_open={len(open_items)}"
+    )
+
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "You are evaluating whether an assistant's latest reply is already sufficient to end "
+                "a tool-assisted turn.\n"
+                "\n"
+                "Reply with exactly one word: YES or NO.\n"
+                "\n"
+                "Reply YES if the latest reply already functions as either:\n"
+                "  - a direct final answer to a simple request, or\n"
+                "  - a sufficient final summary/answer after tool use.\n"
+                "\n"
+                "Reply NO if the latest reply is only a partial status update, weak closing remark, "
+                "reasoning fragment, or otherwise fails to clearly answer/summarize the work."
+            ),
+        },
+        {
+            "role": "user",
+            "content": (
+                f"User request:\n{current_turn.user_text}\n\n"
+                f"Turn facts:\n"
+                f"- had_tool_calls: {current_turn.count_tool_calls() > 0}\n"
+                f"- {todo_status}\n\n"
+                f"Prior conversation transcript (already stripped/truncated for evaluator use):\n"
+                f"{transcript or '(empty)'}\n\n"
+                f"Latest assistant reply to evaluate:\n{candidate_text}"
+            ),
+        },
+    ]
+    try:
+        result = await asyncio.to_thread(streaming_llm.fetch, messages, watchdog_max_tokens)
+        decision = (result.content or "").strip().upper()
+        return decision == "YES"
+    except Exception as exc:
+        print(f"[final-answer-watchdog] LLM call failed: {exc}", flush=True)
+        return False
+
+
 # ---------------------------------------------------------------------------
 # Async agent loop
 # ---------------------------------------------------------------------------
@@ -1300,6 +1411,7 @@ async def _async_agent_loop(
     assistant_truncation_chars: int | None,
     cancel_event: threading.Event,
     compaction_max_tokens: int | None = None,
+    watchdog_max_tokens: int | None = None,
     redirect_event: threading.Event | None = None,
 ) -> None:
     """
@@ -1308,7 +1420,9 @@ async def _async_agent_loop(
     Tool calls run in a thread pool (asyncio.to_thread) so the event loop stays responsive.
     """
     had_tool_calls = False
-    final_reprompt_done = False
+    # One-shot latch: after we inject the explicit final-summary continuation,
+    # the next no-tool response is accepted as final.
+    final_summary_reprompt_sent = False
     was_impossible = False
     impossible_reason: str | None = None
     was_cancelled = False
@@ -1324,7 +1438,7 @@ async def _async_agent_loop(
                 was_cancelled = True
                 break
 
-            is_interim_call = had_tool_calls and not final_reprompt_done
+            is_interim_call = had_tool_calls and not final_summary_reprompt_sent
             if is_interim_call:
                 _emit_and_log(session_id, "begin_interim_stream", {
                     "turn_id": turn_id,
@@ -1574,12 +1688,22 @@ async def _async_agent_loop(
                 _save_session(session_id, session)
                 continue
 
-            if had_tool_calls and not final_reprompt_done:
-                todo_list = session.session_data.get("todo_list") or []
-                all_closed = bool(todo_list) and not _get_open_items(todo_list)
+            if had_tool_calls and not final_summary_reprompt_sent:
                 has_content = bool(content_for_history and content_for_history.strip())
-                if all_closed and has_content:
-                    # Interim wrap-up is the summary — no reprompt needed
+                is_sufficient = False
+                if has_content:
+                    is_sufficient = await _is_sufficient_final_answer(
+                        streaming_llm,
+                        session,
+                        current_turn,
+                        content_for_history,
+                        assistant_truncation_chars,
+                        session_tool_map,
+                        watchdog_max_tokens,
+                    )
+
+                if is_sufficient:
+                    # Latest no-tool response already serves as the final answer/summary.
                     final_exchange = LLMExchange(
                         assistant_content=content_for_history,
                         reasoning=reasoning,
@@ -1591,7 +1715,7 @@ async def _async_agent_loop(
                     })
                     turn_completed = True
                     break
-                final_reprompt_done = True
+                final_summary_reprompt_sent = True
                 continuation = (
                     "All action items are complete. "
                     "Please provide your final summary or answer based on the steps "
@@ -2072,6 +2196,7 @@ def handle_user_message(data: dict):
     return_value_max_chars: int | None = llm_config["system_params"].get("return_value_max_chars")
     assistant_truncation_chars: int | None = llm_config["system_params"].get("assistant_strip_truncation_chars")
     compaction_max_tokens: int | None = llm_config["system_params"].get("compaction_max_tokens")
+    watchdog_max_tokens: int | None = llm_config["system_params"].get("watchdog_max_tokens")
     title_summary_max_tokens: int | None = llm_config["system_params"].get("title_summary_max_tokens")
 
     session = _load_session(session_id)
@@ -2127,6 +2252,7 @@ def handle_user_message(data: dict):
                 return_value_max_chars, assistant_truncation_chars,
                 cancel_event,
                 compaction_max_tokens=compaction_max_tokens,
+                watchdog_max_tokens=watchdog_max_tokens,
                 redirect_event=redirect_event,
             )
         except asyncio.CancelledError:
