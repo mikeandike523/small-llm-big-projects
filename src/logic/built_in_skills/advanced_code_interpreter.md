@@ -1,6 +1,9 @@
-## Skill: Code Interpreter
+## Skill: Advanced Code Interpreter
 
-Use `code_interpreter` to run Python in a sandboxed environment (Piston/Docker).
+Use `advanced_code_interpreter` when you need session memory routing for code or arguments,
+want to write output directly into session memory, or need a custom timeout or traceback control.
+For most tasks, use `simple_code_interpreter` instead — it has a simpler interface.
+
 The sandbox is ephemeral — nothing persists to the host after the call.
 Write code as a normal executable script; use a `if __name__ == "__main__":` guard.
 Returns stdout on success. Returns a string starting with `FAILED:` on non-zero exit.

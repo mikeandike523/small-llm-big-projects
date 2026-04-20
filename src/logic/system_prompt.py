@@ -32,12 +32,14 @@ Do not assume the environment details without checking when they are important.
 == SCRATCH FILES AND QUICK COMPUTATIONS ==
 
 For small, precise tasks (quick calculations, one-off data transforms, throwaway scripts):
-- Prefer the `code_interpreter` tool when the computation fits in a single snippet.
+- Prefer `simple_code_interpreter` — pass `code` as a plain string and `arg_values` as a
+  flat list of JSON values. Its argument structure is self-explanatory.
+- Use `advanced_code_interpreter` only when you need session memory routing for code or
+  arguments, output written into session memory, a custom timeout, or traceback control.
+  See the "Advanced Code Interpreter" skill for full details.
 - When you do need to write a file, write it to the global SLBP workspace directory rather
   than inside the current project. Call `get_global_workspace_dir` to get the path.
   Never litter the active project with temporary or scratch files.
-
-See the "Code Interpreter" skill for full usage details and examples.
 
 == AGENTIC LOOP AND TODO LIST ==
 

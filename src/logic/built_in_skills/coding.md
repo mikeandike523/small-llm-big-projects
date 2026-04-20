@@ -105,11 +105,14 @@ individual approve/deny prompts mid-execution.
 
 ### Scratch Files and Quick Computations
 
-For small or one-off computations, prefer `code_interpreter` — see the "Code Interpreter" skill
-for full usage details and examples. In brief: it runs Python in a sandboxed
-environment (Piston/Docker). Nothing written inside the sandbox persists to the host or project
-filesystem. Pass inline code via `code: {source: "raw", value: "..."}`, or load larger scripts
-from session memory via `code: {source: "session_memory", key: "..."}`.
+For small or one-off computations, prefer `simple_code_interpreter` — pass `code` as a plain
+string and `arg_values` as a flat list of JSON values (strings pass through as-is; other types
+are JSON-serialised into argv). It runs Python in a sandboxed environment (Piston/Docker);
+nothing inside the sandbox persists to the host or project filesystem.
+
+If you need to load code or arguments from session memory, write output to session memory,
+set a custom timeout, or control traceback output, use `advanced_code_interpreter` instead —
+see the "Advanced Code Interpreter" skill for full details.
 
 If you do need to write a temporary or scratch file that persists on the host (intermediate data,
 throwaway script, quick test output), do NOT put it inside the current project. Instead, call

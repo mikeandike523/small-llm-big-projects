@@ -26,7 +26,7 @@ def _get_piston_port() -> int:
 DEFINITION: dict = {
     "type": "function",
     "function": {
-        "name": "code_interpreter",
+        "name": "advanced_code_interpreter",
         "description": (
             "Execute a Python script in a sandboxed environment. "
             "Write the code as a normal executable program — include a "
@@ -34,7 +34,9 @@ DEFINITION: dict = {
             "command-line strings (sys.argv[1], sys.argv[2], …). "
             "On success, returns stdout as-is. "
             "On failure (non-zero exit), returns a string starting with 'FAILED:' "
-            "containing the exit code, stdout, and stderr."
+            "containing the exit code, stdout, and stderr. "
+            "Use simple_code_interpreter for most tasks — this tool adds session memory "
+            "routing for code/args/output, custom timeout, and traceback control."
         ),
         "parameters": {
             "type": "object",
@@ -236,6 +238,18 @@ def execute(args: dict, session_data: dict | None = None) -> str:
         # Convert non-string raw values to their JSON representation for argv
         piston_args.append(val if isinstance(val, str) else json.dumps(val))
 
+    return _run_piston(code, piston_args, timeout_val, enable_tracebacks, target, target_key, memory)
+
+
+def _run_piston(
+    code: str,
+    piston_args: list[str],
+    timeout_val: int,
+    enable_tracebacks: bool,
+    target: str,
+    target_key: str | None,
+    memory: dict,
+) -> str:
     piston_url = f"http://127.0.0.1:{_get_piston_port()}"
     payload = {
         "language": "python",
@@ -258,7 +272,7 @@ def execute(args: dict, session_data: dict | None = None) -> str:
         )
     except httpx.TimeoutException:
         raise ToolTimeoutError(
-            "code_interpreter",
+            "advanced_code_interpreter",
             timeout_val,
             hint="Increase the timeout parameter or optimise the code.",
         )
