@@ -7,9 +7,9 @@ import click
 
 from src.cli_obj import cli
 from src.utils.env_info import get_default_workspace_dir
-from src.utils.process import ManagedProcess, find_bash, run_processes
 from src.utils.free_port import find_free_port
-from src.utils.server_state import write_state, clear_state
+from src.utils.process import ManagedProcess, find_bash, run_processes
+from src.utils.server_state import clear_state, write_state
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
@@ -22,48 +22,62 @@ def server():
 
 @server.command(name="run")
 @click.option(
-    '--tool-tracebacks', is_flag=True, default=False,
-    help='When a tool raises an exception, return the full traceback instead of just the error message.',
+    "--tool-tracebacks", is_flag=True, default=False,
+    help="When a tool raises an exception, return the full traceback instead of just the error message.",
 )
 @click.option(
-    '--hotfix-gpt-oss-20b-bad-parser', is_flag=True, default=False,
+    "--hotfix-gpt-oss-20b-bad-parser", is_flag=True, default=False,
     help=(
-        'Hotfix for OpenRouter models that emit spurious <|channel|> tokens inside tool names. '
-        'Strips <|channel|> and everything after it from the tool name; if the remainder is a '
-        'valid tool, that tool is used.'
+        "Hotfix for OpenRouter models that emit spurious <|channel|> tokens inside tool names. "
+        "Strips <|channel|> and everything after it from the tool name; if the remainder is a "
+        "valid tool, that tool is used."
     ),
 )
 @click.option(
-    '--hotfix-gpt-oss-20b-bad-void-call', is_flag=True, default=False,
+    "--hotfix-gpt-oss-20b-bad-void-call", is_flag=True, default=False,
     help=(
-        'Hotfix for OpenRouter models that pass spurious arguments to void tools (tools with no '
-        'defined parameters). If a tool has no properties in its DEFINITION, any LLM-provided '
-        'arguments are discarded and the tool is called with an empty argument set.'
+        "Hotfix for OpenRouter models that pass spurious arguments to void tools (tools with no "
+        "defined parameters). If a tool has no properties in its DEFINITION, any LLM-provided "
+        "arguments are discarded and the tool is called with an empty argument set."
     ),
 )
 @click.option(
-    '--hotfix-suite-gpt-oss-20b', is_flag=True, default=False,
-    help='Enable all gpt-oss-20b hotfixes at once (equivalent to --hotfix-gpt-oss-20b-bad-parser and --hotfix-gpt-oss-20b-bad-void-call).',
-)
-@click.option(
-    '--trace-folder-max-gb', default=None, type=float,
+    "--hotfix-suite-gpt-oss-20b", is_flag=True, default=False,
     help=(
-        'Maximum size in GB for the .slbp-traces folder. When saving traces would '
-        'exceed this limit, oldest trace files are deleted until under the limit. '
-        'Defaults to no limit.'
+        "Enable all gpt-oss-20b hotfixes at once "
+        "(equivalent to --hotfix-gpt-oss-20b-bad-parser and --hotfix-gpt-oss-20b-bad-void-call)."
     ),
 )
 @click.option(
-    '--dashboard-port', default=None, type=int,
-    help='Port for the UI/dashboard server. Defaults to a random free port.',
+    "--trace-folder-max-gb", default=None, type=float,
+    help=(
+        "Maximum size in GB for the .slbp-traces folder. When saving traces would "
+        "exceed this limit, oldest trace files are deleted until under the limit. "
+        "Defaults to no limit."
+    ),
 )
 @click.option(
-    '--proxy-port', default=None, type=int,
-    help='Port for the gateway proxy (single public entry point). Defaults to a random free port. Useful for VM/containerized deployments where a fixed entry point is required.',
+    "--dashboard-port", default=None, type=int,
+    help="Port for the UI/dashboard server. Defaults to a random free port.",
 )
-def server_run(tool_tracebacks, hotfix_gpt_oss_20b_bad_parser, hotfix_gpt_oss_20b_bad_void_call, hotfix_suite_gpt_oss_20b, trace_folder_max_gb, dashboard_port, proxy_port):
+@click.option(
+    "--proxy-port", default=None, type=int,
+    help=(
+        "Port for the gateway proxy (single public entry point). Defaults to a random free port. "
+        "Useful for VM/containerized deployments where a fixed entry point is required."
+    ),
+)
+def server_run(
+    tool_tracebacks,
+    hotfix_gpt_oss_20b_bad_parser,
+    hotfix_gpt_oss_20b_bad_void_call,
+    hotfix_suite_gpt_oss_20b,
+    trace_folder_max_gb,
+    dashboard_port,
+    proxy_port,
+):
     """
-    Start the server: launches the logging relay, static UI server, and the
+    Start the server: launches the static UI server, gateway proxy, and the
     Flask/SocketIO backend concurrently, forwarding all streams to stdout.
 
     The server is CWD-agnostic. Per-session context (working directory, skills,
@@ -78,24 +92,18 @@ def server_run(tool_tracebacks, hotfix_gpt_oss_20b_bad_parser, hotfix_gpt_oss_20
     workspace_dir = get_default_workspace_dir()
     Path(workspace_dir).mkdir(parents=True, exist_ok=True)
 
-    # Allocate four free ports upfront so all processes know where to connect.
     flask_port = find_free_port()
     ui_port = dashboard_port if dashboard_port is not None else find_free_port()
-    logging_port = find_free_port()
     gw_port = proxy_port if proxy_port is not None else find_free_port()
 
-    write_state(flask_port=flask_port, ui_port=ui_port, logging_port=logging_port, proxy_port=gw_port)
-    click.echo(
-        f"[slbp] Allocated ports — proxy:{gw_port}  flask:{flask_port}  ui:{ui_port}  logging:{logging_port}"
-    )
+    write_state(flask_port=flask_port, ui_port=ui_port, proxy_port=gw_port)
+    click.echo(f"[slbp] Allocated ports - proxy:{gw_port}  flask:{flask_port}  ui:{ui_port}")
     click.echo(f"[slbp] Workspace: {workspace_dir}")
 
     server_cwd = os.getcwd()
-
     flask_env: dict[str, str] = {
         "FLASK_PORT": str(flask_port),
         "PROXY_PORT": str(gw_port),
-        "LOGGING_PORT": str(logging_port),
         "CORS_ORIGIN": f"http://localhost:{gw_port}",
         "SLBP_SERVER_CWD": server_cwd,
     }
@@ -110,12 +118,6 @@ def server_run(tool_tracebacks, hotfix_gpt_oss_20b_bad_parser, hotfix_gpt_oss_20
 
     processes = [
         ManagedProcess(
-            label="logging",
-            cmd=[bash, "-l", str(PROJECT_ROOT / "run_logging_server.sh")],
-            cwd=PROJECT_ROOT,
-            env={"LOGGING_PORT": str(logging_port)},
-        ),
-        ManagedProcess(
             label="ui",
             cmd=["node", str(PROJECT_ROOT / "ui" / "serve.cjs")],
             cwd=PROJECT_ROOT / "ui",
@@ -129,7 +131,6 @@ def server_run(tool_tracebacks, hotfix_gpt_oss_20b_bad_parser, hotfix_gpt_oss_20
                 "PROXY_PORT": str(gw_port),
                 "FLASK_PORT": str(flask_port),
                 "UI_PORT": str(ui_port),
-                "LOGGING_PORT": str(logging_port),
             },
         ),
         ManagedProcess(

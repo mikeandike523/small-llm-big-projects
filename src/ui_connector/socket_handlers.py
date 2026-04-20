@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import pathlib
 import subprocess
@@ -41,6 +42,8 @@ from src.utils.exceptions import ToolHangError, ToolTimeoutError
 from src.utils.docker_compose import get_service_port
 from src.utils.compaction_transcript import build_compaction_messages
 from termcolor import colored
+
+logger = logging.getLogger(__name__)
 
 _BASE_SYSTEM_PROMPT: str = build_system_prompt(use_custom_skills=False)
 
@@ -123,7 +126,7 @@ def _init_session_caches(session: "Session", session_id: str) -> None:
                 tool_defs = list(ALL_TOOL_DEFINITIONS) + extra_defs
                 tool_map = {**_TOOL_MAP, **extra_map}
             except RuntimeError as exc:
-                print(f"[ui_connector] Custom tool loading failed for session {session_id}: {exc}", flush=True)
+                logger.error("Custom tool loading failed for session %s: %s", session_id, exc)
                 tool_defs = list(ALL_TOOL_DEFINITIONS)
                 tool_map = dict(_TOOL_MAP)
                 plugins = []
@@ -201,7 +204,7 @@ def _emit_and_log(session_id: str, event_type: str, data: dict) -> None:
             event_id = log_event(r, session_id, event_type, data)
             data = {**data, "event_id": event_id}
         except Exception as exc:
-            print(f"[event_log] Failed to log event {event_type!r}: {exc}", flush=True)
+            logger.warning("Failed to log event %r: %s", event_type, exc)
     socketio.emit(event_type, data, room=session_id)
 
 
@@ -399,7 +402,7 @@ def _load_session(session_id: str) -> Session:
             socketio.emit("session_memory_keys_update", {"keys": keys}, room=session_id)
             socketio.emit("session_memory_key_event", {"key": key, "type": event_type}, room=session_id)
         except Exception as exc:
-            print(f"[session_memory] _on_memory_change error (key={key!r}, session_id={session_id!r}): {exc}", flush=True)
+            logger.warning("_on_memory_change error (key=%r, session_id=%r): %s", key, session_id, exc)
 
     session.session_data["memory"] = RedisDict(r, mem_hash_key, on_change=_on_memory_change)
     _init_session_caches(session, session_id)
@@ -436,11 +439,11 @@ def clear_all_sessions_on_startup() -> None:
         keys = list(r.scan_iter("session:*"))
         if keys:
             r.delete(*keys)
-            print(f"[ui_connector] Cleared {len(keys)} stale session key(s) from Redis.", flush=True)
+            logger.info("Cleared %s stale session key(s) from Redis.", len(keys))
         else:
-            print("[ui_connector] No stale sessions to clear.", flush=True)
+            logger.info("No stale sessions to clear.")
     except Exception as exc:
-        print(f"[ui_connector] Warning: could not clear sessions on startup: {exc}", flush=True)
+        logger.warning("Could not clear sessions on startup: %s", exc)
 
 
 # ---------------------------------------------------------------------------
@@ -527,7 +530,7 @@ def api_create_session():
 
     _save_session(session_id, session)
 
-    print(f"[ui_connector] Session created: {session_id} cwd={initial_cwd!r}", flush=True)
+    logger.info("Session created: %s cwd=%r", session_id, initial_cwd)
     return jsonify({"session_id": session_id})
 
 
@@ -587,7 +590,7 @@ def api_delete_session(session_id: str):
     if session_id in _session_active_turns:
         return jsonify({"error": "Cannot delete a session with an active turn"}), 409
     _delete_session(session_id)
-    print(f"[ui_connector] Session deleted via API: {session_id}", flush=True)
+    logger.info("Session deleted via API: %s", session_id)
     return jsonify({"ok": True})
 
 
@@ -1250,7 +1253,7 @@ async def _compact_exchanges(
         text = (fetch_result.content or "").strip()
         return text or None
     except Exception as exc:
-        print(f"[compaction] LLM call failed: {exc}", flush=True)
+        logger.warning("Compaction LLM call failed: %s", exc)
         return None
 
 
@@ -1288,7 +1291,7 @@ async def _fetch_task_title(
             title = title[:TITLE_MAX_CHARS - 1] + "…"
         return title
     except Exception as exc:
-        print(f"[task_title] LLM call failed: {exc}", flush=True)
+        logger.warning("Task title LLM call failed: %s", exc)
         return None
 
 
@@ -1399,7 +1402,7 @@ async def _is_sufficient_final_answer(
         decision = (result.content or "").strip().upper()
         return decision == "YES"
     except Exception as exc:
-        print(f"[final-answer-watchdog] LLM call failed: {exc}", flush=True)
+        logger.warning("Final-answer watchdog LLM call failed: %s", exc)
         return False
 
 
@@ -1798,19 +1801,20 @@ def handle_connect():
     sid = request.sid
     session_id = request.args.get("sessionId", "")
     if not session_id:
-        print(f"[ui_connector] Client connected without sessionId: {sid}", flush=True)
+        logger.warning("Client connected without sessionId: %s", sid)
         return
 
     # Warn if another SID is already active for this session (multi-tab not supported).
     existing = [s for s, sess in _sid_to_session_id.items() if sess == session_id and s != sid]
     if existing:
-        print(
-            f"[ui_connector] WARNING: session {session_id} already has active SID(s) {existing}. "
-            f"New SID {sid} also joining. Multi-tab is not supported.",
-            flush=True,
+        logger.warning(
+            "Session %s already has active SID(s) %s. New SID %s also joining. Multi-tab is not supported.",
+            session_id,
+            existing,
+            sid,
         )
 
-    print(f"[ui_connector] Client connected: {sid} -> session {session_id}", flush=True)
+    logger.info("Client connected: %s -> session %s", sid, session_id)
     _sid_to_session_id[sid] = session_id
     join_room(session_id)
 
@@ -1862,7 +1866,7 @@ def handle_resume_session(data: dict):
         r = _get_redis()
         events = get_events_since(r, session_id, last_event_id)
     except Exception as exc:
-        print(f"[ui_connector] Event replay error for session {session_id}: {exc}", flush=True)
+        logger.warning("Event replay error for session %s: %s", session_id, exc)
         events = []
     emit("event_replay", {"events": events, "replay_complete": True})
 
@@ -1874,14 +1878,14 @@ def handle_resume_session(data: dict):
         if snapshot is not None:
             emit("shell_output_snapshot", {"output": snapshot})
     except Exception as exc:
-        print(f"[ui_connector] shell_output_snapshot error for session {session_id}: {exc}", flush=True)
+        logger.warning("shell_output_snapshot error for session %s: %s", session_id, exc)
 
 
 @socketio.on("disconnect")
 def handle_disconnect():
     sid = request.sid
     session_id = _sid_to_session_id.pop(sid, None)
-    print(f"[ui_connector] Client disconnected: {sid} (session={session_id})", flush=True)
+    logger.info("Client disconnected: %s (session=%s)", sid, session_id)
     # Release any pending approval for this SID
     pending = _pending_approvals.pop(sid, None)
     if pending and not pending["event"].is_set():
@@ -1900,7 +1904,7 @@ def handle_cancel_turn():
     task = _cancel_tasks.get(session_id)
     if loop is not None and task is not None:
         loop.call_soon_threadsafe(task.cancel)
-    print(f"[ui_connector] Cancel requested for session {session_id}", flush=True)
+    logger.info("Cancel requested for session %s", session_id)
 
 
 @socketio.on("stop_and_redirect")
@@ -1924,7 +1928,7 @@ def handle_stop_and_redirect(data):
     pending_redirect = _pending_impossible_redirects.get(sid)
     if pending_redirect:
         pending_redirect["event"].set()
-    print(f"[ui_connector] Stop-and-redirect for session {session_id}: {message!r}", flush=True)
+    logger.info("Stop-and-redirect for session %s: %r", session_id, message)
 
 
 @socketio.on("get_pwd")
@@ -2114,7 +2118,7 @@ def handle_save_traces():
 
         emit("traces_saved", {"count": len(entries), "filename": filename})
     except Exception as exc:
-        print(f"[ui_connector] Failed to save traces: {exc}", flush=True)
+        logger.warning("Failed to save traces: %s", exc)
         emit("traces_save_error", {"message": str(exc)})
 
 

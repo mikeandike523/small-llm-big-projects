@@ -1,13 +1,16 @@
 from __future__ import annotations
-from typing import Callable, Optional
-from numbers import Number
 from dataclasses import dataclass, field
 import json
+import logging
 import time
 import warnings
+from numbers import Number
+from typing import Callable, Optional
 
 import httpx
 from termcolor import colored
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -114,7 +117,7 @@ class StreamingLLM:
             ) as r:
                 if r.status_code != 200:
                     body = await r.aread()
-                    print(colored(body.decode("utf-8", errors="replace"), "red"))
+                    logger.error(colored(body.decode("utf-8", errors="replace"), "red"))
                 r.raise_for_status()
 
                 async for line in r.aiter_lines():
@@ -223,7 +226,7 @@ class StreamingLLM:
                 timeout=timeout,
             )
         if r.status_code != 200:
-            print(colored(r.text, "red"))
+            logger.error(colored(r.text, "red"))
         r.raise_for_status()
 
         obj = r.json()

@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import logging
+
 from src.data import get_pool
 from src.utils.sql.kv_manager import KVManager
 from src.utils.llm.streaming import StreamingLLM
+
+logger = logging.getLogger(__name__)
 
 
 def load_llm_config() -> dict | None:
@@ -14,7 +18,7 @@ def load_llm_config() -> dict | None:
     try:
         pool = get_pool()
     except Exception as exc:
-        print(f"[factory] DB pool error: {exc}")
+        logger.warning("DB pool error: %s", exc)
         return None
 
     with pool.get_connection() as conn:

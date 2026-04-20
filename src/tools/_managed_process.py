@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import subprocess
 import threading
 import time
@@ -10,7 +11,8 @@ from termcolor import colored
 from src.tools._subprocess import SubprocessResult
 from src.tools._autoresponse import AutoResponse, find_response
 from src.utils.exceptions import ToolHangError, ToolTimeoutError
-from src.utils.log import log
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -79,7 +81,7 @@ def _llm_triage(
     Returns False -> decided to kill (hung_flag set, proc killed, caller breaks).
     """
     def _log(msg: str) -> None:
-        log(f"[hang-triage] {msg}")
+        logger.info("[hang-triage] %s", msg)
         if on_log:
             try:
                 on_log(msg)
