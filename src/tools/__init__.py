@@ -17,6 +17,7 @@ from src.tools import delete_file
 from src.tools import file_line_reader
 from src.tools import find_files_by_name
 from src.tools import get_environment_info
+from src.tools import get_global_workspace_dir
 from src.tools import get_pwd
 from src.tools import host_check_command
 from src.tools import host_shell
@@ -50,6 +51,7 @@ ALL_TOOL_DEFINITIONS: list[dict] = [
     file_line_reader.DEFINITION,
     find_files_by_name.DEFINITION,
     get_environment_info.DEFINITION,
+    get_global_workspace_dir.DEFINITION,
     get_pwd.DEFINITION,
     host_check_command.DEFINITION,
     host_shell.DEFINITION,
@@ -83,6 +85,7 @@ _TOOL_MAP: dict[str, object] = {
     "file_line_reader": file_line_reader,
     "find_files_by_name": find_files_by_name,
     "get_environment_info": get_environment_info,
+    "get_global_workspace_dir": get_global_workspace_dir,
     "get_pwd": get_pwd,
     "host_check_command": host_check_command,
     "host_shell": host_shell,

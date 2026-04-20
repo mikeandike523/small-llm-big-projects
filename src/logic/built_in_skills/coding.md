@@ -103,6 +103,19 @@ approach. A brief conversation up front produces far better outcomes than a seri
 individual approve/deny prompts mid-execution.
 
 
+### Scratch Files and Quick Computations
+
+For small or one-off computations, prefer `code_interpreter` — see the "Code Interpreter" skill
+for full usage details and examples. In brief: it runs Python in a sandboxed
+environment (Piston/Docker). Nothing written inside the sandbox persists to the host or project
+filesystem. Pass inline code via `code: {source: "raw", value: "..."}`, or load larger scripts
+from session memory via `code: {source: "session_memory", key: "..."}`.
+
+If you do need to write a temporary or scratch file that persists on the host (intermediate data,
+throwaway script, quick test output), do NOT put it inside the current project. Instead, call
+`get_global_workspace_dir` to get the global SLBP workspace path (~/.slbp/workspace) and
+write the file there. Keep the active project directory clean.
+
 ### Running Commands
 
 Always use a dedicated tool instead of **`host_shell`** if one is available. host_shell is

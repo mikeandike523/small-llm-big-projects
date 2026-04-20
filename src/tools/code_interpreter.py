@@ -1,15 +1,13 @@
 from __future__ import annotations
 
 import json
-import os
-
 import httpx
 
 from src.utils.exceptions import ToolTimeoutError
 from src.utils.docker_compose import get_service_port
 
-DEFAULT_TIMEOUT = 30        # seconds, used when the caller omits timeout
-MAX_ALLOWABLE_TIMEOUT = 120  # hard cap — never allow the LLM to set higher
+DEFAULT_TIMEOUT = 30
+MAX_ALLOWABLE_TIMEOUT = 120
 
 LEAVE_OUT = "SHORT"
 TOOL_SHORT_AMOUNT = 1000
@@ -24,88 +22,90 @@ def _get_piston_port() -> int:
         _piston_port = get_service_port("piston", 2000)
     return _piston_port
 
-# Appended after the user's code to invoke main() with JSON-decoded args from
-# stdin and print the JSON-encoded return value to stdout.
-# Uses private-ish names to avoid colliding with user-defined variables.
-_WRAPPER = """
-import json as _slbp_json, sys as _slbp_sys
-_slbp_raw = _slbp_sys.stdin.read()
-_slbp_args = _slbp_json.loads(_slbp_raw) if _slbp_raw.strip() else []
-_slbp_result = main(*_slbp_args)
-print(_slbp_json.dumps(_slbp_result, indent=2), end="")
-"""
 
 DEFINITION: dict = {
     "type": "function",
     "function": {
         "name": "code_interpreter",
         "description": (
-            "Execute Python code stored in session memory. "
-            "The code must define main(). "
-            "Each arg is a JSON-encoded string that is decoded before being passed to main(). "
-            "main()'s return value is automatically JSON-encoded. "
-            "Result is returned inline (target='return_value', default) "
-            "or stored in a session memory key (target='session_memory')."
+            "Execute a Python script in a sandboxed environment. "
+            "Write the code as a normal executable program — include a "
+            "'if __name__ == \"__main__\":' guard. Arguments are passed as "
+            "command-line strings (sys.argv[1], sys.argv[2], …). "
+            "On success, returns stdout as-is. "
+            "On failure (non-zero exit), returns a string starting with 'FAILED:' "
+            "containing the exit code, stdout, and stderr."
         ),
         "parameters": {
             "type": "object",
             "properties": {
-                "session_memory_key_code": {
-                    "type": "string",
-                    "description": "Session memory key containing the Python code.",
+                "code": {
+                    "type": "object",
+                    "description": (
+                        "The Python source code to execute. "
+                        "Use source='raw' with a 'value' string for inline code, "
+                        "or source='session_memory' with a 'key' to load code from session memory."
+                    ),
+                    "properties": {
+                        "source": {
+                            "type": "string",
+                            "enum": ["raw", "session_memory"],
+                        },
+                        "value": {
+                            "type": "string",
+                            "description": "The raw Python source code (when source='raw').",
+                        },
+                        "key": {
+                            "type": "string",
+                            "description": "Session memory key holding the code (when source='session_memory').",
+                        },
+                    },
+                    "required": ["source"],
+                    "additionalProperties": False,
                 },
                 "args": {
                     "type": "array",
                     "description": (
-                        "Arguments passed to main(), in order. "
-                        "Each element is either a JSON-encoded string "
-                        "(e.g. '\"hello\"' for a string, '42' for a number, '[1,2]' for a list) "
-                        "that is decoded before calling main(), "
-                        "or {\"session_memory_key\": \"key_name\"} to read a JSON value "
-                        "from session memory."
+                        "Command-line arguments passed to the script (sys.argv[1], sys.argv[2], …). "
+                        "Each entry is an object with source='raw' and a 'value' of any JSON type "
+                        "(string, number, boolean, object, array, null — converted to string for argv), "
+                        "or source='session_memory' and a 'key' whose stored text is used as the argument."
                     ),
                     "items": {
-                        "oneOf": [
-                            {
+                        "type": "object",
+                        "properties": {
+                            "source": {
                                 "type": "string",
-                                "description": "A JSON-encoded value (decoded before passing to main()).",
+                                "enum": ["raw", "session_memory"],
                             },
-                            {
-                                "type": "object",
-                                "description": "Read a JSON value from session memory.",
-                                "properties": {
-                                    "session_memory_key": {
-                                        "type": "string",
-                                        "description": "Session memory key whose JSON value is used as the argument.",
-                                    },
-                                },
-                                "required": ["session_memory_key"],
-                                "additionalProperties": False,
+                            "value": {
+                                "description": "Any JSON value used as the argument (when source='raw'). Strings are passed as-is; all other types are JSON-serialised.",
                             },
-                        ],
+                            "key": {
+                                "type": "string",
+                                "description": "Session memory key whose text is used as the argument (when source='session_memory').",
+                            },
+                        },
+                        "required": ["source"],
+                        "additionalProperties": False,
                     },
                 },
                 "target": {
                     "type": "string",
                     "enum": ["return_value", "session_memory"],
                     "description": (
-                        "'return_value' (default): return the JSON-encoded result inline. "
-                        "'session_memory': write the JSON-encoded result to "
-                        "target_session_memory_key and return a confirmation message."
+                        "'return_value' (default): return stdout inline. "
+                        "'session_memory': write stdout to target_session_memory_key and return a confirmation."
                     ),
                 },
                 "target_session_memory_key": {
                     "type": "string",
-                    "description": (
-                        "Required when target='session_memory'. "
-                        "The session memory key to write the JSON-encoded result into."
-                    ),
+                    "description": "Required when target='session_memory'. Session memory key to write stdout into.",
                 },
                 "timeout": {
                     "type": "integer",
                     "description": (
-                        f"Timeout in seconds (1-{MAX_ALLOWABLE_TIMEOUT}, "
-                        f"default {DEFAULT_TIMEOUT})."
+                        f"Timeout in seconds (1-{MAX_ALLOWABLE_TIMEOUT}, default {DEFAULT_TIMEOUT})."
                     ),
                     "minimum": 1,
                     "maximum": MAX_ALLOWABLE_TIMEOUT,
@@ -113,16 +113,12 @@ DEFINITION: dict = {
                 "enable_tracebacks": {
                     "type": "boolean",
                     "description": (
-                        "When true (default), the full Python traceback is included in "
-                        "the error output when code raises an exception, showing file "
-                        "names, line numbers, and stack frames. When false, only the "
-                        "final exception line (e.g. 'ValueError: bad input') is shown. "
-                        "Set to true when debugging — the traceback pinpoints exactly "
-                        "which line failed."
+                        "When true (default), the full Python traceback is included in stderr on failure. "
+                        "Set to false to show only the final exception line — saves context when debugging is not needed."
                     ),
                 },
             },
-            "required": ["session_memory_key_code"],
+            "required": ["code"],
             "additionalProperties": False,
         },
     },
@@ -134,12 +130,6 @@ def needs_approval(args: dict) -> bool:
 
 
 def _strip_traceback(stderr: str) -> str:
-    """Return only the final exception line(s), stripping traceback frames.
-
-    Handles chained exceptions (multiple "Traceback ..." blocks) by skipping
-    every block header and its indented frame lines, keeping only the bare
-    exception-type lines (e.g. "ValueError: bad input").
-    """
     result: list[str] = []
     in_traceback = False
     for line in stderr.splitlines():
@@ -147,10 +137,8 @@ def _strip_traceback(stderr: str) -> str:
             in_traceback = True
             continue
         if in_traceback:
-            # Indented lines are frame/context lines — skip them.
             if line.startswith("  ") or line.startswith("\t"):
                 continue
-            # Non-indented line ends the traceback block (it's the exception summary).
             in_traceback = False
             result.append(line)
         else:
@@ -167,10 +155,8 @@ def _ensure_session_memory(session_data: dict) -> dict:
 
 
 def _validate_timeout(raw) -> tuple[int | None, str | None]:
-    """Return (validated_int, error_string). One of the two will be None."""
     if raw is None:
         return DEFAULT_TIMEOUT, None
-    # Booleans are a subclass of int in Python — reject them explicitly.
     if isinstance(raw, bool):
         return None, (
             f"Error: 'timeout' must be an integer, got bool. "
@@ -188,90 +174,82 @@ def _validate_timeout(raw) -> tuple[int | None, str | None]:
     return raw, None
 
 
+def _resolve_source_object(spec: dict, memory: dict, label: str, string_only: bool = False) -> tuple[object, str | None]:
+    """Resolve a {source, value|key} object. Returns (value, error).
+    When string_only=True (used for code), value must be a str.
+    Otherwise (used for args), any JSON value is accepted and returned as-is.
+    """
+    source = spec.get("source")
+    if source == "raw":
+        if "value" not in spec:
+            return None, f"Error: {label} has source='raw' but is missing 'value'."
+        val = spec["value"]
+        if string_only and not isinstance(val, str):
+            return None, f"Error: {label} 'value' must be a string, got {type(val).__name__!r}."
+        return val, None
+    if source == "session_memory":
+        key = spec.get("key")
+        if not key:
+            return None, f"Error: {label} has source='session_memory' but is missing 'key'."
+        val = memory.get(key)
+        if val is None:
+            return None, f"Error: {label} session memory key {key!r} not found."
+        if not isinstance(val, str):
+            return None, f"Error: {label} session memory key {key!r} does not hold a text value."
+        return val, None
+    return None, f"Error: {label} 'source' must be 'raw' or 'session_memory', got {source!r}."
+
+
 def execute(args: dict, session_data: dict | None = None) -> str:
     if session_data is None:
         session_data = {}
     memory = _ensure_session_memory(session_data)
 
-    # --- timeout validation (must happen before any I/O) ---
     timeout_val, timeout_err = _validate_timeout(args.get("timeout"))
     if timeout_err:
         return timeout_err
 
-    # --- enable_tracebacks ---
     enable_tracebacks: bool = args.get("enable_tracebacks", True)
 
-    # --- target validation ---
     target = args.get("target", "return_value")
     target_key: str | None = args.get("target_session_memory_key")
     if target == "session_memory" and not target_key:
         return "Error: target='session_memory' requires 'target_session_memory_key'."
 
-    # --- load code from session memory ---
-    code_key: str = args["session_memory_key_code"]
-    code: str | None = memory.get(code_key)
-    if code is None:
-        return f"Error: session memory key {code_key!r} not found."
-    if not isinstance(code, str):
-        return f"Error: session memory key {code_key!r} does not hold a text value."
+    # Resolve code
+    code_spec = args.get("code")
+    if not isinstance(code_spec, dict):
+        return "Error: 'code' must be an object with 'source' and 'value' or 'key'."
+    code, code_err = _resolve_source_object(code_spec, memory, "'code'", string_only=True)
+    if code_err:
+        return code_err
 
-    # --- resolve and JSON-decode args ---
-    # Each resolved arg is a Python object passed directly to main().
-    raw_args: list = args.get("args") or []
-    resolved_args: list = []
-    for i, item in enumerate(raw_args):
-        if isinstance(item, str):
-            # Literal JSON-encoded string — decode it.
-            try:
-                resolved_args.append(json.loads(item))
-            except json.JSONDecodeError as e:
-                return f"Error: args[{i}] is not valid JSON: {e}"
-        elif isinstance(item, dict):
-            # Read from session memory and JSON-decode the stored value.
-            key = item.get("session_memory_key")
-            if not key:
-                return f"Error: args[{i}] object must have a 'session_memory_key' field."
-            val = memory.get(key)
-            if val is None:
-                return f"Error: args[{i}] session memory key {key!r} not found."
-            if not isinstance(val, str):
-                return f"Error: args[{i}] session memory key {key!r} does not hold a text value."
-            try:
-                resolved_args.append(json.loads(val))
-            except json.JSONDecodeError as e:
-                return f"Error: args[{i}] session memory key {key!r} does not contain valid JSON: {e}"
-        else:
-            return (
-                f"Error: args[{i}] must be a JSON string or a "
-                f"{{'session_memory_key': ...}} object, got {type(item).__name__!r}."
-            )
+    # Resolve args -> command-line strings
+    arg_specs: list = args.get("args") or []
+    piston_args: list[str] = []
+    for i, spec in enumerate(arg_specs):
+        if not isinstance(spec, dict):
+            return f"Error: args[{i}] must be an object with 'source' and 'value' or 'key'."
+        val, err = _resolve_source_object(spec, memory, f"args[{i}]")
+        if err:
+            return err
+        # Convert non-string raw values to their JSON representation for argv
+        piston_args.append(val if isinstance(val, str) else json.dumps(val))
 
-    # --- build the final code to send to Piston ---
-    full_code = code.rstrip("\n") + "\n" + _WRAPPER
-
-    # --- build Piston request payload ---
-    # resolved_args contains Python objects; json.dumps produces the JSON array
-    # that the wrapper will json.loads back into the same objects.
     piston_url = f"http://127.0.0.1:{_get_piston_port()}"
-    stdin_data = json.dumps(resolved_args)
-
     payload = {
         "language": "python",
         "version": "*",
-        "files": [{"name": "main.py", "content": full_code}],
-        "stdin": stdin_data,
-        "args": [],
-        "run_timeout": timeout_val * 1000,   # Piston uses milliseconds
+        "files": [{"name": "main.py", "content": code}],
+        "stdin": "",
+        "args": piston_args,
+        "run_timeout": timeout_val * 1000,
         "compile_timeout": 10000,
     }
 
-    # --- call Piston ---
     try:
         with httpx.Client(timeout=timeout_val + 5) as client:
-            resp = client.post(
-                f"{piston_url}{_PISTON_EXECUTE_PATH}",
-                json=payload,
-            )
+            resp = client.post(f"{piston_url}{_PISTON_EXECUTE_PATH}", json=payload)
     except httpx.ConnectError:
         return (
             f"Error: Could not connect to Piston at {piston_url!r}. "
@@ -287,7 +265,6 @@ def execute(args: dict, session_data: dict | None = None) -> str:
     except Exception as e:
         return f"Error: Piston request failed: {type(e).__name__}: {e}"
 
-    # --- parse response ---
     if resp.status_code != 200:
         body = resp.text[:500]
         if resp.status_code in (400, 404, 422) and "language" in body.lower():
@@ -297,10 +274,7 @@ def execute(args: dict, session_data: dict | None = None) -> str:
                 "Run server/setup_piston.sh to install it. "
                 f"Piston response: {body}"
             )
-        return (
-            f"Error: Piston returned HTTP {resp.status_code}. "
-            f"Response: {body}"
-        )
+        return f"Error: Piston returned HTTP {resp.status_code}. Response: {body}"
 
     try:
         data = resp.json()
@@ -313,7 +287,7 @@ def execute(args: dict, session_data: dict | None = None) -> str:
     exit_code: int = run.get("code", 0)
 
     if exit_code != 0:
-        parts = [f"Error: code exited with code {exit_code}."]
+        parts = [f"FAILED: exit code {exit_code}."]
         if stderr:
             displayed_stderr = stderr if enable_tracebacks else _strip_traceback(stderr)
             if displayed_stderr:
@@ -322,14 +296,12 @@ def execute(args: dict, session_data: dict | None = None) -> str:
             parts.append(f"Stdout:\n{stdout}")
         return "\n".join(parts)
 
-    # stdout is the JSON-encoded return value produced by the wrapper's json.dumps call.
+    result = stdout
     if stderr.strip():
         result = f"{stdout}\n[stderr]\n{stderr}".strip()
-    else:
-        result = stdout
 
     if target == "session_memory":
         memory[target_key] = result
-        return f"Code executed. Result written to session memory key {target_key!r}."
+        return f"Code executed successfully. Stdout written to session memory key {target_key!r}."
 
     return result

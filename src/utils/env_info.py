@@ -91,10 +91,14 @@ def format_environment_info(
     Return a multi-line environment snapshot for prompts and tool output.
     """
     cwd = (current_cwd or os.getcwd()).replace("\\", "/")
+    home_dir = str(Path.home()).replace("\\", "/")
+    workspace_dir = get_default_workspace_dir()
     lines = [
         f"OS: {get_os()}",
         f"Shell: {get_shell()}",
         f"Current CWD: {cwd}",
+        f"User Home Dir: {home_dir}",
+        f"Global SLBP Workspace: {workspace_dir}",
     ]
     if initial_cwd:
         initial_cwd_norm = initial_cwd.replace("\\", "/")

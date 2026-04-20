@@ -13,7 +13,8 @@ DEFINITION: dict = {
         "name": "get_environment_info",
         "description": (
             "Return the current environment information: OS, shell, current working directory, "
-            "and initial working directory when available. Optionally write the result to session memory."
+            "initial working directory, user home directory, and global SLBP workspace directory. "
+            "Optionally write the result to session memory."
         ),
         "parameters": {
             "type": "object",

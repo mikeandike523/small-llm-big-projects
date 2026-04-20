@@ -24,10 +24,20 @@ searching, and memory operations, prefer the dedicated tools.
 
 == ENVIRONMENT ==
 
-Use `get_environment_info` when OS, shell, current working directory, or initial working
-directory matter to the task. Check it before environment-specific actions such as shell
-commands, path-sensitive work, builds, or debugging. Do not assume the environment details
-without checking when they are important.
+Use `get_environment_info` when OS, shell, current working directory, initial working directory,
+user home directory, or global workspace path matter to the task. Check it before
+environment-specific actions such as shell commands, path-sensitive work, builds, or debugging.
+Do not assume the environment details without checking when they are important.
+
+== SCRATCH FILES AND QUICK COMPUTATIONS ==
+
+For small, precise tasks (quick calculations, one-off data transforms, throwaway scripts):
+- Prefer the `code_interpreter` tool when the computation fits in a single snippet.
+- When you do need to write a file, write it to the global SLBP workspace directory rather
+  than inside the current project. Call `get_global_workspace_dir` to get the path.
+  Never litter the active project with temporary or scratch files.
+
+See the "Code Interpreter" skill for full usage details and examples.
 
 == AGENTIC LOOP AND TODO LIST ==
 
