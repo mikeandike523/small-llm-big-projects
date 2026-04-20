@@ -104,7 +104,6 @@ def server_run(
     flask_env: dict[str, str] = {
         "FLASK_PORT": str(flask_port),
         "PROXY_PORT": str(gw_port),
-        "CORS_ORIGIN": f"http://localhost:{gw_port}",
         "SLBP_SERVER_CWD": server_cwd,
     }
     if tool_tracebacks:
