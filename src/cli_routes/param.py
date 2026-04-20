@@ -16,6 +16,7 @@ _ALLOWED_PARAMS = {
     "model.watchdog_max_tokens",
     "model.title_summary_max_tokens",
     "model.request_extra_params",
+    "model.default_irat",
     "system.return_value_max_chars",
     "system.assistant_strip_truncation_chars",
 }
@@ -83,6 +84,16 @@ _PARAM_DOCS = {
             "the title; display truncation (TITLE_MAX_CHARS) handles overflow."
         ),
     },
+    "model.default_irat": {
+        "type": "bool (true/false)",
+        "description": (
+            "Default value for --interim-response-as-thinking (--irat) when creating a "
+            "new session. Set to true when using a model that does not produce native "
+            "reasoning tokens but narrates its thinking through text output -- irat "
+            "redirects that interim text into the thinking panel instead of a char-count "
+            "bubble. Typically this should match the active model. If not set, defaults to false."
+        ),
+    },
     "model.request_extra_params": {
         "type": "JSON object",
         "description": (
@@ -125,7 +136,11 @@ def _parse_and_validate(name: str, raw_value: str):
             param_hint="name",
         )
     try:
-        if name == "model.request_extra_params":
+        if name == "model.default_irat":
+            if raw_value.lower() not in ("true", "false"):
+                raise click.BadParameter("model.default_irat must be 'true' or 'false'", param_hint="value")
+            return raw_value.lower() == "true"
+        elif name == "model.request_extra_params":
             try:
                 value = json.loads(raw_value)
             except json.JSONDecodeError as exc:

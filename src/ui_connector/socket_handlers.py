@@ -578,6 +578,44 @@ def api_delete_session(session_id: str):
     return jsonify({"ok": True})
 
 
+# ---------------------------------------------------------------------------
+# Session defaults — single source of truth for new-session option defaults.
+# Hardcoded values are used unless a DB param overrides them.
+# Add new DB-driven defaults here; the frontend and CLI both read this.
+# ---------------------------------------------------------------------------
+
+_SESSION_DEFAULTS_HARDCODED: dict = {
+    "pin_project_memory":           False,
+    "interim_response_as_thinking": False,
+    "record_traces":                False,
+    "load_skills":                  False,
+    "load_tools":                   False,
+    "load_startup_tool_calls":      False,
+}
+
+# Maps DB param key (as stored in kv_store) -> session defaults key
+_SESSION_DEFAULTS_FROM_DB: dict[str, str] = {
+    "params.model.default_irat": "interim_response_as_thinking",
+}
+
+
+@app.route("/api/session-defaults", methods=["GET"])
+def api_session_defaults():
+    """Return default values for all new-session options."""
+    defaults = dict(_SESSION_DEFAULTS_HARDCODED)
+    try:
+        pool = get_pool()
+        with pool.get_connection() as conn:
+            kv = KVManager(conn)
+            for param_key, defaults_key in _SESSION_DEFAULTS_FROM_DB.items():
+                val = kv.get_value(param_key)
+                if val is not None:
+                    defaults[defaults_key] = val
+    except Exception as exc:
+        return jsonify({"error": f"Failed to load session defaults from database: {exc}"}), 500
+    return jsonify(defaults)
+
+
 @app.route("/api/system-info", methods=["GET"])
 def api_system_info():
     """Return basic system information useful for the dashboard."""

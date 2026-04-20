@@ -2,7 +2,7 @@
 import { css, keyframes } from '@emotion/react'
 import { useEffect, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import NewSessionDialog from './NewSessionDialog'
+import NewSessionDialog, { type SessionDefaults } from './NewSessionDialog'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -104,9 +104,13 @@ const newSessionBtnCss = css`
   font-family: inherit;
   cursor: pointer;
   transition: background 0.15s, border-color 0.15s;
-  &:hover {
+  &:hover:not(:disabled) {
     background: #222244;
     border-color: #4a6aee;
+  }
+  &:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
   }
 `
 
@@ -365,6 +369,25 @@ export default function Dashboard() {
   const [showNewSession, setShowNewSession] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<SessionSummary | null>(null)
   const [deleting, setDeleting] = useState(false)
+  const [sessionDefaults, setSessionDefaults] = useState<SessionDefaults | null>(null)
+  const [sessionDefaultsError, setSessionDefaultsError] = useState<string | null>(null)
+
+  useEffect(() => {
+    fetch('/api/session-defaults')
+      .then(r => {
+        if (!r.ok) throw new Error(`Server returned ${r.status}`)
+        return r.json()
+      })
+      .then((d: SessionDefaults) => {
+        setSessionDefaults(d)
+        setSessionDefaultsError(null)
+      })
+      .catch((e: unknown) => {
+        const msg = e instanceof Error ? e.message : 'Unknown error'
+        console.error('[slbp] Failed to load session defaults:', msg)
+        setSessionDefaultsError(msg)
+      })
+  }, [])
 
   const fetchSessions = useCallback(async () => {
     try {
@@ -421,7 +444,12 @@ export default function Dashboard() {
           <div css={titleCss}>SLBP</div>
           <div css={subtitleCss}>small llm, big projects</div>
         </div>
-        <button css={newSessionBtnCss} onClick={() => setShowNewSession(true)}>
+        <button
+          css={newSessionBtnCss}
+          onClick={() => setShowNewSession(true)}
+          disabled={sessionDefaults === null}
+          title={sessionDefaults === null ? 'Loading session defaults...' : undefined}
+        >
           + New Session
         </button>
       </div>
@@ -431,6 +459,11 @@ export default function Dashboard() {
           <div css={errorBannerCss}>
             <span>Server unreachable: {error}</span>
             <button css={retryBtnCss} onClick={fetchSessions}>Retry</button>
+          </div>
+        )}
+        {sessionDefaultsError && (
+          <div css={errorBannerCss}>
+            <span>Failed to load session defaults: {sessionDefaultsError} — New Session is disabled.</span>
           </div>
         )}
 
@@ -458,8 +491,9 @@ export default function Dashboard() {
         )}
       </div>
 
-      {showNewSession && (
+      {showNewSession && sessionDefaults && (
         <NewSessionDialog
+          sessionDefaults={sessionDefaults}
           onCreated={handleSessionCreated}
           onClose={() => setShowNewSession(false)}
         />

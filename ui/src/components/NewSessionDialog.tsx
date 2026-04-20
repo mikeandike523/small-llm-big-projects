@@ -3,10 +3,24 @@ import { css } from '@emotion/react'
 import { useEffect, useState } from 'react'
 
 // ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+export interface SessionDefaults {
+  pin_project_memory: boolean
+  interim_response_as_thinking: boolean
+  record_traces: boolean
+  load_skills: boolean
+  load_tools: boolean
+  load_startup_tool_calls: boolean
+}
+
+// ---------------------------------------------------------------------------
 // Props
 // ---------------------------------------------------------------------------
 
 interface Props {
+  sessionDefaults: SessionDefaults
   onCreated: (sessionId: string) => void
   onClose: () => void
 }
@@ -174,11 +188,10 @@ const errorMsgCss = css`
 // ---------------------------------------------------------------------------
 
 interface CheckOption {
-  key: string
+  key: keyof SessionDefaults
   label: string
   flag: string
   desc: string
-  defaultValue: boolean
 }
 
 const OPTIONS: CheckOption[] = [
@@ -187,42 +200,36 @@ const OPTIONS: CheckOption[] = [
     label: 'Pin project memory',
     flag: '--pin-project-memory',
     desc: 'Scope project memory to this session\'s working directory.',
-    defaultValue: true,
   },
   {
     key: 'interim_response_as_thinking',
     label: 'Interim response as thinking',
     flag: '--irat',
     desc: 'Show interim assistant content in the thinking panel instead of a char-count bubble.',
-    defaultValue: false,
   },
   {
     key: 'record_traces',
     label: 'Enable trace recording',
     flag: '--etr',
     desc: 'Record every LLM completion for fine-tuning export.',
-    defaultValue: false,
   },
   {
     key: 'load_skills',
     label: 'Load skills',
     flag: '--load-skills',
     desc: 'Load custom skills from a skills/ directory in the working directory.',
-    defaultValue: false,
   },
   {
     key: 'load_tools',
     label: 'Load custom tools',
     flag: '--load-tools',
     desc: 'Load custom tools from a tools/ directory in the working directory.',
-    defaultValue: false,
   },
   {
     key: 'load_startup_tool_calls',
     label: 'Run startup tool calls',
     flag: '--load-startup-tool-calls',
     desc: 'Execute tool calls from startup_tool_calls.json on session start.',
-    defaultValue: false,
   },
 ]
 
@@ -230,11 +237,9 @@ const OPTIONS: CheckOption[] = [
 // Component
 // ---------------------------------------------------------------------------
 
-export default function NewSessionDialog({ onCreated, onClose }: Props) {
+export default function NewSessionDialog({ sessionDefaults, onCreated, onClose }: Props) {
   const [cwd, setCwd] = useState('')
-  const [flags, setFlags] = useState<Record<string, boolean>>(() =>
-    Object.fromEntries(OPTIONS.map(o => [o.key, o.defaultValue]))
-  )
+  const [flags, setFlags] = useState<SessionDefaults>(() => ({ ...sessionDefaults }))
   const [browsing, setBrowsing] = useState(false)
   const [creating, setCreating] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -307,7 +312,7 @@ export default function NewSessionDialog({ onCreated, onClose }: Props) {
     }
   }
 
-  function toggleFlag(key: string) {
+  function toggleFlag(key: keyof SessionDefaults) {
     setFlags(prev => ({ ...prev, [key]: !prev[key] }))
   }
 

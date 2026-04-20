@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import re
+from pathlib import Path
 
 from src.data import get_pool
 from src.utils.sql.kv_manager import KVManager
@@ -23,7 +24,11 @@ DEFINITION: dict = {
         "name": "project_memory",
         "description": (
             "Manage persistent project-scoped key-value memory. "
-            "Project memory persists across sessions and is scoped to a project path. "
+            "Project memory persists across sessions and is scoped to a directory path. "
+            "By default the scope is the current working directory, so memory naturally "
+            "differentiates between projects, subprojects, and nested locations. "
+            "Use the 'pwd' argument to explicitly scope a call to a specific directory "
+            "(e.g. a subdirectory you are exploring). "
             "Actions: get, set, delete, list, search_by_regex."
         ),
         "parameters": {
@@ -46,12 +51,14 @@ DEFINITION: dict = {
                     "type": "string",
                     "description": "Project memory key. Used by: get, set, delete, search_by_regex.",
                 },
-                "project": {
+                "pwd": {
                     "type": "string",
                     "description": (
-                        "Optional filesystem path identifying the project scope. "
-                        "Defaults to the pinned initial working directory (or current "
-                        "working directory if pinning is disabled). Used by: all actions."
+                        "Optional filesystem path (relative or absolute) identifying the "
+                        "project scope for this call. Defaults to the pinned initial working "
+                        "directory, or the current working directory if pinning is disabled. "
+                        "Paths outside the current working directory require user approval. "
+                        "Used by: all actions."
                     ),
                 },
                 "value": {
@@ -126,7 +133,16 @@ DEFINITION: dict = {
 
 
 def needs_approval(args: dict) -> bool:
-    return False
+    pwd = args.get("pwd")
+    if not pwd:
+        return False
+    cwd = Path(os.getcwd()).resolve()
+    resolved = (cwd / pwd).resolve() if not os.path.isabs(pwd) else Path(pwd).resolve()
+    try:
+        resolved.relative_to(cwd)
+        return False
+    except ValueError:
+        return True
 
 
 # ---- helpers -----------------------------------------------------------------
@@ -136,9 +152,10 @@ _RESET = "\033[0m"
 
 
 def _get_project(args: dict, session_data: dict) -> str:
-    explicit = args.get("project")
+    explicit = args.get("pwd")
     if explicit:
-        return explicit
+        cwd = os.getcwd()
+        return os.path.normpath(os.path.join(cwd, explicit)) if not os.path.isabs(explicit) else explicit
     pinned = (session_data or {}).get("__pinned_project__")
     if pinned:
         return pinned

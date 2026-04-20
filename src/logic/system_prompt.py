@@ -118,6 +118,12 @@ Use session_memory for scratchpads, working buffers, and intermediate data that 
 Use project_memory for important findings and notes that should persist across sessions.
 Memory values are plain text strings; store JSON, code, prose, or any format as-is.
 
+By default, project memory is scoped to the current working directory. This lets you maintain
+separate knowledge for a top-level system, a subproject, or any nested location. Use the
+'pwd' argument with project_memory to read or write notes scoped to a specific directory --
+for example, check project_memory(pwd="some/subdir") at the start of work in that area to
+surface prior findings. Paths outside the current working directory require user approval.
+
 == STUBBED RETURN VALUES ==
 
 If a tool result begins with "** STUBBED LONG RETURN VALUE **", the full content is stored

@@ -11,6 +11,9 @@ Before diving in, add each area or file group you need to understand as a todo i
 
 As you explore, write your findings to `project_memory` — the purpose of key files and directories,
 the overall project structure, and anything else that would save time in a future session.
+Use the `pwd` argument to scope notes to the specific directory you are working in (e.g., a
+subproject or nested module). At the start of any task, check `project_memory` with the relevant
+`pwd` to surface prior findings for that location before re-exploring from scratch.
 
 ### Reading and Editing Files
 
@@ -48,7 +51,8 @@ Editing Existing Files:
 Always explore the repo thoroughly before starting a new coding task — add exploration steps to the
 todo list up front so nothing gets skipped.
 Use the `project_memory` tool to take notes on the purpose of each file and other important details.
-Check existing items in project memory for any prior notes as well.
+Use `pwd` to scope reads and writes to the relevant subdirectory.
+Check existing items in project memory (with the appropriate `pwd`) for any prior notes as well.
 
 Before writing code, scan the environment for AGENTS.md, CLAUDE.md, AGENTS.txt, and CLAUDE.txt.
 Read those to get an idea of the coding style and environment. After reading them, write your key

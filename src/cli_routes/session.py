@@ -7,7 +7,9 @@ import click
 import httpx
 
 from src.cli_obj import cli
+from src.data import get_pool
 from src.utils.server_state import read_state
+from src.utils.sql.kv_manager import KVManager
 
 
 @cli.group()
@@ -18,7 +20,7 @@ def session():
 
 @session.command(name="new")
 @click.option(
-    '--pin-project-memory', default=True, type=bool, show_default=True,
+    '--pin-project-memory', default=False, type=bool, show_default=True,
     help=(
         'Pin the default project memory scope to the working directory of this session. '
         'When False, project memory defaults to os.getcwd() at the time of each tool call.'
@@ -41,11 +43,15 @@ def session():
     help='Working directory for this session. Defaults to the current directory.',
 )
 @click.option(
-    '--interim-response-as-thinking', '--irat', is_flag=True, default=False,
+    '--interim-response-as-thinking', '--irat',
+    type=click.BOOL,
+    default=None,
     help=(
         'Emit interim assistant content (between tool call rounds) as reasoning tokens '
         'so they appear in the thinking panel instead of the char-count bubble. '
-        'Useful for non-thinking models that reason aloud through interim output.'
+        'Useful for non-thinking models that reason aloud through interim output. '
+        'Pass true/false explicitly, or omit to use the model.default_irat param '
+        '(falls back to false if not set).'
     ),
 )
 @click.option(
@@ -66,6 +72,15 @@ def session_new(pin_project_memory, load_skills, load_tools, load_startup_tool_c
 
     Requires `slbp server run` to already be running.
     """
+    if interim_response_as_thinking is None:
+        try:
+            pool = get_pool()
+            with pool.get_connection() as conn:
+                val = KVManager(conn).get_value("params.model.default_irat")
+            interim_response_as_thinking = val if val is not None else False
+        except Exception as exc:
+            raise click.ClickException(f"Failed to load session defaults from database: {exc}")
+
     state = read_state()
     if state is None:
         raise click.ClickException(
