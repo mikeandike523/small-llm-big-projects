@@ -5,16 +5,23 @@ import httpx
 
 from src.utils.exceptions import ToolTimeoutError
 from src.utils.docker_compose import get_service_port
-from src.tools.advanced_code_interpreter import (
-    DEFAULT_TIMEOUT,
-    MAX_ALLOWABLE_TIMEOUT,
-    _PISTON_EXECUTE_PATH,
-    _get_piston_port,
-    _run_piston,
-)
+
+DEFAULT_TIMEOUT = 30
+MAX_ALLOWABLE_TIMEOUT = 120
 
 LEAVE_OUT = "SHORT"
 TOOL_SHORT_AMOUNT = 1000
+
+_PISTON_EXECUTE_PATH = "/api/v2/execute"
+_piston_port: int | None = None
+
+
+def _get_piston_port() -> int:
+    global _piston_port
+    if _piston_port is None:
+        _piston_port = get_service_port("piston", 2000)
+    return _piston_port
+
 
 DEFINITION: dict = {
     "type": "function",
@@ -30,8 +37,8 @@ DEFINITION: dict = {
             "On success, returns stdout as-is. "
             "On failure (non-zero exit), returns a string starting with 'FAILED:' "
             "containing the exit code, stdout, and stderr. "
-            "Use this tool for most tasks. For session memory routing, custom timeout, "
-            "or traceback control, use advanced_code_interpreter instead."
+            "Use this tool for most tasks. When code, arguments, or output must come from "
+            "or be written to session memory keys, use session_memory_code_interpreter instead."
         ),
         "parameters": {
             "type": "object",
@@ -49,6 +56,21 @@ DEFINITION: dict = {
                     ),
                     "items": {},
                 },
+                "timeout": {
+                    "type": "integer",
+                    "description": (
+                        f"Timeout in seconds (1-{MAX_ALLOWABLE_TIMEOUT}, default {DEFAULT_TIMEOUT})."
+                    ),
+                    "minimum": 1,
+                    "maximum": MAX_ALLOWABLE_TIMEOUT,
+                },
+                "enable_tracebacks": {
+                    "type": "boolean",
+                    "description": (
+                        "When true (default), the full Python traceback is included in stderr on failure. "
+                        "Set to false to show only the final exception line — saves context when debugging is not needed."
+                    ),
+                },
             },
             "required": ["code"],
             "additionalProperties": False,
@@ -59,6 +81,124 @@ DEFINITION: dict = {
 
 def needs_approval(args: dict) -> bool:
     return False
+
+
+def _strip_traceback(stderr: str) -> str:
+    result: list[str] = []
+    in_traceback = False
+    for line in stderr.splitlines():
+        if line.startswith("Traceback (most recent call last):"):
+            in_traceback = True
+            continue
+        if in_traceback:
+            if line.startswith("  ") or line.startswith("\t"):
+                continue
+            in_traceback = False
+            result.append(line)
+        else:
+            result.append(line)
+    return "\n".join(result).strip()
+
+
+def _validate_timeout(raw) -> tuple[int | None, str | None]:
+    if raw is None:
+        return DEFAULT_TIMEOUT, None
+    if isinstance(raw, bool):
+        return None, (
+            f"Error: 'timeout' must be an integer, got bool. "
+            f"Provide a value between 1 and {MAX_ALLOWABLE_TIMEOUT}."
+        )
+    if not isinstance(raw, int):
+        return None, (
+            f"Error: 'timeout' must be an integer, got {type(raw).__name__}. "
+            f"Provide a value between 1 and {MAX_ALLOWABLE_TIMEOUT}."
+        )
+    if not (1 <= raw <= MAX_ALLOWABLE_TIMEOUT):
+        return None, (
+            f"Error: 'timeout' must be between 1 and {MAX_ALLOWABLE_TIMEOUT}, got {raw}."
+        )
+    return raw, None
+
+
+def _run_piston(
+    code: str,
+    piston_args: list[str],
+    timeout_val: int,
+    enable_tracebacks: bool,
+    target: str,
+    target_key: str | None,
+    memory: dict,
+    tool_name: str = "simple_code_interpreter",
+) -> str:
+    piston_url = f"http://127.0.0.1:{_get_piston_port()}"
+    payload = {
+        "language": "python",
+        "version": "*",
+        "files": [{"name": "main.py", "content": code}],
+        "stdin": "",
+        "args": piston_args,
+        "run_timeout": timeout_val * 1000,
+        "compile_timeout": 10000,
+    }
+
+    try:
+        with httpx.Client(timeout=timeout_val + 5) as client:
+            resp = client.post(f"{piston_url}{_PISTON_EXECUTE_PATH}", json=payload)
+    except httpx.ConnectError:
+        return (
+            f"Error: Could not connect to Piston at {piston_url!r}. "
+            "Make sure the Piston container is running (docker compose up piston). "
+            "If the Python runtime is not yet installed, run server/setup_piston.sh."
+        )
+    except httpx.TimeoutException:
+        raise ToolTimeoutError(
+            tool_name,
+            timeout_val,
+            hint="Increase the timeout parameter or optimise the code.",
+        )
+    except Exception as e:
+        return f"Error: Piston request failed: {type(e).__name__}: {e}"
+
+    if resp.status_code != 200:
+        body = resp.text[:500]
+        if resp.status_code in (400, 404, 422) and "language" in body.lower():
+            return (
+                f"Error: Piston returned HTTP {resp.status_code}. "
+                "The Python runtime may not be installed. "
+                "Run server/setup_piston.sh to install it. "
+                f"Piston response: {body}"
+            )
+        return f"Error: Piston returned HTTP {resp.status_code}. Response: {body}"
+
+    try:
+        data = resp.json()
+    except Exception as e:
+        return f"Error: Could not parse Piston response as JSON: {e}\nRaw: {resp.text[:500]}"
+
+    run = data.get("run", {})
+    stdout: str = run.get("stdout", "")
+    stderr: str = run.get("stderr", "")
+    exit_code: int = run.get("code", 0)
+
+    if exit_code != 0:
+        parts = [f"FAILED: exit code {exit_code}."]
+        if stderr:
+            displayed_stderr = stderr if enable_tracebacks else _strip_traceback(stderr)
+            if displayed_stderr:
+                parts.append(f"Stderr:\n{displayed_stderr}")
+        if stdout:
+            parts.append(f"Stdout:\n{stdout}")
+        return "\n".join(parts)
+
+    result = stdout
+    if stderr.strip():
+        result = f"{stdout}\n[stderr]\n{stderr}".strip()
+
+    if target == "session_memory":
+        memory[target_key] = result
+        return f"Code executed successfully. Stdout written to session memory key {target_key!r}."
+
+    return result
 
 
 def execute(args: dict, session_data: dict | None = None) -> str:
@@ -73,12 +213,19 @@ def execute(args: dict, session_data: dict | None = None) -> str:
             return f"Error: arg_values[{i}] is not a valid JSON value."
         piston_args.append(val if isinstance(val, str) else json.dumps(val))
 
+    timeout_val, timeout_err = _validate_timeout(args.get("timeout"))
+    if timeout_err:
+        return timeout_err
+
+    enable_tracebacks: bool = args.get("enable_tracebacks", True)
+
     return _run_piston(
         code=code,
         piston_args=piston_args,
-        timeout_val=DEFAULT_TIMEOUT,
-        enable_tracebacks=True,
+        timeout_val=timeout_val,
+        enable_tracebacks=enable_tracebacks,
         target="return_value",
         target_key=None,
         memory={},
+        tool_name="simple_code_interpreter",
     )

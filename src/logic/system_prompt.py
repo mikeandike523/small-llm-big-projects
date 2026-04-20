@@ -79,10 +79,9 @@ Do not assume the environment details without checking when they are important.
 
 For small, precise tasks (quick calculations, one-off data transforms, throwaway scripts):
 - Prefer `simple_code_interpreter` — pass `code` as a plain string and `arg_values` as a
-  flat list of JSON values. Its argument structure is self-explanatory.
-- Use `advanced_code_interpreter` only when you need session memory routing for code or
-  arguments, output written into session memory, a custom timeout, or traceback control.
-  See the "Advanced Code Interpreter" skill for full details.
+  flat list of JSON values. Optional `timeout` and `enable_tracebacks` params are available.
+- Use `session_memory_code_interpreter` when code, arguments, or output must come from or
+  be written to session memory keys — all three are session memory keys in that tool.
 - Scripts must be non-interactive: never use input(), getpass(), or any blocking key/input
   call. Design every script as a one-shot run — receive all data via argv or session memory,
   produce all output via stdout, then exit. For stateful programs (games, quizzes, simulations),

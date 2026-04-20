@@ -8,7 +8,7 @@ import traceback
 from src.utils.exceptions import ToolHangError, ToolTimeoutError
 from src.tools import ask_human
 from src.tools import basic_web_request
-from src.tools import advanced_code_interpreter
+from src.tools import session_memory_code_interpreter
 from src.tools import simple_code_interpreter
 from src.tools import brave_web_search
 from src.tools import change_pwd
@@ -45,7 +45,7 @@ from src.utils.tool_calling.arguments import validate_tool_args
 ALL_TOOL_DEFINITIONS: list[dict] = [
     ask_human.DEFINITION,
     basic_web_request.DEFINITION,
-    advanced_code_interpreter.DEFINITION,
+    session_memory_code_interpreter.DEFINITION,
     simple_code_interpreter.DEFINITION,
     brave_web_search.DEFINITION,
     change_pwd.DEFINITION,
@@ -82,7 +82,7 @@ ALL_TOOL_DEFINITIONS: list[dict] = [
 _TOOL_MAP: dict[str, object] = {
     "ask_human": ask_human,
     "basic_web_request": basic_web_request,
-    "advanced_code_interpreter": advanced_code_interpreter,
+    "session_memory_code_interpreter": session_memory_code_interpreter,
     "simple_code_interpreter": simple_code_interpreter,
     "brave_web_search": brave_web_search,
     "change_pwd": change_pwd,

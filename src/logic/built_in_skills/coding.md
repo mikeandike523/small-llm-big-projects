@@ -107,8 +107,9 @@ individual approve/deny prompts mid-execution.
 
 For small or one-off computations, prefer `simple_code_interpreter` — pass `code` as a plain
 string and `arg_values` as a flat list of JSON values (strings pass through as-is; other types
-are JSON-serialised into argv). It runs Python in a sandboxed environment (Piston/Docker);
-nothing inside the sandbox persists to the host or project filesystem.
+are JSON-serialised into argv). Optional `timeout` (seconds) and `enable_tracebacks` (bool)
+params are available. It runs Python in a sandboxed environment (Piston/Docker); nothing inside
+the sandbox persists to the host or project filesystem.
 
 Scripts must be non-interactive: never use `input()`, `getpass()`, or any blocking key/input
 call. Design every script as a one-shot run — receive all data via argv or session memory,
@@ -116,9 +117,10 @@ produce all output via stdout, then exit. For stateful programs (games like tic-
 quizzes, simulations), store the game/quiz state in session memory between interpreter calls and
 pass it in as an argument each turn.
 
-If you need to load code or arguments from session memory, write output to session memory,
-set a custom timeout, or control traceback output, use `advanced_code_interpreter` instead —
-see the "Advanced Code Interpreter" skill for full details.
+When code was built up incrementally in session memory, arguments are large blobs already stored
+there, or the output should feed directly into another session memory operation, use
+`session_memory_code_interpreter` instead. All three — code, arguments, and return value —
+must be session memory keys in that tool; there is no inline code or direct return.
 
 If you do need to write a temporary or scratch file that persists on the host (intermediate data,
 throwaway script, quick test output), do NOT put it inside the current project. Instead, call
