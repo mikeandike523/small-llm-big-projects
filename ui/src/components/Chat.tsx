@@ -787,24 +787,6 @@ const taskTitleCss = css`
   text-overflow: ellipsis;
 `
 
-const _taskTitlePulse = keyframes`
-  0%, 100% { color: #334a33; }
-  50%       { color: #4a6a4a; }
-`
-
-const taskTitleLoadingCss = css`
-  font-size: 11px;
-  font-family: 'Consolas', monospace;
-  background: #0d180d;
-  border: 1px solid #1a2e1a;
-  border-bottom: none;
-  border-radius: 8px 8px 0 0;
-  padding: 5px 16px;
-  letter-spacing: 0.04em;
-  align-self: flex-start;
-  animation: ${_taskTitlePulse} 1.6s ease-in-out infinite;
-`
-
 const turnContainerCss = css`
   display: grid;
   grid-template-columns: 3fr 2fr 2fr auto;
