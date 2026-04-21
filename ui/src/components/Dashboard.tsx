@@ -57,8 +57,8 @@ const pulse = keyframes`
 const scrollbarCss = css`
   &::-webkit-scrollbar { width: 6px; }
   &::-webkit-scrollbar-track { background: #0a0a0a; }
-  &::-webkit-scrollbar-thumb { background: #3a3a3a; border-radius: 3px; }
-  &::-webkit-scrollbar-thumb:hover { background: #555; }
+  &::-webkit-scrollbar-thumb { background: #2f4f86; border-radius: 3px; }
+  &::-webkit-scrollbar-thumb:hover { background: #4f73b3; }
 `
 
 const containerCss = css`
@@ -82,14 +82,14 @@ const headerCss = css`
 const titleCss = css`
   font-size: 18px;
   font-weight: 700;
-  color: #c8c8c8;
+  color: #f2f6ff;
   letter-spacing: 2px;
   text-transform: uppercase;
 `
 
 const subtitleCss = css`
   font-size: 11px;
-  color: #444;
+  color: #dbe5ff;
   margin-top: 2px;
   letter-spacing: 1px;
 `
@@ -128,8 +128,8 @@ const sessionGridCss = css`
 `
 
 const sessionCardCss = css`
-  background: #141414;
-  border: 1px solid #222;
+  background: #0d131e;
+  border: 1px solid #22304d;
   border-radius: 8px;
   padding: 16px 18px;
   cursor: pointer;
@@ -138,8 +138,8 @@ const sessionCardCss = css`
   flex-direction: column;
   gap: 8px;
   &:hover {
-    background: #1a1a1a;
-    border-color: #3a3a3a;
+    background: #101a28;
+    border-color: #3b5b92;
   }
 `
 
@@ -160,7 +160,7 @@ const cwdLineCss = css`
 const cwdBaseCss = css`
   font-size: 14px;
   font-weight: 600;
-  color: #d0d0d0;
+  color: #f2f6ff;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -168,7 +168,7 @@ const cwdBaseCss = css`
 
 const cwdPathCss = css`
   font-size: 11px;
-  color: #444;
+  color: #dbe5ff;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -189,8 +189,8 @@ const idleDotCss = css`
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #2a2a2a;
-  border: 1px solid #333;
+  background: #101722;
+  border: 1px solid #30405f;
   flex-shrink: 0;
 `
 
@@ -199,16 +199,16 @@ const cardMetaCss = css`
   align-items: center;
   gap: 14px;
   font-size: 11px;
-  color: #555;
+  color: #e6edff;
 `
 
 const metaBadgeCss = css`
-  background: #1e1e1e;
-  border: 1px solid #2a2a2a;
+  background: #101722;
+  border: 1px solid #30405f;
   border-radius: 4px;
   padding: 1px 6px;
   font-size: 10px;
-  color: #666;
+  color: #eef3ff;
 `
 
 const currentCwdLineCss = css`
@@ -228,7 +228,7 @@ const taskTitlesCss = css`
 
 const taskTitleItemCss = css`
   font-size: 11px;
-  color: #686868;
+  color: #e6edff;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -284,7 +284,7 @@ const modalTitleCss = css`
 
 const modalBodyCss = css`
   font-size: 12px;
-  color: #888;
+  color: #eef3ff;
   line-height: 1.6;
 `
 
@@ -296,14 +296,14 @@ const modalActionsCss = css`
 
 const modalCancelBtnCss = css`
   background: none;
-  border: 1px solid #333;
+  border: 1px solid #30405f;
   border-radius: 5px;
-  color: #777;
+  color: #eef3ff;
   padding: 7px 18px;
   font-size: 12px;
   font-family: inherit;
   cursor: pointer;
-  &:hover { border-color: #555; color: #aaa; }
+  &:hover { border-color: #8aa4d8; color: #fff; }
 `
 
 const modalDeleteBtnCss = css`
@@ -327,7 +327,7 @@ const emptyStateCss = css`
   justify-content: center;
   gap: 14px;
   height: 60%;
-  color: #333;
+  color: #e6edff;
   font-size: 14px;
   text-align: center;
 `
@@ -471,8 +471,8 @@ export default function Dashboard() {
           <div css={emptyStateCss}>
             <div style={{ fontSize: 32, opacity: 0.15 }}>◈</div>
             <div>No sessions yet.</div>
-            <div style={{ fontSize: 12, color: '#2a2a2a' }}>
-              Click <strong style={{ color: '#444' }}>+ New Session</strong> to start one.
+            <div style={{ fontSize: 12, color: '#dbe5ff' }}>
+              Click <strong style={{ color: '#f2f6ff' }}>+ New Session</strong> to start one.
             </div>
           </div>
         )}
@@ -576,7 +576,7 @@ function SessionCard({
             <div key={i} css={taskTitleItemCss} title={t}>• {t}</div>
           ))}
           {titles.length > MAX_TITLES && (
-            <div css={taskTitleItemCss} style={{ color: '#444' }}>
+            <div css={taskTitleItemCss} style={{ color: '#dbe5ff' }}>
               + {titles.length - MAX_TITLES} more
             </div>
           )}
@@ -593,7 +593,7 @@ function SessionCard({
         {session.custom_tools_path && <span css={metaBadgeCss} title={session.custom_tools_path}>tools</span>}
       </div>
 
-      <div style={{ fontSize: 10, color: '#2e2e2e', fontFamily: 'monospace' }}>
+      <div style={{ fontSize: 10, color: '#dbe5ff', fontFamily: 'monospace' }}>
         {session.session_id.slice(0, 8)}
       </div>
     </div>

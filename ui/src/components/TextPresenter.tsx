@@ -30,25 +30,25 @@ const toggleBarCss = css`
 `
 
 const toggleBtnCss = css`
-  background: none;
-  border: 1px solid #333;
-  color: #555;
+  background: transparent;
+  border: 1px solid #30405f;
+  color: #e8efff;
   border-radius: 4px;
   padding: 1px 7px;
   font-size: 11px;
   cursor: pointer;
   font-family: inherit;
   &:hover {
-    color: #888;
-    border-color: #555;
+    color: #fff;
+    border-color: #8aa4d8;
   }
 `
 
 const scrollbarCss = css`
   &::-webkit-scrollbar { width: 6px; }
   &::-webkit-scrollbar-track { background: #0a0a0a; }
-  &::-webkit-scrollbar-thumb { background: #2e2e2e; border-radius: 3px; }
-  &::-webkit-scrollbar-thumb:hover { background: #484848; }
+  &::-webkit-scrollbar-thumb { background: #2f4f86; border-radius: 3px; }
+  &::-webkit-scrollbar-thumb:hover { background: #4f73b3; }
 `
 
 const scrollContainerCss = (maxHeight: number) => css`
@@ -78,15 +78,15 @@ const markdownCss = css`
   li { margin: 0.2em 0; }
 
   blockquote {
-    border-left: 3px solid #444;
+    border-left: 3px solid #4f73b3;
     padding-left: 0.8em;
-    color: #aaa;
+    color: #edf2ff;
     margin: 0.4em 0;
     font-style: italic;
   }
 
   code {
-    background: #2a2a2a;
+    background: #192335;
     padding: 0.15em 0.35em;
     border-radius: 4px;
     font-family: 'Consolas', 'Monaco', monospace;
@@ -94,8 +94,8 @@ const markdownCss = css`
   }
 
   pre {
-    background: #141414;
-    border: 1px solid #2a2a2a;
+    background: #0f1726;
+    border: 1px solid #30405f;
     border-radius: 6px;
     padding: 10px 12px;
     overflow-x: auto;
@@ -113,12 +113,12 @@ const markdownCss = css`
   a { color: #7aa2e0; text-decoration: none; }
   a:hover { text-decoration: underline; }
 
-  hr { border: none; border-top: 1px solid #333; margin: 0.6em 0; }
+  hr { border: none; border-top: 1px solid #30405f; margin: 0.6em 0; }
 
   table { border-collapse: collapse; width: 100%; margin: 0.5em 0; font-size: 0.9em; }
-  th { background: #252525; padding: 6px 10px; text-align: left; border: 1px solid #333; }
-  td { padding: 5px 10px; border: 1px solid #2a2a2a; }
-  tr:nth-child(even) td { background: #1a1a1a; }
+  th { background: #182233; padding: 6px 10px; text-align: left; border: 1px solid #30405f; }
+  td { padding: 5px 10px; border: 1px solid #30405f; }
+  tr:nth-child(even) td { background: #101722; }
 
   .hljs { background: transparent !important; }
 `

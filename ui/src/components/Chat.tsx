@@ -3,6 +3,7 @@ import React from 'react'
 import { css, keyframes } from '@emotion/react'
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { type Socket } from 'socket.io-client'
+import { useNavigate } from 'react-router-dom'
 import { createSocket } from '../socket'
 import { useStickToBottom } from 'use-stick-to-bottom'
 import { TextPresenter } from './TextPresenter'
@@ -115,8 +116,8 @@ Use the CLI to tune model behavior:
 const scrollbarCss = css`
   &::-webkit-scrollbar { width: 6px; }
   &::-webkit-scrollbar-track { background: #0a0a0a; }
-  &::-webkit-scrollbar-thumb { background: #3a3a3a; border-radius: 3px; }
-  &::-webkit-scrollbar-thumb:hover { background: #555; }
+  &::-webkit-scrollbar-thumb { background: #2f4f86; border-radius: 3px; }
+  &::-webkit-scrollbar-thumb:hover { background: #4f73b3; }
 `
 
 // ---------------------------------------------------------------------------
@@ -251,15 +252,15 @@ const inputBarCss = css`
   display: flex;
   gap: 8px;
   padding: 12px 16px;
-  border-top: 1px solid #2a2a2a;
-  background: #151515;
+  border-top: 1px solid #22304d;
+  background: #101722;
 `
 
 const textareaCss = css`
   flex: 1;
-  background: #1e1e1e;
-  color: #e0e0e0;
-  border: 1px solid #333;
+  background: #101722;
+  color: #f3f6ff;
+  border: 1px solid #30405f;
   border-radius: 8px;
   padding: 10px 12px;
   font-size: 14px;
@@ -267,7 +268,7 @@ const textareaCss = css`
   resize: none;
   outline: none;
   &:focus {
-    border-color: #555;
+    border-color: #8aa4d8;
   }
 `
 
@@ -321,8 +322,8 @@ const userBubbleCss = css`
 `
 
 const assistantBubbleCss = css`
-  background: #1c1c1c;
-  border: 1px solid #303030;
+  background: #111827;
+  border: 1px solid #283754;
   border-radius: 16px 16px 16px 4px;
   padding: 12px 16px;
   word-break: break-word;
@@ -331,20 +332,20 @@ const assistantBubbleCss = css`
 `
 
 const streamingPlaceholderCss = css`
-  background: #1c1c1c;
-  border: 1px solid #303030;
+  background: #111827;
+  border: 1px solid #283754;
   border-radius: 16px 16px 16px 4px;
   padding: 12px 16px;
-  color: #555;
+  color: #dbe5ff;
 `
 
 const interimBubbleCss = css`
-  background: #111;
-  border: 1px solid #252525;
+  background: #0f1726;
+  border: 1px solid #24324d;
   border-radius: 8px;
   padding: 5px 10px;
   font-size: 11px;
-  color: #484848;
+  color: #d6e0f5;
   font-family: 'Consolas', monospace;
   font-style: italic;
 `
@@ -380,7 +381,7 @@ const interruptedBubbleCss = css`
   border-radius: 8px;
   padding: 6px 12px;
   font-size: 11px;
-  color: #8060a0;
+  color: #d5b8ff;
   font-style: italic;
 `
 
@@ -449,7 +450,7 @@ const cancelledBubbleCss = css`
 
 const cancelledLabelCss = css`
   font-size: 12px;
-  color: #4a6090;
+  color: #d7e3ff;
   font-weight: 500;
 `
 
@@ -459,7 +460,7 @@ const stopColumnCss = css`
   flex-direction: column;
   gap: 6px;
   align-items: stretch;
-  border-left: 1px solid #2a2a2a;
+  border-left: 1px solid #22304d;
   padding-left: 14px;
   min-width: 120px;
   max-width: 140px;
@@ -512,7 +513,7 @@ const stopTryAgainButtonCss = css`
 
 const stopColumnLabelCss = css`
   font-size: 11px;
-  color: #555;
+  color: #dbe5ff;
   font-style: italic;
   text-align: center;
   padding: 2px 0;
@@ -597,7 +598,7 @@ const viewFullButtonCss = css`
 
 const toolArgsCss = css`
   background: #16162a;
-  color: #a0a0c0;
+  color: #edf2ff;
   padding: 8px 14px;
   font-family: 'Consolas', monospace;
   white-space: pre-wrap;
@@ -657,7 +658,7 @@ const startupCardHeaderCss = css`
   background: #111a11;
   border-bottom: 1px solid #1e2e1e;
   font-size: 12px;
-  color: #70a070;
+  color: #dbf0db;
   font-family: 'Consolas', monospace;
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -687,30 +688,59 @@ const headerBarCss = css`
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 4px 16px;
-  border-bottom: 1px solid #1a1a1a;
+  padding: 8px 16px;
+  border-bottom: 1px solid #1d2940;
   flex-shrink: 0;
+  gap: 12px;
+`
+
+const headerSideCss = css`
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
 `
 
 const statusCss = css`
   font-size: 11px;
-  color: #c8c8c8;
+  color: #f2f6ff;
   font-family: 'Consolas', monospace;
   white-space: nowrap;
 `
 
 const sessionIdCss = css`
   font-size: 10px;
-  color: #484848;
+  color: #dbe5ff;
   font-family: 'Consolas', monospace;
   white-space: nowrap;
   cursor: default;
 `
 
+const dashboardButtonCss = css`
+  background: #101722;
+  color: #f3f6ff;
+  border: 1px solid #30405f;
+  border-radius: 999px;
+  width: 28px;
+  height: 28px;
+  font-size: 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: background 0.15s, border-color 0.15s, transform 0.15s;
+  &:hover {
+    background: #172235;
+    border-color: #6f8fc5;
+    transform: translateX(-1px);
+  }
+`
+
 const helpButtonCss = css`
   background: transparent;
-  color: #555;
-  border: 1px solid #333;
+  color: #e6edff;
+  border: 1px solid #30405f;
   border-radius: 50%;
   width: 20px;
   height: 20px;
@@ -724,7 +754,7 @@ const helpButtonCss = css`
   line-height: 1;
   padding: 0;
   transition: color 0.15s, border-color 0.15s;
-  &:hover { color: #aaa; border-color: #666; }
+  &:hover { color: #fff; border-color: #8aa4d8; }
 `
 
 const helpModalBodyCss = css`
@@ -746,8 +776,8 @@ const helpModalFooterCss = css`
   align-items: center;
   justify-content: flex-end;
   padding: 12px 20px;
-  border-top: 1px solid #2a2a2a;
-  background: #1a1a1a;
+  border-top: 1px solid #24324d;
+  background: #101722;
   flex-shrink: 0;
 `
 
@@ -792,9 +822,9 @@ const turnContainerCss = css`
   grid-template-columns: 3fr 2fr 2fr auto;
   gap: 24px;
   padding: 20px 24px;
-  border: 1px solid #3a3a3a;
+  border: 1px solid #22304d;
   border-radius: 0 12px 12px 12px;
-  background: #141414;
+  background: #0d131e;
   box-shadow: 0 3px 16px rgba(0, 0, 0, 0.5);
 `
 
@@ -803,9 +833,9 @@ const turnContainerNoTitleCss = css`
   grid-template-columns: 3fr 2fr 2fr auto;
   gap: 24px;
   padding: 20px 24px;
-  border: 1px solid #3a3a3a;
+  border: 1px solid #22304d;
   border-radius: 12px;
-  background: #141414;
+  background: #0d131e;
   box-shadow: 0 3px 16px rgba(0, 0, 0, 0.5);
 `
 
@@ -825,14 +855,14 @@ const todoColumnCss = css`
   display: flex;
   flex-direction: column;
   gap: 4px;
-  border-left: 1px solid #2a2a2a;
+  border-left: 1px solid #22304d;
   padding-left: 16px;
   min-width: 0;
 `
 
 const todoHeaderCss = css`
   font-size: 11px;
-  color: #555;
+  color: #e6edff;
   text-transform: uppercase;
   letter-spacing: 0.06em;
   margin-bottom: 4px;
@@ -866,7 +896,7 @@ const todoItemClosedCss = css`
 
 const todoEmptyCss = css`
   font-size: 12px;
-  color: #3a3a3a;
+  color: #dbe5ff;
   font-style: italic;
 `
 
@@ -875,7 +905,7 @@ const approvalRowCss = css`
   display: flex;
   flex-direction: column;
   gap: 8px;
-  border-top: 1px solid #2a2a2a;
+  border-top: 1px solid #22304d;
   padding-top: 16px;
   min-height: 120px;
 `
@@ -894,6 +924,7 @@ const approvalCol1Css = css`
   gap: 4px;
   padding: 0 14px 4px 2px;
   min-width: 0;
+  min-height: 0;
 `
 
 const approvalCol2Css = css`
@@ -901,7 +932,7 @@ const approvalCol2Css = css`
   flex-direction: column;
   gap: 8px;
   padding: 0 14px 4px 14px;
-  border-left: 1px solid #1e1e1e;
+  border-left: 1px solid #22304d;
   min-width: 0;
 `
 
@@ -910,13 +941,14 @@ const approvalCol3Css = css`
   flex-direction: column;
   gap: 6px;
   padding: 0 4px 4px 14px;
-  border-left: 1px solid #1e1e1e;
+  border-left: 1px solid #22304d;
   min-width: 0;
+  min-height: 0;
 `
 
 const approvalColHeaderCss = css`
   font-size: 10px;
-  color: #444;
+  color: #e6edff;
   text-transform: uppercase;
   letter-spacing: 0.07em;
   font-family: 'Consolas', monospace;
@@ -959,11 +991,17 @@ const approvalColHeaderAskPendingCss = css`
 // Col 1: outcome chips
 const outcomesScrollCss = css`
   ${scrollbarCss}
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
   max-height: 200px;
+  padding-right: 4px;
+`
+
+const approvalListContentCss = (gap: number) => css`
+  display: flex;
+  flex-direction: column;
+  gap: ${gap}px;
 `
 
 const outcomeApprovalChipCss = (approved: boolean) => css`
@@ -982,7 +1020,7 @@ const outcomeApprovalChipCss = (approved: boolean) => css`
 const outcomeAskChipCss = css`
   font-family: 'Consolas', monospace;
   font-size: 11px;
-  color: #3a9090;
+  color: #ccf6f6;
   background: #001010;
   border: 1px solid #003838;
   border-radius: 3px;
@@ -995,7 +1033,7 @@ const outcomeAskChipCss = css`
 // Col 2: active dialog placeholder (nothing pending)
 const activeDialogPlaceholderCss = css`
   font-size: 12px;
-  color: #2a2a2a;
+  color: #dbe5ff;
   font-style: italic;
   font-family: 'Consolas', monospace;
 `
@@ -1003,16 +1041,16 @@ const activeDialogPlaceholderCss = css`
 // Col 3: Q&A history
 const qaHistoryScrollCss = css`
   ${scrollbarCss}
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
   max-height: 200px;
+  padding-right: 4px;
 `
 
 const qaHistoryEmptyCss = css`
   font-size: 12px;
-  color: #2a2a2a;
+  color: #dbe5ff;
   font-style: italic;
   font-family: 'Consolas', monospace;
 `
@@ -1030,7 +1068,7 @@ const qaHistoryCardCss = css`
 const qaHistoryQuestionCss = css`
   font-family: 'Consolas', monospace;
   font-size: 10px;
-  color: #3a7070;
+  color: #d7f4f4;
   line-height: 1.4;
   word-break: break-word;
 `
@@ -1064,7 +1102,7 @@ const approvalToolNameCss = css`
 const approvalArgsCss = css`
   font-family: 'Consolas', monospace;
   font-size: 11px;
-  color: #907040;
+  color: #f6dfb2;
   white-space: pre-wrap;
   word-break: break-word;
   max-height: 120px;
@@ -1178,15 +1216,15 @@ const redirectSendButtonCss = css`
 const redirectCancelButtonCss = css`
   flex: 1;
   background: #1f1f1f;
-  color: #9ca3af;
-  border: 1px solid #374151;
+  color: #eef3ff;
+  border: 1px solid #425272;
   border-radius: 4px;
   padding: 4px 0;
   font-size: 12px;
   cursor: pointer;
   font-family: 'Consolas', monospace;
   transition: background 0.15s;
-  &:hover { background: #374151; }
+  &:hover { background: #34435f; }
 `
 
 
@@ -1877,25 +1915,14 @@ function TurnContainer({
 
   const { scrollRef: toolsScrollRef, contentRef: toolsContentRef } = useStickToBottom()
   const { scrollRef: compactionScrollRef, contentRef: compactionContentRef } = useStickToBottom()
-
-  const outcomesScrollRef = useRef<HTMLDivElement>(null)
-  const qaHistoryScrollRef = useRef<HTMLDivElement>(null)
+  const { scrollRef: outcomesScrollRef, contentRef: outcomesContentRef } = useStickToBottom()
+  const { scrollRef: qaHistoryScrollRef, contentRef: qaHistoryContentRef } = useStickToBottom()
   const hasPendingApproval = approvalItems.some(a => !a.resolved)
   const hasPendingAskHuman = askHumanItems.some(i => i.state === 'pending')
   const resolvedApprovals = approvalItems.filter(a => a.resolved)
   const pendingApprovals = approvalItems.filter(a => !a.resolved)
   const answeredAskHuman = askHumanItems.filter(i => i.state === 'answered')
   const pendingAskHuman = askHumanItems.filter(i => i.state === 'pending')
-  useEffect(() => {
-    if (outcomesScrollRef.current) {
-      outcomesScrollRef.current.scrollTop = outcomesScrollRef.current.scrollHeight
-    }
-  }, [resolvedApprovals.length, answeredAskHuman.length])
-  useEffect(() => {
-    if (qaHistoryScrollRef.current) {
-      qaHistoryScrollRef.current.scrollTop = qaHistoryScrollRef.current.scrollHeight
-    }
-  }, [answeredAskHuman.length])
 
   // Collect all tool calls from all exchanges (for the tool calls panel)
   const allToolCalls = exchanges.flatMap(ex => ex.toolCalls)
@@ -2104,6 +2131,7 @@ function TurnContainer({
                 <div css={activeDialogPlaceholderCss}>—</div>
               ) : (
                 <div css={outcomesScrollCss} ref={outcomesScrollRef}>
+                  <div ref={outcomesContentRef} css={approvalListContentCss(3)}>
                   {resolvedApprovals.map(item => (
                     <div key={item.id} css={outcomeApprovalChipCss(item.resolved!.approved)} title={item.tool_name}>
                       {item.resolved!.approved ? '✓' : '✗'} {item.tool_name}
@@ -2114,6 +2142,7 @@ function TurnContainer({
                       ? {item.question.length > 28 ? item.question.slice(0, 28) + '…' : item.question}
                     </div>
                   ))}
+                  </div>
                 </div>
               )}
             </div>
@@ -2155,12 +2184,14 @@ function TurnContainer({
                 <div css={qaHistoryEmptyCss}>—</div>
               ) : (
                 <div css={qaHistoryScrollCss} ref={qaHistoryScrollRef}>
+                  <div ref={qaHistoryContentRef} css={approvalListContentCss(6)}>
                   {answeredAskHuman.map((item, idx) => (
                     <div key={idx} css={qaHistoryCardCss}>
                       <div css={qaHistoryQuestionCss}>Q: {item.question}</div>
                       <div css={qaHistoryAnswerCss}>A: {item.answer}</div>
                     </div>
                   ))}
+                  </div>
                 </div>
               )}
             </div>
@@ -2178,6 +2209,7 @@ function TurnContainer({
 // ---------------------------------------------------------------------------
 
 export default function Chat() {
+  const navigate = useNavigate()
   // Session ID: read from sessionStorage on mount (idempotent — repeated mounts
   // return the same ID; only generates a new UUID the very first time).
   const [sessionId] = useState<string>(() => {
@@ -3063,9 +3095,16 @@ export default function Chat() {
         )}
 
         <div css={headerBarCss}>
+          <div css={headerSideCss}>
+            <button css={dashboardButtonCss} onClick={() => navigate('/')} title="Return to dashboard" aria-label="Return to dashboard">
+              ⌂
+            </button>
           <span css={statusCss}>{connected ? '●' : '○'} {connected ? 'connected' : 'disconnected'}</span>
+          </div>
           <span css={sessionIdCss} title={sessionId}>session: {sessionId.slice(0, 8)}</span>
+          <div css={headerSideCss}>
           <button css={helpButtonCss} onClick={() => setShowHelpModal(true)} title="Help">?</button>
+          </div>
         </div>
         <div css={threadCss} ref={threadRef}>
           <div ref={threadContentRef}>
