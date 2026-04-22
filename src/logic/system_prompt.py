@@ -94,6 +94,13 @@ Always use a dedicated tool instead of host_shell if one is available. host_shel
 for environment-specific tasks like building, linting, and typechecking — but for file reading,
 searching, and memory operations, prefer the dedicated tools.
 
+== SCRIPTS AND INTERACTIVE TASKS ==
+
+For games, quizzes, simulations, and other interactive tasks: do NOT use ask_human to get
+per-turn input. Instead, process the state using code_interpreter with session memory, then
+respond to the user with the updated state and prompt them to enter their next action as a new
+message. Each user message is one turn — design your logic accordingly.
+
 == ENVIRONMENT ==
 
 Use `get_environment_info` when OS, shell, current working directory, initial working directory,
@@ -160,11 +167,10 @@ and continue working.
 
 == HUMAN IN THE LOOP ==
 
-ask_human: pause the task and ask the user a question. This is a common tool, not a
-rare one — use it freely whenever human input would meaningfully improve the outcome, or is required by
-one of your skill guides.
+ask_human: pause the task and ask the user a question. Use it sparingly — only when
+human input is genuinely required and cannot be inferred from context.
 
-Three primary use cases:
+Two appropriate use cases:
 
 1. Requirements clarification — Before building your todo list or starting work, use
    ask_human to resolve any ambiguity in the request. If the user's goal could be
@@ -183,11 +189,11 @@ Three primary use cases:
    it? Are there any areas I should avoid?" This gives the user a chance to shape the
    approach before any tool calls are made, rather than reacting to each one.
 
-3. Interactive games or simulations with the human. Great for turn based games, quizzes, or human-interactive tasks.
-
-Do not use ask_human to confirm steps you are already confident about, or to narrate
-progress. One focused question is better than many small ones — batch related unknowns
-into a single ask when possible.
+Do not use ask_human to confirm steps you are already confident about, to narrate
+progress, or to collect per-turn input for games, quizzes, or simulations — see the
+SCRIPTS AND INTERACTIVE TASKS section for how to handle those.
+One focused question is better than many small ones — batch related unknowns into a
+single ask when possible.
 While waiting, keep the todo list as-is — do not close items that are not yet done.
 
 == TOOL ERRORS ==
@@ -227,62 +233,37 @@ in session memory at the key shown in the header. Use return_stub_line_reader to
 """
 
 
-def _build_skills_section(skill_registry: list[dict]) -> str:
-    _general_sources = {"builtin_general", "custom_general"}
-    _specialized_sources = {"builtin_specialized", "custom_specialized"}
+def build_injected_skills_section(selected_entries: list[dict]) -> str:
+    """Build the Skills section injected into the system prompt for the current turn.
 
-    general = [e for e in skill_registry if e.get("source") in _general_sources]
-    specialized = [e for e in skill_registry if e.get("source") in _specialized_sources]
+    selected_entries: skill registry entries chosen by the skill-selector watchdog.
+    Returns an empty string when no skills were selected.
+    """
+    if not selected_entries:
+        return ""
 
     lines: list[str] = ["== SKILLS ==", ""]
     lines.append(
-        "Skills are topic-specific guides for using your tools effectively in specific domains."
+        "The following skill guides have been loaded for this turn. "
+        "Follow their instructions when relevant."
     )
     lines.append("")
-
-    if general:
-        lines.append("General skills (loaded in this system prompt):")
-        for e in general:
-            lines.append(f"  {e['filename']} -- {e['title']}")
+    for e in selected_entries:
+        try:
+            with open(e["path"], encoding="utf-8") as fh:
+                content = fh.read().strip()
+        except OSError:
+            content = f"(could not read {e['filename']})"
+        lines.append(content)
         lines.append("")
-
-    if specialized:
-        lines.append("Specialized skills (load on demand):")
-        for e in specialized:
-            lines.append(f"  {e['filename']} -- {e['title']}")
-        lines.append("")
-
-    if specialized:
-        lines.append(
-            "For specific tasks, use list_skill_files to see the full list and "
-            "read_skill_file(filename=...) to load a skill."
-        )
-        lines.append("")
-
-    if general:
-        lines.append("---")
-        lines.append("")
-        for e in general:
-            try:
-                with open(e["path"], encoding="utf-8") as fh:
-                    content = fh.read().strip()
-            except OSError:
-                content = f"(could not read {e['filename']})"
-            lines.append(content)
-            lines.append("")
 
     return "\n".join(lines)
 
 
 def build_system_prompt(
     starting_environment_info: str | None = None,
-    skill_registry: list[dict] | None = None,
 ) -> str:
-    if skill_registry is None:
-        skill_registry = []
-
-    skills_section = _build_skills_section(skill_registry)
-    prompt = _SYSTEM_PROMPT_BODY + skills_section + "\n"
+    prompt = _SYSTEM_PROMPT_BODY
 
     if starting_environment_info:
         env_block = (

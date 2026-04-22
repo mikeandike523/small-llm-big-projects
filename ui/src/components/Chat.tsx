@@ -150,6 +150,10 @@ function newTurn(id: string, userText: string): Turn {
   }
 }
 
+function stripMdExtension(s: string): string {
+  return s.endsWith('.md') ? s.slice(0, -3) : s
+}
+
 function backendTurnToFrontendTurn(d: {
   id: string
   user_text: string
@@ -800,21 +804,46 @@ const turnWrapperCss = css`
   gap: 0;
 `
 
-const taskTitleCss = css`
-  font-size: 11px;
+const turnBannerCss = css`
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
   font-family: 'Consolas', monospace;
-  color: #6a9a6a;
   background: #0d180d;
   border: 1px solid #1e3a1e;
   border-bottom: none;
   border-radius: 8px 8px 0 0;
   padding: 5px 16px;
+`
+
+const taskTitleCss = css`
+  font-size: 11px;
+  color: #6a9a6a;
   letter-spacing: 0.04em;
-  align-self: flex-start;
-  max-width: 60%;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  min-width: 0;
+  flex: 1;
+`
+
+const skillPillsRowCss = css`
+  display: flex;
+  gap: 5px;
+  flex-shrink: 0;
+  align-items: center;
+`
+
+const skillPillCss = css`
+  font-size: 10px;
+  color: #5090c0;
+  background: #0d1a2d;
+  border: 1px solid #1e3a5a;
+  border-radius: 10px;
+  padding: 2px 8px;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
 `
 
 const turnContainerCss = css`
@@ -823,7 +852,7 @@ const turnContainerCss = css`
   gap: 24px;
   padding: 20px 24px;
   border: 1px solid #22304d;
-  border-radius: 0 12px 12px 12px;
+  border-radius: 0 0 12px 12px;
   background: #0d131e;
   box-shadow: 0 3px 16px rgba(0, 0, 0, 0.5);
 `
@@ -1941,14 +1970,25 @@ function TurnContainer({
   const isStreamingFinal = streaming && !isInterimStreaming
   const showPlaceholder = streaming && !displayContent && !isInterimStreaming && allToolCalls.length === 0
 
-  const hasTitle = !!turn.taskTitle
+  const hasBanner = !!turn.taskTitle || (turn.loadedSkills?.length ?? 0) > 0
 
   return (
     <div css={turnWrapperCss}>
-      {turn.taskTitle ? (
-        <div css={taskTitleCss}>Task: {turn.taskTitle}</div>
+      {hasBanner ? (
+        <div css={turnBannerCss}>
+          <span css={taskTitleCss}>
+            {turn.taskTitle ? `Task: ${turn.taskTitle}` : ''}
+          </span>
+          {turn.loadedSkills && turn.loadedSkills.length > 0 && (
+            <div css={skillPillsRowCss}>
+              {turn.loadedSkills.map(title => (
+                <span key={title} css={skillPillCss}>{stripMdExtension(title)}</span>
+              ))}
+            </div>
+          )}
+        </div>
       ) : null}
-      <div css={hasTitle ? turnContainerCss : turnContainerNoTitleCss}>
+      <div css={hasBanner ? turnContainerCss : turnContainerNoTitleCss}>
       {/* Left column: user message + AI content + impossible notice */}
       <div css={leftColumnCss}>
         <div css={userBubbleCss}>{turn.userText}</div>
@@ -2464,6 +2504,9 @@ export default function Chat() {
       case 'task_title':
         updateTurn(turnId, t => ({ ...t, taskTitle: data.title as string }))
         break
+      case 'skills_loaded':
+        updateTurn(turnId, t => ({ ...t, loadedSkills: data.skill_titles as string[] }))
+        break
       case 'pwd_update':
         setPwd(data.path as string)
         break
@@ -2879,6 +2922,9 @@ export default function Chat() {
     socket.on('task_title', (data: { turn_id: string; title: string }) => {
       applyReplayEvent('task_title', data)
     })
+    socket.on('skills_loaded', (data: { turn_id: string; skill_titles: string[] }) => {
+      applyReplayEvent('skills_loaded', data)
+    })
 
     // Connect after all handlers are registered so we never miss the connect event
     socket.connect()
@@ -2919,6 +2965,7 @@ export default function Chat() {
       socket.off('compaction_done', onCompactionDone)
       socket.off('shell_output_snapshot', onShellOutputSnapshot)
       socket.off('task_title')
+      socket.off('skills_loaded')
       socket.disconnect()
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -149,5 +149,5 @@ After a build or test run, check the todo list — close verification steps only
 
 ### Stay Up to Date
 
-If you don't know something, search the web. Load the Browsing the Web skill first:
-`read_skill_file(filename="web_browsing.md")`
+If you don't know something, search the web using the `brave_web_search` and `scrape_web_page` tools.
+The web browsing skill guide may also have been loaded into your system prompt for this turn.

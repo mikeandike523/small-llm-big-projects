@@ -26,7 +26,7 @@ from src.utils.llm.streaming import StreamingLLM
 from src.utils.llm.factory import load_llm_config
 from src.tools import ALL_TOOL_DEFINITIONS, execute_tool, check_needs_approval, _TOOL_MAP, load_custom_tools
 from src.tools.todo_list import format_items_for_ui as _todo_format_items_for_ui
-from src.logic.system_prompt import build_system_prompt, build_skill_registry
+from src.logic.system_prompt import build_system_prompt, build_skill_registry, build_injected_skills_section
 from src.utils.conversation_strip import strip_down_messages
 from src.utils.emitting_kv_manager import EmittingKVManager
 from src.utils.redis_dict import RedisDict
@@ -46,7 +46,7 @@ from termcolor import colored
 logger = logging.getLogger(__name__)
 
 _BASE_SKILL_REGISTRY: list[dict] = build_skill_registry()
-_BASE_SYSTEM_PROMPT: str = build_system_prompt(skill_registry=_BASE_SKILL_REGISTRY)
+_BASE_SYSTEM_PROMPT: str = build_system_prompt()
 
 _env_os = get_os()
 _env_shell = get_shell()
@@ -116,6 +116,10 @@ def _get_session_system_prompt(session_id: str) -> str:
     return _session_system_prompts.get(session_id, _BASE_SYSTEM_PROMPT)
 
 
+def _get_session_skill_registry(session_id: str) -> list[dict]:
+    return _session_skill_registries.get(session_id, _BASE_SKILL_REGISTRY)
+
+
 def _init_session_caches(session: "Session", session_id: str) -> None:
     """Build per-session tool set and system prompt caches (idempotent — skips if already done)."""
     if session_id not in _session_tool_sets:
@@ -150,7 +154,6 @@ def _init_session_caches(session: "Session", session_id: str) -> None:
     if session_id not in _session_system_prompts:
         _session_system_prompts[session_id] = build_system_prompt(
             starting_environment_info=_build_starting_environment_info(session),
-            skill_registry=registry,
         )
 
     _session_project_config[session_id] = {
@@ -533,7 +536,6 @@ def api_create_session():
     session.session_data["__skill_files__"] = registry
     _session_system_prompts[session_id] = build_system_prompt(
         starting_environment_info=_build_starting_environment_info(session),
-        skill_registry=registry,
     )
     _session_project_config[session_id] = {
         "initial_cwd": initial_cwd,
@@ -720,9 +722,16 @@ def sanitize_messages_for_llm(messages: list[dict]) -> list[dict]:
 # Payload construction
 # ---------------------------------------------------------------------------
 
-def _build_llm_payload(session: Session, current_turn: Turn) -> list[dict]:
+def _build_llm_payload(
+    session: Session,
+    current_turn: Turn,
+    skills_section: str | None = None,
+) -> list[dict]:
     """Assemble the message list actually sent to the LLM endpoint."""
-    messages: list[dict] = [{"role": "system", "content": _get_session_system_prompt(session.session_id)}]
+    system_content = _get_session_system_prompt(session.session_id)
+    if skills_section:
+        system_content = system_content + "\n" + skills_section
+    messages: list[dict] = [{"role": "system", "content": system_content}]
     for turn in session.completed_turns:
         messages.append({"role": "user", "content": turn.condensed_user})
         messages.append({"role": "assistant", "content": turn.condensed_assistant})
@@ -1422,6 +1431,88 @@ async def _is_sufficient_final_answer(
 
 
 # ---------------------------------------------------------------------------
+# Skill selector watchdog
+# ---------------------------------------------------------------------------
+
+_SKILL_SELECTOR_TURN_CHARS = 600  # max chars per turn in the context transcript
+
+
+def _build_skill_selector_transcript(session: Session) -> str:
+    """Format completed turns into a short context transcript for the skill selector."""
+    if not session.completed_turns:
+        return ""
+    lines: list[str] = []
+    for i, turn in enumerate(session.completed_turns, start=1):
+        user = (turn.condensed_user or "").strip()
+        assistant = (turn.condensed_assistant or "").strip()
+        if len(user) > _SKILL_SELECTOR_TURN_CHARS:
+            user = user[:_SKILL_SELECTOR_TURN_CHARS] + "..."
+        if len(assistant) > _SKILL_SELECTOR_TURN_CHARS:
+            assistant = assistant[:_SKILL_SELECTOR_TURN_CHARS] + "..."
+        lines.append(f"[Turn {i}]")
+        lines.append(f"User: {user}")
+        lines.append(f"Assistant: {assistant}")
+        lines.append("")
+    return "\n".join(lines).strip()
+
+
+async def _select_skills_for_turn(
+    streaming_llm: StreamingLLM,
+    session: Session,
+    user_text: str,
+    skill_registry: list[dict],
+    watchdog_max_tokens: int | None,
+) -> list[dict]:
+    """Run a lightweight LLM call to decide which skills to inject for this turn.
+
+    Returns the list of selected skill registry entries (empty if none selected).
+    """
+    if not skill_registry:
+        return []
+
+    skill_list_lines = [
+        f"- {e['filename']} -- {e['title']}" for e in skill_registry
+    ]
+    skill_list = "\n".join(skill_list_lines)
+
+    transcript = _build_skill_selector_transcript(session)
+    context_block = ""
+    if transcript:
+        context_block = f"Conversation so far:\n{transcript}\n\n"
+
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "You are a skill selector. Given a conversation transcript and the current "
+                "user request, decide which skill guides (if any) should be loaded to help "
+                "complete the request.\n\n"
+                "Each skill is a specialized guide with instructions for a specific task type.\n\n"
+                f"Available skills:\n{skill_list}\n\n"
+                "Output ONLY a comma-separated list of filenames to load, or the single word "
+                "'none' if no skills are needed. No explanation, no punctuation besides the "
+                "commas — just filenames or 'none'."
+            ),
+        },
+        {
+            "role": "user",
+            "content": f"{context_block}Current request: {user_text}",
+        },
+    ]
+
+    try:
+        result = await asyncio.to_thread(streaming_llm.fetch, messages, watchdog_max_tokens)
+        response = (result.content or "").strip().lower()
+        if not response or response == "none":
+            return []
+        selected_filenames = {f.strip() for f in response.split(",") if f.strip()}
+        return [e for e in skill_registry if e["filename"] in selected_filenames]
+    except Exception as exc:
+        logger.warning("Skill selector watchdog failed: %s", exc)
+        return []
+
+
+# ---------------------------------------------------------------------------
 # Async agent loop
 # ---------------------------------------------------------------------------
 
@@ -1470,6 +1561,17 @@ async def _async_agent_loop(
     session_tool_defs = _get_session_tool_defs(session_id)
     session_tool_map = _get_session_tool_map(session_id)
 
+    skill_registry = _get_session_skill_registry(session_id)
+    selected_skills = await _select_skills_for_turn(
+        streaming_llm, session, current_turn.user_text, skill_registry, watchdog_max_tokens
+    )
+    if selected_skills:
+        _emit_and_log(session_id, "skills_loaded", {
+            "turn_id": turn_id,
+            "skill_titles": [e["title"] for e in selected_skills],
+        })
+    active_skills_section = build_injected_skills_section(selected_skills) if selected_skills else ""
+
     try:
         while True:
             if cancel_event.is_set():
@@ -1484,7 +1586,7 @@ async def _async_agent_loop(
                 })
 
             exchange_idx = len(current_turn.exchanges)
-            payload = _build_llm_payload(session, current_turn)
+            payload = _build_llm_payload(session, current_turn, active_skills_section or None)
 
             # Run LLM call with a redirect watcher that cancels this task when
             # redirect_event fires, allowing us to inject the guidance message.
