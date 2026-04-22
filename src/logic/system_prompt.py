@@ -161,9 +161,10 @@ and continue working.
 == HUMAN IN THE LOOP ==
 
 ask_human: pause the task and ask the user a question. This is a common tool, not a
-rare one — use it freely whenever human input would meaningfully improve the outcome.
+rare one — use it freely whenever human input would meaningfully improve the outcome, or is required by
+one of your skill guides.
 
-Two primary use cases:
+Three primary use cases:
 
 1. Requirements clarification — Before building your todo list or starting work, use
    ask_human to resolve any ambiguity in the request. If the user's goal could be
@@ -181,6 +182,8 @@ Two primary use cases:
    authentication — should I modify the existing auth layer or add a new one alongside
    it? Are there any areas I should avoid?" This gives the user a chance to shape the
    approach before any tool calls are made, rather than reacting to each one.
+
+3. Interactive games or simulations with the human. Great for turn based games, quizzes, or human-interactive tasks.
 
 Do not use ask_human to confirm steps you are already confident about, or to narrate
 progress. One focused question is better than many small ones — batch related unknowns
