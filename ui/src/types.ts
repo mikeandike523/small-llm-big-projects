@@ -54,7 +54,7 @@ export interface Turn {
   id: string
   userText: string
   taskTitle?: string          // Short LLM-generated title, arrives asynchronously
-  loadedSkills?: string[]     // Skill titles selected by the skill-selector watchdog
+  loadedSkills?: string[]     // Fully resolved skill names active for this turn
   exchanges: LLMExchange[]
   todoItems: TodoItem[]
   approvalItems: ApprovalItem[]

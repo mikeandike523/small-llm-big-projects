@@ -1,0 +1,16 @@
+{
+  "coding": {
+    "name": "Writing Code",
+    "blurb": "Guidance for reading, editing, and validating code changes.",
+    "dependencies": [
+      "web_browsing"
+    ],
+    "autoload": false
+  },
+  "web_browsing": {
+    "name": "Browsing the Web",
+    "blurb": "Guidance for searching the web and reading external pages efficiently.",
+    "dependencies": [],
+    "autoload": false
+  }
+}

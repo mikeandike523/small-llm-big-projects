@@ -1981,8 +1981,8 @@ function TurnContainer({
           </span>
           {turn.loadedSkills && turn.loadedSkills.length > 0 && (
             <div css={skillPillsRowCss}>
-              {turn.loadedSkills.map(title => (
-                <span key={title} css={skillPillCss}>{stripMdExtension(title)}</span>
+              {turn.loadedSkills.map(skillName => (
+                <span key={skillName} css={skillPillCss}>{stripMdExtension(skillName)}</span>
               ))}
             </div>
           )}
@@ -2505,7 +2505,7 @@ export default function Chat() {
         updateTurn(turnId, t => ({ ...t, taskTitle: data.title as string }))
         break
       case 'skills_loaded':
-        updateTurn(turnId, t => ({ ...t, loadedSkills: data.skill_titles as string[] }))
+        updateTurn(turnId, t => ({ ...t, loadedSkills: data.skill_names as string[] }))
         break
       case 'pwd_update':
         setPwd(data.path as string)
@@ -2922,7 +2922,7 @@ export default function Chat() {
     socket.on('task_title', (data: { turn_id: string; title: string }) => {
       applyReplayEvent('task_title', data)
     })
-    socket.on('skills_loaded', (data: { turn_id: string; skill_titles: string[] }) => {
+    socket.on('skills_loaded', (data: { turn_id: string; skill_names: string[] }) => {
       applyReplayEvent('skills_loaded', data)
     })
 

@@ -26,7 +26,15 @@ from src.utils.llm.streaming import StreamingLLM
 from src.utils.llm.factory import load_llm_config
 from src.tools import ALL_TOOL_DEFINITIONS, execute_tool, check_needs_approval, _TOOL_MAP, load_custom_tools
 from src.tools.todo_list import format_items_for_ui as _todo_format_items_for_ui
-from src.logic.system_prompt import build_system_prompt, build_skill_registry, build_injected_skills_section
+from src.logic.system_prompt import (
+    SkillManifestError,
+    build_system_prompt,
+    build_skill_registry,
+    build_injected_skills_section,
+    get_autoload_skill_entries,
+    get_selector_candidate_entries,
+    resolve_skill_dependency_closure,
+)
 from src.utils.conversation_strip import strip_down_messages
 from src.utils.emitting_kv_manager import EmittingKVManager
 from src.utils.redis_dict import RedisDict
@@ -46,7 +54,9 @@ from termcolor import colored
 logger = logging.getLogger(__name__)
 
 _BASE_SKILL_REGISTRY: list[dict] = build_skill_registry()
-_BASE_SYSTEM_PROMPT: str = build_system_prompt()
+_BASE_SYSTEM_PROMPT: str = build_system_prompt(
+    autoload_entries=get_autoload_skill_entries(_BASE_SKILL_REGISTRY),
+)
 
 _env_os = get_os()
 _env_shell = get_shell()
@@ -70,7 +80,7 @@ _trace_folder_max_bytes: int | None = (
 _session_tool_sets: dict[str, tuple[list, dict, list]] = {}
 # session_id -> system_prompt_string
 _session_system_prompts: dict[str, str] = {}
-# session_id -> list of skill file descriptors {title, filename, path, source}
+# session_id -> list of skill descriptors {id, name, blurb, filename, path, source, dependencies, autoload}
 _session_skill_registries: dict[str, list[dict]] = {}
 # session_id -> {initial_cwd, pin_project_memory} — lightweight cache for info handlers
 _session_project_config: dict[str, dict] = {}
@@ -120,6 +130,10 @@ def _get_session_skill_registry(session_id: str) -> list[dict]:
     return _session_skill_registries.get(session_id, _BASE_SKILL_REGISTRY)
 
 
+def _get_autoloaded_session_skills(session_id: str) -> list[dict]:
+    return get_autoload_skill_entries(_get_session_skill_registry(session_id))
+
+
 def _init_session_caches(session: "Session", session_id: str) -> None:
     """Build per-session tool set and system prompt caches (idempotent — skips if already done)."""
     if session_id not in _session_tool_sets:
@@ -152,8 +166,10 @@ def _init_session_caches(session: "Session", session_id: str) -> None:
         session.session_data["__skill_files__"] = registry
 
     if session_id not in _session_system_prompts:
+        autoload_entries = get_autoload_skill_entries(registry)
         _session_system_prompts[session_id] = build_system_prompt(
             starting_environment_info=_build_starting_environment_info(session),
+            autoload_entries=autoload_entries,
         )
 
     _session_project_config[session_id] = {
@@ -531,11 +547,15 @@ def api_create_session():
     else:
         _session_tool_sets[session_id] = (ALL_TOOL_DEFINITIONS, _TOOL_MAP, [])
 
-    registry = build_skill_registry(custom_skills_path=skills_path)
+    try:
+        registry = build_skill_registry(custom_skills_path=skills_path)
+    except SkillManifestError as exc:
+        return jsonify({"error": f"Skill loading failed: {exc}"}), 400
     _session_skill_registries[session_id] = registry
     session.session_data["__skill_files__"] = registry
     _session_system_prompts[session_id] = build_system_prompt(
         starting_environment_info=_build_starting_environment_info(session),
+        autoload_entries=get_autoload_skill_entries(registry),
     )
     _session_project_config[session_id] = {
         "initial_cwd": initial_cwd,
@@ -1467,11 +1487,12 @@ async def _select_skills_for_turn(
 
     Returns the list of selected skill registry entries (empty if none selected).
     """
-    if not skill_registry:
+    selector_candidates = get_selector_candidate_entries(skill_registry)
+    if not selector_candidates:
         return []
 
     skill_list_lines = [
-        f"- {e['filename']} -- {e['title']}" for e in skill_registry
+        f"- {e['id']} -- {e['name']} -- {e['blurb']}" for e in selector_candidates
     ]
     skill_list = "\n".join(skill_list_lines)
 
@@ -1489,9 +1510,8 @@ async def _select_skills_for_turn(
                 "complete the request.\n\n"
                 "Each skill is a specialized guide with instructions for a specific task type.\n\n"
                 f"Available skills:\n{skill_list}\n\n"
-                "Output ONLY a comma-separated list of filenames to load, or the single word "
-                "'none' if no skills are needed. No explanation, no punctuation besides the "
-                "commas — just filenames or 'none'."
+                "Output ONLY a comma-separated list of skill ids to load, or the single word "
+                "'none' if no skills are needed. Return only ids or 'none'."
             ),
         },
         {
@@ -1505,8 +1525,8 @@ async def _select_skills_for_turn(
         response = (result.content or "").strip().lower()
         if not response or response == "none":
             return []
-        selected_filenames = {f.strip() for f in response.split(",") if f.strip()}
-        return [e for e in skill_registry if e["filename"] in selected_filenames]
+        selected_ids = {f.strip() for f in response.split(",") if f.strip()}
+        return [e for e in selector_candidates if e["id"] in selected_ids]
     except Exception as exc:
         logger.warning("Skill selector watchdog failed: %s", exc)
         return []
@@ -1562,15 +1582,26 @@ async def _async_agent_loop(
     session_tool_map = _get_session_tool_map(session_id)
 
     skill_registry = _get_session_skill_registry(session_id)
+    baseline_skills = _get_autoloaded_session_skills(session_id)
+    baseline_skill_ids = {entry["id"] for entry in baseline_skills}
     selected_skills = await _select_skills_for_turn(
         streaming_llm, session, current_turn.user_text, skill_registry, watchdog_max_tokens
     )
-    if selected_skills:
+    turn_resolved_skills = resolve_skill_dependency_closure(
+        skill_registry,
+        [entry["id"] for entry in selected_skills],
+    )
+    turn_only_skills = [
+        entry for entry in turn_resolved_skills
+        if entry["id"] not in baseline_skill_ids
+    ]
+    loaded_skills = baseline_skills + turn_only_skills
+    if loaded_skills:
         _emit_and_log(session_id, "skills_loaded", {
             "turn_id": turn_id,
-            "skill_titles": [e["title"] for e in selected_skills],
+            "skill_names": [entry["name"] for entry in loaded_skills],
         })
-    active_skills_section = build_injected_skills_section(selected_skills) if selected_skills else ""
+    active_skills_section = build_injected_skills_section(turn_only_skills) if turn_only_skills else ""
 
     try:
         while True:
@@ -1955,11 +1986,11 @@ def handle_resume_session(data: dict):
     # Emit startup log after session is loaded
     skills_path = session.skills_path
     if skills_path:
-        try:
-            _skills_count = len([f for f in os.listdir(skills_path) if f.lower().endswith(".md")])
-            skills_str = f"enabled ({_skills_count} files)"
-        except OSError:
-            skills_str = "enabled (path error)"
+        custom_skills = [
+            entry for entry in _get_session_skill_registry(session_id)
+            if entry["source"] == "custom"
+        ]
+        skills_str = f"enabled ({len(custom_skills)} skills)"
     else:
         skills_str = "disabled"
     _effective_initial_cwd = session.initial_cwd or "(none)"
@@ -2069,13 +2100,17 @@ def handle_get_skills_info():
     session = _load_session(session_id)
     skills_path = session.skills_path
     if skills_path:
-        try:
-            skills_files = sorted(f for f in os.listdir(skills_path) if f.lower().endswith(".md"))
-        except OSError:
-            skills_files = []
+        custom_skills = [
+            entry for entry in _get_session_skill_registry(session_id)
+            if entry["source"] == "custom"
+        ]
+        skill_labels = sorted(
+            f"{entry['name']} ({entry['id']})" + (" [autoload]" if entry["autoload"] else "")
+            for entry in custom_skills
+        )
         socketio.emit("skills_info", {
-            "enabled": True, "count": len(skills_files),
-            "path": skills_path.replace("\\", "/"), "files": skills_files,
+            "enabled": True, "count": len(skill_labels),
+            "path": skills_path.replace("\\", "/"), "files": skill_labels,
         }, room=session_id)
     else:
         socketio.emit("skills_info", {
@@ -2416,3 +2451,4 @@ def handle_user_message(data: dict):
         _redirect_events.pop(session_id, None)
         _redirect_messages.pop(session_id, None)
         loop.close()
+
