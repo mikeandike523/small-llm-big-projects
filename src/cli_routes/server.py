@@ -10,6 +10,9 @@ from src.utils.env_info import get_default_workspace_dir
 from src.utils.free_port import find_free_port
 from src.utils.process import ManagedProcess, find_bash, run_processes
 from src.utils.server_state import clear_state, write_state
+from src.data import get_pool
+from src.utils.sql.kv_manager import KVManager
+from src.utils.profile_utils import get_active_profile, _kv_prefix
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
@@ -88,6 +91,33 @@ def server_run(
       - Docker Compose services (MySQL, Redis, Piston) are running
       - .env exists at the project root (copy from .env.example)
     """
+    # Lightweight pre-flight config check.
+    try:
+        pool = get_pool()
+        with pool.get_connection() as conn:
+            kv = KVManager(conn)
+            profile = get_active_profile(kv)
+            prefix = _kv_prefix(profile)
+            active_token = kv.get_value(prefix + "active_token")
+            model_val = kv.get_value(prefix + "model")
+        if not active_token:
+            click.echo(click.style(
+                f"Error: No active token set for profile '{profile}'. "
+                "Use 'slbp token use <provider>' to set one.",
+                fg="red",
+            ))
+            raise SystemExit(1)
+        if not model_val:
+            click.echo(click.style(
+                "Warning: No model set. The platform may automatically choose a model. "
+                "This is not recommended.",
+                fg="yellow",
+            ))
+    except SystemExit:
+        raise
+    except Exception as exc:
+        click.echo(click.style(f"Warning: Could not verify config: {exc}", fg="yellow"))
+
     bash = find_bash()
     workspace_dir = get_default_workspace_dir()
     Path(workspace_dir).mkdir(parents=True, exist_ok=True)

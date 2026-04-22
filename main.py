@@ -9,6 +9,7 @@ importlib.import_module("src.cli_routes.session")
 importlib.import_module("src.cli_routes.server")
 importlib.import_module("src.cli_routes.service_token")
 importlib.import_module("src.cli_routes.dashboard")
+importlib.import_module("src.cli_routes.profile")
 
 from src.cli_obj import cli
 

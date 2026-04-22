@@ -6,6 +6,7 @@ from termcolor import colored
 from src.data import get_pool
 from src.cli_obj import cli
 from src.utils.sql.kv_manager import KVManager
+from src.utils.profile_utils import get_active_profile, _kv_prefix
 
 _ALLOWED_PARAMS = {
     "model.temperature",
@@ -222,35 +223,24 @@ def sub_cmd_list(available):
     click.echo('')
     pool = get_pool()
     with pool.get_connection() as conn:
-        SQL="""
-SELECT * FROM `kv_store` where `key` like "params.%"
-"""
-        with conn.cursor(dictionary=True) as cursor:
-            cursor.execute(SQL)
-            results = cursor.fetchall()
-            if not results:
-                click.echo("No params set.")
-            for i, result in enumerate(results):
-                is_last = i == len(results) - 1
-                raw_key = result['key']
-                display_key = raw_key[len("params."):] if raw_key.startswith("params.") else raw_key
-                value_str = result["value"]
-                try:
-                    value = json.loads(value_str)
-                    print(f"""
+        kv = KVManager(conn)
+        profile = get_active_profile(kv)
+        prefix = _kv_prefix(profile)
+        params_prefix = prefix + "params."
+        keys = kv.list_keys(prefix=params_prefix)
+        if not keys:
+            click.echo(f"No params set.  (profile: {profile})")
+        else:
+            click.echo(f"(profile: {profile})")
+        for i, key in enumerate(keys):
+            is_last = i == len(keys) - 1
+            display_key = key[len(params_prefix):]
+            val = kv.get_value(key)
+            print(f"""
 {colored(display_key,'blue')}:
 
-{json.dumps(value, indent=2)}
-""".strip()+("\n\n" if not is_last else ""))
-
-                except json.JSONDecodeError:
-                    click.echo(f"""
-{colored(display_key,'blue')}:
-
-[Invalid JSON]
-
-{value_str}
-""".strip()+("\n\n" if not is_last else ""))
+{json.dumps(val, indent=2)}
+""".strip() + ("\n\n" if not is_last else ""))
 
 @param.command(name="set")
 @click.argument("name", type=str)
@@ -262,9 +252,12 @@ def sub_cmd_set(name, value):
     typed_value = _parse_and_validate(name, value)
     pool = get_pool()
     with pool.get_connection() as conn:
-        KVManager(conn).set_value(f"params.{name}", typed_value)
+        kv = KVManager(conn)
+        profile = get_active_profile(kv)
+        prefix = _kv_prefix(profile)
+        kv.set_value(f"{prefix}params.{name}", typed_value)
         conn.commit()
-    click.echo(f"Set {name} = {typed_value}")
+    click.echo(f"Set {name} = {typed_value}  (profile: {profile})")
 
 
 @param.command(name="show")
@@ -275,14 +268,18 @@ def sub_cmd_show():
     pool = get_pool()
     with pool.get_connection() as conn:
         kv = KVManager(conn)
-        keys = kv.list_keys(prefix="params.")
+        profile = get_active_profile(kv)
+        prefix = _kv_prefix(profile)
+        params_prefix = prefix + "params."
+        keys = kv.list_keys(prefix=params_prefix)
         if not keys:
-            click.echo("No params set.")
+            click.echo(f"No params set.  (profile: {profile})")
             return
         for key in keys:
-            param_name = key[len("params."):]
+            param_name = key[len(params_prefix):]
             val = kv.get_value(key)
             click.echo(f"{param_name} = {val}")
+    click.echo(f"(profile: {profile})")
 
 
 @param.command(name="unset")
@@ -299,12 +296,14 @@ def sub_cmd_unset(name):
     pool = get_pool()
     with pool.get_connection() as conn:
         kv = KVManager(conn)
-        if not kv.exists(f"params.{name}"):
-            click.echo(f"{name} is not set.")
+        profile = get_active_profile(kv)
+        prefix = _kv_prefix(profile)
+        if not kv.exists(f"{prefix}params.{name}"):
+            click.echo(f"{name} is not set.  (profile: {profile})")
             return
-        kv.delete_value(f"params.{name}")
+        kv.delete_value(f"{prefix}params.{name}")
         conn.commit()
-    click.echo(f"Unset {name}")
+    click.echo(f"Unset {name}  (profile: {profile})")
 
 
 @param.command(name="manual")

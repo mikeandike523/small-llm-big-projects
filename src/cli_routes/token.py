@@ -6,6 +6,7 @@ from src.cli_obj import cli
 
 from src.data import get_pool
 from src.utils.sql.kv_manager import KVManager
+from src.utils.profile_utils import get_active_profile, _kv_prefix
 
 
 def _mask_token(token_value: str) -> str:
@@ -289,28 +290,34 @@ def sub_cmd_use(yes: bool, provider: str, name: str):
 
     if provider.lower() == "none":
         with pool.get_connection() as conn:
-            KVManager(conn).delete_value("active_token")
+            kv = KVManager(conn)
+            profile = get_active_profile(kv)
+            prefix = _kv_prefix(profile)
+            kv.delete_value(prefix + "active_token")
             conn.commit()
-        click.echo("Active token cleared.")
+        click.echo(f"Active token cleared.  (profile: {profile})")
         return
 
     token_name = name or ""
 
     with pool.get_connection() as conn:
+        kv = KVManager(conn)
+        profile = get_active_profile(kv)
+        prefix = _kv_prefix(profile)
         with conn.cursor() as cursor:
             resolved_name = _resolve_token(cursor, provider, token_name, yes)
 
         if resolved_name is None:
             return
 
-        KVManager(conn).set_value("active_token", {
+        kv.set_value(prefix + "active_token", {
             "provider": provider,
             "name": resolved_name,
         })
         conn.commit()
 
     display = f'"{resolved_name}"' if resolved_name else "(no name)"
-    click.echo(f'Active token set to provider="{provider}" name={display}.')
+    click.echo(f'Active token set to provider="{provider}" name={display}.  (profile: {profile})')
 
 
 @token.command(name="remove")
@@ -472,10 +479,12 @@ def sub_cmd_show():
 
     with pool.get_connection() as conn:
         kv = KVManager(conn)
-        active_token = kv.get_value("active_token")
+        profile = get_active_profile(kv)
+        prefix = _kv_prefix(profile)
+        active_token = kv.get_value(prefix + "active_token")
 
         if not active_token:
-            click.echo("No token currently active.")
+            click.echo(f"No token currently active.  (profile: {profile})")
             return
 
         provider = active_token.get("provider", "")
@@ -497,12 +506,13 @@ def sub_cmd_show():
     if row is None:
         click.echo(
             f'Active token (provider="{provider}", name="{token_name}") '
-            "was not found in the database. It may have been removed."
+            f"was not found in the database. It may have been removed.  (profile: {profile})"
         )
         return
 
     token_value, endpoint_url = row
     name_display = token_name if token_name else "(no name)"
+    click.echo(f"{'Profile':<20} {profile}")
     click.echo(f"{'Provider':<20} {provider}")
     click.echo(f"{'Name':<20} {name_display}")
     click.echo(f"{'Endpoint URL':<20} {endpoint_url or '(none)'}")

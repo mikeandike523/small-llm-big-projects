@@ -5,6 +5,7 @@ import logging
 from src.data import get_pool
 from src.utils.sql.kv_manager import KVManager
 from src.utils.llm.streaming import StreamingLLM
+from src.utils.profile_utils import get_active_profile, _kv_prefix
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +24,10 @@ def load_llm_config() -> dict | None:
 
     with pool.get_connection() as conn:
         kv = KVManager(conn)
-        active_token = kv.get_value("active_token")
+        profile = get_active_profile(kv)
+        prefix = _kv_prefix(profile)
+
+        active_token = kv.get_value(prefix + "active_token")
         if not active_token:
             return None
 
@@ -48,11 +52,14 @@ def load_llm_config() -> dict | None:
 
         token_value, endpoint_url = row
 
-        model = kv.get_value("model") or None
-        param_keys = kv.list_keys(prefix="params.")
+        model = kv.get_value(prefix + "model") or None
+        full_params_prefix = prefix + "params."
+        full_model_prefix = prefix + "params.model."
+        full_system_prefix = prefix + "params.system."
+        param_keys = kv.list_keys(prefix=full_params_prefix)
         model_params = {
-            k[len("params.model."):]: kv.get_value(k)
-            for k in param_keys if k.startswith("params.model.")
+            k[len(full_model_prefix):]: kv.get_value(k)
+            for k in param_keys if k.startswith(full_model_prefix)
         }
         extra = model_params.pop("request_extra_params", None)
         if extra:
@@ -64,8 +71,8 @@ def load_llm_config() -> dict | None:
         watchdog_max_tokens = model_params.pop("watchdog_max_tokens", None)
         title_summary_max_tokens = model_params.pop("title_summary_max_tokens", None)
         system_params = {
-            k[len("params.system."):]: kv.get_value(k)
-            for k in param_keys if k.startswith("params.system.")
+            k[len(full_system_prefix):]: kv.get_value(k)
+            for k in param_keys if k.startswith(full_system_prefix)
         }
         if compaction_max_tokens is not None:
             system_params["compaction_max_tokens"] = compaction_max_tokens
