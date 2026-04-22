@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 LEAVE_OUT = "SHORT"
-TOOL_SHORT_AMOUNT = 2000
+TOOL_SHORT_AMOUNT = 300
+NO_STUB = True
 
 DEFINITION: dict = {
     "type": "function",
@@ -9,9 +10,7 @@ DEFINITION: dict = {
         "name": "read_skill_file",
         "description": (
             "Read the contents of a skill file by filename. "
-            "Use list_skill_files first to see available filenames. "
-            "The result may be stubbed if the file is long — "
-            "use return_stub_line_reader to read it in chunks if so."
+            "Use list_skill_files first to see available filenames."
         ),
         "parameters": {
             "type": "object",

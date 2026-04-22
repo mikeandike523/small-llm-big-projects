@@ -42,7 +42,7 @@ DEFINITION: dict = {
         "description": (
             "Structural text-editor operations on session memory string values. "
             "Part of the in-memory text editor toolkit: "
-            "read_text_file_to_session_memory -> edit -> write_text_file_from_session_memory. "
+            "read_text_file(session_memory_key=...) -> edit -> write_text_file(session_memory_key=...). "
             "\n\n"
             "LINE ENDING RULES:\n"
             "Only LF (\\n) and CRLF (\\r\\n) are recognised as line terminators. "

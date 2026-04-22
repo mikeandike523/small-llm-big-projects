@@ -1,14 +1,11 @@
 import os
 
 _BUILT_IN_SKILLS_DIR = os.path.join(os.path.dirname(__file__), "built_in_skills")
+_GENERAL_SKILLS_DIR = os.path.join(_BUILT_IN_SKILLS_DIR, "general")
+_SPECIALIZED_SKILLS_DIR = os.path.join(_BUILT_IN_SKILLS_DIR, "specialized")
 
 
 def parse_skill_title(content: str) -> str:
-    """Extract a display title from skill file content.
-    Uses the first non-blank line if it's a markdown header (starts with #),
-    stripping the leading # characters. Otherwise uses the first 50 chars of
-    the first non-blank line, appending '...' if longer.
-    """
     for line in content.splitlines():
         stripped = line.strip()
         if not stripped:
@@ -21,47 +18,76 @@ def parse_skill_title(content: str) -> str:
     return "(untitled)"
 
 
+def _load_skill_files_from_dir(directory: str, source: str) -> list[dict]:
+    entries: list[dict] = []
+    try:
+        filenames = sorted(f for f in os.listdir(directory) if f.lower().endswith(".md"))
+    except OSError:
+        return entries
+    for filename in filenames:
+        path = os.path.join(directory, filename)
+        try:
+            with open(path, encoding="utf-8") as fh:
+                content = fh.read()
+            title = parse_skill_title(content)
+        except OSError:
+            title = filename
+            content = ""
+        entries.append({"title": title, "filename": filename, "path": path, "source": source, "_content": content})
+    return entries
+
+
 def build_skill_registry(custom_skills_path: str | None = None) -> list[dict]:
-    """Return a list of skill file descriptors for built-in and custom skills.
+    """Return a list of skill file descriptors for general, specialized, and custom skills.
 
     Each entry: {title, filename, path, source}
-    where source is 'builtin' or 'custom'.
+    source is one of: 'builtin_general', 'builtin_specialized', 'custom_general', 'custom_specialized'
+
+    Custom skill loading rules:
+    - Files directly in custom_skills_path root     -> custom_general (backwards compat)
+    - Files in custom_skills_path/general/          -> custom_general
+    - Files in custom_skills_path/specialized/      -> custom_specialized
     """
     registry: list[dict] = []
 
-    try:
-        builtin_files = sorted(f for f in os.listdir(_BUILT_IN_SKILLS_DIR) if f.lower().endswith(".md"))
-        for filename in builtin_files:
-            path = os.path.join(_BUILT_IN_SKILLS_DIR, filename)
+    for entry in _load_skill_files_from_dir(_GENERAL_SKILLS_DIR, "builtin_general"):
+        registry.append({k: v for k, v in entry.items() if k != "_content"})
+
+    for entry in _load_skill_files_from_dir(_SPECIALIZED_SKILLS_DIR, "builtin_specialized"):
+        registry.append({k: v for k, v in entry.items() if k != "_content"})
+
+    if custom_skills_path:
+        # Root-level .md files (backwards compat) -> general
+        try:
+            root_files = sorted(f for f in os.listdir(custom_skills_path) if f.lower().endswith(".md"))
+        except OSError:
+            root_files = []
+        for filename in root_files:
+            path = os.path.join(custom_skills_path, filename)
             try:
                 with open(path, encoding="utf-8") as fh:
                     content = fh.read()
                 title = parse_skill_title(content)
             except OSError:
                 title = filename
-            registry.append({"title": title, "filename": filename, "path": path, "source": "builtin"})
-    except OSError:
-        pass
+            registry.append({"title": title, "filename": filename, "path": path, "source": "custom_general"})
 
-    if custom_skills_path:
-        try:
-            custom_files = sorted(f for f in os.listdir(custom_skills_path) if f.lower().endswith(".md"))
-            for filename in custom_files:
-                path = os.path.join(custom_skills_path, filename)
-                try:
-                    with open(path, encoding="utf-8") as fh:
-                        content = fh.read()
-                    title = parse_skill_title(content)
-                except OSError:
-                    title = filename
-                registry.append({"title": title, "filename": filename, "path": path, "source": "custom"})
-        except OSError:
-            pass
+        # general/ subfolder -> general
+        for entry in _load_skill_files_from_dir(
+            os.path.join(custom_skills_path, "general"), "custom_general"
+        ):
+            registry.append({k: v for k, v in entry.items() if k != "_content"})
+
+        # specialized/ subfolder -> specialized
+        for entry in _load_skill_files_from_dir(
+            os.path.join(custom_skills_path, "specialized"), "custom_specialized"
+        ):
+            registry.append({k: v for k, v in entry.items() if k != "_content"})
 
     return registry
 
 
-SYSTEM_PROMPT = """\
+_SYSTEM_PROMPT_BODY = """\
 You are a helpful assistant with access to tools that let you perform many useful actions.
 Prefer tool use when possible. Read each tool's description carefully — they contain full usage details.
 Always use a dedicated tool instead of host_shell if one is available. host_shell is well-suited
@@ -78,10 +104,10 @@ Do not assume the environment details without checking when they are important.
 == SCRATCH FILES AND QUICK COMPUTATIONS ==
 
 For small, precise tasks (quick calculations, one-off data transforms, throwaway scripts):
-- Prefer `simple_code_interpreter` — pass `code` as a plain string and `arg_values` as a
-  flat list of JSON values. Optional `timeout` and `enable_tracebacks` params are available.
-- Use `session_memory_code_interpreter` when code, arguments, or output must come from or
-  be written to session memory keys — all three are session memory keys in that tool.
+- Use `code_interpreter` — pass `raw_code` as a plain string, or `code_session_memory_key`
+  to load code from session memory. Pass arguments via `sys_argv` (list of strings) and/or
+  `session_memory_arg_keys` (keys appended after sys_argv). Output returns directly or can be
+  written to a session memory key via `output_session_memory_key`.
 - Scripts must be non-interactive: never use input(), getpass(), or any blocking key/input
   call. Design every script as a one-shot run — receive all data via argv or session memory,
   produce all output via stdout, then exit. For stateful programs (games, quizzes, simulations),
@@ -111,7 +137,7 @@ without a todo list. Do not invent workflow for a straightforward task.
 Some tool calls require explicit user approval before they execute.
 
 - Approved: the tool runs normally.
-- Denied (plain): the result is "DENIED: User did not approve this action." The loop ends.
+- Denied (plain): the tool result is "Error: NOT Approved. User did not approve this action."
   You must call report_impossible explaining that the task cannot proceed without that permission.
   Do not attempt workarounds or pretend the denied action succeeded.
 - Denied with redirect: you will receive an injected continuation with the user's guidance.
@@ -169,7 +195,8 @@ Keep the todo item for that step open until it actually succeeds — do not clos
 
 == READING FILES ==
 
-For small files: read_text_file(path=...) returns the full contents in one call.
+For small files: read_text_file(path=...) returns the full contents directly.
+To load a file into session memory for editing: read_text_file(path=..., session_memory_key=...).
 For large files, use file_line_reader to read in chunks:
   - file_line_reader(action="count_lines", path=...) to get the total line count.
   - file_line_reader(action="read_lines", path=..., start_line=..., end_line=..., number_lines=true) to read a chunk.
@@ -194,17 +221,66 @@ in session memory at the key shown in the header. Use return_stub_line_reader to
   - return_stub_line_reader(action="count_lines", session_memory_key=...) for total lines.
   - return_stub_line_reader(action="read_lines", session_memory_key=..., start_line=..., end_line=...) for a chunk.
 
-== SKILLS ==
-
-Skills are guides for solving common problems using your existing tools.
-Use list_skill_files to see all available skills (built-in and custom).
-Use read_skill_file(filename=...) to read a skill by its filename.
-The result may be stubbed if the file is long — use return_stub_line_reader to read it in chunks.
-
 """
 
-def build_system_prompt(starting_environment_info: str | None = None):
-    prompt = SYSTEM_PROMPT
+
+def _build_skills_section(skill_registry: list[dict]) -> str:
+    _general_sources = {"builtin_general", "custom_general"}
+    _specialized_sources = {"builtin_specialized", "custom_specialized"}
+
+    general = [e for e in skill_registry if e.get("source") in _general_sources]
+    specialized = [e for e in skill_registry if e.get("source") in _specialized_sources]
+
+    lines: list[str] = ["== SKILLS ==", ""]
+    lines.append(
+        "Skills are topic-specific guides for using your tools effectively in specific domains."
+    )
+    lines.append("")
+
+    if general:
+        lines.append("General skills (loaded in this system prompt):")
+        for e in general:
+            lines.append(f"  {e['filename']} -- {e['title']}")
+        lines.append("")
+
+    if specialized:
+        lines.append("Specialized skills (load on demand):")
+        for e in specialized:
+            lines.append(f"  {e['filename']} -- {e['title']}")
+        lines.append("")
+
+    if specialized:
+        lines.append(
+            "For specific tasks, use list_skill_files to see the full list and "
+            "read_skill_file(filename=...) to load a skill."
+        )
+        lines.append("")
+
+    if general:
+        lines.append("---")
+        lines.append("")
+        for e in general:
+            try:
+                with open(e["path"], encoding="utf-8") as fh:
+                    content = fh.read().strip()
+            except OSError:
+                content = f"(could not read {e['filename']})"
+            lines.append(content)
+            lines.append("")
+
+    return "\n".join(lines)
+
+
+def build_system_prompt(
+    starting_environment_info: str | None = None,
+    skill_registry: list[dict] | None = None,
+) -> str:
+    if skill_registry is None:
+        skill_registry = []
+
+    skills_section = _build_skills_section(skill_registry)
+    prompt = _SYSTEM_PROMPT_BODY + skills_section + "\n"
+
     if starting_environment_info:
         env_block = (
             "Starting Agent Environment Info:\n"
@@ -212,4 +288,5 @@ def build_system_prompt(starting_environment_info: str | None = None):
             "Please call the get_environment_info tool to get up-to-date info when needed.\n\n"
         )
         prompt = env_block + prompt
+
     return prompt

@@ -8,8 +8,7 @@ import traceback
 from src.utils.exceptions import ToolHangError, ToolTimeoutError
 from src.tools import ask_human
 from src.tools import basic_web_request
-from src.tools import session_memory_code_interpreter
-from src.tools import simple_code_interpreter
+from src.tools import code_interpreter
 from src.tools import brave_web_search
 from src.tools import change_pwd
 from src.tools import create_dir
@@ -28,7 +27,6 @@ from src.tools import read_skill_file
 from src.tools import list_working_tree
 from src.tools import project_memory
 from src.tools import read_text_file
-from src.tools import read_text_file_to_session_memory
 from src.tools import remove_dir
 from src.tools import report_impossible
 from src.tools import return_stub_line_reader
@@ -39,14 +37,12 @@ from src.tools import session_memory_text_editor
 from src.tools import todo_list
 from src.tools import wikipedia
 from src.tools import write_text_file
-from src.tools import write_text_file_from_session_memory
 from src.utils.tool_calling.arguments import validate_tool_args
 
 ALL_TOOL_DEFINITIONS: list[dict] = [
     ask_human.DEFINITION,
     basic_web_request.DEFINITION,
-    session_memory_code_interpreter.DEFINITION,
-    simple_code_interpreter.DEFINITION,
+    code_interpreter.DEFINITION,
     brave_web_search.DEFINITION,
     change_pwd.DEFINITION,
     create_dir.DEFINITION,
@@ -65,7 +61,6 @@ ALL_TOOL_DEFINITIONS: list[dict] = [
     project_memory.DEFINITION,
     read_skill_file.DEFINITION,
     read_text_file.DEFINITION,
-    read_text_file_to_session_memory.DEFINITION,
     remove_dir.DEFINITION,
     report_impossible.DEFINITION,
     return_stub_line_reader.DEFINITION,
@@ -76,14 +71,12 @@ ALL_TOOL_DEFINITIONS: list[dict] = [
     todo_list.DEFINITION,
     wikipedia.DEFINITION,
     write_text_file.DEFINITION,
-    write_text_file_from_session_memory.DEFINITION,
 ]
 
 _TOOL_MAP: dict[str, object] = {
     "ask_human": ask_human,
     "basic_web_request": basic_web_request,
-    "session_memory_code_interpreter": session_memory_code_interpreter,
-    "simple_code_interpreter": simple_code_interpreter,
+    "code_interpreter": code_interpreter,
     "brave_web_search": brave_web_search,
     "change_pwd": change_pwd,
     "create_dir": create_dir,
@@ -112,8 +105,6 @@ _TOOL_MAP: dict[str, object] = {
     "todo_list": todo_list,
     "wikipedia": wikipedia,
     "write_text_file": write_text_file,
-    "write_text_file_from_session_memory": write_text_file_from_session_memory,
-    "read_text_file_to_session_memory": read_text_file_to_session_memory,
 }
 
 # ---------------------------------------------------------------------------

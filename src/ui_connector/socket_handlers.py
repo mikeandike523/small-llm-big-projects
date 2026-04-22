@@ -45,8 +45,8 @@ from termcolor import colored
 
 logger = logging.getLogger(__name__)
 
-_BASE_SYSTEM_PROMPT: str = build_system_prompt()
 _BASE_SKILL_REGISTRY: list[dict] = build_skill_registry()
+_BASE_SYSTEM_PROMPT: str = build_system_prompt(skill_registry=_BASE_SKILL_REGISTRY)
 
 _env_os = get_os()
 _env_shell = get_shell()
@@ -139,17 +139,19 @@ def _init_session_caches(session: "Session", session_id: str) -> None:
             plugins = []
         _session_tool_sets[session_id] = (tool_defs, tool_map, plugins)
 
-    if session_id not in _session_system_prompts:
-        _session_system_prompts[session_id] = build_system_prompt(
-            starting_environment_info=_build_starting_environment_info(session),
-        )
-
     if session_id not in _session_skill_registries:
         registry = build_skill_registry(custom_skills_path=session.skills_path)
         _session_skill_registries[session_id] = registry
         session.session_data["__skill_files__"] = registry
     else:
-        session.session_data["__skill_files__"] = _session_skill_registries[session_id]
+        registry = _session_skill_registries[session_id]
+        session.session_data["__skill_files__"] = registry
+
+    if session_id not in _session_system_prompts:
+        _session_system_prompts[session_id] = build_system_prompt(
+            starting_environment_info=_build_starting_environment_info(session),
+            skill_registry=registry,
+        )
 
     _session_project_config[session_id] = {
         "initial_cwd": session.initial_cwd,
@@ -526,12 +528,13 @@ def api_create_session():
     else:
         _session_tool_sets[session_id] = (ALL_TOOL_DEFINITIONS, _TOOL_MAP, [])
 
-    _session_system_prompts[session_id] = build_system_prompt(
-        starting_environment_info=_build_starting_environment_info(session),
-    )
     registry = build_skill_registry(custom_skills_path=skills_path)
     _session_skill_registries[session_id] = registry
     session.session_data["__skill_files__"] = registry
+    _session_system_prompts[session_id] = build_system_prompt(
+        starting_environment_info=_build_starting_environment_info(session),
+        skill_registry=registry,
+    )
     _session_project_config[session_id] = {
         "initial_cwd": initial_cwd,
         "pin_project_memory": pin_project_memory,
@@ -1092,7 +1095,9 @@ def _execute_tools(
             tool_record.finished_at = finished_at
             special_resources.pop("on_chunk", None)
 
-            if return_value_max_chars is not None and len(tool_result) > return_value_max_chars:
+            _tool_module = actual_tool_map.get(tc.name)
+            _no_stub = getattr(_tool_module, "NO_STUB", False)
+            if not _no_stub and return_value_max_chars is not None and len(tool_result) > return_value_max_chars:
                 tool_result = _stub_tool_result(tool_result, return_value_max_chars, session.session_data)
                 tool_record.was_stubbed = True
 

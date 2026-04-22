@@ -10,15 +10,16 @@ DEFINITION: dict = {
     "function": {
         "name": "write_text_file",
         "description": (
-            "Write text content directly to a file on disk in one step. "
-            "Creates the file if it does not exist; overwrites it if it does. "
-            "\n\n"
-            "Use this for small files or complete rewrites where you already have "
-            "the full content ready. "
-            "For editing existing files, use the session memory path instead "
-            "(read_text_file_to_session_memory -> session_memory_text_editor -> "
-            "write_text_file_from_session_memory), which protects the original file "
-            "and enables precise line-level edits."
+            "Write text content to a file on disk. "
+            "Creates the file if it does not exist; overwrites it if it does.\n\n"
+            "Content source — provide exactly one:\n"
+            "  content: raw text string to write directly\n"
+            "  session_memory_key: session memory key whose value is written to disk\n\n"
+            "Use content for new files or complete rewrites where you have the full text ready.\n"
+            "Use session_memory_key to complete the editing round-trip:\n"
+            "  read_text_file(session_memory_key=...) -> session_memory_text_editor -> "
+            "write_text_file(session_memory_key=...)\n\n"
+            "Line endings are written verbatim with no EOL conversion for both modes."
         ),
         "parameters": {
             "type": "object",
@@ -29,14 +30,18 @@ DEFINITION: dict = {
                 },
                 "content": {
                     "type": "string",
-                    "description": "The full text content to write to the file.",
+                    "description": "Raw text content to write. Mutually exclusive with session_memory_key.",
+                },
+                "session_memory_key": {
+                    "type": "string",
+                    "description": "Session memory key whose string value is written to the file. Mutually exclusive with content.",
                 },
                 "create_parents": {
                     "type": "boolean",
                     "description": "If true, create any missing parent directories. Default false.",
                 },
             },
-            "required": ["path", "content"],
+            "required": ["path"],
             "additionalProperties": False,
         },
     },
@@ -50,15 +55,32 @@ def needs_approval(args: dict) -> bool:
 
 def execute(args: dict, session_data: dict) -> str:
     path = args["path"]
-    content = args["content"]
+    content: str | None = args.get("content")
+    session_memory_key: str | None = args.get("session_memory_key")
     create_parents: bool = args.get("create_parents", False)
 
-    target = Path(path)
+    if content is not None and session_memory_key is not None:
+        return "Error: provide exactly one of 'content' or 'session_memory_key', not both."
+    if content is None and session_memory_key is None:
+        return "Error: one of 'content' or 'session_memory_key' is required."
 
+    if session_memory_key is not None:
+        memory = session_data.get("memory") if session_data else None
+        if not isinstance(memory, dict):
+            memory = {}
+        value = memory.get(session_memory_key)
+        if value is None:
+            return f"Error: session memory key {session_memory_key!r} not found."
+        if not isinstance(value, str):
+            return f"Error: session memory key {session_memory_key!r} does not hold a text value (got {type(value).__name__})."
+        content = value
+
+    target = Path(path)
     try:
         if create_parents:
             target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(content, encoding="utf-8")
+        with open(target, "w", encoding="utf-8", newline="") as fh:
+            fh.write(content)
         return f"File written: {path} ({len(content)} chars)"
     except FileNotFoundError:
         return f"Error: parent directory does not exist: {target.parent}"

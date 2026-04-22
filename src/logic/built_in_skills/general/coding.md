@@ -19,7 +19,7 @@ subproject or nested module). At the start of any task, check `project_memory` w
 
 Reading: use `read_text_file` for small files, or `file_line_reader` (count_lines + read_lines) for large files.
 Use these when exploring and understanding code — they are fast and lightweight.
-Use `read_text_file_to_session_memory` when you are ready to analyze closely or make edits,
+Use `read_text_file(path=..., session_memory_key=...)` when you are ready to analyze closely or make edits,
 since the session memory toolkit enables precise line-level editing.
 
 ALL CODE EDITS ARE DONE IN SESSION MEMORY BEFORE BEING WRITTEN TO DISK
@@ -36,17 +36,17 @@ Writing Small Files (new or complete rewrite):
 
 Creating New Files (larger content via session memory):
 
-    Use `create_text_file` to create the file, then `session_memory(action="set")`
-    to build the content, then `write_text_file_from_session_memory` to write it to disk.
+    Use `session_memory(action="set")` to build the content in session memory,
+    then `write_text_file(path=..., session_memory_key=...)` to write it to disk.
 
 Editing Existing Files:
 
-    Use `read_text_file_to_session_memory` to read a file on disk into session memory.
+    Use `read_text_file(path=..., session_memory_key=...)` to load a file into session memory.
     Perform edits with `session_memory_text_editor` tool.
-    Save the contents back to disk with `write_text_file_from_session_memory`.
+    Save the contents back to disk with `write_text_file(path=..., session_memory_key=...)`.
     After each write, pause and check the todo list — if a step is now complete, close it.
 
-### Match Project Style and Enviornment
+### Match Project Style and Environment
 
 Always explore the repo thoroughly before starting a new coding task — add exploration steps to the
 todo list up front so nothing gets skipped.
@@ -105,22 +105,29 @@ individual approve/deny prompts mid-execution.
 
 ### Scratch Files and Quick Computations
 
-For small or one-off computations, prefer `simple_code_interpreter` — pass `code` as a plain
-string and `arg_values` as a flat list of JSON values (strings pass through as-is; other types
-are JSON-serialised into argv). Optional `timeout` (seconds) and `enable_tracebacks` (bool)
-params are available. It runs Python in a sandboxed environment (Piston/Docker); nothing inside
-the sandbox persists to the host or project filesystem.
+Use `code_interpreter` for small or one-off computations. It runs Python in a sandboxed
+environment (Piston/Docker); nothing inside the sandbox persists to the host or project filesystem.
+
+Code source — provide exactly one:
+- `raw_code`: inline Python source as a string
+- `code_session_memory_key`: session memory key holding the source code
+
+Arguments — both optional, combined in order into sys.argv:
+- `sys_argv`: list of strings passed as sys.argv[1], sys.argv[2], ...
+- `session_memory_arg_keys`: session memory keys whose string values are appended after sys_argv
+
+Output:
+- Omit `output_session_memory_key` to receive stdout directly as the tool return value.
+- Set `output_session_memory_key` to write stdout into a session memory key instead — useful
+  when the output is large or feeds directly into another session memory operation.
+
+Optional: `timeout` (seconds), `enable_tracebacks` (bool, default true).
 
 Scripts must be non-interactive: never use `input()`, `getpass()`, or any blocking key/input
 call. Design every script as a one-shot run — receive all data via argv or session memory,
 produce all output via stdout, then exit. For stateful programs (games like tic-tac-toe or chess,
 quizzes, simulations), store the game/quiz state in session memory between interpreter calls and
 pass it in as an argument each turn.
-
-When code was built up incrementally in session memory, arguments are large blobs already stored
-there, or the output should feed directly into another session memory operation, use
-`session_memory_code_interpreter` instead. All three — code, arguments, and return value —
-must be session memory keys in that tool; there is no inline code or direct return.
 
 If you do need to write a temporary or scratch file that persists on the host (intermediate data,
 throwaway script, quick test output), do NOT put it inside the current project. Instead, call
@@ -142,4 +149,5 @@ After a build or test run, check the todo list — close verification steps only
 
 ### Stay Up to Date
 
-If you don't know something, search the web — see the Browsing the Web skill.
+If you don't know something, search the web. Load the Browsing the Web skill first:
+`read_skill_file(filename="web_browsing.md")`
