@@ -10,16 +10,22 @@ from src.utils.http.helpers import (
 )
 from src.utils.sql.kv_manager import KVManager
 from src.data import get_pool
+from src.tools._web_search_filter import web_search_filter
 
 
 _BRAVE_SEARCH_URL = "https://api.search.brave.com/res/v1/web/search"
 _ACCEPT = "application/json"
+_USER_AGENT = (
+    "Mozilla/5.0 (compatible; slbp-agent/1.0; +https://github.com/mikeandike523/small-llm-big-projects)"
+)
 
 LEAVE_OUT = "SHORT"
 TOOL_SHORT_AMOUNT = 800
 
 DEFAULT_TIMEOUT = 15  # seconds
 TIMEOUT_HINT = None
+
+DEFAULT_COUNT = 5
 
 DEFINITION: dict = {
     "type": "function",
@@ -39,7 +45,7 @@ DEFINITION: dict = {
                 },
                 "count": {
                     "type": "integer",
-                    "description": "Number of results to return (1–20). Defaults to 10.",
+                    "description": f"Number of results to return (1–20). Defaults to {DEFAULT_COUNT}.",
                     "minimum": 1,
                     "maximum": 20,
                 },
@@ -62,9 +68,10 @@ DEFINITION: dict = {
                     "type": "string",
                     "description": "2-letter country code to bias results (e.g. 'US', 'GB').",
                 },
+                # Default en, as most llms are primarily English-trained
                 "search_lang": {
                     "type": "string",
-                    "description": "Language code for results (e.g. 'en', 'fr').",
+                    "description": "Language code for results (e.g. 'en', 'fr'). Defaults to 'en' if not specified.",
                 },
                 "target": {
                     "type": "string",
@@ -100,11 +107,11 @@ def execute(args: dict, session_data: dict | None = None) -> str:
         session_data = {}
 
     query: str = args["query"]
-    count: int = args.get("count", 10)
+    count: int = args.get("count", DEFAULT_COUNT)
     offset: int = args.get("offset", 0)
     freshness: str | None = args.get("freshness")
     country: str | None = args.get("country")
-    search_lang: str | None = args.get("search_lang")
+    search_lang: str | None = args.get("search_lang",'en')
     target: str = args.get("target", "return_value")
     memory_key: str | None = args.get("memory_key")
 
@@ -130,9 +137,30 @@ def execute(args: dict, session_data: dict | None = None) -> str:
     if search_lang:
         params["search_lang"] = search_lang
 
+    # Default result types
+    params["result_filter"] = [
+        "query",
+        "web",
+        "news",
+        "discussions",
+        "faq",
+      #  "infobox", Ignore for now, may contain plot data that is difficult for AI to interpret
+    ]
+
+    # In the future, it will be useful to add dynamic selection
+    # Particuarly, to support locations (akin to google local pack)
+    # (good for queries like "restaurants near me")
+    # Will be useful to add if we add more localization support
+    # And videos (if user specifically asks for a good video to watch)
+    # Summaries api seems redundant but may be helpful if we run into a lot of scraping
+    # barriers
+    # But at that point might as well switch to the llm context api
+
+
     headers = {
         "Accept": _ACCEPT,
         "X-Subscription-Token": tokens["brave"],
+        "User-Agent": _USER_AGENT,
     }
 
     status_code: int | None = None
@@ -162,6 +190,16 @@ def execute(args: dict, session_data: dict | None = None) -> str:
             accept=_ACCEPT,
             json_error=f"Request failed: {type(e).__name__}: {e}",
         )
+    
+
+    # Filter out needless data to save context
+
+    # These filters were hand created by observing the structure after
+    # calling the tool without the filters
+
+    if isinstance(resp_json, dict):
+        resp_json = web_search_filter(resp_json)
+
 
     result = format_response(
         status_code=status_code,

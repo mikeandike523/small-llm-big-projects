@@ -2,9 +2,15 @@
 Standalone tool runner. Executes a single tool call and prints the result.
 
 Usage:
-    python run_tool.py <tool_name> [json_args]
+    python run_tool.py <tool_name> [--<key> <json_value> | --<key>=<json_value> | --<key>] ...
 
-json_args defaults to '{}' if omitted.
+Each flag is assembled into the args object:
+  --flag          -> {"flag": true}
+  --flag=<json>   -> {"flag": <parsed json>}
+  --flag <json>   -> {"flag": <parsed json>}
+
+Example:
+    python run_tool.py list_dir --path '"src"' --max_depth 2
 
 Environment is loaded from .env at the repo root (credentials, service tokens, etc.)
 Session memory uses Redis if available, falls back to a plain dict.
@@ -66,22 +72,49 @@ def _make_session_data() -> dict:
 # ---------------------------------------------------------------------------
 
 def main() -> None:
-    if len(sys.argv) < 2:
-        print("Usage: run_tool.py <tool_name> [json_args]", file=sys.stderr)
-        sys.exit(1)
+    import argparse
 
-    tool_name = sys.argv[1]
-    raw_args = sys.argv[2] if len(sys.argv) > 2 else "{}"
+    parser = argparse.ArgumentParser(
+        prog="run_tool.py",
+        description="Execute a single tool call and print the result.",
+        add_help=True,
+    )
+    parser.add_argument("tool_name", help="Name of the tool to run")
 
-    try:
-        args = json.loads(raw_args)
-    except json.JSONDecodeError as e:
-        print(f"Error: invalid JSON args: {e}", file=sys.stderr)
-        sys.exit(1)
+    # Collect remaining flags as unknown args so keys are fully dynamic.
+    parsed, unknown = parser.parse_known_args()
+    tool_name = parsed.tool_name
 
-    if not isinstance(args, dict):
-        print("Error: args must be a JSON object", file=sys.stderr)
-        sys.exit(1)
+    # Walk the unknown tokens and build the args dict.
+    # Supports: --key=<json>, --key <json>, --key (bare flag → true)
+    args: dict = {}
+    tokens = unknown
+    i = 0
+    while i < len(tokens):
+        tok = tokens[i]
+        if not tok.startswith("--"):
+            parser.error(f"unexpected argument {tok!r}")
+        if "=" in tok:
+            # --key=value form
+            key, _, raw = tok[2:].partition("=")
+            try:
+                args[key] = json.loads(raw)
+            except json.JSONDecodeError as e:
+                parser.error(f"invalid JSON for --{key}: {e}")
+        else:
+            key = tok[2:]
+            # Peek at next token: if it exists and doesn't start with '--', treat as value
+            if i + 1 < len(tokens) and not tokens[i + 1].startswith("--"):
+                raw = tokens[i + 1]
+                i += 1
+                try:
+                    args[key] = json.loads(raw)
+                except json.JSONDecodeError as e:
+                    parser.error(f"invalid JSON for --{key}: {e}")
+            else:
+                # Bare flag → boolean true
+                args[key] = True
+        i += 1
 
     from src.tools import execute_tool
 
