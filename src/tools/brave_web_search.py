@@ -18,6 +18,14 @@ _ACCEPT = "application/json"
 _USER_AGENT = (
     "Mozilla/5.0 (compatible; slbp-agent/1.0; +https://github.com/mikeandike523/small-llm-big-projects)"
 )
+# Current web filters are designed for this version
+"""
+See:
+
+https://api-dashboard.search.brave.com/documentation/services/web-search
+#:~:text=API%20Sports.-,Changelog,-This%20changelog%20outlines
+"""
+_API_VERSION = "2025-02-20"
 
 LEAVE_OUT = "SHORT"
 TOOL_SHORT_AMOUNT = 800
@@ -157,10 +165,12 @@ def execute(args: dict, session_data: dict | None = None) -> str:
     # But at that point might as well switch to the llm context api
 
 
+
     headers = {
         "Accept": _ACCEPT,
         "X-Subscription-Token": tokens["brave"],
         "User-Agent": _USER_AGENT,
+        "Api-Version": _API_VERSION
     }
 
     status_code: int | None = None
