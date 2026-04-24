@@ -1,3 +1,4 @@
+import json
 import os
 from typing import Any
 
@@ -211,14 +212,17 @@ def execute(args: dict, session_data: dict | None = None) -> str:
     if isinstance(resp_json, dict):
         resp_json = web_search_filter(resp_json)
 
+    if resp.status_code == 200 and resp_json is not None:
+        result=json.dumps(resp_json, ensure_ascii=False, indent=2)
 
-    result = format_response(
-        status_code=status_code,
-        response_content_type=resp_ct,
-        accept=_ACCEPT,
-        json_value=resp_json,
-        json_error=json_error,
-    )
+    else:
+        result = format_response(
+            status_code=status_code,
+            response_content_type=resp_ct,
+            accept=_ACCEPT,
+            json_value=resp_json,
+            json_error=json_error,
+        )
 
     if target == "return_value":
         return result

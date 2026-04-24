@@ -24,3 +24,7 @@ exactly like any other session memory value:
 - `session_memory(action="search_by_regex", key=<stub-key>, ...)` to search without reading everything
 - `return_stub_line_reader(action="count_lines", session_memory_key=<stub-key>)` to get the line count
 - `return_stub_line_reader(action="read_lines", session_memory_key=<stub-key>, start_line=..., end_line=...)` to read in chunks
+
+READ YOUR SCRAPES EARLY
+
+Don't scrape hundreds of pages, scrape a few, and then start reading their contents with the tools above.
