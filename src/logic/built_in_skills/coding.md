@@ -19,14 +19,26 @@ subproject or nested module). At the start of any task, check `project_memory` w
 
 Reading: use `read_text_file` for small files, or `file_line_reader` (count_lines + read_lines) for large files.
 Use these when exploring and understanding code — they are fast and lightweight.
-Use `read_text_file(path=..., session_memory_key=...)` when you are ready to analyze closely or make edits,
-since the session memory toolkit enables precise line-level editing.
 
-ALL CODE EDITS ARE DONE IN SESSION MEMORY BEFORE BEING WRITTEN TO DISK
+We encourage using session memory to edit files — routing edits through a buffer increases accuracy
+and prevents partially-written files. But you can also use the `text_editor` tool to read and patch
+files directly without a session memory buffer.
 
-Routing edits through session memory increases accuracy and prevents corrupted or partially-written
-files. Do NOT circumvent this with host_shell using cat, sed, awk, echo redirects, or any other
-shell-based file writing. Always use the session memory toolkit for file edits.
+**Via session memory (recommended for larger or multi-step edits):**
+
+    Use `read_text_file(path=..., session_memory_key=...)` to load a file into a session memory key.
+    Perform edits with `text_editor(key=...)`.
+    Save back to disk with `write_text_file(path=..., session_memory_key=...)`.
+    After each write, pause and check the todo list — if a step is now complete, close it.
+
+**Directly on disk (fine for targeted patches):**
+
+    Use `text_editor(filepath=..., action=...)` to read, edit, and write a file in one step.
+    At the start of any new task that will write files directly, run:
+      host_shell("git status --short <file>") or host_shell("git diff --name-only <file>")
+    for each target file. Do this once per task — not before every individual edit in a
+    multi-step sequence. If a file has unstaged changes or uncommitted staged changes,
+    warn the user and use the `ask_human` tool to get approval before proceeding.
 
 Writing Small Files (new or complete rewrite):
 
@@ -39,12 +51,7 @@ Creating New Files (larger content via session memory):
     Use `session_memory(action="set")` to build the content in session memory,
     then `write_text_file(path=..., session_memory_key=...)` to write it to disk.
 
-Editing Existing Files:
-
-    Use `read_text_file(path=..., session_memory_key=...)` to load a file into session memory.
-    Perform edits with `session_memory_text_editor` tool.
-    Save the contents back to disk with `write_text_file(path=..., session_memory_key=...)`.
-    After each write, pause and check the todo list — if a step is now complete, close it.
+Do NOT use host_shell with cat, sed, awk, or echo redirects for file writing.
 
 ### Match Project Style and Environment
 
@@ -144,7 +151,7 @@ Before running any of these, check `project_memory` for notes from your code exp
 particularly anything about project structure, style, and AGENTS.md. That is where you will find
 the correct build, lint, and typecheck commands for the active project.
 
-Do NOT use host_shell for file writing (cat/sed/awk/echo redirects) — always route file edits through session memory.
+Do NOT use host_shell for file writing (cat/sed/awk/echo redirects) — use `text_editor` or `write_text_file` instead.
 After a build or test run, check the todo list — close verification steps only when they actually pass.
 
 ### Stay Up to Date

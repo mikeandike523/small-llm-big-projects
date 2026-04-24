@@ -16,7 +16,7 @@ DEFINITION: dict = {
             "to a session memory key.\n\n"
             "By default (no session_memory_key), returns the file contents directly. "
             "Set session_memory_key to write into session memory instead — required before "
-            "editing with session_memory_text_editor.\n\n"
+            "editing with text_editor(key=...).\n\n"
             "Line endings: direct return normalizes to LF; session memory preserves them "
             "verbatim (CRLF stays CRLF) so the editor round-trip is lossless.\n\n"
             "For very large files, use file_line_reader instead."

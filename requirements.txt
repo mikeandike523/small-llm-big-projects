@@ -14,3 +14,4 @@ python-ripgrep
 httpx
 unidiff
 protego
+trafilatura

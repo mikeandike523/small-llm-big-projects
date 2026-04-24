@@ -25,12 +25,14 @@ See:
 https://api-dashboard.search.brave.com/documentation/services/web-search
 #:~:text=API%20Sports.-,Changelog,-This%20changelog%20outlines
 """
-_API_VERSION = "2025-02-20"
+
 
 LEAVE_OUT = "SHORT"
-TOOL_SHORT_AMOUNT = 800
+NO_STUB = True
+TOOL_SHORT_AMOUNT = 8192
 
-DEFAULT_TIMEOUT = 15  # seconds
+DEFAULT_TIMEOUT = 45  # seconds; Brave rate limits can cause slow responses
+MAX_TIMEOUT = 90      # seconds
 TIMEOUT_HINT = None
 
 DEFAULT_COUNT = 5
@@ -169,8 +171,7 @@ def execute(args: dict, session_data: dict | None = None) -> str:
     headers = {
         "Accept": _ACCEPT,
         "X-Subscription-Token": tokens["brave"],
-        "User-Agent": _USER_AGENT,
-        "Api-Version": _API_VERSION
+        "User-Agent": _USER_AGENT
     }
 
     status_code: int | None = None

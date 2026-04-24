@@ -9,7 +9,6 @@ from src.tools import execute_tool
 def run(env: TestEnv, server: MicroServer | None = None):
     cl = CheckList("scrape_web_page")
     try:
-        # Validation: missing memory_key when target=session_memory
         r = execute_tool("scrape_web_page", {
             "url": "http://example.com",
             "target": "session_memory",
@@ -21,7 +20,6 @@ def run(env: TestEnv, server: MicroServer | None = None):
             f"got: {r!r}",
         )
 
-        # Validation: invalid URL
         r = execute_tool("scrape_web_page", {
             "url": "not-a-url",
         }, env.session_data)
@@ -32,12 +30,45 @@ def run(env: TestEnv, server: MicroServer | None = None):
             f"got: {r!r}",
         )
 
-        # Live network test: graceful skip when no network is available or
-        # no public internet is reachable in CI — real scraping cannot be
-        # reliably mocked here without a full HTTP server that speaks HTML.
-        cl.skip(
-            "Live scrape_web_page tests skipped — no reliable way to test "
-            "robots.txt + real HTML fetch without a public network endpoint"
+        if server is None:
+            cl.skip("No MicroServer provided for scrape_web_page extraction checks")
+            return cl.result()
+
+        r = execute_tool("scrape_web_page", {
+            "url": f"{server.base_url}/article",
+            "check_robots": False,
+            "min_delay_seconds": 0,
+        }, env.session_data)
+        cl.check(
+            "default markdown format status",
+            "Default scrape result includes HTTP status line",
+            r.startswith("HTTP 200"),
+            f"got: {r!r}",
+        )
+        cl.check(
+            "default markdown format readable",
+            "Default format extracts readable article content",
+            "Example Article" in r and "exercise readable extraction" in r,
+            f"got: {r!r}",
+        )
+        cl.check(
+            "default markdown format strips raw html",
+            "Default markdown format should not return raw HTML tags",
+            "<main>" not in r and "<html>" not in r,
+            f"got: {r!r}",
+        )
+
+        r = execute_tool("scrape_web_page", {
+            "url": f"{server.base_url}/article",
+            "check_robots": False,
+            "min_delay_seconds": 0,
+            "format": "raw",
+        }, env.session_data)
+        cl.check(
+            "raw format preserves html",
+            "Raw format returns the original response body",
+            "<main>" in r and "<html>" in r,
+            f"got: {r!r}",
         )
 
     except Exception as e:

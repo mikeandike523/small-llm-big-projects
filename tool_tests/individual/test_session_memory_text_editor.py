@@ -22,7 +22,7 @@ from tool_tests.individual.session_memory_text_editor import (
 
 
 def run(env: TestEnv, server: MicroServer | None = None):
-    cl = CheckList("session_memory_text_editor")
+    cl = CheckList("text_editor")
     try:
         checks_read_lines.add_checks(cl, env)
         checks_read_char_range.add_checks(cl, env)

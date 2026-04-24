@@ -23,7 +23,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
 +blueberry
  cherry
 """
-    execute_tool("session_memory_text_editor", {"action": "apply_patch", "key": "doc", "patch": patch}, env.session_data)
+    execute_tool("text_editor", {"action": "apply_patch", "key": "doc", "patch": patch}, env.session_data)
     cl.check("apply_patch: replace middle line",
              "banana replaced by blueberry; apple and cherry preserved",
              _get(env, "doc") == "apple\nblueberry\ncherry\n",
@@ -38,7 +38,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
  line two
 +line three
 """
-    execute_tool("session_memory_text_editor", {"action": "apply_patch", "key": "doc", "patch": patch}, env.session_data)
+    execute_tool("text_editor", {"action": "apply_patch", "key": "doc", "patch": patch}, env.session_data)
     cl.check("apply_patch: add at end",
              "new line appended after existing content",
              _get(env, "doc") == "line one\nline two\nline three\n",
@@ -53,7 +53,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
 -delete me
  also keep
 """
-    execute_tool("session_memory_text_editor", {"action": "apply_patch", "key": "doc", "patch": patch}, env.session_data)
+    execute_tool("text_editor", {"action": "apply_patch", "key": "doc", "patch": patch}, env.session_data)
     cl.check("apply_patch: delete lines",
              "middle line removed; surrounding lines intact",
              _get(env, "doc") == "keep me\nalso keep\n",
@@ -68,7 +68,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
  second
  third
 """
-    execute_tool("session_memory_text_editor", {"action": "apply_patch", "key": "doc", "patch": patch}, env.session_data)
+    execute_tool("text_editor", {"action": "apply_patch", "key": "doc", "patch": patch}, env.session_data)
     cl.check("apply_patch: add at beginning",
              "new first line prepended before existing lines",
              _get(env, "doc") == "first\nsecond\nthird\n",
@@ -83,7 +83,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
 -world
 +universe
 """
-    execute_tool("session_memory_text_editor", {"action": "apply_patch", "key": "doc", "patch": patch}, env.session_data)
+    execute_tool("text_editor", {"action": "apply_patch", "key": "doc", "patch": patch}, env.session_data)
     cl.check("apply_patch: crlf preserved",
              "CRLF line endings survive a LF-patch application unchanged",
              _get(env, "doc") == "hello\r\nuniverse\r\n",
@@ -98,7 +98,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
 -beta
 +gamma
 """
-    execute_tool("session_memory_text_editor", {"action": "apply_patch", "key": "doc", "patch": patch}, env.session_data)
+    execute_tool("text_editor", {"action": "apply_patch", "key": "doc", "patch": patch}, env.session_data)
     cl.check("apply_patch: no trailing newline preserved",
              "file without trailing newline has none after patch",
              _get(env, "doc") == "alpha\ngamma",
@@ -113,7 +113,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
 -beta
 +gamma
 """
-    execute_tool("session_memory_text_editor", {"action": "apply_patch", "key": "doc", "patch": patch}, env.session_data)
+    execute_tool("text_editor", {"action": "apply_patch", "key": "doc", "patch": patch}, env.session_data)
     cl.check("apply_patch: trailing newline preserved",
              "file with trailing newline retains it after patch",
              _get(env, "doc") == "alpha\ngamma\n",
@@ -134,7 +134,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
 +B NEW
  B end
 """
-    execute_tool("session_memory_text_editor", {"action": "apply_patch", "key": "doc", "patch": patch}, env.session_data)
+    execute_tool("text_editor", {"action": "apply_patch", "key": "doc", "patch": patch}, env.session_data)
     cl.check("apply_patch: multi-hunk",
              "both independent hunks applied correctly in one pass",
              _get(env, "doc") == "A start\nA NEW\nA end\ngap\nB start\nB NEW\nB end\n",
@@ -149,7 +149,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
 -three
 +THREE
 """
-    execute_tool("session_memory_text_editor", {"action": "apply_patch", "key": "doc", "patch": patch}, env.session_data)
+    execute_tool("text_editor", {"action": "apply_patch", "key": "doc", "patch": patch}, env.session_data)
     cl.check("apply_patch: fuzz offset applies",
              "hunk with line-number off by 2 still applies via fuzzy search",
              _get(env, "doc") == "one\ntwo\nTHREE\nfour\nfive\n",
@@ -164,7 +164,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
 -bar
 +baz
 """
-    r = execute_tool("session_memory_text_editor", {"action": "apply_patch", "key": "doc", "patch": patch}, env.session_data)
+    r = execute_tool("text_editor", {"action": "apply_patch", "key": "doc", "patch": patch}, env.session_data)
     cl.check("apply_patch: error on bad context",
              "context lines that exist nowhere in the file return an Error string",
              r.startswith("Error"),
@@ -180,7 +180,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
 -world
 +universe
 """
-    execute_tool("session_memory_text_editor", {"action": "apply_patch", "key": "doc", "patch": patch, "disable_auto_eol": True}, env.session_data)
+    execute_tool("text_editor", {"action": "apply_patch", "key": "doc", "patch": patch, "disable_auto_eol": True}, env.session_data)
     cl.check("apply_patch: disable_auto_eol produces LF on CRLF buffer",
              "With disable_auto_eol=true, patching a CRLF buffer yields LF result",
              _get(env, "doc") == "hello\nuniverse\n",

@@ -31,7 +31,7 @@ from src.tools import return_stub_line_reader
 from src.tools import scrape_web_page
 from src.tools import search_filesystem_by_regex
 from src.tools import session_memory
-from src.tools import session_memory_text_editor
+from src.tools import text_editor
 from src.tools import todo_list
 from src.tools import wikipedia
 from src.tools import write_text_file
@@ -63,7 +63,7 @@ ALL_TOOL_DEFINITIONS: list[dict] = [
     scrape_web_page.DEFINITION,
     search_filesystem_by_regex.DEFINITION,
     session_memory.DEFINITION,
-    session_memory_text_editor.DEFINITION,
+    text_editor.DEFINITION,
     todo_list.DEFINITION,
     wikipedia.DEFINITION,
     write_text_file.DEFINITION,
@@ -95,7 +95,7 @@ _TOOL_MAP: dict[str, object] = {
     "scrape_web_page": scrape_web_page,
     "search_filesystem_by_regex": search_filesystem_by_regex,
     "session_memory": session_memory,
-    "session_memory_text_editor": session_memory_text_editor,
+    "text_editor": text_editor,
     "todo_list": todo_list,
     "wikipedia": wikipedia,
     "write_text_file": write_text_file,

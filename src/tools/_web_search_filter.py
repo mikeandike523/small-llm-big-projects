@@ -86,6 +86,14 @@ def web_search_filter(result_json: dict[str, Any]) -> dict[str, Any]:
         if path and path[-1] == "thumbnail":
             return False
 
+        if (
+            len(path) > 1
+            and (path[0] in ["web", "news", "faq", "discussions"])
+            and path[1] == "results"
+            and (path[-1] in ["meta_url", "profile"])
+        ):
+            return False
+
         return True
 
     def visit(obj: Any, path: Path) -> tuple[Any, bool]:

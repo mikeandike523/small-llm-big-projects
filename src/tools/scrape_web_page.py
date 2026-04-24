@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import random
 import time
+from typing import Literal
 from urllib.parse import urlparse
 
 import requests
@@ -46,7 +47,7 @@ DEFINITION: dict = {
             "Respectfully scrape a web page with proper user agent, robots.txt checking, and jitter. "
             "Pairs well with brave_web_search. "
             "Robots.txt failures are fail-open (request proceeds). "
-            "For large pages use target='session_memory' and read in chunks with session_memory_text_editor."
+            "For large pages use target='session_memory' and read in chunks with text_editor."
         ),
         "parameters": {
             "type": "object",
@@ -103,6 +104,17 @@ DEFINITION: dict = {
                         "Value for the Accept-Language header. "
                         "Omit to send no language preference (server decides). "
                         "Examples: 'fr', 'ja', 'en-US,en;q=0.9'."
+                    ),
+                },
+                "format": {
+                    "type": "string",
+                    "enum": ["xml", "markdown", "text", "raw"],
+                    "description": (
+                        "Readable output format. "
+                        "'xml' (default) extracts structured content as trafilatura XML -- reliable and well-delimited. "
+                        "'markdown' extracts and formats the main page content as Markdown. "
+                        "'text' extracts plain text. "
+                        "'raw' returns the original response body without readability post-processing."
                     ),
                 },
                 "target": {
@@ -236,6 +248,38 @@ def _check_robots(url: str, session: requests.Session, timeout: int) -> tuple[bo
     return True, None
 
 
+def _render_content(body_text: str, fmt: Literal["xml", "markdown", "text", "raw"]) -> str:
+    if fmt == "raw":
+        return body_text
+
+    try:
+        import trafilatura
+    except ImportError:
+        return body_text
+
+    if fmt == "xml":
+        output_format = "xml"
+    elif fmt == "markdown":
+        output_format = "markdown"
+    else:
+        output_format = "txt"
+
+    try:
+        extracted = trafilatura.extract(
+            body_text,
+            output_format=output_format,
+            include_links=True,
+            include_formatting=fmt != "xml",
+            favor_precision=True,
+        )
+    except Exception:
+        extracted = None
+
+    if extracted:
+        return extracted.strip()
+    return body_text
+
+
 # ---------------------------------------------------------------------------
 # execute
 # ---------------------------------------------------------------------------
@@ -251,6 +295,7 @@ def execute(args: dict, session_data: dict | None = None) -> str:
     check_robots_flag: bool = args.get("check_robots", True)
     accept: str | None = args.get("accept")
     language: str | None = args.get("language")
+    output_format: Literal["xml", "markdown", "text", "raw"] = args.get("format", "xml")
     target: str = args.get("target", "return_value")
     memory_key: str | None = args.get("memory_key")
 
@@ -309,7 +354,9 @@ def execute(args: dict, session_data: dict | None = None) -> str:
     # --- build result ---
     content_type = resp.headers.get("content-type", "")
     header_line = f"HTTP {resp.status_code} | {content_type}"
-    result = f"{header_line}\n\n{resp.content.decode('utf-8', errors='replace')}"
+    body_text = resp.content.decode("utf-8", errors="replace")
+    rendered = _render_content(body_text, output_format)
+    result = f"{header_line}\n\n{rendered}"
 
     # --- deliver ---
     if target == "return_value":

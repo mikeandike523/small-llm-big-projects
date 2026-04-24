@@ -17,7 +17,7 @@ DEFINITION: dict = {
             "  session_memory_key: session memory key whose value is written to disk\n\n"
             "Use content for new files or complete rewrites where you have the full text ready.\n"
             "Use session_memory_key to complete the editing round-trip:\n"
-            "  read_text_file(session_memory_key=...) -> session_memory_text_editor -> "
+            "  read_text_file(session_memory_key=...) -> text_editor(key=...) -> "
             "write_text_file(session_memory_key=...)\n\n"
             "Line endings are written verbatim with no EOL conversion for both modes."
         ),

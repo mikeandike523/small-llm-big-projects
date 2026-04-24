@@ -24,6 +24,22 @@ class _Handler(BaseHTTPRequestHandler):
             self._send(200, "text/plain", "hello world")
         elif self.path == "/json":
             self._send(200, "application/json", json.dumps({"ok": True}))
+        elif self.path == "/article":
+            self._send(
+                200,
+                "text/html; charset=utf-8",
+                """<!doctype html>
+<html>
+  <head><title>Example Article</title></head>
+  <body>
+    <main>
+      <h1>Example Article</h1>
+      <p>This page exists to exercise readable extraction.</p>
+      <p><a href="https://example.com/ref">Reference Link</a></p>
+    </main>
+  </body>
+</html>""",
+            )
         else:
             self._send(404, "text/plain", "not found")
 

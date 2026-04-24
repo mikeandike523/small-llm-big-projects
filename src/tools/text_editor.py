@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from io import StringIO
+from pathlib import Path
 from typing import List, Optional, Tuple
 
 from src.tools._eol import EOL_CHOICES, check_eol, normalize_eol
@@ -38,11 +39,13 @@ LEAVE_OUT_PER_ACTION = {
 DEFINITION: dict = {
     "type": "function",
     "function": {
-        "name": "session_memory_text_editor",
+        "name": "text_editor",
         "description": (
-            "Structural text-editor operations on session memory string values. "
-            "Part of the in-memory text editor toolkit: "
-            "read_text_file(session_memory_key=...) -> edit -> write_text_file(session_memory_key=...). "
+            "Structural text-editor operations on a session memory string value OR directly on a file on disk. "
+            "Provide exactly one of: 'key' (session memory key) or 'filepath' (path to a file on disk). "
+            "When 'filepath' is given the file is read into a temporary buffer, the operation is applied, "
+            "and (for write actions) the result is written back atomically — identical behaviour to the "
+            "session memory path. filepath uses the same approval gating as write_text_file. "
             "\n\n"
             "LINE ENDING RULES:\n"
             "Only LF (\\n) and CRLF (\\r\\n) are recognised as line terminators. "
@@ -105,7 +108,19 @@ DEFINITION: dict = {
                 },
                 "key": {
                     "type": "string",
-                    "description": "The session memory key. Must hold a text value. Required for all actions.",
+                    "description": (
+                        "Session memory key. Must hold a text value. "
+                        "Mutually exclusive with 'filepath'. Provide exactly one."
+                    ),
+                },
+                "filepath": {
+                    "type": "string",
+                    "description": (
+                        "Path to a file on disk (relative or absolute). "
+                        "The file is read, the operation is applied, and (for write actions) the result is written back. "
+                        "Requires the same approval as write_text_file. "
+                        "Mutually exclusive with 'key'. Provide exactly one."
+                    ),
                 },
                 "start_line": {
                     "type": "integer",
@@ -232,15 +247,29 @@ DEFINITION: dict = {
                     ),
                 },
             },
-            "required": ["action", "key"],
+            "required": ["action"],
             "additionalProperties": False,
         },
     },
 }
 
+# ---------------------------------------------------------------------------
+# Approval gating
+# ---------------------------------------------------------------------------
 
 def needs_approval(args: dict) -> bool:
+    filepath = args.get("filepath")
+    if filepath is not None:
+        from src.tools._approval import needs_path_approval
+        return needs_path_approval(filepath)
     return False
+
+
+# ---------------------------------------------------------------------------
+# Internal buffer key used in filepath mode
+# ---------------------------------------------------------------------------
+
+_FILE_BUF_KEY = "__filepath_buf__"
 
 
 # ---------------------------------------------------------------------------
@@ -253,20 +282,13 @@ def _split_lines_keepends(text: str) -> List[str]:
     Only \\n is treated as a line boundary.  Bare \\r is a regular character
     and is never used as a split point.  \\r\\n pairs are kept intact because
     the \\r stays attached to its line when we split on \\n.
-
-    This is the correct replacement for str.splitlines(keepends=True) for
-    file-content operations: it matches the behaviour of GNU diff/patch,
-    grep, and the unidiff library (which uses StringIO iteration, also
-    \\n-only).
     """
     if not text:
         return []
     parts = text.split('\n')
     result: List[str] = []
-    # All parts except the last get their \n restored.
     for part in parts[:-1]:
         result.append(part + '\n')
-    # The last part is non-empty only when there is no trailing \n.
     if parts[-1]:
         result.append(parts[-1])
     return result
@@ -276,22 +298,14 @@ def _split_lines_preserve(text: str) -> Tuple[List[str], bool]:
     """Split *text* into content lines (without terminators).
 
     Only \\n is treated as a line boundary (bare \\r is a character).
-    For CRLF lines the trailing \\r (part of the \\r\\n terminator) is
-    stripped from each line's content.
-
     Returns (lines, had_trailing_newline).
     """
     if text == "":
         return [], False
     had_trailing_newline = text.endswith("\n")
     parts = text.split('\n')
-    # Remove the empty string produced by a trailing \n.
     if parts and parts[-1] == '':
         parts = parts[:-1]
-    # Strip one trailing \r per part: this removes the \r from \r\n terminators.
-    # A bare \r in the middle of a line is preserved because split('\n') does
-    # not split on it, so it can only appear at the end of a part if it was
-    # part of a \r\n pair.
     lines = [p[:-1] if p.endswith('\r') else p for p in parts]
     return lines, had_trailing_newline
 
@@ -306,15 +320,8 @@ def _detect_newline_style(text: str) -> str:
 
 
 def _auto_match_eol(result: str, original: str) -> str:
-    """Re-encode *result* line endings to match *original*'s EOL style.
-
-    If *original* contains any CRLF, the result is normalised to CRLF.
-    Otherwise it is normalised to LF-only.
-    Bare \\r characters are not affected.
-    """
+    """Re-encode *result* line endings to match *original*'s EOL style."""
     target = _detect_newline_style(original)
-    # Collapse CRLF to LF first, then apply target.
-    # Bare \r is untouched because we only replace the two-char \r\n sequence.
     normalised = result.replace("\r\n", "\n")
     if target == "\r\n":
         return normalised.replace("\n", "\r\n")
@@ -340,15 +347,7 @@ def _count_lines(text: str) -> int:
 # ---------------------------------------------------------------------------
 
 def _apply_patch(original_text: str, patch_text: str, auto_eol: bool = True) -> str:
-    """Apply a unified diff to an in-memory string.
-
-    EOL style of the result matches the original when auto_eol=True (default).
-    Trailing-newline presence is always derived from the patch's own
-    '\\ No newline at end of file' markers, regardless of auto_eol.
-    Bare \\r is treated as a character throughout (not a line terminator).
-    Small position fuzz (up to 3 lines) is applied when hunks don't match
-    exactly at their stated position.
-    """
+    """Apply a unified diff to an in-memory string."""
     try:
         from unidiff import PatchSet
     except ImportError:
@@ -360,9 +359,6 @@ def _apply_patch(original_text: str, patch_text: str, auto_eol: bool = True) -> 
     newline = _detect_newline_style(original_text) if auto_eol else "\n"
     orig_lines, orig_had_final_nl = _split_lines_preserve(original_text)
 
-    # Normalise the patch text to plain LF before handing to unidiff.
-    # unidiff uses StringIO iteration (splits on \n only), so CRLF in the
-    # patch would leave \r inside line.value.  Pre-normalising avoids this.
     patch_text_normalised = patch_text.replace("\r\n", "\n").replace("\r", "\n")
     patchset = PatchSet(patch_text_normalised)
 
@@ -371,7 +367,7 @@ def _apply_patch(original_text: str, patch_text: str, auto_eol: bool = True) -> 
     if len(patchset) > 1:
         raise ValueError(
             f"Patch targets {len(patchset)} files; this tool applies patches to a single "
-            "session memory value (one file) at a time."
+            "target (one file or memory value) at a time."
         )
 
     pfile = patchset[0]
@@ -427,46 +423,24 @@ def _apply_patch(original_text: str, patch_text: str, auto_eol: bool = True) -> 
             + lines[apply_at + len(expected_before):]
         )
 
-    # ------------------------------------------------------------------
-    # Determine trailing newline from the patch's own specification.
-    #
-    # The patch format uses '\\ No newline at end of file' (line_type '\\')
-    # after the last added/context line to signal that the new file should
-    # NOT end with a newline.  We honour this regardless of auto_eol.
-    #
-    # Default: inherit from original.  Override only when the last hunk's
-    # source coverage reaches the end of the original file (meaning the patch
-    # explicitly controls what the new end-of-file looks like).
-    # ------------------------------------------------------------------
     result_has_trailing_nl = orig_had_final_nl
 
-    pfile_hunks = list(pfile)  # PatchedFile is a list; safe to re-iterate
+    pfile_hunks = list(pfile)
     if pfile_hunks:
         last_hunk = pfile_hunks[-1]
-
-        # source_start and source_length are 1-based / count of original lines.
-        # last_src_line: last 1-based original line covered by this hunk.
         last_src_line = last_hunk.source_start + last_hunk.source_length - 1
 
-        # Hunk reaches the end of the original file when:
-        #   - last_src_line >= len(orig_lines)  (covers through last line), OR
-        #   - original file is empty (any hunk defines the new content entirely)
         if len(orig_lines) == 0 or last_src_line >= len(orig_lines):
             hunk_lines = list(last_hunk)
 
-            # Find the last line in the hunk that contributes to the result
-            # (added '+' or context ' ').  Removed '-' and NO_NEWLINE '\\' lines
-            # do not appear in the output.
             last_result_idx = -1
             for i, ln in enumerate(hunk_lines):
                 if ln.line_type in ('+', ' '):
                     last_result_idx = i
 
             if last_result_idx == -1:
-                # Every original line was removed and nothing added.
                 result_has_trailing_nl = False
             else:
-                # Check for a NO_NEWLINE marker immediately after the last result line.
                 next_idx = last_result_idx + 1
                 if (next_idx < len(hunk_lines) and
                         hunk_lines[next_idx].line_type == '\\'):
@@ -509,7 +483,6 @@ def _read_lines_range(text: str, start_line: int | None, end_line: int | None) -
         return text
     effective_start = start_line if start_line is not None else 1
     selected: list[str] = []
-    # StringIO iteration splits on \n only -- consistent with our \n-only policy.
     for lineno, line in enumerate(StringIO(text), start=1):
         if lineno < effective_start:
             continue
@@ -544,11 +517,9 @@ def _do_insert_lines(args: dict, key: str, value: str, memory: dict) -> str:
     if text is None:
         return "Error: 'text' is required for action 'insert_lines'."
 
-    # Optionally ensure the inserted block ends with a newline.
     if ensure_newline and not text.endswith("\n"):
         text += "\n"
 
-    # Split using \n-only splitting (bare \r is a character, not a boundary).
     existing_lines = _split_lines_keepends(value)
     insert_idx = min(before_line - 1, len(existing_lines))
     insert_idx = max(insert_idx, 0)
@@ -579,7 +550,6 @@ def _do_replace_lines(args: dict, key: str, value: str, memory: dict) -> str:
     if end_line < start_line:
         return "Error: end_line must be >= start_line."
 
-    # Optionally ensure the replacement block ends with a newline.
     if ensure_newline and not text.endswith("\n"):
         text += "\n"
 
@@ -694,15 +664,13 @@ def _do_search_by_regex(args: dict, key: str, value: str) -> str:
         return f"Error: invalid regex pattern: {e}"
 
     lines = value.split("\n")
-    # Strip one trailing \r per line (CRLF files) without affecting bare \r characters mid-line.
     content_lines = [ln[:-1] if ln.endswith("\r") else ln for ln in lines]
-    # Remove phantom empty entry from trailing newline.
     if content_lines and content_lines[-1] == "" and value.endswith("\n"):
         content_lines = content_lines[:-1]
 
     total = len(content_lines)
     if total == 0:
-        return f"Key {key!r} is empty -- no matches."
+        return f"{key!r} is empty -- no matches."
 
     width = len(str(total))
     _BOLD = "\033[1m"
@@ -741,7 +709,7 @@ def _do_normalize_eol(args: dict, key: str, value: str, memory: dict) -> str:
     if not eol:
         return "Error: 'eol' is required for action 'normalize_eol'."
     memory[key] = normalize_eol(value, eol)
-    return f"Line endings normalized to {eol.upper()} for session memory key {key!r}."
+    return f"Line endings normalized to {eol.upper()} for {key!r}."
 
 
 def _do_check_indentation(args: dict, key: str, value: str) -> str:
@@ -754,7 +722,7 @@ def _do_convert_indentation(args: dict, key: str, value: str, memory: dict) -> s
         return "Error: 'to' is required for action 'convert_indentation'."
     spaces_per_tab = int(args.get("spaces_per_tab", DEFAULT_SPACES_PER_TAB))
     memory[key] = convert_indentation(value, to, spaces_per_tab)
-    return f"Indentation converted to {to} (spaces_per_tab={spaces_per_tab}) for session memory key {key!r}."
+    return f"Indentation converted to {to} (spaces_per_tab={spaces_per_tab}) for {key!r}."
 
 
 def _do_apply_patch(args: dict, key: str, value: str, memory: dict) -> str:
@@ -773,8 +741,6 @@ def _do_apply_patch(args: dict, key: str, value: str, memory: dict) -> str:
 
     memory[key] = result
 
-    # Use _count_lines (LF-only counting) rather than str.splitlines()
-    # to avoid bare \r being counted as line boundaries.
     original_lines = _count_lines(value)
     new_lines = _count_lines(result)
     delta = new_lines - original_lines
@@ -786,10 +752,9 @@ def _do_apply_patch(args: dict, key: str, value: str, memory: dict) -> str:
 
 
 # ---------------------------------------------------------------------------
-# dispatch
+# dispatch tables
 # ---------------------------------------------------------------------------
 
-# Actions that need read-only access to value (no memory write)
 _READ_ONLY_ACTIONS = {
     "read_lines": _do_read_lines,
     "read_char_range": _do_read_char_range,
@@ -800,7 +765,6 @@ _READ_ONLY_ACTIONS = {
     "check_indentation": _do_check_indentation,
 }
 
-# Actions that mutate memory (receive memory dict as well)
 _WRITE_ACTIONS = {
     "insert_lines": _do_insert_lines,
     "replace_lines": _do_replace_lines,
@@ -814,23 +778,72 @@ _WRITE_ACTIONS = {
 }
 
 
-def execute(args: dict, session_data: dict | None = None) -> str:
-    if session_data is None:
-        session_data = {}
+# ---------------------------------------------------------------------------
+# execute helpers
+# ---------------------------------------------------------------------------
+
+def _execute_memory(action: str, args: dict, key: str, session_data: dict) -> str:
     memory = ensure_session_memory(session_data)
-    action = args.get("action")
-    key = args.get("key")
-
-    if not key:
-        return "Error: 'key' is required."
-
     value = memory.get(key)
     if not isinstance(value, str):
         return f"Error: key {key!r} does not hold a text value."
-
     if action in _READ_ONLY_ACTIONS:
         return _READ_ONLY_ACTIONS[action](args, key, value)
     elif action in _WRITE_ACTIONS:
         return _WRITE_ACTIONS[action](args, key, value, memory)
     else:
         return f"Error: unknown action {action!r}."
+
+
+def _execute_filepath(action: str, args: dict, filepath: str) -> str:
+    try:
+        with open(filepath, "r", encoding="utf-8", newline="") as fh:
+            content = fh.read()
+    except FileNotFoundError:
+        return f"Error: file not found: {filepath}"
+    except OSError as e:
+        return f"Error reading file: {e}"
+
+    buf_key = _FILE_BUF_KEY
+    buf = {buf_key: content}
+    effective_args = dict(args)
+    effective_args["key"] = buf_key
+
+    if action in _READ_ONLY_ACTIONS:
+        result = _READ_ONLY_ACTIONS[action](effective_args, buf_key, content)
+    elif action in _WRITE_ACTIONS:
+        result = _WRITE_ACTIONS[action](effective_args, buf_key, content, buf)
+        if not result.startswith("Error"):
+            new_content = buf.get(buf_key, content)
+            try:
+                with open(filepath, "w", encoding="utf-8", newline="") as fh:
+                    fh.write(new_content)
+            except OSError as e:
+                return f"Error writing file: {e}"
+    else:
+        return f"Error: unknown action {action!r}."
+
+    return result.replace(repr(buf_key), repr(filepath))
+
+
+# ---------------------------------------------------------------------------
+# main entry point
+# ---------------------------------------------------------------------------
+
+def execute(args: dict, session_data: dict | None = None) -> str:
+    if session_data is None:
+        session_data = {}
+
+    key = args.get("key")
+    filepath = args.get("filepath")
+    action = args.get("action")
+
+    if key and filepath:
+        return "Error: provide exactly one of 'key' or 'filepath', not both."
+    if not key and not filepath:
+        return "Error: one of 'key' or 'filepath' is required."
+
+    if filepath:
+        return _execute_filepath(action, args, filepath)
+    else:
+        return _execute_memory(action, args, key, session_data)
