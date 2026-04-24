@@ -334,11 +334,26 @@ def main() -> None:
     except (ValueError, ToolValidationError) as exc:
         parser.error(str(exc))
 
+    # on_chunk: print progress chunks in blue as they arrive, mirroring how the
+    # UI renders streamingResult before the final tool_result replaces it.
+    _BLUE = b"\033[34m"
+    _RESET = b"\033[0m"
+    _had_chunks = [False]
+
+    def _on_chunk(text: str) -> None:
+        _had_chunks[0] = True
+        sys.stdout.buffer.write(_BLUE + text.encode("utf-8", errors="replace") + _RESET)
+        sys.stdout.buffer.flush()
+
+    special_resources = {"on_chunk": _on_chunk}
+
     session_data = _make_session_data()
     cleanup = session_data.pop("_cleanup")
 
     try:
-        result = execute_tool(tool_name, args, session_data)
+        result = execute_tool(tool_name, args, session_data, special_resources)
+        if _had_chunks[0]:
+            sys.stdout.buffer.write(b"\n")
         sys.stdout.buffer.write((result + "\n").encode("utf-8", errors="replace"))
     finally:
         cleanup()

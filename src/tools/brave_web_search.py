@@ -12,6 +12,7 @@ from src.utils.http.helpers import (
 from src.utils.sql.kv_manager import KVManager
 from src.data import get_pool
 from src.tools._web_search_filter import web_search_filter
+from src.tools._web_search_extractor import _condense_with_llm
 
 
 _BRAVE_SEARCH_URL = "https://api.search.brave.com/res/v1/web/search"
@@ -32,10 +33,11 @@ LEAVE_OUT = "SHORT"
 NO_STUB = True
 TOOL_SHORT_AMOUNT = 8192
 
-DEFAULT_TIMEOUT = 45  # seconds; Brave rate limits can cause slow responses
-MAX_TIMEOUT = 90      # seconds
+DEFAULT_TIMEOUT = 90   # seconds; Brave rate limits can cause slow responses
+MAX_TIMEOUT = 180      # seconds; tool also makes an out-of-band LLM call
 TIMEOUT_HINT = None
 
+MAX_EXTRACTION_TRIES = 3
 DEFAULT_COUNT = 5
 
 DEFINITION: dict = {
@@ -113,16 +115,19 @@ def needs_approval(args: dict) -> bool:
     return False
 
 
-def execute(args: dict, session_data: dict | None = None) -> str:
+
+def execute(args: dict, session_data: dict | None = None, special_resources: dict | None = None) -> str:
     if session_data is None:
         session_data = {}
+
+    on_chunk = (special_resources or {}).get("on_chunk")
 
     query: str = args["query"]
     count: int = args.get("count", DEFAULT_COUNT)
     offset: int = args.get("offset", 0)
     freshness: str | None = args.get("freshness")
     country: str | None = args.get("country")
-    search_lang: str | None = args.get("search_lang",'en')
+    search_lang: str | None = args.get("search_lang", 'en')
     target: str = args.get("target", "return_value")
     memory_key: str | None = args.get("memory_key")
 
@@ -148,32 +153,22 @@ def execute(args: dict, session_data: dict | None = None) -> str:
     if search_lang:
         params["search_lang"] = search_lang
 
-    # Default result types
     params["result_filter"] = [
         "query",
         "web",
         "news",
         "discussions",
         "faq",
-      #  "infobox", Ignore for now, may contain plot data that is difficult for AI to interpret
     ]
-
-    # In the future, it will be useful to add dynamic selection
-    # Particuarly, to support locations (akin to google local pack)
-    # (good for queries like "restaurants near me")
-    # Will be useful to add if we add more localization support
-    # And videos (if user specifically asks for a good video to watch)
-    # Summaries api seems redundant but may be helpful if we run into a lot of scraping
-    # barriers
-    # But at that point might as well switch to the llm context api
-
-
 
     headers = {
         "Accept": _ACCEPT,
         "X-Subscription-Token": tokens["brave"],
         "User-Agent": _USER_AGENT
     }
+
+    if on_chunk:
+        on_chunk("Searching Brave...")
 
     status_code: int | None = None
     resp_ct: str | None = None
@@ -202,19 +197,21 @@ def execute(args: dict, session_data: dict | None = None) -> str:
             accept=_ACCEPT,
             json_error=f"Request failed: {type(e).__name__}: {e}",
         )
-    
-
-    # Filter out needless data to save context
-
-    # These filters were hand created by observing the structure after
-    # calling the tool without the filters
-
-    if isinstance(resp_json, dict):
-        resp_json = web_search_filter(resp_json)
 
     if resp.status_code == 200 and resp_json is not None:
-        result=json.dumps(resp_json, ensure_ascii=False, indent=2)
+        # Pre-filter to remove known noise (thumbnails, favicons, etc.) before
+        # feeding to the LLM, reducing context size.
+        filtered = web_search_filter(resp_json) if isinstance(resp_json, dict) else resp_json
 
+        if on_chunk:
+            on_chunk("\nCondensing results with LLM...")
+
+        condensed = _condense_with_llm(filtered, query, max_tries=MAX_EXTRACTION_TRIES, on_chunk=on_chunk) if isinstance(filtered, dict) else None
+        if condensed is not None:
+            result = json.dumps({"results": condensed}, ensure_ascii=False, indent=2)
+        else:
+            # Fallback: return the pre-filtered raw JSON
+            result = json.dumps(filtered, ensure_ascii=False, indent=2)
     else:
         result = format_response(
             status_code=status_code,

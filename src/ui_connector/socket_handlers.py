@@ -1094,17 +1094,13 @@ def _execute_tools(
                     })
                     continue  # Let the LLM see the denial and decide how to proceed
 
-            # Inject streaming callback into special_resources if the tool supports it
-            module = actual_tool_map.get(tc.name)
-            if getattr(module, "STREAMS_RESULT", False):
-                _tc_id = tc.id
-                def _on_chunk(chunk: str, _id: str = _tc_id) -> None:
-                    socketio.emit("tool_result_chunk", {
-                        "id": _id, "chunk": chunk, "turn_id": turn_id,
-                    }, room=session_id)
-                special_resources["on_chunk"] = _on_chunk
-            else:
-                special_resources.pop("on_chunk", None)
+            # Always inject on_chunk so any tool can emit progress updates.
+            _tc_id = tc.id
+            def _on_chunk(chunk: str, _id: str = _tc_id) -> None:
+                socketio.emit("tool_result_chunk", {
+                    "id": _id, "chunk": chunk, "turn_id": turn_id,
+                }, room=session_id)
+            special_resources["on_chunk"] = _on_chunk
 
             started_at = int(time.time() * 1000)
             tool_record.started_at = started_at
