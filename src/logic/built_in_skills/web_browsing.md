@@ -2,6 +2,9 @@
 
 Use `brave_web_search` to find relevant URLs, then fetch content with one of:
 
+MAKE SURE to scrape data with one of the following after web search.
+Web search gets you urls and blurbs, but scraping gets you real info.
+
 - `scrape_web_page` — respectful HTML scraping with proper user-agent, robots.txt checking, and rate-limit jitter. Best for general web pages.
 - `wikipedia` — clean plain-text extraction via the Wikimedia API (no key needed). Prefer this over `scrape_web_page` whenever a URL is on wikipedia.org. Pass the URL directly; language and title are extracted automatically. Use `mode='intro'` for a quick summary, `mode='full'` for the complete article.
 - `basic_web_request` — raw HTTP requests for APIs or pages that need custom headers, auth tokens, or specific methods.
