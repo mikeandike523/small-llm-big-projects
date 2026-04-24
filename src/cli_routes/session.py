@@ -44,14 +44,14 @@ def session():
 )
 @click.option(
     '--interim-response-as-thinking', '--irat',
-    type=click.BOOL,
+    'interim_response_as_thinking',
+    is_flag=True,
     default=None,
     help=(
         'Emit interim assistant content (between tool call rounds) as reasoning tokens '
         'so they appear in the thinking panel instead of the char-count bubble. '
         'Useful for non-thinking models that reason aloud through interim output. '
-        'Pass true/false explicitly, or omit to use the model.default_irat param '
-        '(falls back to false if not set).'
+        'Omit to use the model.default_irat param (falls back to false if not set).'
     ),
 )
 @click.option(

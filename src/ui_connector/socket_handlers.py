@@ -1846,6 +1846,26 @@ async def _async_agent_loop(
                 continue
 
             # No tool calls — this is a non-tool assistant response.
+            # Check redirect first: it may have fired right as streaming ended
+            # (within the watcher's 0.3s poll window), causing the watcher to
+            # be cancelled before it could interrupt the LLM call.
+            if redirect_event is not None and redirect_event.is_set():
+                redirect_msg = _redirect_messages.pop(session_id, "User interrupted.")
+                redirect_event.clear()
+                redir_ex = LLMExchange(
+                    assistant_content=content_for_history,
+                    reasoning=reasoning,
+                    is_final=False,
+                )
+                redir_ex.user_continuation = (
+                    f"User interrupted you, and gave the following guidance: {redirect_msg}"
+                )
+                redir_ex.has_human_content = True
+                had_tool_calls = True
+                current_turn.exchanges.append(redir_ex)
+                _save_session(session_id, session)
+                continue
+
             # Check for unclosed todos.
             unclosed = _get_open_items(session.session_data.get("todo_list") or [])
             if unclosed:
