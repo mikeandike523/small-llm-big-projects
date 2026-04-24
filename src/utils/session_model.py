@@ -133,10 +133,10 @@ class Turn:
     def count_tool_calls(self) -> int:
         return sum(len(ex.tool_calls) for ex in self.exchanges)
 
-    def finalize(self, session_data: dict, final_content: str) -> None:
+    def finalize(self, session_data: dict, final_content: str, had_todo_items: bool = False) -> None:
         """Build condensed user/assistant strings for use as context in future turns."""
         had_tool_calls = self.count_tool_calls() > 0
-        if not had_tool_calls:
+        if not had_tool_calls or not had_todo_items:
             self.condensed_user = self.user_text
             self.condensed_assistant = final_content
             return
@@ -144,27 +144,37 @@ class Turn:
         todo_list = session_data.get("todo_list") or []
         closed = [it["text"] for it in todo_list if it.get("status") == "closed"]
         open_items = [it["text"] for it in todo_list if it.get("status") != "closed"]
-        m = len(closed)
         n_tools = self.count_tool_calls()
 
+        # Items were created but wiped by finalize time — nothing useful to template.
+        if not todo_list:
+            self.condensed_user = self.user_text
+            self.condensed_assistant = final_content
+            return
+
+        closed_text = "\n".join(f"  - {t}" for t in closed) if closed else "  (none)"
+        open_text = "\n".join(f"  - {t}" for t in open_items) if open_items else None
+
         if self.was_impossible:
-            failed_text = ", ".join(open_items) if open_items else "none"
             thoughts = self.impossible_reason or final_content or ""
-            assistant = (
-                f"Hi, I could not complete your request. "
-                f"I called {n_tools} tools, completed {m} todo items, "
-                f"and could not complete: {failed_text}. "
-                f"My final thoughts: {thoughts}"
-            )
+            parts = [
+                f"I could not fully complete your request after {n_tools} tool call(s).",
+                f"Completed:\n{closed_text}",
+            ]
+            if open_text:
+                parts.append(f"Left incomplete:\n{open_text}")
+            parts.append(f"Final thoughts: {thoughts}")
         else:
-            assistant = (
-                f"Hi. To complete your request, I called {n_tools} tools, "
-                f"completed {m} todo items, and arrived at this answer/summary: "
-                f"{final_content}"
-            )
+            parts = [
+                f"I completed your request using {n_tools} tool call(s).",
+                f"Completed:\n{closed_text}",
+            ]
+            if open_text:
+                parts.append(f"Left incomplete:\n{open_text}")
+            parts.append(f"Final answer: {final_content}")
 
         self.condensed_user = self.user_text
-        self.condensed_assistant = assistant
+        self.condensed_assistant = "\n".join(parts)
 
 
 @dataclass

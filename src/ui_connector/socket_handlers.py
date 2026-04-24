@@ -1928,7 +1928,7 @@ async def _async_agent_loop(
             current_turn.was_cancelled = True
             current_turn.completed = True
             current_turn.todo_snapshot = _todo_format_items_for_ui(session.session_data.get("todo_list") or [])
-            current_turn.finalize(session.session_data, last_assistant_content)
+            current_turn.finalize(session.session_data, last_assistant_content, had_todo_items)
             session.completed_turns.append(current_turn)
             session.current_turn = None
             _emit_and_log(session_id, "turn_cancelled", {"turn_id": turn_id})
@@ -1938,7 +1938,7 @@ async def _async_agent_loop(
             current_turn.impossible_reason = impossible_reason
             current_turn.completed = True
             current_turn.todo_snapshot = _todo_format_items_for_ui(session.session_data.get("todo_list") or [])
-            current_turn.finalize(session.session_data, last_assistant_content)
+            current_turn.finalize(session.session_data, last_assistant_content, had_todo_items)
             session.completed_turns.append(current_turn)
             session.current_turn = None
 
