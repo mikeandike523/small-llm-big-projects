@@ -67,6 +67,27 @@ The LLM may pause the task at any point to involve you:
 While any of these dialogs is active, the main input bar is disabled. Respond
 using the dialog widget in the turn bubble.
 
+## Stopping a Turn
+
+Three controls appear in the right column of an active turn bubble:
+
+- **Stop**: Immediately cancels the turn. Any in-progress LLM response is
+  discarded. A tool that is already running is allowed to finish first (see below).
+
+- **Stop & Redirect**: Sends an immediate interrupt to the backend (the LLM
+  response is cancelled), then opens a text field so you can type guidance.
+  When you hit "Send", the loop resumes with your message injected as context.
+  **Stop Turn** (the cancel button inside the widget) ends the turn instead.
+
+- **Stop & Try Again**: Immediately injects a fixed "please try again" message
+  and continues the loop from that point.
+
+**Note on running tools**: If a tool call is already executing when you stop or
+redirect, it is allowed to finish before the interrupt takes effect. There is no
+way to hard-kill a running tool mid-execution in the current threading model.
+This prevents leaving the environment in a broken state (e.g. a half-written
+file or an open network connection).
+
 ## Compaction
 
 Long turns accumulate many tool calls. When a todo item is closed, slbp
@@ -1920,6 +1941,7 @@ function TurnContainer({
   onImpossibleRedirect,
   onAskHumanAnswer,
   onStop,
+  onSoftInterrupt,
   onStopAndRedirect,
   onStopAndTryAgain,
   cancelling,
@@ -1934,6 +1956,7 @@ function TurnContainer({
   onImpossibleRedirect: (turnId: string, message: string) => void
   onAskHumanAnswer: (turnId: string, idx: number, answer: string) => void
   onStop: () => void
+  onSoftInterrupt: () => void
   onStopAndRedirect: (message: string) => void
   onStopAndTryAgain: () => void
   cancelling: boolean
@@ -2059,11 +2082,12 @@ function TurnContainer({
               <button
                 css={redirectCancelButtonCss}
                 onClick={() => {
+                  onStop()
                   setShowStopRedirectWidget(false)
                   setStopRedirectText('')
                 }}
               >
-                Cancel
+                Stop Turn
               </button>
             </div>
           </div>
@@ -2145,7 +2169,7 @@ function TurnContainer({
               <button css={stopButtonCss} onClick={onStop}>Stop</button>
               <button
                 css={stopRedirectButtonCss}
-                onClick={() => setShowStopRedirectWidget(true)}
+                onClick={() => { onSoftInterrupt(); setShowStopRedirectWidget(true) }}
               >
                 Stop &amp; Redirect
               </button>
@@ -3028,6 +3052,10 @@ export default function Chat() {
     setCancelling(true)
   }, [socket])
 
+  const softInterrupt = useCallback(() => {
+    socket.emit('soft_interrupt')
+  }, [socket])
+
   const stopAndRedirect = useCallback((message: string, turnId: string) => {
     socket.emit('stop_and_redirect', { message })
     updateTurn(turnId, t => ({
@@ -3175,6 +3203,7 @@ export default function Chat() {
                 onImpossibleRedirect={impossibleRedirect}
                 onAskHumanAnswer={answerAskHuman}
                 onStop={cancelTurn}
+                onSoftInterrupt={softInterrupt}
                 onStopAndRedirect={(msg) => stopAndRedirect(msg, turn.id)}
                 onStopAndTryAgain={() => stopAndTryAgain(turn.id)}
                 cancelling={cancelling}

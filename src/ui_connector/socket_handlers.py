@@ -199,10 +199,12 @@ _cancel_loops: dict[str, asyncio.AbstractEventLoop] = {}
 _cancel_tasks: dict[str, asyncio.Task] = {}
 
 # Stop-and-redirect: soft interrupt that injects guidance without ending the turn.
-# redirect_event is set by handle_stop_and_redirect; the loop injects the message
-# as user_continuation and continues (unlike cancel_event which ends the turn).
+# Two-phase: soft_interrupt fires redirect_event immediately (on button click);
+# stop_and_redirect delivers the message (on "Send").  The loop waits for the
+# message before injecting guidance.  Unlike cancel_event, this does not end the turn.
 _redirect_events: dict[str, threading.Event] = {}
 _redirect_messages: dict[str, str] = {}
+_redirect_message_ready: dict[str, threading.Event] = {}  # set when message arrives after soft_interrupt
 
 
 # ---------------------------------------------------------------------------
@@ -460,6 +462,7 @@ def _delete_session(session_id: str) -> None:
     _session_trace_buffers.pop(session_id, None)
     _redirect_events.pop(session_id, None)
     _redirect_messages.pop(session_id, None)
+    _redirect_message_ready.pop(session_id, None)
 
 
 def clear_all_sessions_on_startup() -> None:
@@ -1665,6 +1668,12 @@ async def _async_agent_loop(
                     _watcher.cancel()
 
             if _llm_redirected:
+                # If soft_interrupt fired before the message arrived, wait for it now.
+                # CancelledError propagates naturally here if cancel_turn fires.
+                _msg_ready = _redirect_message_ready.pop(session_id, None)
+                if _msg_ready is not None and not _redirect_messages.get(session_id):
+                    while not _msg_ready.is_set():
+                        await asyncio.sleep(0.1)
                 redirect_msg = _redirect_messages.pop(session_id, "User interrupted.")
                 if redirect_event is not None:
                     redirect_event.clear()
@@ -1722,6 +1731,11 @@ async def _async_agent_loop(
 
                 # Check redirect: _execute_tools returned early; inject guidance and continue.
                 if redirect_event is not None and redirect_event.is_set():
+                    # If soft_interrupt fired before the message arrived, wait for it now.
+                    _msg_ready = _redirect_message_ready.pop(session_id, None)
+                    if _msg_ready is not None and not _redirect_messages.get(session_id):
+                        while not _msg_ready.is_set():
+                            await asyncio.sleep(0.1)
                     redirect_msg = _redirect_messages.pop(session_id, "User interrupted.")
                     redirect_event.clear()
                     exchange.user_continuation = (
@@ -2077,18 +2091,22 @@ def handle_cancel_turn():
     logger.info("Cancel requested for session %s", session_id)
 
 
-@socketio.on("stop_and_redirect")
-def handle_stop_and_redirect(data):
+@socketio.on("soft_interrupt")
+def handle_soft_interrupt():
+    """Phase 1 of stop-and-redirect: fired immediately when the user opens the widget.
+    Sets redirect_event right away so the LLM is interrupted while the user types.
+    The loop will wait for the message (phase 2) before injecting guidance."""
     sid = request.sid
     session_id = _sid_to_session_id.get(sid)
     if not session_id:
         return
-    message = (data or {}).get("message", "User interrupted turn, please try again.")
-    _redirect_messages[session_id] = message
+    # Create the message-ready gate BEFORE setting redirect_event to avoid a race
+    # where the loop checks for the gate right after waking up.
+    _redirect_message_ready[session_id] = threading.Event()
     ev = _redirect_events.get(session_id)
     if ev is not None:
         ev.set()
-    # Wake up any pending blocking waits so they check redirect_event promptly.
+    # Wake pending blocking waits so they exit and check redirect_event promptly.
     pending_approval = _pending_approvals.get(sid)
     if pending_approval:
         pending_approval["event"].set()
@@ -2098,6 +2116,39 @@ def handle_stop_and_redirect(data):
     pending_redirect = _pending_impossible_redirects.get(sid)
     if pending_redirect:
         pending_redirect["event"].set()
+    logger.info("Soft interrupt for session %s", session_id)
+
+
+@socketio.on("stop_and_redirect")
+def handle_stop_and_redirect(data):
+    """Phase 2 of stop-and-redirect: delivers the user's redirect message.
+    If soft_interrupt (phase 1) already fired, just signals the message-ready gate.
+    Otherwise (e.g. stop-and-try-again which skips phase 1) behaves as before."""
+    sid = request.sid
+    session_id = _sid_to_session_id.get(sid)
+    if not session_id:
+        return
+    message = (data or {}).get("message", "User interrupted turn, please try again.")
+    _redirect_messages[session_id] = message
+    ready_ev = _redirect_message_ready.get(session_id)
+    if ready_ev is not None:
+        # soft_interrupt already set redirect_event; just unblock the waiting loop.
+        ready_ev.set()
+    else:
+        # Direct stop_and_redirect with no prior soft_interrupt (e.g. stop-and-try-again).
+        ev = _redirect_events.get(session_id)
+        if ev is not None:
+            ev.set()
+        # Wake pending blocking waits.
+        pending_approval = _pending_approvals.get(sid)
+        if pending_approval:
+            pending_approval["event"].set()
+        pending_human = _pending_human_inputs.get(session_id)
+        if pending_human:
+            pending_human["event"].set()
+        pending_redirect = _pending_impossible_redirects.get(sid)
+        if pending_redirect:
+            pending_redirect["event"].set()
     logger.info("Stop-and-redirect for session %s: %r", session_id, message)
 
 
