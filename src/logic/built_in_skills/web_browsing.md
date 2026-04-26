@@ -1,28 +1,51 @@
 ## Skill: Browsing the Web
 
-`brave_web_search` now automatically scrapes each result URL and attaches a `"facts"` list to every result object it can successfully fetch and summarise. Read those facts first — they are often sufficient.
+### General Workflow
 
-If a result is **missing a `"facts"` field**, the automatic scrape failed or the page was too large to summarise. In that case, fetch it yourself:
+Web research follows a three-step pattern:
 
-- `scrape_web_page` — respectful HTML scraping with proper user-agent, robots.txt checking, and rate-limit jitter. Best for general web pages.
-- `wikipedia` — clean plain-text extraction via the Wikimedia API (no key needed). Prefer this over `scrape_web_page` whenever a URL is on wikipedia.org. Pass the URL directly; language and title are extracted automatically. Use `mode='intro'` for a quick summary, `mode='full'` for the complete article.
+**1. Search** — Use `brave_web_search` to get a list of results (URLs, titles, descriptions).
+Pick the most promising URLs based on the result metadata.
 
-**Always route large responses to session memory** — use `target='session_memory'` on any of the above tools. Never return large web content inline; it wastes context.
+**2. Scrape** — Fetch the selected page into session memory:
+- `scrape_web_page(url=..., target='session_memory', memory_key='page_raw')` — general web pages
+- `wikipedia(url=..., target='session_memory', memory_key='page_raw', mode='full')` — Wikipedia pages (prefer this over `scrape_web_page` for wikipedia.org URLs)
+
+Always use `target='session_memory'` — never return large web content inline; it wastes context.
+
+**3. Read or Summarize** — Extract what you need from the scraped content:
+- `summarize_memory_item(memory_key='page_raw', query='...', output_key='page_summary')` — ask the LLM to summarize the content focused on your query. Best when you want a concise answer.
+- `text_editor(action="search_by_regex", key='page_raw', ...)` — find relevant sections without reading everything. Best when you need a specific passage or value.
+- `line_reader(action="count_lines", session_memory_key='page_raw')` then `line_reader(action="read_lines", ...)` — page through the raw content in chunks. Best for thorough reads of structured content.
+
+### Tools
+
+- `brave_web_search` — Brave Search API. Returns a condensed list of results with URLs, titles, and descriptions. Requires a `brave` service token.
+- `scrape_web_page` — Respectful HTML scraping with proper user-agent, robots.txt checking, and rate-limit jitter.
+- `wikipedia` — Clean plain-text extraction via the Wikimedia API (no key needed). Use `mode='intro'` for a quick summary, `mode='full'` for the complete article.
+- `summarize_memory_item` — Out-of-band LLM call to summarize a session memory item with respect to a query. Pass `output_key` to write the summary to a new session memory key instead of returning inline.
+
+### Working with Session Memory
 
 Once content is in session memory:
-- `text_editor(action="count_lines", key=...)` to check size before reading
-- `text_editor(action="read_lines", key=..., number_lines=true)` to page through in chunks
+- `summarize_memory_item(memory_key=..., query=...)` to get a focused summary via LLM
 - `text_editor(action="search_by_regex", key=...)` to find relevant sections without reading everything
+- `line_reader(action="count_lines", session_memory_key=...)` to check size before reading
+- `line_reader(action="read_lines", session_memory_key=..., number_lines=true)` to page through in chunks
 - `session_memory(action="search_by_regex", key=...)` to search for patterns directly in the stored value
 - `session_memory(action="set")` to save important snippets under a named key for later recall
 
-**Return stubs are session memory.** If a tool result came back as a stub (`** STUBBED LONG RETURN VALUE **`),
-the full content is already stored in session memory at the key named in the stub header. You can use it
-exactly like any other session memory value:
-- `session_memory(action="search_by_regex", key=<stub-key>, ...)` to search without reading everything
-- `return_stub_line_reader(action="count_lines", session_memory_key=<stub-key>)` to get the line count
-- `return_stub_line_reader(action="read_lines", session_memory_key=<stub-key>, start_line=..., end_line=...)` to read in chunks
+### Return Stubs
 
-READ YOUR SCRAPES EARLY
+If a tool result begins with `** STUBBED LONG RETURN VALUE **`, the full content is already stored
+in session memory at the key shown in the stub header. Treat it exactly like any other session memory value:
+- `summarize_memory_item(memory_key=<stub-key>, query=...)` to summarize without reading everything
+- `session_memory(action="search_by_regex", key=<stub-key>, ...)` to search the content
+- `line_reader(action="count_lines", session_memory_key=<stub-key>)` for line count
+- `line_reader(action="read_lines", session_memory_key=<stub-key>, start_line=..., end_line=...)` to read in chunks
 
-Don't scrape hundreds of pages, scrape a few, and then start reading their contents with the tools above.
+### Tips
+
+- Scrape only a few pages at a time — read their content before deciding whether to fetch more.
+- Prefer `summarize_memory_item` over reading in chunks when you need a quick focused answer.
+- Prefer `search_by_regex` over summarization when you need a specific value or passage verbatim.

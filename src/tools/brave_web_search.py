@@ -12,7 +12,7 @@ from src.utils.http.helpers import (
 from src.utils.sql.kv_manager import KVManager
 from src.data import get_pool
 from src.tools._web_search_filter import web_search_filter
-from src.tools._web_search_extractor import _condense_with_llm, _enrich_with_facts
+from src.tools._web_search_extractor import _condense_with_llm
 
 
 _BRAVE_SEARCH_URL = "https://api.search.brave.com/res/v1/web/search"
@@ -33,12 +33,10 @@ LEAVE_OUT = "SHORT"
 NO_STUB = True
 TOOL_SHORT_AMOUNT = 8192
 
-DEFAULT_TIMEOUT = 90   # seconds; Brave rate limits can cause slow responses
-MAX_TIMEOUT = 180      # seconds; tool also makes an out-of-band LLM call
+DEFAULT_TIMEOUT = 30   # seconds; Brave API call only (no per-result scraping)
 TIMEOUT_HINT = None
 
 MAX_EXTRACTION_TRIES = 3
-SCRAPE_SUMMARY_MAX_TRIES = 2
 DEFAULT_COUNT = 5
 
 DEFINITION: dict = {
@@ -209,7 +207,6 @@ def execute(args: dict, session_data: dict | None = None, special_resources: dic
 
         condensed = _condense_with_llm(filtered, query, max_tries=MAX_EXTRACTION_TRIES, on_chunk=on_chunk) if isinstance(filtered, dict) else None
         if condensed is not None:
-            condensed = _enrich_with_facts(condensed, query, max_tries=SCRAPE_SUMMARY_MAX_TRIES, on_chunk=on_chunk)
             result = json.dumps({"results": condensed}, ensure_ascii=False, indent=2)
         else:
             # Fallback: return the pre-filtered raw JSON

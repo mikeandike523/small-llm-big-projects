@@ -19,7 +19,7 @@ DEFINITION: dict = {
             "editing with text_editor(key=...).\n\n"
             "Line endings: direct return normalizes to LF; session memory preserves them "
             "verbatim (CRLF stays CRLF) so the editor round-trip is lossless.\n\n"
-            "For very large files, use file_line_reader instead."
+            "For very large files, use line_reader instead."
         ),
         "parameters": {
             "type": "object",

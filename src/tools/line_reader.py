@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from io import StringIO
 
 from src.tools._memory import ensure_session_memory
@@ -10,17 +11,15 @@ LEAVE_OUT_PER_ACTION = {
     "read_lines":  ("SHORT", 800),
 }
 
-_STUB_MARKER = "** STUBBED LONG RETURN VALUE **"
-
 DEFINITION: dict = {
     "type": "function",
     "function": {
-        "name": "return_stub_line_reader",
+        "name": "line_reader",
         "description": (
-            "Read a stubbed tool return value by line range. "
-            "When a tool result begins with '** STUBBED LONG RETURN VALUE **', the full content "
-            "is stored in session memory at the key shown in the stub header. "
-            "Use count_lines first to know the total, then read in chunks with start_line/end_line.\n\n"
+            "Read text content by line range from a file on disk OR from a session memory key. "
+            "Provide exactly one of: 'path' (file on disk) or 'session_memory_key' (session memory). "
+            "Designed for chunked reading: use count_lines first to know the total, "
+            "then read in chunks with start_line/end_line.\n\n"
             "Actions: count_lines, read_lines."
         ),
         "parameters": {
@@ -30,13 +29,24 @@ DEFINITION: dict = {
                     "type": "string",
                     "enum": ["count_lines", "read_lines"],
                     "description": (
-                        "count_lines -- return the total number of lines in the stubbed value.\n"
-                        "read_lines  -- return all or a line range of the stubbed value."
+                        "count_lines -- return the total number of lines.\n"
+                        "read_lines  -- return all or a line range of the content."
+                    ),
+                },
+                "path": {
+                    "type": "string",
+                    "description": (
+                        "Path to a file on disk (relative or absolute). "
+                        "Mutually exclusive with 'session_memory_key'. Provide exactly one."
                     ),
                 },
                 "session_memory_key": {
                     "type": "string",
-                    "description": "The session_memory_key shown in the stub header (e.g. 'stubs.a1b2c3d4').",
+                    "description": (
+                        "Session memory key holding the text to read. "
+                        "Use this for stub keys (e.g. 'stubs.a1b2c3d4') or any other session memory value. "
+                        "Mutually exclusive with 'path'. Provide exactly one."
+                    ),
                 },
                 "start_line": {
                     "type": "integer",
@@ -60,7 +70,7 @@ DEFINITION: dict = {
                     ),
                 },
             },
-            "required": ["action", "session_memory_key"],
+            "required": ["action"],
             "additionalProperties": False,
         },
     },
@@ -68,11 +78,46 @@ DEFINITION: dict = {
 
 
 def needs_approval(args: dict) -> bool:
+    if args.get("path"):
+        from src.tools._approval import needs_path_approval
+        return needs_path_approval(args["path"])
     return False
 
 
+def _load_text(args: dict, session_data: dict) -> tuple[str, str | None]:
+    """Return (text, error_string). Exactly one of path/session_memory_key must be set."""
+    path = args.get("path")
+    key = args.get("session_memory_key")
+
+    if path and key:
+        return "", "Error: provide exactly one of 'path' or 'session_memory_key', not both."
+    if not path and not key:
+        return "", "Error: one of 'path' or 'session_memory_key' is required."
+
+    if path:
+        try:
+            resolved = os.path.realpath(path)
+            with open(resolved, "r", encoding="utf-8") as fh:
+                return fh.read(), None
+        except FileNotFoundError:
+            return "", f"Error: file not found: {path}"
+        except IsADirectoryError:
+            return "", f"Error: path is a directory: {path}"
+        except UnicodeDecodeError as e:
+            return "", f"Error: file is not valid UTF-8: {e}"
+        except OSError as e:
+            return "", f"Error: {e}"
+
+    memory = ensure_session_memory(session_data)
+    value = memory.get(key)
+    if value is None:
+        return "", f"Error: session memory key {key!r} not found."
+    if not isinstance(value, str):
+        return "", f"Error: session memory key {key!r} does not hold a text value."
+    return value, None
+
+
 def _count_lines(text: str) -> int:
-    """Count logical lines, treating \\n as the sole line boundary."""
     if text == "":
         return 0
     n = text.count("\n")
@@ -95,21 +140,13 @@ def _read_lines_range(text: str, start_line: int | None, end_line: int | None) -
 
 def execute(args: dict, session_data: dict) -> str:
     action = args.get("action")
-    key = args.get("session_memory_key")
 
-    if not key:
-        return "Error: 'session_memory_key' is required."
-
-    memory = ensure_session_memory(session_data)
-    value = memory.get(key)
-
-    if value is None:
-        return f"Error: session memory key {key!r} not found."
-    if not isinstance(value, str):
-        return f"Error: session memory key {key!r} does not hold a text value."
+    text, error = _load_text(args, session_data)
+    if error:
+        return error
 
     if action == "count_lines":
-        return str(_count_lines(value))
+        return str(_count_lines(text))
 
     if action == "read_lines":
         start_line = args.get("start_line")
@@ -120,7 +157,7 @@ def execute(args: dict, session_data: dict) -> str:
         if start_line is not None and end_line is not None and end_line < start_line:
             return "Error: end_line must be >= start_line."
 
-        contents = _read_lines_range(value, start_line, end_line)
+        contents = _read_lines_range(text, start_line, end_line)
         if number_lines:
             effective_start = start_line if start_line is not None else 1
             return add_line_numbers(contents, start_line=effective_start, delimiter=delimiter)

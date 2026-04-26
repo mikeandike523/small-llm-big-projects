@@ -14,8 +14,8 @@ from src.tools import change_pwd
 from src.tools import create_dir
 from src.tools import create_text_file
 from src.tools import delete_file
-from src.tools import file_line_reader
 from src.tools import find_files_by_name
+from src.tools import line_reader
 from src.tools import get_environment_info
 from src.tools import get_global_workspace_dir
 from src.tools import get_pwd
@@ -27,10 +27,10 @@ from src.tools import project_memory
 from src.tools import read_text_file
 from src.tools import remove_dir
 from src.tools import report_impossible
-from src.tools import return_stub_line_reader
 from src.tools import scrape_web_page
 from src.tools import search_filesystem_by_regex
 from src.tools import session_memory
+from src.tools import summarize_memory_item
 from src.tools import text_editor
 from src.tools import todo_list
 from src.tools import wikipedia
@@ -46,8 +46,8 @@ ALL_TOOL_DEFINITIONS: list[dict] = [
     create_dir.DEFINITION,
     create_text_file.DEFINITION,
     delete_file.DEFINITION,
-    file_line_reader.DEFINITION,
     find_files_by_name.DEFINITION,
+    line_reader.DEFINITION,
     get_environment_info.DEFINITION,
     get_global_workspace_dir.DEFINITION,
     get_pwd.DEFINITION,
@@ -59,10 +59,10 @@ ALL_TOOL_DEFINITIONS: list[dict] = [
     read_text_file.DEFINITION,
     remove_dir.DEFINITION,
     report_impossible.DEFINITION,
-    return_stub_line_reader.DEFINITION,
     scrape_web_page.DEFINITION,
     search_filesystem_by_regex.DEFINITION,
     session_memory.DEFINITION,
+    summarize_memory_item.DEFINITION,
     text_editor.DEFINITION,
     todo_list.DEFINITION,
     wikipedia.DEFINITION,
@@ -78,8 +78,8 @@ _TOOL_MAP: dict[str, object] = {
     "create_dir": create_dir,
     "create_text_file": create_text_file,
     "delete_file": delete_file,
-    "file_line_reader": file_line_reader,
     "find_files_by_name": find_files_by_name,
+    "line_reader": line_reader,
     "get_environment_info": get_environment_info,
     "get_global_workspace_dir": get_global_workspace_dir,
     "get_pwd": get_pwd,
@@ -91,10 +91,10 @@ _TOOL_MAP: dict[str, object] = {
     "read_text_file": read_text_file,
     "remove_dir": remove_dir,
     "report_impossible": report_impossible,
-    "return_stub_line_reader": return_stub_line_reader,
     "scrape_web_page": scrape_web_page,
     "search_filesystem_by_regex": search_filesystem_by_regex,
     "session_memory": session_memory,
+    "summarize_memory_item": summarize_memory_item,
     "text_editor": text_editor,
     "todo_list": todo_list,
     "wikipedia": wikipedia,

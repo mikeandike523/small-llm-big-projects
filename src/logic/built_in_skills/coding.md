@@ -17,7 +17,7 @@ subproject or nested module). At the start of any task, check `project_memory` w
 
 ### Reading and Editing Files
 
-Reading: use `read_text_file` for small files, or `file_line_reader` (count_lines + read_lines) for large files.
+Reading: use `read_text_file` for small files, or `line_reader` (count_lines + read_lines) for large files.
 Use these when exploring and understanding code — they are fast and lightweight.
 
 We encourage using session memory to edit files — routing edits through a buffer increases accuracy
@@ -156,5 +156,6 @@ After a build or test run, check the todo list — close verification steps only
 
 ### Stay Up to Date
 
-If you don't know something, search the web using the `brave_web_search` and `scrape_web_page` tools.
-See related skill "Browsing the Web"
+If you don't know something, search the web using `brave_web_search`, then scrape promising URLs
+into session memory and use `summarize_memory_item` to extract relevant information.
+See related skill "Browsing the Web" for the full workflow.
