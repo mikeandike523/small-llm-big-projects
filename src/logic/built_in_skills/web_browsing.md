@@ -2,21 +2,26 @@
 
 ### General Workflow
 
-Web research follows a three-step pattern:
 
-**1. Search** — Use `brave_web_search` to get a list of results (URLs, titles, descriptions).
-Pick the most promising URLs based on the result metadata.
 
-**2. Scrape** — Fetch the selected page into session memory:
+**1. Search** — Use `brave_web_search` to get a list of facts and their sources relevant to the query.
+Prefer fresh results when you need up-to-date info (`freshness` parameter).
+
+**2 Answer if you're ready.** — If the facts are good enough to answer the user's questions
+or fulfill the user's request, use them directly.
+
+**3. Scrape for more info if needed** — Fetch a url source mentioned in the facts list:
 - `scrape_web_page(url=..., target='session_memory', memory_key='page_raw')` — general web pages
 - `wikipedia(url=..., target='session_memory', memory_key='page_raw', mode='full')` — Wikipedia pages (prefer this over `scrape_web_page` for wikipedia.org URLs)
 
 Always use `target='session_memory'` — never return large web content inline; it wastes context.
 
-**3. Read or Summarize** — Extract what you need from the scraped content:
+**4. Read or Summarize Scraped Data** — Extract what you need from the scraped content:
 - `summarize_memory_item(memory_key='page_raw', query='...', output_key='page_summary')` — ask the LLM to summarize the content focused on your query. Best when you want a concise answer.
 - `text_editor(action="search_by_regex", key='page_raw', ...)` — find relevant sections without reading everything. Best when you need a specific passage or value.
 - `line_reader(action="count_lines", session_memory_key='page_raw')` then `line_reader(action="read_lines", ...)` — page through the raw content in chunks. Best for thorough reads of structured content.
+
+**3. Answer based on your research** — Collect all the data you fetched and summarized, along with the original facts and answer the user's question / fulfill the user's request.
 
 ### Tools
 
@@ -29,7 +34,7 @@ Always use `target='session_memory'` — never return large web content inline; 
 
 Once content is in session memory:
 - `summarize_memory_item(memory_key=..., query=...)` to get a focused summary via LLM
-- `text_editor(action="search_by_regex", key=...)` to find relevant sections without reading everything
+- `session_memory(action="search_by_regex", key=...)` to find relevant sections without reading everything
 - `line_reader(action="count_lines", session_memory_key=...)` to check size before reading
 - `line_reader(action="read_lines", session_memory_key=..., number_lines=true)` to page through in chunks
 - `session_memory(action="search_by_regex", key=...)` to search for patterns directly in the stored value
@@ -47,5 +52,6 @@ in session memory at the key shown in the stub header. Treat it exactly like any
 ### Tips
 
 - Scrape only a few pages at a time — read their content before deciding whether to fetch more.
-- Prefer `summarize_memory_item` over reading in chunks when you need a quick focused answer.
-- Prefer `search_by_regex` over summarization when you need a specific value or passage verbatim.
+    - You may not need to fetch every single url to get a clear picture. Focus on relevance.
+- If you notice relevant urls in the scraped pages, feel free to follow them by scraping and/or summarizing
+in the same way (i.e. web crawling).
