@@ -901,13 +901,18 @@ async def _async_run_llm_call_with_retry(
     try:
         return await _async_run_llm_call(streaming_llm, payload, session_id, turn_id, exchange_idx, tool_defs, interim_response_as_thinking, record=record)
     except Exception as exc:
-        if not _is_retryable_error(exc):
+        if _is_context_limit_error(exc):
+            raise RuntimeError(
+                "Context limit exceeded — the conversation is too long for the model's context window.\n"
+                "Conversation compaction is currently disabled. Please start a new session or shorten the conversation."
+            ) from exc
+
+        if not _is_timeout_error(exc):
             raise
 
-        reason = "timeout" if _is_timeout_error(exc) else "context limit exceeded"
         _emit_backend_log(
             session_id,
-            colored(f"LLM call failed ({reason}), retrying with stripped context…", "yellow")
+            colored("LLM call timed out, retrying once…", "yellow")
         )
 
         actual_tool_map = tool_map if tool_map is not None else _TOOL_MAP
@@ -1194,6 +1199,10 @@ def _get_open_items(todo_list: list) -> list[str]:
 # threshold.  Prevents unnecessary LLM calls when only a small amount of context
 # has accumulated (e.g. two or three quick todo closures in rapid succession).
 MIN_COMPACTION_CHARS = 8192
+
+# Set to False to disable todo-item-completion-triggered compaction.
+# Code path is preserved; flip to True to re-enable.
+_EARLY_COMPACTION_ENABLED = False
 
 # Maximum display length for LLM-generated task titles.  Titles that exceed this
 # (e.g. from thinking models that output reasoning before the short title) are
@@ -1758,7 +1767,7 @@ async def _async_agent_loop(
                 # verbatim — the range is split into disjoint compactable segments around them.
                 # exchange_idx of the newly appended exchange = len(exchanges) - 1.
                 closed_items = _closed_items_from_exchange(exchange)
-                if closed_items:
+                if _EARLY_COMPACTION_ENABLED and closed_items:
                     last_covered_idx = max(
                         (max(cr.covers_exchange_indices) for cr in current_turn.compaction_records),
                         default=-1,

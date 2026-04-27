@@ -25,6 +25,10 @@ import json
 
 from src.tools._leave_out import LeaveOut, get_leave_out_for_args
 
+# Set to False to bypass all LEAVE_OUT policies and assistant truncation.
+# Code paths are preserved; flip to True to re-enable.
+_STRIP_ENABLED = False
+
 _STUB_MARKER = "** STUBBED LONG RETURN VALUE **"
 
 
@@ -49,6 +53,9 @@ def strip_down_messages(
       N > 0   — truncate to N chars and append '... (M more chars)'
     """
     messages = copy.deepcopy(messages)
+
+    if not _STRIP_ENABLED:
+        return messages
 
     # --- Pass 1: collect per-tool-call-id policy ---
     tool_call_policies: dict[str, LeaveOut] = {}
