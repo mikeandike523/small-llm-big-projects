@@ -48,7 +48,7 @@ DEFAULT_MAXIMUM_NUMBER_OF_SNIPPETS_PER_URL = 50
 DEFINITION: dict = {
     "type": "function",
     "function": {
-        "name": "brave_llm_context",
+        "name": "brave_web_search",
         "description": (
             "Retrieve pre-extracted web content optimized for AI agents, LLM grounding, "
             "and RAG pipelines using Brave's LLM Context API. Returns grounding snippets "
@@ -248,7 +248,7 @@ def execute(args: dict, session_data: dict | None = None, special_resources: dic
 
     except httpx.TimeoutException:
         from src.utils.exceptions import ToolTimeoutError
-        raise ToolTimeoutError("brave_llm_context", DEFAULT_TIMEOUT)
+        raise ToolTimeoutError("brave_web_search", DEFAULT_TIMEOUT)
     except Exception as e:
         return format_response(
             status_code=None,
