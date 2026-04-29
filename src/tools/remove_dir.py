@@ -3,9 +3,6 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
-LEAVE_OUT = "SHORT"
-TOOL_SHORT_AMOUNT = 200
-
 DEFINITION: dict = {
     "type": "function",
     "function": {

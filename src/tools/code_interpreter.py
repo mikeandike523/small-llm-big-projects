@@ -8,9 +8,6 @@ from src.utils.docker_compose import get_service_port
 DEFAULT_TIMEOUT = 30
 MAX_ALLOWABLE_TIMEOUT = 120
 
-LEAVE_OUT = "SHORT"
-TOOL_SHORT_AMOUNT = 1000
-
 _PISTON_EXECUTE_PATH = "/api/v2/execute"
 _piston_port: int | None = None
 

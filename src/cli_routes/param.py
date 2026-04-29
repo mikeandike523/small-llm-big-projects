@@ -13,13 +13,11 @@ _ALLOWED_PARAMS = {
     "model.top_p",
     "model.top_k",
     "model.max_tokens",
-    "model.compaction_max_tokens",
     "model.watchdog_max_tokens",
     "model.title_summary_max_tokens",
     "model.request_extra_params",
     "model.default_irat",
     "system.return_value_max_chars",
-    "system.assistant_strip_truncation_chars",
 }
 
 _PARAM_DOCS = {
@@ -52,16 +50,6 @@ _PARAM_DOCS = {
         "description": (
             "Maximum number of tokens to generate in a single response. "
             "The model may stop earlier if it produces an end-of-sequence token."
-        ),
-    },
-    "model.compaction_max_tokens": {
-        "type": "integer > 0",
-        "description": (
-            "Maximum tokens for the out-of-band compaction LLM call that summarises "
-            "completed todo-item steps. "
-            "When not set, falls back to model.max_tokens (or the model default if "
-            "that is also unset). Set this to a small value (e.g. 300) to keep "
-            "compaction summaries short."
         ),
     },
     "model.watchdog_max_tokens": {
@@ -114,18 +102,6 @@ _PARAM_DOCS = {
             "retrieve it in chunks if needed."
         ),
     },
-    "system.assistant_strip_truncation_chars": {
-        "type": "integer >= 0",
-        "description": (
-            "Controls how the assistant's own interim text content "
-            "(the text the LLM writes alongside tool calls) is handled "
-            "when the conversation history is stripped down for a retry "
-            "after a timeout or context-limit error.\n"
-            "  0       : fully omit interim assistant content.\n"
-            "  N > 0   : truncate interim content to N characters and append '... (M more chars)'.\n"
-            "  not set : leave interim assistant content unchanged (default)."
-        ),
-    },
 }
 
 
@@ -165,11 +141,6 @@ def _parse_and_validate(name: str, raw_value: str):
             if value <= 0:
                 raise click.BadParameter("model.max_tokens must be > 0", param_hint="value")
             return value
-        elif name == "model.compaction_max_tokens":
-            value = int(raw_value)
-            if value <= 0:
-                raise click.BadParameter("model.compaction_max_tokens must be > 0", param_hint="value")
-            return value
         elif name == "model.watchdog_max_tokens":
             value = int(raw_value)
             if value <= 0:
@@ -185,11 +156,6 @@ def _parse_and_validate(name: str, raw_value: str):
             if value <= 0:
                 raise click.BadParameter("system.return_value_max_chars must be > 0", param_hint="value")
             return value
-        elif name == "system.assistant_strip_truncation_chars":
-            value = int(raw_value)
-            if value < 0:
-                raise click.BadParameter("system.assistant_strip_truncation_chars must be >= 0", param_hint="value")
-            return value
         else:
             value = float(raw_value)
             if name == "model.temperature" and not (0.0 <= value <= 2.0):
@@ -198,7 +164,7 @@ def _parse_and_validate(name: str, raw_value: str):
                 raise click.BadParameter("model.top_p must be between 0.0 and 1.0", param_hint="value")
             return value
     except ValueError:
-        int_params = {"model.top_k", "model.max_tokens", "model.compaction_max_tokens", "model.watchdog_max_tokens", "model.title_summary_max_tokens", "system.return_value_max_chars", "system.assistant_strip_truncation_chars"}
+        int_params = {"model.top_k", "model.max_tokens", "model.watchdog_max_tokens", "model.title_summary_max_tokens", "system.return_value_max_chars"}
         type_hint = "integer" if name in int_params else "float"
         raise click.BadParameter(f"value for '{name}' must be a {type_hint}", param_hint="value")
 

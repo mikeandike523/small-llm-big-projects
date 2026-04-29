@@ -67,15 +67,12 @@ def load_llm_config() -> dict | None:
         # These model.* params control internal call budgets, not the LLM API itself.
         # Pop them from model_params (so they don't leak into API request payloads)
         # and surface them via system_params where callers can read them.
-        compaction_max_tokens = model_params.pop("compaction_max_tokens", None)
         watchdog_max_tokens = model_params.pop("watchdog_max_tokens", None)
         title_summary_max_tokens = model_params.pop("title_summary_max_tokens", None)
         system_params = {
             k[len(full_system_prefix):]: kv.get_value(k)
             for k in param_keys if k.startswith(full_system_prefix)
         }
-        if compaction_max_tokens is not None:
-            system_params["compaction_max_tokens"] = compaction_max_tokens
         if watchdog_max_tokens is not None:
             system_params["watchdog_max_tokens"] = watchdog_max_tokens
         if title_summary_max_tokens is not None:

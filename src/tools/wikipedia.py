@@ -11,9 +11,6 @@ from src.data import get_pool
 from src.utils.exceptions import ToolTimeoutError
 
 
-LEAVE_OUT = "SHORT"
-TOOL_SHORT_AMOUNT = 1000
-
 DEFAULT_TIMEOUT = 15  # seconds
 
 # Wikipedia asks for a descriptive User-Agent identifying the tool.

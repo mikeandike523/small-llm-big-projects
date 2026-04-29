@@ -17,9 +17,6 @@ import time
 from src.tools._subprocess import run_command
 from src.utils.exceptions import ToolTimeoutError
 
-LEAVE_OUT = "SHORT"
-TOOL_SHORT_AMOUNT = 600
-
 DEFAULT_TIMEOUT = 15  # seconds
 
 DEFINITION: dict = {

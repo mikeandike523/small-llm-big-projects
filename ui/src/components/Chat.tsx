@@ -88,13 +88,6 @@ way to hard-kill a running tool mid-execution in the current threading model.
 This prevents leaving the environment in a broken state (e.g. a half-written
 file or an open network connection).
 
-## Compaction
-
-Long turns accumulate many tool calls. When a todo item is closed, slbp
-compacts the exchanges for that item into a short summary bubble (shown in
-pink/magenta). Human-authored content (denials, ask_human answers, redirect
-messages) is never compacted — it is always kept verbatim.
-
 ## Memory
 
 The LLM has two persistent key-value memory stores:
@@ -105,12 +98,6 @@ The LLM has two persistent key-value memory stores:
   like architecture decisions, naming conventions, ongoing work items.
 
 Both are accessible via the Debug Panel (right side, memory tabs).
-
-## Context Strip / Retry
-
-If the LLM hits a context-length or timeout error mid-turn, slbp automatically
-strips down the message history (applying per-tool compaction policies) and
-retries the request once. You will not normally notice this.
 
 ## Parameters
 
@@ -163,7 +150,6 @@ function newTurn(id: string, userText: string): Turn {
     approvalItems: [],
     askHumanItems: [],
     completed: false,
-    compactionBubbles: [],
     streaming: true,
     isInterimStreaming: false,
     interimShowCharCount: false,
@@ -220,7 +206,6 @@ function backendTurnToFrontendTurn(d: {
     todoItems: d.todo_snapshot ?? [],
     approvalItems: [],
     askHumanItems: [],
-    compactionBubbles: [],
     impossible: d.was_impossible ? (d.impossible_reason ?? 'Task was impossible') : undefined,
     cancelled: d.was_cancelled ? 'Turn was cancelled' : undefined,
     completed: d.completed,
@@ -408,62 +393,6 @@ const interruptedBubbleCss = css`
   font-size: 11px;
   color: #d5b8ff;
   font-style: italic;
-`
-
-const compactionScrollContainerCss = css`
-  ${scrollbarCss}
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  max-height: 300px;
-  overflow-y: auto;
-`
-
-const compactionBubbleCss = css`
-  background: #1f0a18;
-  border: 1px solid #7a1a5a;
-  border-radius: 8px;
-  font-size: 11px;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-`
-
-const compactionHeaderCss = css`
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 7px 12px;
-`
-
-const compactionLabelCss = css`
-  color: #c060a0;
-  font-family: 'Consolas', monospace;
-  font-weight: bold;
-`
-
-const compactionViewFullButtonCss = css`
-  background: transparent;
-  color: #906080;
-  border: 1px solid #5a2a4a;
-  border-radius: 4px;
-  padding: 2px 8px;
-  font-size: 11px;
-  cursor: pointer;
-  font-family: 'Consolas', monospace;
-  white-space: nowrap;
-  flex-shrink: 0;
-  transition: background 0.15s, color 0.15s;
-  &:hover { background: #3a1a2a; color: #d090c0; }
-`
-
-const compactionSummaryCss = css`
-  color: #d090b8;
-  line-height: 1.4;
-  font-style: italic;
-  padding: 0 12px 7px 12px;
-  word-break: break-word;
 `
 
 const cancelledBubbleCss = css`
@@ -1963,10 +1892,9 @@ function TurnContainer({
 }) {
   const [showStopRedirectWidget, setShowStopRedirectWidget] = useState(false)
   const [stopRedirectText, setStopRedirectText] = useState('')
-  const { todoItems, approvalItems, askHumanItems, impossibleRedirectItem, impossible, cancelled, compactionBubbles, exchanges, streaming, isInterimStreaming, interimShowCharCount, interimCharCount, interrupted } = turn
+  const { todoItems, approvalItems, askHumanItems, impossibleRedirectItem, impossible, cancelled, exchanges, streaming, isInterimStreaming, interimShowCharCount, interimCharCount, interrupted } = turn
 
   const { scrollRef: toolsScrollRef, contentRef: toolsContentRef } = useStickToBottom()
-  const { scrollRef: compactionScrollRef, contentRef: compactionContentRef } = useStickToBottom()
   const { scrollRef: outcomesScrollRef, contentRef: outcomesContentRef } = useStickToBottom()
   const { scrollRef: qaHistoryScrollRef, contentRef: qaHistoryContentRef } = useStickToBottom()
   const hasPendingApproval = approvalItems.some(a => !a.resolved)
@@ -2089,34 +2017,6 @@ function TurnContainer({
               >
                 Stop Turn
               </button>
-            </div>
-          </div>
-        )}
-        {compactionBubbles.length > 0 && (
-          <div css={compactionScrollContainerCss} ref={compactionScrollRef}>
-            <div ref={compactionContentRef}>
-              {compactionBubbles.map((cb, idx) => {
-                const previewLen = 160
-                const isTruncated = cb.summary !== undefined && cb.summary.length > previewLen
-                const previewText = isTruncated
-                  ? cb.summary!.slice(0, previewLen) + `... (${cb.summary!.length - previewLen} more)`
-                  : cb.summary
-                return (
-                  <div key={idx} css={compactionBubbleCss}>
-                    <div css={compactionHeaderCss}>
-                      <span css={compactionLabelCss}>
-                        {cb.pending ? 'Compacting...' : `Compacted: ${cb.itemLabel}`}
-                      </span>
-                      {isTruncated && (
-                        <button css={compactionViewFullButtonCss} onClick={() => onViewFull(cb.summary!)}>
-                          view full
-                        </button>
-                      )}
-                    </div>
-                    {previewText && <span css={compactionSummaryCss}>{previewText}</span>}
-                  </div>
-                )
-              })}
             </div>
           </div>
         )}
@@ -2505,26 +2405,6 @@ export default function Chat() {
         // Resolved by user action; no state change needed during replay
         break
       }
-      case 'compaction_start': {
-        const itemLabel = data.item_label as string
-        updateTurn(turnId, t => ({
-          ...t,
-          compactionBubbles: [...t.compactionBubbles, { itemLabel, pending: true }],
-        }))
-        break
-      }
-      case 'compaction_done': {
-        const summary = data.summary_text as string
-        updateTurn(turnId, t => {
-          const bubbles = [...t.compactionBubbles]
-          const lastPendingIdx = bubbles.map((b, i) => b.pending ? i : -1).filter(i => i >= 0).pop()
-          if (lastPendingIdx !== undefined) {
-            bubbles[lastPendingIdx] = { ...bubbles[lastPendingIdx], pending: false, summary }
-          }
-          return { ...t, compactionBubbles: bubbles }
-        })
-        break
-      }
       case 'task_title':
         updateTurn(turnId, t => ({ ...t, taskTitle: data.title as string }))
         break
@@ -2887,28 +2767,6 @@ export default function Chat() {
       // so this event mainly serves as a confirmation log; no state change needed.
     }
 
-    function onCompactionStart(data: { event_id?: string; turn_id?: string; item_label: string }) {
-      if (data.event_id) updateLastEventId(data.event_id)
-      const turnId = data.turn_id ?? ''
-      updateTurn(turnId, t => ({
-        ...t,
-        compactionBubbles: [...t.compactionBubbles, { itemLabel: data.item_label, pending: true }],
-      }))
-    }
-
-    function onCompactionDone(data: { event_id?: string; turn_id?: string; summary_text: string }) {
-      if (data.event_id) updateLastEventId(data.event_id)
-      const turnId = data.turn_id ?? ''
-      updateTurn(turnId, t => {
-        const bubbles = [...t.compactionBubbles]
-        const lastPendingIdx = bubbles.map((b, i) => b.pending ? i : -1).filter(i => i >= 0).pop()
-        if (lastPendingIdx !== undefined) {
-          bubbles[lastPendingIdx] = { ...bubbles[lastPendingIdx], pending: false, summary: data.summary_text }
-        }
-        return { ...t, compactionBubbles: bubbles }
-      })
-    }
-
     socket.on('connect', onConnect)
     socket.on('disconnect', onDisconnect)
     socket.on('pwd_update', onPwdUpdate)
@@ -2940,8 +2798,6 @@ export default function Chat() {
     socket.on('report_impossible_request', onReportImpossibleRequest)
     socket.on('ask_human_request', onAskHumanRequest)
     socket.on('ask_human_resolved', onAskHumanResolved)
-    socket.on('compaction_start', onCompactionStart)
-    socket.on('compaction_done', onCompactionDone)
     socket.on('shell_output_snapshot', onShellOutputSnapshot)
     socket.on('task_title', (data: { turn_id: string; title: string }) => {
       applyReplayEvent('task_title', data)
@@ -2985,8 +2841,6 @@ export default function Chat() {
       socket.off('report_impossible_request', onReportImpossibleRequest)
       socket.off('ask_human_request', onAskHumanRequest)
       socket.off('ask_human_resolved', onAskHumanResolved)
-      socket.off('compaction_start', onCompactionStart)
-      socket.off('compaction_done', onCompactionDone)
       socket.off('shell_output_snapshot', onShellOutputSnapshot)
       socket.off('task_title')
       socket.off('skills_loaded')

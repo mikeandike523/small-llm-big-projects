@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from src.utils.env_info import get_default_workspace_dir
 
-LEAVE_OUT = "KEEP"
-
 DEFINITION: dict = {
     "type": "function",
     "function": {

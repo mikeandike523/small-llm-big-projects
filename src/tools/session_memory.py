@@ -7,21 +7,6 @@ import re
 from src.tools._memory import ensure_session_memory
 from src.utils.text.line_numbers import add_line_numbers
 
-LEAVE_OUT = "KEEP"  # module-level fallback; per-action policy takes precedence
-
-LEAVE_OUT_PER_ACTION = {
-    "get":              ("SHORT",       500),
-    "set":              ("SHORT",       200),
-    "delete":           ("SHORT",       200),
-    "list":             ("KEEP",        0),
-    "append":           ("SHORT",       200),
-    "concat":           ("SHORT",       200),
-    "copy":             ("SHORT",       200),
-    "rename":           ("SHORT",       200),
-    "extract_json":     ("SHORT",       500),
-    "search_by_regex":  ("SHORT",       500),
-}
-
 DEFINITION: dict = {
     "type": "function",
     "function": {

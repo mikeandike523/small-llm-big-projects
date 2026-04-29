@@ -8,16 +8,6 @@ from src.data import get_pool
 from src.utils.sql.kv_manager import KVManager
 from src.utils.text.line_numbers import add_line_numbers
 
-LEAVE_OUT = "KEEP"  # module-level fallback; per-action policy takes precedence
-
-LEAVE_OUT_PER_ACTION = {
-    "get":              ("SHORT",       500),
-    "set":              ("SHORT",       200),
-    "delete":           ("SHORT",       200),
-    "list":             ("KEEP",        0),
-    "search_by_regex":  ("SHORT",       500),
-}
-
 DEFINITION: dict = {
     "type": "function",
     "function": {

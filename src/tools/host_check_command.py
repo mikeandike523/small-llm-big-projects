@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import shutil
 
-LEAVE_OUT = "KEEP"
-
 DEFINITION = {
     "type": "function",
     "function": {

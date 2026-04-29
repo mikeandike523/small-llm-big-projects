@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from src.tools._memory import ensure_session_memory
 
-LEAVE_OUT = "SHORT"
-TOOL_SHORT_AMOUNT = 800
 NO_STUB = True
 
 DEFINITION: dict = {

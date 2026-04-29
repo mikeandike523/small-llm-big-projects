@@ -3,9 +3,6 @@ import os
 import subprocess
 from src.tools._subprocess import run_command
 
-LEAVE_OUT = "SHORT"
-TOOL_SHORT_AMOUNT = 600
-
 DEFAULT_TIMEOUT = 15  # seconds
 TIMEOUT_HINT = None
 

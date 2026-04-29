@@ -1,7 +1,5 @@
 import json
 
-LEAVE_OUT = "KEEP"
-
 DEFINITION = {
     "type": "function",
     "function": {

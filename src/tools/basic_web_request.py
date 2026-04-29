@@ -16,9 +16,6 @@ from src.utils.sql.kv_manager import KVManager
 from src.data import get_pool
 
 
-LEAVE_OUT = "SHORT"
-TOOL_SHORT_AMOUNT = 800
-
 DEFAULT_TIMEOUT = 30  # informational; actual value comes from args
 TIMEOUT_HINT = None
 

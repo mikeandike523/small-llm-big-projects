@@ -4,9 +4,6 @@ import os
 
 from src.utils.git_heuristic_is_binary import git_heuristic_is_binary
 
-LEAVE_OUT = "SHORT"
-TOOL_SHORT_AMOUNT = 800
-
 DEFINITION: dict = {
     "type": "function",
     "function": {

@@ -44,12 +44,6 @@ export interface LLMExchange {
   isFinal: boolean
 }
 
-export interface CompactionBubble {
-  itemLabel: string
-  pending: boolean
-  summary?: string
-}
-
 export interface Turn {
   id: string
   userText: string
@@ -63,7 +57,6 @@ export interface Turn {
   impossible?: string
   cancelled?: string
   completed: boolean
-  compactionBubbles: CompactionBubble[]
   // Live state (only meaningful on current/in-progress turn):
   streaming: boolean
   isInterimStreaming: boolean

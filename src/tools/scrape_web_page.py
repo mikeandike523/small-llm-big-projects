@@ -15,9 +15,6 @@ from src.utils.sql.kv_manager import KVManager
 from src.data import get_pool
 
 
-LEAVE_OUT = "SHORT"
-TOOL_SHORT_AMOUNT = 800
-
 DEFAULT_TIMEOUT = 20       # seconds per request
 DEFAULT_MAX_RETRIES = 3    # transient-failure retries
 DEFAULT_MIN_DELAY = 1.0    # politeness delay before fetching

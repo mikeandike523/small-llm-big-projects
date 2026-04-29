@@ -5,8 +5,6 @@ import os
 from src.tools._memory import ensure_session_memory
 from src.utils.env_info import format_environment_info
 
-LEAVE_OUT = "KEEP"
-
 DEFINITION: dict = {
     "type": "function",
     "function": {

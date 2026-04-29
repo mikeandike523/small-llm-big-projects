@@ -36,9 +36,7 @@ https://api-dashboard.search.brave.com/documentation/services/web-search
 """
 
 
-LEAVE_OUT = "SHORT"
 NO_STUB = True
-TOOL_SHORT_AMOUNT = 8192
 
 DEFAULT_TIMEOUT = 30   # seconds; Brave API call only (no per-result scraping)
 TIMEOUT_HINT = None

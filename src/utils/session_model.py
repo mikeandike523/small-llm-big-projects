@@ -20,28 +20,12 @@ class ToolCallRecord:
 
 
 @dataclass
-class CompactionRecord:
-    """Summary of a contiguous slice of Turn.exchanges, produced by an out-of-band LLM call.
-
-    covers_exchange_indices — sorted list of indices into Turn.exchanges that this record
-    replaces in the LLM payload.  Raw exchanges at those positions are skipped; a single
-    user message carrying summary_text is injected instead.
-    """
-    summary_text: str
-    covers_exchange_indices: list[int]
-
-
-@dataclass
 class LLMExchange:
     assistant_content: str = ""
     reasoning: str = ""
     tool_calls: list[ToolCallRecord] = field(default_factory=list)
     is_final: bool = False
     user_continuation: str | None = None  # injected user message after this exchange (e.g. unclosed-todo reprompt)
-    has_human_content: bool = False  # True when human-authored content lives in this exchange
-    # (approval denial result, ask_human answer, or report_impossible redirect in user_continuation).
-    # Exchanges flagged here are NEVER included in a CompactionRecord — they are always emitted
-    # verbatim so the LLM always sees exact human instructions rather than a lossy summary.
 
     def to_messages(self) -> list[dict]:
         """Convert this exchange to OpenAI-format message(s)."""
@@ -89,45 +73,13 @@ class Turn:
     completed: bool = False
     condensed_user: str = ""
     condensed_assistant: str = ""
-    compaction_records: list[CompactionRecord] = field(default_factory=list)
     task_title: str | None = None  # Short LLM-generated title, fetched at turn start
 
     def to_messages(self) -> list[dict]:
-        """
-        Rebuild OpenAI-format messages list from all exchanges.
-
-        Exchanges covered by a CompactionRecord are replaced by a single user
-        message carrying the compaction summary (tagged with
-        agentic_loop_control_type="compacted_steps" for internal routing).
-        Uncovered exchanges are emitted as raw messages as before.
-
-        Format: [user_msg, (compaction_summary | raw_exchange_messages)*, ...]
-        """
+        """Rebuild OpenAI-format messages list from all exchanges."""
         msgs: list[dict] = [{"role": "user", "content": self.user_text_with_context}]
-
-        # Build a map: exchange_idx -> index into self.compaction_records
-        covered_by: dict[int, int] = {}
-        for cr_idx, cr in enumerate(self.compaction_records):
-            for ex_idx in cr.covers_exchange_indices:
-                covered_by[ex_idx] = cr_idx
-
-        emitted_cr_indices: set[int] = set()
-
-        for ex_idx, exchange in enumerate(self.exchanges):
-            if ex_idx in covered_by:
-                cr_idx = covered_by[ex_idx]
-                if cr_idx not in emitted_cr_indices:
-                    cr = self.compaction_records[cr_idx]
-                    msgs.append({
-                        "role": "user",
-                        "content": cr.summary_text,
-                        "agentic_loop_control_type": "compacted_steps",
-                    })
-                    emitted_cr_indices.add(cr_idx)
-                # Skip the raw exchange — it is represented by the compaction summary above.
-            else:
-                msgs.extend(exchange.to_messages())
-
+        for exchange in self.exchanges:
+            msgs.extend(exchange.to_messages())
         return msgs
 
     def count_tool_calls(self) -> int:
@@ -200,20 +152,6 @@ class Session:
 # Serialization helpers
 # ---------------------------------------------------------------------------
 
-def compaction_record_to_dict(cr: CompactionRecord) -> dict:
-    return {
-        "summary_text": cr.summary_text,
-        "covers_exchange_indices": cr.covers_exchange_indices,
-    }
-
-
-def compaction_record_from_dict(d: dict) -> CompactionRecord:
-    return CompactionRecord(
-        summary_text=d.get("summary_text", ""),
-        covers_exchange_indices=d.get("covers_exchange_indices", []),
-    )
-
-
 def tool_call_record_to_dict(tc: ToolCallRecord) -> dict:
     return {
         "id": tc.id,
@@ -245,7 +183,6 @@ def llm_exchange_to_dict(ex: LLMExchange) -> dict:
         "tool_calls": [tool_call_record_to_dict(tc) for tc in ex.tool_calls],
         "is_final": ex.is_final,
         "user_continuation": ex.user_continuation,
-        "has_human_content": ex.has_human_content,
     }
 
 
@@ -256,7 +193,6 @@ def llm_exchange_from_dict(d: dict) -> LLMExchange:
         tool_calls=[tool_call_record_from_dict(tc) for tc in d.get("tool_calls", [])],
         is_final=d.get("is_final", False),
         user_continuation=d.get("user_continuation"),
-        has_human_content=d.get("has_human_content", False),
     )
 
 
@@ -273,7 +209,6 @@ def turn_to_dict(turn: Turn) -> dict:
         "completed": turn.completed,
         "condensed_user": turn.condensed_user,
         "condensed_assistant": turn.condensed_assistant,
-        "compaction_records": [compaction_record_to_dict(cr) for cr in turn.compaction_records],
         "task_title": turn.task_title,
     }
 
@@ -291,7 +226,6 @@ def turn_from_dict(d: dict) -> Turn:
         completed=d.get("completed", False),
         condensed_user=d.get("condensed_user", ""),
         condensed_assistant=d.get("condensed_assistant", ""),
-        compaction_records=[compaction_record_from_dict(cr) for cr in d.get("compaction_records", [])],
         task_title=d.get("task_title"),
     )
 

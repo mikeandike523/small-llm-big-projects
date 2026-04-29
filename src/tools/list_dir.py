@@ -7,9 +7,6 @@ from pathlib import Path
 from src.data import get_pool
 from src.utils.sql.kv_manager import KVManager
 
-LEAVE_OUT = "SHORT"
-TOOL_SHORT_AMOUNT = 400
-
 DEFAULT_TIMEOUT = 30  # seconds
 TIMEOUT_HINT = "list_dir timed out; consider restricting traversal depth (use the 'depth' parameter)"
 

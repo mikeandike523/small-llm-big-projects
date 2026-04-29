@@ -35,20 +35,18 @@ from src.logic.system_prompt import (
     get_selector_candidate_entries,
     resolve_skill_dependency_closure,
 )
-from src.utils.conversation_strip import strip_down_messages
 from src.utils.emitting_kv_manager import EmittingKVManager
 from src.utils.redis_dict import RedisDict
 from src.utils.request_error_formatting import format_http_error
 from src.utils.env_info import format_environment_info, get_default_workspace_dir, get_os, get_shell
 from src.utils.session_model import (
-    Session, Turn, LLMExchange, ToolCallRecord, CompactionRecord,
+    Session, Turn, LLMExchange, ToolCallRecord,
     session_to_dict, session_from_dict, turn_to_dict, turn_from_dict,
     CURRENT_SCHEMA_VERSION,
 )
 from src.utils.event_log import log_event, get_events_since, REPLAY_EXCLUDED_EVENTS
 from src.utils.exceptions import ToolHangError, ToolTimeoutError
 from src.utils.docker_compose import get_service_port
-from src.utils.compaction_transcript import build_compaction_messages
 from termcolor import colored
 
 logger = logging.getLogger(__name__)
@@ -794,14 +792,6 @@ def _is_context_limit_error(exc: Exception) -> bool:
         return False
 
 
-def _is_timeout_error(exc: Exception) -> bool:
-    return isinstance(exc, httpx.TimeoutException)
-
-
-def _is_retryable_error(exc: Exception) -> bool:
-    return _is_context_limit_error(exc) or _is_timeout_error(exc)
-
-
 # ---------------------------------------------------------------------------
 # Async LLM call abstraction
 # ---------------------------------------------------------------------------
@@ -886,17 +876,13 @@ async def _async_run_llm_call_with_retry(
     session_id: str,
     turn_id: str,
     exchange_idx: int,
-    assistant_truncation_chars: int | None = None,
     tool_defs: list[dict] | None = None,
-    tool_map: dict | None = None,
     interim_response_as_thinking: bool = False,
     record: bool = False,
 ) -> tuple[object, str, str]:
     """
-    Run an async LLM call; on timeout or context-limit error, strip the payload
-    and retry once.
+    Run an async LLM call; surfaces a user-friendly error on context-limit.
     Returns (result, content_for_history, reasoning).
-    Each attempt (original and retry) produces its own TraceEntry if record=True.
     """
     try:
         return await _async_run_llm_call(streaming_llm, payload, session_id, turn_id, exchange_idx, tool_defs, interim_response_as_thinking, record=record)
@@ -904,23 +890,9 @@ async def _async_run_llm_call_with_retry(
         if _is_context_limit_error(exc):
             raise RuntimeError(
                 "Context limit exceeded — the conversation is too long for the model's context window.\n"
-                "Conversation compaction is currently disabled. Please start a new session or shorten the conversation."
+                "Please start a new session or shorten the conversation."
             ) from exc
-
-        if not _is_timeout_error(exc):
-            raise
-
-        _emit_backend_log(
-            session_id,
-            colored("LLM call timed out, retrying once…", "yellow")
-        )
-
-        actual_tool_map = tool_map if tool_map is not None else _TOOL_MAP
-        stripped = strip_down_messages(
-            payload, actual_tool_map,
-            assistant_truncation_chars=assistant_truncation_chars,
-        )
-        return await _async_run_llm_call(streaming_llm, stripped, session_id, turn_id, exchange_idx, tool_defs, interim_response_as_thinking, record=record)
+        raise
 
 
 # ---------------------------------------------------------------------------
@@ -1094,9 +1066,6 @@ def _execute_tools(
 
                     tool_record.result = denial
                     exchange.tool_calls.append(tool_record)
-                    # Human authored this denial — preserve the exchange verbatim so
-                    # compaction never overwrites the exact reason with a vague summary.
-                    exchange.has_human_content = True
                     _emit_and_log(session_id, "tool_result", {
                         "id": tc.id, "result": denial, "turn_id": turn_id,
                     })
@@ -1136,13 +1105,6 @@ def _execute_tools(
 
             tool_record.result = tool_result
             exchange.tool_calls.append(tool_record)
-
-            # ask_human result is authored by the human — never compress it.
-            # (Distinguish real answers from the canned "user did not respond" message.)
-            if tc.name == "ask_human" and tool_result and not tool_result.startswith(
-                "The user did not respond"
-            ):
-                exchange.has_human_content = True
 
             _emit_and_log(session_id, "tool_result", {
                 "id": tc.id, "result": tool_result, "turn_id": turn_id,
@@ -1192,121 +1154,14 @@ def _get_open_items(todo_list: list) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
-# Early compaction helpers
 # ---------------------------------------------------------------------------
-
-# Skip compaction when the total chars of the exchanges to compact is below this
-# threshold.  Prevents unnecessary LLM calls when only a small amount of context
-# has accumulated (e.g. two or three quick todo closures in rapid succession).
-MIN_COMPACTION_CHARS = 8192
-
-# Set to False to disable todo-item-completion-triggered compaction.
-# Code path is preserved; flip to True to re-enable.
-_EARLY_COMPACTION_ENABLED = False
+# Task title helpers
+# ---------------------------------------------------------------------------
 
 # Maximum display length for LLM-generated task titles.  Titles that exceed this
 # (e.g. from thinking models that output reasoning before the short title) are
 # truncated with an ellipsis before being stored and emitted.
 TITLE_MAX_CHARS = 80
-
-
-def _exchange_chars(exchange: LLMExchange) -> int:
-    """Return a rough char count of the significant content in an exchange."""
-    total = len(exchange.assistant_content or "")
-    for tc in exchange.tool_calls:
-        total += len(tc.result or "")
-    total += len(exchange.user_continuation or "")
-    return total
-
-
-def _closed_items_from_exchange(exchange: LLMExchange) -> list[tuple[str, str]]:
-    """
-    Return a list of (item_path, display_message) for every todo item that was
-    successfully closed in this exchange batch.
-
-    Handles both close_item (single) and close_many_items (batch).
-    Any result that does not parse or lacks the expected shape is ignored.
-    """
-    closed: list[tuple[str, str]] = []
-    for tc in exchange.tool_calls:
-        if tc.name != "todo_list":
-            continue
-        action = tc.args.get("action")
-        result_str = tc.result or ""
-        try:
-            result_json = json.loads(result_str)
-        except (json.JSONDecodeError, ValueError):
-            continue
-
-        if action == "close_item":
-            if result_json.get("status") == "closed":
-                item_path = result_json.get("item_path") or tc.args.get("item_path", "?")
-                message = result_json.get("message") or f"Closed item '{item_path}'"
-                closed.append((item_path, message))
-
-        elif action == "close_many_items":
-            for entry in result_json.get("closed") or []:
-                item_path = entry.get("item_path", "?")
-                message = entry.get("message") or f"Closed item '{item_path}'"
-                closed.append((item_path, message))
-
-    return closed
-
-
-def _split_compactable_segments(
-    exchanges: list[LLMExchange],
-    indices: list[int],
-) -> list[list[int]]:
-    """
-    Split a list of exchange indices into contiguous sub-lists that exclude any
-    exchange tagged with has_human_content=True.
-
-    Human-content exchanges (approval denials, ask_human answers, report_impossible
-    redirects) are kept raw — they are never included in any CompactionRecord so
-    the LLM always sees exact human instructions verbatim rather than a lossy summary.
-
-    Example: indices [0,1,2,3,4] where exchanges 1 and 3 have human content →
-      returns [[0], [2], [4]]  (three separate compactable segments)
-    """
-    segments: list[list[int]] = []
-    current: list[int] = []
-    for idx in indices:
-        if exchanges[idx].has_human_content:
-            if current:
-                segments.append(current)
-                current = []
-            # Human-content exchange: skip (always kept raw)
-        else:
-            current.append(idx)
-    if current:
-        segments.append(current)
-    return segments
-
-
-async def _compact_exchanges(
-    streaming_llm: StreamingLLM,
-    exchanges: list[LLMExchange],
-    max_tokens: int | None = None,
-) -> str | None:
-    """
-    Make a non-streaming LLM call to summarise a sequence of exchanges.
-    Returns the summary text, or None if the call fails or returns nothing useful.
-
-    The payload is a plain-text transcript (system + user) built by
-    build_compaction_messages — no tool-call wire format, so the compaction
-    model cannot echo function-call syntax into the summary.
-    """
-    compaction_messages = build_compaction_messages(exchanges)
-
-    try:
-        fetch_result = await asyncio.to_thread(
-            streaming_llm.fetch, compaction_messages, max_tokens,
-        )
-        text = (fetch_result.content or "").strip()
-        return text or None
-    except Exception as exc:
-        logger.warning("Compaction LLM call failed: %s", exc)
-        return None
 
 
 async def _fetch_task_title(
@@ -1394,8 +1249,6 @@ async def _is_sufficient_final_answer(
     session: Session,
     current_turn: Turn,
     candidate_text: str,
-    assistant_truncation_chars: int | None,
-    tool_map: dict,
     watchdog_max_tokens: int | None,
 ) -> bool:
     """
@@ -1403,12 +1256,7 @@ async def _is_sufficient_final_answer(
     sufficient direct answer or final summary for the current turn.
     """
     payload = _build_llm_payload(session, current_turn)
-    stripped = strip_down_messages(
-        payload,
-        tool_map,
-        assistant_truncation_chars=assistant_truncation_chars,
-    )
-    transcript = _messages_to_watchdog_transcript(stripped)
+    transcript = _messages_to_watchdog_transcript(payload)
 
     todo_list = session.session_data.get("todo_list") or []
     open_items = _get_open_items(todo_list)
@@ -1562,9 +1410,7 @@ async def _async_agent_loop(
     turn_id: str,
     current_turn: Turn,
     return_value_max_chars: int | None,
-    assistant_truncation_chars: int | None,
     cancel_event: threading.Event,
-    compaction_max_tokens: int | None = None,
     watchdog_max_tokens: int | None = None,
     redirect_event: threading.Event | None = None,
 ) -> None:
@@ -1640,9 +1486,7 @@ async def _async_agent_loop(
                     session_id=session_id,
                     turn_id=turn_id,
                     exchange_idx=exchange_idx,
-                    assistant_truncation_chars=assistant_truncation_chars,
                     tool_defs=session_tool_defs,
-                    tool_map=session_tool_map,
                     interim_response_as_thinking=session.interim_response_as_thinking and is_interim_call,
                     record=session.record_traces,
                 )
@@ -1690,7 +1534,6 @@ async def _async_agent_loop(
                 redir_ex.user_continuation = (
                     f"User interrupted you, and gave the following guidance: {redirect_msg}"
                 )
-                redir_ex.has_human_content = True
                 had_tool_calls = True
                 current_turn.exchanges.append(redir_ex)
                 _save_session(session_id, session)
@@ -1750,88 +1593,8 @@ async def _async_agent_loop(
                     exchange.user_continuation = (
                         f"User interrupted you, and gave the following guidance: {redirect_msg}"
                     )
-                    exchange.has_human_content = True
                     _save_session(session_id, session)
                     continue
-
-                # Pre-compaction: if this exchange is about to trigger an impossible
-                # redirect dialog, tag it NOW so the compaction logic below will not
-                # include it in any CompactionRecord.  The redirect (human-authored
-                # guidance) will be injected as user_continuation after compaction runs.
-                if impossible:
-                    exchange.has_human_content = True
-
-                # Early compaction: if any todo item was just closed, compact exchanges
-                # since the last compaction.  Human-content exchanges (approvals, ask_human
-                # answers, impossible redirects) are excluded from compaction and always kept
-                # verbatim — the range is split into disjoint compactable segments around them.
-                # exchange_idx of the newly appended exchange = len(exchanges) - 1.
-                closed_items = _closed_items_from_exchange(exchange)
-                if _EARLY_COMPACTION_ENABLED and closed_items:
-                    last_covered_idx = max(
-                        (max(cr.covers_exchange_indices) for cr in current_turn.compaction_records),
-                        default=-1,
-                    )
-                    # new_indices covers from right after the last compacted exchange
-                    # up to and including the just-appended exchange.
-                    new_indices = list(range(last_covered_idx + 1, len(current_turn.exchanges)))
-                    total_chars = sum(
-                        _exchange_chars(current_turn.exchanges[i]) for i in new_indices
-                    )
-                    if new_indices and total_chars >= MIN_COMPACTION_CHARS:
-                        item_label = ", ".join(path for path, _ in closed_items)
-                        # Split into contiguous compactable segments, skipping any exchange
-                        # that has human-authored content so it stays verbatim in context.
-                        segments = _split_compactable_segments(current_turn.exchanges, new_indices)
-                        compacted_any = False
-                        for segment in segments:
-                            if not segment:
-                                continue
-                            _emit_and_log(session_id, "compaction_start", {
-                                "turn_id": turn_id,
-                                "exchange_indices": segment,
-                                "item_label": item_label,
-                            })
-                            seg_exchanges = [current_turn.exchanges[i] for i in segment]
-                            summary = await _compact_exchanges(
-                                streaming_llm, seg_exchanges, max_tokens=compaction_max_tokens,
-                            )
-                            if summary:
-                                cr = CompactionRecord(
-                                    summary_text=summary,
-                                    covers_exchange_indices=segment,
-                                )
-                                current_turn.compaction_records.append(cr)
-                                _emit_and_log(session_id, "compaction_done", {
-                                    "turn_id": turn_id,
-                                    "summary_text": summary,
-                                    "item_label": item_label,
-                                })
-                                compacted_any = True
-                            else:
-                                _emit_backend_log(
-                                    session_id,
-                                    colored("Compaction LLM call failed for a segment, continuing without summary.", "yellow"),
-                                )
-                        if compacted_any:
-                            human_count = sum(
-                                1 for i in new_indices
-                                if current_turn.exchanges[i].has_human_content
-                            )
-                            note = (
-                                f" ({human_count} human-content exchange(s) preserved verbatim)"
-                                if human_count else ""
-                            )
-                            _emit_backend_log(
-                                session_id,
-                                colored(
-                                    f"[compaction] Compacted {len(segments)} segment(s) "
-                                    f"({len(new_indices) - human_count} exchanges) "
-                                    f"after closing: {item_label}{note}",
-                                    "magenta",
-                                ),
-                            )
-                        _save_session(session_id, session)
 
                 if impossible:
                     redirect = _request_impossible_redirect(
@@ -1879,7 +1642,6 @@ async def _async_agent_loop(
                 redir_ex.user_continuation = (
                     f"User interrupted you, and gave the following guidance: {redirect_msg}"
                 )
-                redir_ex.has_human_content = True
                 had_tool_calls = True
                 current_turn.exchanges.append(redir_ex)
                 _save_session(session_id, session)
@@ -1909,8 +1671,6 @@ async def _async_agent_loop(
                         session,
                         current_turn,
                         content_for_history,
-                        assistant_truncation_chars,
-                        session_tool_map,
                         watchdog_max_tokens,
                     )
 
@@ -2450,8 +2210,6 @@ def handle_user_message(data: dict):
         llm_config["model_params"],
     )
     return_value_max_chars: int | None = llm_config["system_params"].get("return_value_max_chars")
-    assistant_truncation_chars: int | None = llm_config["system_params"].get("assistant_strip_truncation_chars")
-    compaction_max_tokens: int | None = llm_config["system_params"].get("compaction_max_tokens")
     watchdog_max_tokens: int | None = llm_config["system_params"].get("watchdog_max_tokens")
     title_summary_max_tokens: int | None = llm_config["system_params"].get("title_summary_max_tokens")
 
@@ -2503,9 +2261,8 @@ def handle_user_message(data: dict):
             _had_todos = await _async_agent_loop(
                 sid, session_id, session, streaming_llm,
                 turn_id, current_turn,
-                return_value_max_chars, assistant_truncation_chars,
+                return_value_max_chars,
                 cancel_event,
-                compaction_max_tokens=compaction_max_tokens,
                 watchdog_max_tokens=watchdog_max_tokens,
                 redirect_event=redirect_event,
             )

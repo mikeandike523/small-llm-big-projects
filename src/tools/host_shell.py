@@ -14,8 +14,6 @@ from src.tools._validate_timeout import validate_timeout
 from src.utils.exceptions import ToolTimeoutError, ToolHangError
 
 
-LEAVE_OUT = "SHORT"
-TOOL_SHORT_AMOUNT = 600
 STREAMS_RESULT = True
 
 MAX_TIMEOUT = 300

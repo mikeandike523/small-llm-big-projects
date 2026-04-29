@@ -15,27 +15,6 @@ from src.tools._indentation import (
 from src.tools._memory import ensure_session_memory
 from src.utils.text.line_numbers import add_line_numbers
 
-LEAVE_OUT = "KEEP"  # module-level fallback; per-action policy takes precedence
-
-LEAVE_OUT_PER_ACTION = {
-    "read_lines":          ("SHORT",       500),
-    "read_char_range":     ("SHORT",       500),
-    "search_by_regex":     ("SHORT",       500),
-    "insert_lines":        ("SHORT",       200),
-    "replace_lines":       ("SHORT",       200),
-    "delete_lines":        ("SHORT",       200),
-    "insert_chars":        ("SHORT",       200),
-    "replace_chars":       ("SHORT",       200),
-    "delete_chars":        ("SHORT",       200),
-    "count_chars":         ("OMIT",        0),
-    "count_lines":         ("OMIT",        0),
-    "check_eol":           ("KEEP",        0),
-    "normalize_eol":       ("SHORT",       200),
-    "check_indentation":   ("KEEP",        0),
-    "convert_indentation": ("SHORT",       200),
-    "apply_patch":         ("KEEP",        0),
-}
-
 DEFINITION: dict = {
     "type": "function",
     "function": {

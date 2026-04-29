@@ -6,11 +6,6 @@ from io import StringIO
 from src.tools._memory import ensure_session_memory
 from src.utils.text.line_numbers import add_line_numbers
 
-LEAVE_OUT_PER_ACTION = {
-    "count_lines": ("OMIT", 0),
-    "read_lines":  ("SHORT", 800),
-}
-
 DEFINITION: dict = {
     "type": "function",
     "function": {
