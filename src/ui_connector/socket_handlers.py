@@ -803,15 +803,16 @@ async def _async_run_llm_call(
     turn_id: str,
     exchange_idx: int,
     tool_defs: list[dict] | None = None,
-    interim_response_as_thinking: bool = False,
+    suppress_content_streaming: bool = False,
     record: bool = False,
 ) -> tuple[object, str, str]:
     """
     Run one async LLM call (streaming) and emit token events.
     Returns (result, content_for_history, reasoning_accumulated).
     Raises on HTTP/network errors. Immediately cancellable via asyncio task cancellation.
-    When interim_response_as_thinking=True, content tokens are emitted as type "reasoning"
-    so the frontend displays them in the thinking panel instead of counting chars.
+    When suppress_content_streaming=True, content tokens are NOT emitted during streaming
+    (they still accumulate for return); caller flushes them later via irat_thinking_flush.
+    True reasoning tokens (response.reasoning) are always emitted immediately.
     When record=True, the completed TraceEntry is appended to the session trace buffer.
     """
     acc: dict[str, str] = {"content": "", "reasoning": ""}
@@ -827,11 +828,11 @@ async def _async_run_llm_call(
             }, room=session_id)
         if chunk.get("content"):
             acc["content"] += chunk["content"]
-            emit_type = "reasoning" if interim_response_as_thinking else "content"
-            socketio.emit("token", {
-                "type": emit_type, "text": chunk["content"],
-                "turn_id": turn_id,
-            }, room=session_id)
+            if not suppress_content_streaming:
+                socketio.emit("token", {
+                    "type": "content", "text": chunk["content"],
+                    "turn_id": turn_id,
+                }, room=session_id)
             token_count += 1
             if token_count % 50 == 0:
                 _emit_content_snapshot(session_id, turn_id, exchange_idx, acc["content"], acc["reasoning"])
@@ -877,7 +878,7 @@ async def _async_run_llm_call_with_retry(
     turn_id: str,
     exchange_idx: int,
     tool_defs: list[dict] | None = None,
-    interim_response_as_thinking: bool = False,
+    suppress_content_streaming: bool = False,
     record: bool = False,
 ) -> tuple[object, str, str]:
     """
@@ -885,7 +886,7 @@ async def _async_run_llm_call_with_retry(
     Returns (result, content_for_history, reasoning).
     """
     try:
-        return await _async_run_llm_call(streaming_llm, payload, session_id, turn_id, exchange_idx, tool_defs, interim_response_as_thinking, record=record)
+        return await _async_run_llm_call(streaming_llm, payload, session_id, turn_id, exchange_idx, tool_defs, suppress_content_streaming, record=record)
     except Exception as exc:
         if _is_context_limit_error(exc):
             raise RuntimeError(
@@ -1424,8 +1425,12 @@ async def _async_agent_loop(
     # Never reset — guards the reprompt and title-fetch gates against item deletions.
     had_todo_items = False
     # One-shot latch: after we inject the explicit final-summary continuation,
-    # the next no-tool response is accepted as final.
+    # the next no-tool response is accepted as final regardless of watchdog result.
     final_summary_reprompt_sent = False
+    # Best no-tool response the watchdog rated as a sufficient final answer so far.
+    # May be set while todos are still open; used once todos close if the current
+    # response is not itself a candidate.
+    pending_final_candidate: tuple[str, str] | None = None  # (content, reasoning)
     was_impossible = False
     impossible_reason: str | None = None
     was_cancelled = False
@@ -1467,6 +1472,8 @@ async def _async_agent_loop(
             if is_interim_call:
                 _emit_and_log(session_id, "begin_interim_stream", {
                     "turn_id": turn_id,
+                    # In IRAT mode we suppress content streaming entirely and flush
+                    # after the watchdog decides — no char count shown either way.
                     "show_char_count": not session.interim_response_as_thinking,
                 })
 
@@ -1487,7 +1494,9 @@ async def _async_agent_loop(
                     turn_id=turn_id,
                     exchange_idx=exchange_idx,
                     tool_defs=session_tool_defs,
-                    interim_response_as_thinking=session.interim_response_as_thinking and is_interim_call,
+                    # In IRAT mode, suppress real-time content emission for interim
+                    # calls; the caller decides whether to flush via irat_thinking_flush.
+                    suppress_content_streaming=session.interim_response_as_thinking and is_interim_call,
                     record=session.record_traces,
                 )
             except asyncio.CancelledError:
@@ -1647,9 +1656,34 @@ async def _async_agent_loop(
                 _save_session(session_id, session)
                 continue
 
-            # Check for unclosed todos.
+            # Run watchdog on every non-blank response, regardless of todo state or
+            # prior history. This catches final answers written before todos are closed.
+            is_candidate = False
+            irat_flush_pending: tuple[int, str] | None = None  # (exchange_idx, text)
+            if content_for_history and content_for_history.strip():
+                is_candidate = await _is_sufficient_final_answer(
+                    streaming_llm,
+                    session,
+                    current_turn,
+                    content_for_history,
+                    watchdog_max_tokens,
+                )
+                if is_candidate:
+                    pending_final_candidate = (content_for_history, reasoning)
+                elif session.interim_response_as_thinking and is_interim_call:
+                    # Watchdog says NO — schedule IRAT flush for this exchange.
+                    # Emitted only if this exchange will be stored as an interim step.
+                    irat_flush_pending = (exchange_idx, content_for_history)
+
+            # Hard block: todos must be closed before the turn can end.
             unclosed = _get_open_items(session.session_data.get("todo_list") or [])
             if unclosed:
+                if irat_flush_pending is not None:
+                    _emit_and_log(session_id, "irat_thinking_flush", {
+                        "turn_id": turn_id,
+                        "exchange_idx": irat_flush_pending[0],
+                        "text": irat_flush_pending[1],
+                    })
                 items_text = "\n".join(f"  {i + 1}. {item}" for i, item in enumerate(unclosed))
                 continuation = f"You still have {len(unclosed)} unclosed todo item(s). Please continue:\n{items_text}"
                 interim_exchange = LLMExchange(
@@ -1662,31 +1696,48 @@ async def _async_agent_loop(
                 _save_session(session_id, session)
                 continue
 
-            if had_tool_calls and not final_summary_reprompt_sent and had_todo_items:
-                has_content = bool(content_for_history and content_for_history.strip())
-                is_sufficient = False
-                if has_content:
-                    is_sufficient = await _is_sufficient_final_answer(
-                        streaming_llm,
-                        session,
-                        current_turn,
-                        content_for_history,
-                        watchdog_max_tokens,
-                    )
+            # All todos are closed. Choose the best final answer.
 
-                if is_sufficient:
-                    # Latest no-tool response already serves as the final answer/summary.
-                    final_exchange = LLMExchange(
-                        assistant_content=content_for_history,
-                        reasoning=reasoning,
-                        is_final=True,
-                    )
-                    current_turn.exchanges.append(final_exchange)
-                    _emit_and_log(session_id, "message_done", {
-                        "content": content_for_history, "turn_id": turn_id,
+            if is_candidate:
+                # Current response was rated sufficient — use it directly.
+                # IRAT thinking is suppressed (this IS the answer, not thinking).
+                final_exchange = LLMExchange(
+                    assistant_content=content_for_history,
+                    reasoning=reasoning,
+                    is_final=True,
+                )
+                current_turn.exchanges.append(final_exchange)
+                _emit_and_log(session_id, "message_done", {
+                    "content": content_for_history, "turn_id": turn_id,
+                })
+                turn_completed = True
+                break
+
+            if pending_final_candidate is not None:
+                # A prior response (possibly written before todos were closed) was
+                # rated sufficient. Use it; discard the current weak closing remark.
+                # IRAT thinking for the current exchange is suppressed (it's noise).
+                cand_content, cand_reasoning = pending_final_candidate
+                final_exchange = LLMExchange(
+                    assistant_content=cand_content,
+                    reasoning=cand_reasoning,
+                    is_final=True,
+                )
+                current_turn.exchanges.append(final_exchange)
+                _emit_and_log(session_id, "message_done", {
+                    "content": cand_content, "turn_id": turn_id,
+                })
+                turn_completed = True
+                break
+
+            if had_tool_calls and not final_summary_reprompt_sent:
+                # No candidate found yet — ask model for an explicit final summary.
+                if irat_flush_pending is not None:
+                    _emit_and_log(session_id, "irat_thinking_flush", {
+                        "turn_id": turn_id,
+                        "exchange_idx": irat_flush_pending[0],
+                        "text": irat_flush_pending[1],
                     })
-                    turn_completed = True
-                    break
                 final_summary_reprompt_sent = True
                 continuation = (
                     "All action items are complete. "
@@ -1705,7 +1756,8 @@ async def _async_agent_loop(
                 _save_session(session_id, session)
                 continue
 
-            # Final response
+            # Final response: no tool calls, or response after explicit reprompt.
+            # is_interim_call is False here so no IRAT to flush.
             final_exchange = LLMExchange(
                 assistant_content=content_for_history,
                 reasoning=reasoning,

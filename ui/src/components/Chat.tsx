@@ -192,6 +192,7 @@ function backendTurnToFrontendTurn(d: {
     exchanges: d.exchanges.map(ex => ({
       assistantContent: ex.assistant_content,
       reasoning: ex.reasoning,
+      iratThinking: '',
       toolCalls: ex.tool_calls.map(tc => ({
         id: tc.id,
         name: tc.name,
@@ -507,6 +508,17 @@ const reasoningWrapperCss = css`
   font-style: italic;
   background: #111827;
   border: 1px solid #1e3a5f;
+  border-radius: 10px;
+  padding: 12px 16px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+`
+
+const iratThinkingWrapperCss = css`
+  color: #c49a4a;
+  font-size: 13px;
+  font-style: italic;
+  background: #1a1408;
+  border: 1px solid #4a360f;
   border-radius: 10px;
   padding: 12px 16px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
@@ -1915,8 +1927,14 @@ function TurnContainer({
     : undefined
   const displayContent = finalExchange?.assistantContent ?? liveContent ?? ''
 
-  // Reasoning from the latest exchange that has any reasoning
+  // Reasoning from the latest exchange that has any reasoning (native tokens — immediate)
   const reasoning = [...exchanges].reverse().find(ex => ex.reasoning)?.reasoning ?? ''
+
+  // IRAT thinking: concatenation of all exchanges that had text-as-thinking flushed
+  const iratThinking = exchanges
+    .map(ex => ex.iratThinking)
+    .filter(Boolean)
+    .join('\n\n---\n\n')
 
   const isStreamingFinal = streaming && !isInterimStreaming
   const showPlaceholder = streaming && !displayContent && !isInterimStreaming && allToolCalls.length === 0
@@ -2022,7 +2040,7 @@ function TurnContainer({
         )}
       </div>
 
-      {/* Right column: reasoning + tool calls */}
+      {/* Right column: reasoning + irat thinking + tool calls */}
       <div css={rightColumnCss}>
         {reasoning ? (
           <div css={reasoningWrapperCss}>
@@ -2030,6 +2048,17 @@ function TurnContainer({
               content={reasoning}
               maxHeight={200}
               streaming={streaming}
+              initialMode="plain"
+              showToggle={false}
+            />
+          </div>
+        ) : null}
+        {iratThinking ? (
+          <div css={iratThinkingWrapperCss}>
+            <TextPresenter
+              content={iratThinking}
+              maxHeight={200}
+              streaming={false}
               initialMode="plain"
               showToggle={false}
             />
@@ -2267,7 +2296,7 @@ export default function Chat() {
         updateTurn(turnId, t => {
           const exchanges = [...t.exchanges]
           while (exchanges.length <= exchangeIdx) {
-            exchanges.push({ assistantContent: '', reasoning: '', toolCalls: [], isFinal: false })
+            exchanges.push({ assistantContent: '', reasoning: '', iratThinking: '', toolCalls: [], isFinal: false })
           }
           exchanges[exchangeIdx] = { ...exchanges[exchangeIdx], assistantContent, reasoning }
           return { ...t, exchanges }
@@ -2289,7 +2318,7 @@ export default function Chat() {
               exchanges[idx] = { ...exchanges[idx], toolCalls: [...exchanges[idx].toolCalls, tc] }
             }
           } else {
-            exchanges.push({ assistantContent: '', reasoning: '', toolCalls: [tc], isFinal: false })
+            exchanges.push({ assistantContent: '', reasoning: '', iratThinking: '', toolCalls: [tc], isFinal: false })
           }
           return { ...t, exchanges }
         })
@@ -2320,6 +2349,19 @@ export default function Chat() {
             ),
           })),
         }))
+        break
+      }
+      case 'irat_thinking_flush': {
+        const idx = data.exchange_idx as number
+        const text = (data.text as string) ?? ''
+        updateTurn(turnId, t => {
+          const exchanges = [...t.exchanges]
+          while (exchanges.length <= idx) {
+            exchanges.push({ assistantContent: '', reasoning: '', iratThinking: '', toolCalls: [], isFinal: false })
+          }
+          exchanges[idx] = { ...exchanges[idx], iratThinking: text }
+          return { ...t, exchanges }
+        })
         break
       }
       case 'begin_interim_stream':
@@ -2378,7 +2420,7 @@ export default function Chat() {
         updateTurn(turnId, t => {
           const exchanges = [...t.exchanges]
           if (exchanges.length === 0) {
-            exchanges.push({ assistantContent: `⚠ ${message}`, reasoning: '', toolCalls: [], isFinal: true })
+            exchanges.push({ assistantContent: `⚠ ${message}`, reasoning: '', iratThinking: '', toolCalls: [], isFinal: true })
           } else {
             const last = exchanges[exchanges.length - 1]
             exchanges[exchanges.length - 1] = { ...last, assistantContent: `⚠ ${message}`, isFinal: true }
@@ -2574,6 +2616,7 @@ export default function Chat() {
           exchanges.push({
             assistantContent: data.type === 'content' ? data.text : '',
             reasoning: data.type === 'reasoning' ? data.text : '',
+            iratThinking: '',
             toolCalls: [],
             isFinal: false,
           })
@@ -2610,6 +2653,11 @@ export default function Chat() {
       updateTurn(turnId, t => ({ ...t, isInterimStreaming: false }))
     }
 
+    function onIratThinkingFlush(data: { event_id?: string; turn_id?: string; exchange_idx: number; text: string }) {
+      if (data.event_id) updateLastEventId(data.event_id)
+      applyReplayEvent('irat_thinking_flush', data)
+    }
+
     function onToolCall(data: { event_id?: string; turn_id?: string; id: string; name: string; args: Record<string, unknown> }) {
       if (data.event_id) updateLastEventId(data.event_id)
       const turnId = data.turn_id ?? ''
@@ -2620,7 +2668,7 @@ export default function Chat() {
         if (lastIdx >= 0 && !exchanges[lastIdx].isFinal) {
           exchanges[lastIdx] = { ...exchanges[lastIdx], toolCalls: [...exchanges[lastIdx].toolCalls, tc] }
         } else {
-          exchanges.push({ assistantContent: '', reasoning: '', toolCalls: [tc], isFinal: false })
+          exchanges.push({ assistantContent: '', reasoning: '', iratThinking: '', toolCalls: [tc], isFinal: false })
         }
         return { ...t, exchanges }
       })
@@ -2680,7 +2728,7 @@ export default function Chat() {
           const last = exchanges[exchanges.length - 1]
           exchanges[exchanges.length - 1] = { ...last, assistantContent: content, isFinal: true }
         } else if (content !== null) {
-          exchanges.push({ assistantContent: content, reasoning: '', toolCalls: [], isFinal: true })
+          exchanges.push({ assistantContent: content, reasoning: '', iratThinking: '', toolCalls: [], isFinal: true })
         }
         return { ...t, completed: true, streaming: false, isInterimStreaming: false, exchanges }
       })
@@ -2696,7 +2744,7 @@ export default function Chat() {
         updateTurn(turnId, t => {
           const exchanges = [...t.exchanges]
           if (exchanges.length === 0) {
-            exchanges.push({ assistantContent: `⚠ ${message}`, reasoning: '', toolCalls: [], isFinal: true })
+            exchanges.push({ assistantContent: `⚠ ${message}`, reasoning: '', iratThinking: '', toolCalls: [], isFinal: true })
           } else {
             const last = exchanges[exchanges.length - 1]
             exchanges[exchanges.length - 1] = { ...last, assistantContent: `⚠ ${message}`, isFinal: true }
@@ -2784,6 +2832,7 @@ export default function Chat() {
     socket.on('token', onToken)
     socket.on('begin_interim_stream', onBeginInterimStream)
     socket.on('begin_final_summary', onBeginFinalSummary)
+    socket.on('irat_thinking_flush', onIratThinkingFlush)
     socket.on('tool_call', onToolCall)
     socket.on('tool_call_start', onToolCallStart)
     socket.on('tool_result_chunk', onToolResultChunk)
@@ -2827,6 +2876,7 @@ export default function Chat() {
       socket.off('token', onToken)
       socket.off('begin_interim_stream', onBeginInterimStream)
       socket.off('begin_final_summary', onBeginFinalSummary)
+      socket.off('irat_thinking_flush', onIratThinkingFlush)
       socket.off('tool_call', onToolCall)
       socket.off('tool_call_start', onToolCallStart)
       socket.off('tool_result_chunk', onToolResultChunk)

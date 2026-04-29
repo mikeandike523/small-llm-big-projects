@@ -39,7 +39,8 @@ export interface AskHumanItem {
 
 export interface LLMExchange {
   assistantContent: string
-  reasoning: string
+  reasoning: string       // native reasoning tokens (model.reasoning) — immediate
+  iratThinking: string    // IRAT-converted text-as-thinking — flushed after watchdog
   toolCalls: ToolCallEntry[]
   isFinal: boolean
 }
