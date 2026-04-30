@@ -182,6 +182,7 @@ type BackendSubturn = {
   user_text: string
   exchanges: BackendExchange[]
   is_continuation: boolean
+  detailed_summary?: string
 }
 
 function mapExchange(ex: BackendExchange) {
@@ -228,6 +229,7 @@ function backendTurnToFrontendTurn(d: {
         userText: st.user_text,
         startExchangeIdx: offset,
         isContinuation: st.is_continuation,
+        detailedSummary: st.detailed_summary ?? undefined,
       }
       offset += st.exchanges.length
       return meta
@@ -455,6 +457,93 @@ const cancelledLabelCss = css`
   font-size: 12px;
   color: #d7e3ff;
   font-weight: 500;
+`
+
+// Mini compaction bubble (appears below assistant response when detailed_summary is available)
+const compactionBubbleCss = css`
+  background: #1a0815;
+  border: 1px solid #7a2545;
+  border-radius: 10px;
+  padding: 8px 12px;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 4px;
+`
+
+const compactionTextCss = css`
+  font-size: 11px;
+  color: #c87090;
+  flex: 1;
+  font-style: italic;
+  overflow: hidden;
+  white-space: pre-wrap;
+  word-break: break-word;
+`
+
+const compactionDetailsButtonCss = css`
+  background: none;
+  border: 1px solid #7a2545;
+  border-radius: 4px;
+  color: #c87090;
+  font-size: 10px;
+  padding: 2px 6px;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  &:hover { background: #2a0d20; }
+`
+
+// Compaction detail modal
+const compactionModalOverlayCss = css`
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.75);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+`
+
+const compactionModalCss = css`
+  background: #0e0e14;
+  border: 1px solid #7a2545;
+  border-radius: 12px;
+  padding: 20px 24px;
+  max-width: 680px;
+  width: 90%;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+`
+
+const compactionModalTitleCss = css`
+  font-size: 13px;
+  font-weight: 600;
+  color: #c87090;
+`
+
+const compactionModalBodyCss = css`
+  font-size: 12px;
+  color: #d4a8b8;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-y: auto;
+  flex: 1;
+  line-height: 1.6;
+`
+
+const compactionModalCloseCss = css`
+  background: #2a0d20;
+  border: 1px solid #7a2545;
+  border-radius: 6px;
+  color: #c87090;
+  font-size: 12px;
+  padding: 6px 14px;
+  cursor: pointer;
+  align-self: flex-end;
+  &:hover { background: #3a1030; }
 `
 
 // Stop column (4th column of TurnContainer — visible only on active turns)
@@ -1662,6 +1751,14 @@ function TurnContainer({
   const [stopRedirectText, setStopRedirectText] = useState('')
   const [showFollowUpWidget, setShowFollowUpWidget] = useState(false)
   const [followUpText, setFollowUpText] = useState('')
+  const [compactionModalSubturnId, setCompactionModalSubturnId] = useState<string | null>(null)
+
+  function extractContextDetails(detailedSummary: string): string | null {
+    const marker = '\nContext Details:'
+    const idx = detailedSummary.indexOf(marker)
+    if (idx === -1) return null
+    return detailedSummary.slice(idx + marker.length).trimStart()
+  }
   const { todoItems, approvalItems, impossible, cancelled, exchanges, subturns, streaming, isInterimStreaming, interimShowCharCount, interimCharCount, interrupted } = turn
 
   const { scrollRef: toolsScrollRef, contentRef: toolsContentRef } = useStickToBottom()
@@ -1752,6 +1849,18 @@ function TurnContainer({
                   ) : isLast && showPlaceholder ? (
                     <div css={streamingPlaceholderCss}>…</div>
                   ) : null}
+                  {(() => {
+                    if (!st.detailedSummary) return null
+                    if (isLast && streaming) return null
+                    const details = extractContextDetails(st.detailedSummary)
+                    if (!details) return null
+                    return (
+                      <div css={compactionBubbleCss}>
+                        <span css={compactionTextCss}>{details.slice(0, 200)}{details.length > 200 ? '…' : ''}</span>
+                        <button css={compactionDetailsButtonCss} onClick={() => setCompactionModalSubturnId(st.id)}>Details</button>
+                      </div>
+                    )
+                  })()}
                 </React.Fragment>
               )
             })}
@@ -1777,6 +1886,19 @@ function TurnContainer({
             {showPlaceholder && (
               <div css={streamingPlaceholderCss}>…</div>
             )}
+            {(() => {
+              const st = subturns[0]
+              if (!st?.detailedSummary) return null
+              if (streaming) return null
+              const details = extractContextDetails(st.detailedSummary)
+              if (!details) return null
+              return (
+                <div css={compactionBubbleCss}>
+                  <span css={compactionTextCss}>{details.slice(0, 200)}{details.length > 200 ? '…' : ''}</span>
+                  <button css={compactionDetailsButtonCss} onClick={() => setCompactionModalSubturnId(st.id)}>Details</button>
+                </div>
+              )
+            })()}
           </>
         )}
         {impossible ? (
@@ -1999,6 +2121,20 @@ function TurnContainer({
         </div>
       )}
       </div>
+      {compactionModalSubturnId && (() => {
+        const st = subturns.find(s => s.id === compactionModalSubturnId)
+        const details = st?.detailedSummary ? extractContextDetails(st.detailedSummary) : null
+        if (!details) return null
+        return (
+          <div css={compactionModalOverlayCss} onClick={() => setCompactionModalSubturnId(null)}>
+            <div css={compactionModalCss} onClick={e => e.stopPropagation()}>
+              <div css={compactionModalTitleCss}>Context Details</div>
+              <div css={compactionModalBodyCss}>{details}</div>
+              <button css={compactionModalCloseCss} onClick={() => setCompactionModalSubturnId(null)}>Close</button>
+            </div>
+          </div>
+        )
+      })()}
     </div>
   )
 }
@@ -2184,6 +2320,17 @@ export default function Chat() {
           exchanges[idx] = { ...exchanges[idx], iratThinking: text }
           return { ...t, exchanges }
         })
+        break
+      }
+      case 'subturn_compaction': {
+        const subturnId = data.subturn_id as string
+        const compaction = data.compaction as string
+        updateTurn(turnId, t => ({
+          ...t,
+          subturns: t.subturns.map(st =>
+            st.id === subturnId ? { ...st, detailedSummary: compaction } : st
+          ),
+        }))
         break
       }
       case 'begin_interim_stream':
@@ -2494,6 +2641,11 @@ export default function Chat() {
       applyReplayEvent('irat_thinking_flush', data)
     }
 
+    function onSubturnCompaction(data: { event_id?: string; turn_id?: string; subturn_id: string; compaction: string }) {
+      if (data.event_id) updateLastEventId(data.event_id)
+      applyReplayEvent('subturn_compaction', data)
+    }
+
     function onToolCall(data: { event_id?: string; turn_id?: string; id: string; name: string; args: Record<string, unknown> }) {
       if (data.event_id) updateLastEventId(data.event_id)
       const turnId = data.turn_id ?? ''
@@ -2639,6 +2791,7 @@ export default function Chat() {
     socket.on('begin_interim_stream', onBeginInterimStream)
     socket.on('begin_final_summary', onBeginFinalSummary)
     socket.on('irat_thinking_flush', onIratThinkingFlush)
+    socket.on('subturn_compaction', onSubturnCompaction)
     socket.on('tool_call', onToolCall)
     socket.on('tool_call_start', onToolCallStart)
     socket.on('tool_result_chunk', onToolResultChunk)
@@ -2679,6 +2832,7 @@ export default function Chat() {
       socket.off('begin_interim_stream', onBeginInterimStream)
       socket.off('begin_final_summary', onBeginFinalSummary)
       socket.off('irat_thinking_flush', onIratThinkingFlush)
+      socket.off('subturn_compaction', onSubturnCompaction)
       socket.off('tool_call', onToolCall)
       socket.off('tool_call_start', onToolCallStart)
       socket.off('tool_result_chunk', onToolResultChunk)

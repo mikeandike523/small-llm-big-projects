@@ -6,7 +6,7 @@ import uuid as _uuid_module
 from dataclasses import dataclass, field
 from typing import Any
 
-CURRENT_SCHEMA_VERSION = 4
+CURRENT_SCHEMA_VERSION = 5
 
 
 @dataclass
@@ -68,6 +68,7 @@ class Subturn:
     user_text_with_context: str
     exchanges: list[LLMExchange] = field(default_factory=list)
     is_continuation: bool = False
+    detailed_summary: str | None = None  # compaction string; None when no tool calls were made
 
     def count_tool_calls(self) -> int:
         return sum(len(ex.tool_calls) for ex in self.exchanges)
@@ -220,6 +221,7 @@ def subturn_to_dict(st: Subturn) -> dict:
         "user_text_with_context": st.user_text_with_context,
         "exchanges": [llm_exchange_to_dict(ex) for ex in st.exchanges],
         "is_continuation": st.is_continuation,
+        "detailed_summary": st.detailed_summary,
     }
 
 
@@ -230,6 +232,7 @@ def subturn_from_dict(d: dict) -> Subturn:
         user_text_with_context=d.get("user_text_with_context", ""),
         exchanges=[llm_exchange_from_dict(ex) for ex in d.get("exchanges", [])],
         is_continuation=d.get("is_continuation", False),
+        detailed_summary=d.get("detailed_summary"),
     )
 
 

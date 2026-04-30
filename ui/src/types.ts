@@ -30,6 +30,7 @@ export interface SubturnMeta {
   userText: string
   startExchangeIdx: number  // index of first exchange in the flat exchanges array
   isContinuation: boolean
+  detailedSummary?: string  // compaction string; undefined when subturn had no tool calls
 }
 
 export interface LLMExchange {

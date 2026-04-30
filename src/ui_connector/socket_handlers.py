@@ -648,15 +648,36 @@ def _build_llm_payload(
     current_turn: Turn,
     skills_section: str | None = None,
 ) -> list[dict]:
-    """Assemble the message list actually sent to the LLM endpoint."""
+    """Assemble the message list actually sent to the LLM endpoint.
+
+    Completed subturns (from prior turns and prior subturns of the current turn) are
+    injected as compacted user/assistant pairs using their detailed_summary when available.
+    Only the live (last) subturn of current_turn uses full exchange messages.
+    """
     system_content = _get_session_system_prompt(session.session_id)
     if skills_section:
         system_content = system_content + "\n" + skills_section
     messages: list[dict] = [{"role": "system", "content": system_content}]
+
+    # Completed turns: inject each subturn as a compacted user/assistant pair
     for turn in session.completed_turns:
-        messages.append({"role": "user", "content": turn.condensed_user})
-        messages.append({"role": "assistant", "content": turn.condensed_assistant})
-    messages.extend(current_turn.to_messages())
+        for subturn in turn.subturns:
+            messages.append({"role": "user", "content": subturn.user_text_with_context})
+            messages.append({"role": "assistant", "content": _subturn_assistant_context(subturn)})
+
+    # Current turn: prior subturns as compacted pairs, live subturn as full messages
+    prior_subturns = current_turn.subturns[:-1]
+    live_subturn = current_turn.subturns[-1] if current_turn.subturns else None
+
+    for subturn in prior_subturns:
+        messages.append({"role": "user", "content": subturn.user_text_with_context})
+        messages.append({"role": "assistant", "content": _subturn_assistant_context(subturn)})
+
+    if live_subturn:
+        messages.append({"role": "user", "content": live_subturn.user_text_with_context})
+        for exchange in live_subturn.exchanges:
+            messages.extend(exchange.to_messages())
+
     return messages
 
 
@@ -1200,6 +1221,117 @@ async def _is_sufficient_final_answer(
         return False
 
 
+def _subturn_final_response(subturn: Subturn) -> str:
+    """Extract just the final response text from a subturn (stripping Context Details if present)."""
+    if subturn.detailed_summary:
+        marker = "\nContext Details:"
+        idx = subturn.detailed_summary.find(marker)
+        if idx >= 0:
+            return subturn.detailed_summary[:idx].strip()
+        return subturn.detailed_summary.strip()
+    for ex in reversed(subturn.exchanges):
+        if ex.is_final:
+            return ex.assistant_content
+    if subturn.exchanges:
+        return subturn.exchanges[-1].assistant_content
+    return ""
+
+
+def _subturn_assistant_context(subturn: Subturn) -> str:
+    """Return the full context string for a completed subturn (compaction if available, else final response)."""
+    if subturn.detailed_summary:
+        return subturn.detailed_summary
+    for ex in reversed(subturn.exchanges):
+        if ex.is_final:
+            return ex.assistant_content
+    if subturn.exchanges:
+        return subturn.exchanges[-1].assistant_content
+    return ""
+
+
+def _format_tool_calls_for_compaction(subturn: Subturn) -> str:
+    """Format all tool calls in a subturn into a readable string for the compaction prompt."""
+    MAX_ARG_CHARS = 300
+    MAX_RESULT_CHARS = 500
+    lines: list[str] = []
+    for ex in subturn.exchanges:
+        for tc in ex.tool_calls:
+            args_str = json.dumps(tc.args, ensure_ascii=False)
+            if len(args_str) > MAX_ARG_CHARS:
+                args_str = args_str[:MAX_ARG_CHARS] + "..."
+            result_str = tc.result or "(no result)"
+            if len(result_str) > MAX_RESULT_CHARS:
+                result_str = result_str[:MAX_RESULT_CHARS] + "..."
+            lines.append(f"{tc.name}({args_str})")
+            lines.append(f"  Result: {result_str}")
+    return "\n".join(lines)
+
+
+def _compute_subturn_compaction(
+    streaming_llm: StreamingLLM,
+    subturn: Subturn,
+    final_content: str,
+) -> str:
+    """Synchronous: call LLM to produce a detailed compaction for a completed subturn."""
+    tool_calls_text = _format_tool_calls_for_compaction(subturn)
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "You are writing a context summary of an AI agent's completed work unit.\n"
+                "Output EXACTLY this format, nothing else:\n\n"
+                "{verbatim final response}\n\n"
+                "Context Details:\n"
+                "Tools used:\n"
+                "- {tool_name}: {one-sentence: why called and what it accomplished}\n"
+                "Memory changes:\n"
+                "- {key or path}: {one-sentence: what was stored and why}\n\n"
+                "Rules:\n"
+                "- Copy the final response EXACTLY as provided — do not alter it\n"
+                "- List every tool call under 'Tools used:'\n"
+                "- Under 'Memory changes:' list only session_memory and project_memory writes; "
+                "if none, write a single line: (none)\n"
+                "- One bullet per item, one sentence each\n"
+                "- Output nothing else"
+            ),
+        },
+        {
+            "role": "user",
+            "content": (
+                f"Final response (copy verbatim):\n{final_content}\n\n"
+                f"Tool calls made:\n{tool_calls_text}"
+            ),
+        },
+    ]
+    try:
+        result = streaming_llm.fetch(messages)
+        text = (result.content or "").strip()
+        if text:
+            return text
+    except Exception as exc:
+        logger.warning("Subturn compaction LLM call failed: %s", exc)
+    return f"{final_content}\n\nContext Details:\n(summary unavailable)"
+
+
+async def _generate_and_store_compaction(
+    streaming_llm: StreamingLLM,
+    session_id: str,
+    turn_id: str,
+    current_subturn: Subturn,
+    final_content: str,
+) -> None:
+    """Async: generate a compaction for a completed subturn, store it, and emit to frontend."""
+    compaction = await asyncio.to_thread(
+        _compute_subturn_compaction, streaming_llm, current_subturn, final_content
+    )
+    current_subturn.detailed_summary = compaction
+    _emit_and_log(session_id, "subturn_compaction", {
+        "turn_id": turn_id,
+        "subturn_id": current_subturn.id,
+        "compaction": compaction,
+    })
+
+
 async def _is_continuation(
     streaming_llm: StreamingLLM,
     session: Session,
@@ -1208,46 +1340,42 @@ async def _is_continuation(
 ) -> bool:
     """
     Decide whether a new user message is a follow-up continuation of the previous turn
-    or an independent new request.  Leans conservative: ambiguous cases return False.
+    or an entirely new independent request.  Leans toward continuation: ambiguous cases
+    return True.
     """
     last_turn = session.completed_turns[-1]
-    condensed_assistant = last_turn.condensed_assistant or ""
-
-    todo_list = session.session_data.get("todo_list") or []
-    open_items = _get_open_items(todo_list)
-    open_count = len(open_items)
-    open_block = ""
-    if open_items:
-        open_block = "\n".join(f"  - {t}" for t in open_items[:5])
-        if len(open_items) > 5:
-            open_block += f"\n  ... ({len(open_items) - 5} more)"
+    last_subturn = last_turn.subturns[-1] if last_turn.subturns else None
+    if last_subturn:
+        last_response = _subturn_final_response(last_subturn)
+    else:
+        last_response = last_turn.condensed_assistant or ""
 
     messages = [
         {
             "role": "system",
             "content": (
-                "You are deciding whether a new user message is a follow-up or continuation "
-                "of the previous task/response, or an independent new request.\n"
+                "You are deciding whether a new user message is an entirely new, independent task "
+                "or a continuation of the previous conversation.\n"
                 "Reply with exactly one word: YES or NO.\n"
-                "YES = the message continues, extends, redirects, or questions the previous response.\n"
-                "NO  = the message is an independent new request unrelated to the previous task.\n"
+                "YES = the message is a completely new, unrelated task that has nothing to do with "
+                "the previous response.\n"
+                "NO  = the message continues, extends, questions, or builds on the previous response.\n"
                 "When in doubt, reply NO."
             ),
         },
         {
             "role": "user",
             "content": (
-                f"Previous assistant response:\n{condensed_assistant}\n\n"
-                f"Open todo items: {open_count}"
-                + (f"\n{open_block}" if open_block else "")
-                + f"\n\nNew user message:\n{user_text}"
+                f"Previous assistant response:\n{last_response}\n\n"
+                f"New user message:\n{user_text}"
             ),
         },
     ]
     try:
         result = await asyncio.to_thread(streaming_llm.fetch, messages, watchdog_max_tokens)
         decision = (result.content or "").strip().upper()
-        return decision == "YES"
+        # YES means "new task" → not a continuation; NO means continuation
+        return decision != "YES"
     except Exception as exc:
         logger.warning("Continuation watchdog LLM call failed: %s", exc)
         return False
@@ -1628,6 +1756,10 @@ async def _async_agent_loop(
                 _emit_and_log(session_id, "message_done", {
                     "content": content_for_history, "turn_id": turn_id,
                 })
+                if current_subturn.count_tool_calls() > 0:
+                    await _generate_and_store_compaction(
+                        streaming_llm, session_id, turn_id, current_subturn, content_for_history
+                    )
                 turn_completed = True
                 break
 
@@ -1645,6 +1777,10 @@ async def _async_agent_loop(
                 _emit_and_log(session_id, "message_done", {
                     "content": cand_content, "turn_id": turn_id,
                 })
+                if current_subturn.count_tool_calls() > 0:
+                    await _generate_and_store_compaction(
+                        streaming_llm, session_id, turn_id, current_subturn, cand_content
+                    )
                 turn_completed = True
                 break
 
@@ -1685,6 +1821,10 @@ async def _async_agent_loop(
             _emit_and_log(session_id, "message_done", {
                 "content": content_for_history, "turn_id": turn_id,
             })
+            if current_subturn.count_tool_calls() > 0:
+                await _generate_and_store_compaction(
+                    streaming_llm, session_id, turn_id, current_subturn, content_for_history
+                )
             turn_completed = True
             break
 
