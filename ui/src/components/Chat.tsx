@@ -2446,8 +2446,9 @@ export default function Chat() {
         }
         const exchanges = [...t.exchanges]
         const lastEx = exchanges[exchanges.length - 1]
-        // If no exchange yet, or last exchange has tool calls (meaning a new LLM call started), create a new one
-        if (!lastEx || lastEx.toolCalls.length > 0) {
+        // Create a new exchange if: no prior exchange, prior exchange has tool calls
+        // (new LLM call started), or prior exchange is already final (continuation subturn).
+        if (!lastEx || lastEx.toolCalls.length > 0 || lastEx.isFinal) {
           exchanges.push({
             assistantContent: data.type === 'content' ? data.text : '',
             reasoning: data.type === 'reasoning' ? data.text : '',

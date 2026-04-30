@@ -1569,7 +1569,7 @@ async def _async_agent_loop(
                     f"User interrupted you, and gave the following guidance: {redirect_msg}"
                 )
                 had_tool_calls = True
-                current_turn.exchanges.append(redir_ex)
+                current_subturn.exchanges.append(redir_ex)
                 _save_session(session_id, session)
                 continue
 
@@ -1708,6 +1708,15 @@ async def _async_agent_loop(
             current_turn.finalize(session.session_data, last_assistant_content, had_todo_items)
             session.completed_turns.append(current_turn)
             session.current_turn = None
+        else:
+            # Abnormal exit (unhandled error): ensure the frontend is unblocked.
+            logger.error("Agent loop exited abnormally for session %s turn %s", session_id, turn_id)
+            current_turn.completed = True
+            current_turn.todo_snapshot = _todo_format_items_for_ui(session.session_data.get("todo_list") or [])
+            current_turn.finalize(session.session_data, last_assistant_content, had_todo_items)
+            session.completed_turns.append(current_turn)
+            session.current_turn = None
+            _emit_and_log(session_id, "message_done", {"content": last_assistant_content or None, "turn_id": turn_id})
 
         _save_session(session_id, session)
         return had_todo_items
@@ -2250,6 +2259,8 @@ def handle_user_message(data: dict):
         except asyncio.CancelledError:
             # cancel_event already set inside _async_agent_loop's finally
             cancel_event.set()
+        except Exception as exc:
+            logger.exception("Unhandled exception in agent loop for session %s: %s", session_id, exc)
         finally:
             _cancel_tasks.pop(session_id, None)
             _cancel_loops.pop(session_id, None)
@@ -2358,6 +2369,8 @@ def handle_force_continuation(data: dict):
             )
         except asyncio.CancelledError:
             cancel_event.set()
+        except Exception as exc:
+            logger.exception("Unhandled exception in force_continuation loop for session %s: %s", session_id, exc)
         finally:
             _cancel_tasks.pop(session_id, None)
             _cancel_loops.pop(session_id, None)
