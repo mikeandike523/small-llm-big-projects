@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import json
 import time
+import uuid as _uuid_module
 from dataclasses import dataclass, field
 from typing import Any
 
-CURRENT_SCHEMA_VERSION = 3
+CURRENT_SCHEMA_VERSION = 4
 
 
 @dataclass
@@ -25,7 +26,7 @@ class LLMExchange:
     reasoning: str = ""
     tool_calls: list[ToolCallRecord] = field(default_factory=list)
     is_final: bool = False
-    user_continuation: str | None = None  # injected user message after this exchange (e.g. unclosed-todo reprompt)
+    user_continuation: str | None = None  # injected user message after this exchange
 
     def to_messages(self) -> list[dict]:
         """Convert this exchange to OpenAI-format message(s)."""
@@ -54,21 +55,31 @@ class LLMExchange:
         else:
             # Interim or final assistant message without tool calls
             msgs.append({"role": "assistant", "content": self.assistant_content})
-        # Inject continuation user message if present (unclosed-todo reprompt / final summary request)
+        # Inject continuation user message if present
         if self.user_continuation:
             msgs.append({"role": "user", "content": self.user_continuation})
         return msgs
 
 
 @dataclass
-class Turn:
+class Subturn:
     id: str
     user_text: str
     user_text_with_context: str
     exchanges: list[LLMExchange] = field(default_factory=list)
+    is_continuation: bool = False
+
+    def count_tool_calls(self) -> int:
+        return sum(len(ex.tool_calls) for ex in self.exchanges)
+
+
+@dataclass
+class Turn:
+    id: str
+    subturns: list[Subturn]
     todo_snapshot: list = field(default_factory=list)
-    was_impossible: bool = False
-    impossible_reason: str | None = None
+    was_impossible: bool = False   # vestigial — kept for serialization compat
+    impossible_reason: str | None = None  # vestigial
     was_cancelled: bool = False
     completed: bool = False
     condensed_user: str = ""
@@ -76,20 +87,26 @@ class Turn:
     task_title: str | None = None  # Short LLM-generated title, fetched at turn start
 
     def to_messages(self) -> list[dict]:
-        """Rebuild OpenAI-format messages list from all exchanges."""
-        msgs: list[dict] = [{"role": "user", "content": self.user_text_with_context}]
-        for exchange in self.exchanges:
-            msgs.extend(exchange.to_messages())
+        """Rebuild OpenAI-format messages list from all subturns in order."""
+        msgs: list[dict] = []
+        for subturn in self.subturns:
+            msgs.append({"role": "user", "content": subturn.user_text_with_context})
+            for exchange in subturn.exchanges:
+                msgs.extend(exchange.to_messages())
         return msgs
 
     def count_tool_calls(self) -> int:
-        return sum(len(ex.tool_calls) for ex in self.exchanges)
+        return sum(st.count_tool_calls() for st in self.subturns)
+
+    def count_exchanges(self) -> int:
+        return sum(len(st.exchanges) for st in self.subturns)
 
     def finalize(self, session_data: dict, final_content: str, had_todo_items: bool = False) -> None:
         """Build condensed user/assistant strings for use as context in future turns."""
         had_tool_calls = self.count_tool_calls() > 0
+        first_user_text = self.subturns[0].user_text if self.subturns else ""
         if not had_tool_calls or not had_todo_items:
-            self.condensed_user = self.user_text
+            self.condensed_user = first_user_text
             self.condensed_assistant = final_content
             return
 
@@ -100,7 +117,7 @@ class Turn:
 
         # Items were created but wiped by finalize time — nothing useful to template.
         if not todo_list:
-            self.condensed_user = self.user_text
+            self.condensed_user = first_user_text
             self.condensed_assistant = final_content
             return
 
@@ -125,7 +142,7 @@ class Turn:
                 parts.append(f"Left incomplete:\n{open_text}")
             parts.append(f"Final answer: {final_content}")
 
-        self.condensed_user = self.user_text
+        self.condensed_user = first_user_text
         self.condensed_assistant = "\n".join(parts)
 
 
@@ -196,12 +213,30 @@ def llm_exchange_from_dict(d: dict) -> LLMExchange:
     )
 
 
+def subturn_to_dict(st: Subturn) -> dict:
+    return {
+        "id": st.id,
+        "user_text": st.user_text,
+        "user_text_with_context": st.user_text_with_context,
+        "exchanges": [llm_exchange_to_dict(ex) for ex in st.exchanges],
+        "is_continuation": st.is_continuation,
+    }
+
+
+def subturn_from_dict(d: dict) -> Subturn:
+    return Subturn(
+        id=d.get("id", str(_uuid_module.uuid4())),
+        user_text=d.get("user_text", ""),
+        user_text_with_context=d.get("user_text_with_context", ""),
+        exchanges=[llm_exchange_from_dict(ex) for ex in d.get("exchanges", [])],
+        is_continuation=d.get("is_continuation", False),
+    )
+
+
 def turn_to_dict(turn: Turn) -> dict:
     return {
         "id": turn.id,
-        "user_text": turn.user_text,
-        "user_text_with_context": turn.user_text_with_context,
-        "exchanges": [llm_exchange_to_dict(ex) for ex in turn.exchanges],
+        "subturns": [subturn_to_dict(st) for st in turn.subturns],
         "todo_snapshot": turn.todo_snapshot,
         "was_impossible": turn.was_impossible,
         "impossible_reason": turn.impossible_reason,
@@ -214,11 +249,20 @@ def turn_to_dict(turn: Turn) -> dict:
 
 
 def turn_from_dict(d: dict) -> Turn:
+    if "subturns" in d:
+        subturns = [subturn_from_dict(st) for st in d["subturns"]]
+    else:
+        # Legacy migration (schema v3): wrap flat user_text + exchanges into a single Subturn
+        subturns = [Subturn(
+            id=str(_uuid_module.uuid4()),
+            user_text=d.get("user_text", ""),
+            user_text_with_context=d.get("user_text_with_context", ""),
+            exchanges=[llm_exchange_from_dict(ex) for ex in d.get("exchanges", [])],
+            is_continuation=False,
+        )]
     return Turn(
         id=d["id"],
-        user_text=d.get("user_text", ""),
-        user_text_with_context=d.get("user_text_with_context", ""),
-        exchanges=[llm_exchange_from_dict(ex) for ex in d.get("exchanges", [])],
+        subturns=subturns,
         todo_snapshot=d.get("todo_snapshot", []),
         was_impossible=d.get("was_impossible", False),
         impossible_reason=d.get("impossible_reason"),

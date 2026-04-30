@@ -6,7 +6,6 @@ import os
 import sys
 import traceback
 from src.utils.exceptions import ToolHangError, ToolTimeoutError
-from src.tools import ask_human
 from src.tools import basic_web_request
 from src.tools import code_interpreter
 from src.tools import brave_web_search
@@ -26,7 +25,6 @@ from src.tools import list_working_tree
 from src.tools import project_memory
 from src.tools import read_text_file
 from src.tools import remove_dir
-from src.tools import report_impossible
 from src.tools import scrape_web_page
 from src.tools import search_filesystem_by_regex
 from src.tools import session_memory
@@ -38,7 +36,6 @@ from src.tools import write_text_file
 from src.utils.tool_calling.arguments import validate_tool_args
 
 ALL_TOOL_DEFINITIONS: list[dict] = [
-    ask_human.DEFINITION,
     basic_web_request.DEFINITION,
     code_interpreter.DEFINITION,
     brave_web_search.DEFINITION,
@@ -58,7 +55,6 @@ ALL_TOOL_DEFINITIONS: list[dict] = [
     project_memory.DEFINITION,
     read_text_file.DEFINITION,
     remove_dir.DEFINITION,
-    report_impossible.DEFINITION,
     scrape_web_page.DEFINITION,
     search_filesystem_by_regex.DEFINITION,
     session_memory.DEFINITION,
@@ -70,7 +66,6 @@ ALL_TOOL_DEFINITIONS: list[dict] = [
 ]
 
 _TOOL_MAP: dict[str, object] = {
-    "ask_human": ask_human,
     "basic_web_request": basic_web_request,
     "code_interpreter": code_interpreter,
     "brave_web_search": brave_web_search,
@@ -90,7 +85,6 @@ _TOOL_MAP: dict[str, object] = {
     "project_memory": project_memory,
     "read_text_file": read_text_file,
     "remove_dir": remove_dir,
-    "report_impossible": report_impossible,
     "scrape_web_page": scrape_web_page,
     "search_filesystem_by_regex": search_filesystem_by_regex,
     "session_memory": session_memory,

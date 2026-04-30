@@ -25,16 +25,11 @@ export interface ApprovalItem {
   resolved?: { approved: boolean }
 }
 
-export interface ImpossibleRedirectItem {
-  reason: string
-  state: 'pending' | 'redirected' | 'ended'
-  redirectText?: string
-}
-
-export interface AskHumanItem {
-  question: string
-  state: 'pending' | 'answered'
-  answer?: string
+export interface SubturnMeta {
+  id: string
+  userText: string
+  startExchangeIdx: number  // index of first exchange in the flat exchanges array
+  isContinuation: boolean
 }
 
 export interface LLMExchange {
@@ -47,15 +42,14 @@ export interface LLMExchange {
 
 export interface Turn {
   id: string
-  userText: string
-  taskTitle?: string          // Short LLM-generated title, arrives asynchronously
-  loadedSkills?: string[]     // Fully resolved skill names active for this turn
-  exchanges: LLMExchange[]
+  userText: string          // first subturn's user text (for display/compat)
+  taskTitle?: string        // Short LLM-generated title, arrives asynchronously
+  loadedSkills?: string[]   // Fully resolved skill names active for this turn
+  subturns: SubturnMeta[]   // metadata for each subturn segment
+  exchanges: LLMExchange[]  // flat array across all subturns
   todoItems: TodoItem[]
   approvalItems: ApprovalItem[]
-  askHumanItems: AskHumanItem[]
-  impossibleRedirectItem?: ImpossibleRedirectItem
-  impossible?: string
+  impossible?: string       // legacy: was_impossible display
   cancelled?: string
   completed: boolean
   // Live state (only meaningful on current/in-progress turn):

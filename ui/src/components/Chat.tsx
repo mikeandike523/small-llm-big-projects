@@ -9,7 +9,7 @@ import { useStickToBottom } from 'use-stick-to-bottom'
 import { TextPresenter } from './TextPresenter'
 import { DebugPanel } from './DebugPanel'
 import Ansi from 'ansi-to-react'
-import type { Turn, ToolCallEntry, TodoItem, ApprovalItem, AskHumanItem, ImpossibleRedirectItem } from '../types'
+import type { Turn, ToolCallEntry, TodoItem, ApprovalItem, SubturnMeta } from '../types'
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -141,14 +141,15 @@ interface BackendLogEntry {
 // Turn helpers
 // ---------------------------------------------------------------------------
 
-function newTurn(id: string, userText: string): Turn {
+function newTurn(id: string, userText: string, subturnId?: string, isContinuation = false): Turn {
+  const stId = subturnId ?? crypto.randomUUID()
   return {
     id,
     userText,
+    subturns: [{ id: stId, userText, startExchangeIdx: 0, isContinuation }],
     exchanges: [],
     todoItems: [],
     approvalItems: [],
-    askHumanItems: [],
     completed: false,
     streaming: true,
     isInterimStreaming: false,
@@ -161,52 +162,99 @@ function stripMdExtension(s: string): string {
   return s.endsWith('.md') ? s.slice(0, -3) : s
 }
 
-function backendTurnToFrontendTurn(d: {
+type BackendExchange = {
+  assistant_content: string
+  reasoning: string
+  tool_calls: {
+    id: string
+    name: string
+    args: Record<string, unknown>
+    result?: string
+    was_stubbed?: boolean
+    started_at?: number
+    finished_at?: number
+  }[]
+  is_final: boolean
+}
+
+type BackendSubturn = {
   id: string
   user_text: string
+  exchanges: BackendExchange[]
+  is_continuation: boolean
+}
+
+function mapExchange(ex: BackendExchange) {
+  return {
+    assistantContent: ex.assistant_content,
+    reasoning: ex.reasoning,
+    iratThinking: '',
+    toolCalls: ex.tool_calls.map(tc => ({
+      id: tc.id,
+      name: tc.name,
+      args: tc.args,
+      result: tc.result,
+      wasStubbed: tc.was_stubbed,
+      startedAt: tc.started_at ?? undefined,
+      finishedAt: tc.finished_at ?? undefined,
+    })),
+    isFinal: ex.is_final,
+  }
+}
+
+function backendTurnToFrontendTurn(d: {
+  id: string
+  // new format: subturns array
+  subturns?: BackendSubturn[]
+  // legacy format: flat user_text + exchanges (schema v3 and below, handled by backend migration but kept here for safety)
+  user_text?: string
+  exchanges?: BackendExchange[]
   task_title?: string
-  exchanges: {
-    assistant_content: string
-    reasoning: string
-    tool_calls: {
-      id: string
-      name: string
-      args: Record<string, unknown>
-      result?: string
-      was_stubbed?: boolean
-      started_at?: number
-      finished_at?: number
-    }[]
-    is_final: boolean
-  }[]
   todo_snapshot: TodoItem[]
-  was_impossible: boolean
+  was_impossible?: boolean
   impossible_reason?: string
   was_cancelled?: boolean
   completed: boolean
 }): Turn {
+  let subturns: SubturnMeta[]
+  let flatExchanges: ReturnType<typeof mapExchange>[]
+  let firstUserText: string
+
+  if (d.subturns && d.subturns.length > 0) {
+    let offset = 0
+    subturns = d.subturns.map(st => {
+      const meta: SubturnMeta = {
+        id: st.id,
+        userText: st.user_text,
+        startExchangeIdx: offset,
+        isContinuation: st.is_continuation,
+      }
+      offset += st.exchanges.length
+      return meta
+    })
+    flatExchanges = d.subturns.flatMap(st => st.exchanges.map(mapExchange))
+    firstUserText = d.subturns[0].user_text
+  } else {
+    // Legacy fallback
+    const exchanges = (d.exchanges ?? []).map(mapExchange)
+    subturns = [{
+      id: crypto.randomUUID(),
+      userText: d.user_text ?? '',
+      startExchangeIdx: 0,
+      isContinuation: false,
+    }]
+    flatExchanges = exchanges
+    firstUserText = d.user_text ?? ''
+  }
+
   return {
     id: d.id,
-    userText: d.user_text,
+    userText: firstUserText,
     taskTitle: d.task_title ?? undefined,
-    exchanges: d.exchanges.map(ex => ({
-      assistantContent: ex.assistant_content,
-      reasoning: ex.reasoning,
-      iratThinking: '',
-      toolCalls: ex.tool_calls.map(tc => ({
-        id: tc.id,
-        name: tc.name,
-        args: tc.args,
-        result: tc.result,
-        wasStubbed: tc.was_stubbed,
-        startedAt: tc.started_at ?? undefined,
-        finishedAt: tc.finished_at ?? undefined,
-      })),
-      isFinal: ex.is_final,
-    })),
+    subturns,
+    exchanges: flatExchanges,
     todoItems: d.todo_snapshot ?? [],
     approvalItems: [],
-    askHumanItems: [],
     impossible: d.was_impossible ? (d.impossible_reason ?? 'Task was impossible') : undefined,
     cancelled: d.was_cancelled ? 'Turn was cancelled' : undefined,
     completed: d.completed,
@@ -963,22 +1011,6 @@ const approvalColHeaderPendingCss = css`
   animation: ${_approvalColHeaderPulse} 1.8s ease-in-out infinite;
 `
 
-const _askColHeaderPulse = keyframes`
-  0%, 100% { color: #207070; }
-  50%       { color: #40c0c0; }
-`
-
-const approvalColHeaderAskPendingCss = css`
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.07em;
-  font-family: 'Consolas', monospace;
-  margin-bottom: 4px;
-  flex-shrink: 0;
-  font-weight: 600;
-  animation: ${_askColHeaderPulse} 1.8s ease-in-out infinite;
-`
-
 // Col 1: outcome chips
 const outcomesScrollCss = css`
   ${scrollbarCss}
@@ -1008,68 +1040,12 @@ const outcomeApprovalChipCss = (approved: boolean) => css`
   text-overflow: ellipsis;
 `
 
-const outcomeAskChipCss = css`
-  font-family: 'Consolas', monospace;
-  font-size: 11px;
-  color: #ccf6f6;
-  background: #001010;
-  border: 1px solid #003838;
-  border-radius: 3px;
-  padding: 2px 6px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-`
-
 // Col 2: active dialog placeholder (nothing pending)
 const activeDialogPlaceholderCss = css`
   font-size: 12px;
   color: #dbe5ff;
   font-style: italic;
   font-family: 'Consolas', monospace;
-`
-
-// Col 3: Q&A history
-const qaHistoryScrollCss = css`
-  ${scrollbarCss}
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  max-height: 200px;
-  padding-right: 4px;
-`
-
-const qaHistoryEmptyCss = css`
-  font-size: 12px;
-  color: #dbe5ff;
-  font-style: italic;
-  font-family: 'Consolas', monospace;
-`
-
-const qaHistoryCardCss = css`
-  background: #001212;
-  border: 1px solid #002828;
-  border-radius: 5px;
-  padding: 6px 9px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-`
-
-const qaHistoryQuestionCss = css`
-  font-family: 'Consolas', monospace;
-  font-size: 10px;
-  color: #d7f4f4;
-  line-height: 1.4;
-  word-break: break-word;
-`
-
-const qaHistoryAnswerCss = css`
-  font-family: 'Consolas', monospace;
-  font-size: 12px;
-  color: #50b0b0;
-  word-break: break-word;
-  line-height: 1.4;
 `
 
 const approvalPendingCardCss = css`
@@ -1231,130 +1207,31 @@ const approvalResolvedBubbleCss = (approved: boolean) => css`
 `
 
 
-// ---------------------------------------------------------------------------
-// ImpossibleRedirectBubble styles
-// ---------------------------------------------------------------------------
-
-const impossibleRedirectCardCss = css`
-  background: #1a0a00;
-  border: 1px solid #7a3000;
-  border-radius: 8px;
-  padding: 10px 12px;
+// Follow-Up button styles (4th column of completed turn)
+const followUpColumnCss = css`
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
+  align-items: stretch;
+  border-left: 1px solid #22304d;
+  padding-left: 14px;
+  min-width: 120px;
+  max-width: 140px;
 `
 
-const impossibleRedirectReasonCss = css`
-  font-size: 13px;
-  color: #d08040;
-  line-height: 1.5;
-  word-break: break-word;
-`
-
-const impossibleRedirectLabelCss = css`
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.07em;
-  color: #c05010;
-  font-weight: 600;
-`
-
-const trulyImpossibleButtonCss = css`
-  flex: 1;
-  background: #450a0a;
-  color: #f87171;
-  border: 1px solid #7f1d1d;
-  border-radius: 5px;
-  padding: 5px 0;
+const followUpButtonCss = css`
+  background: #0a120a;
+  color: #60a060;
+  border: 1px solid #1a401a;
+  border-radius: 7px;
+  padding: 6px 10px;
   font-size: 12px;
   cursor: pointer;
-  font-family: 'Consolas', monospace;
-  transition: background 0.15s;
-  &:hover { background: #7f1d1d; }
+  font-family: inherit;
+  text-align: center;
+  transition: background 0.15s, border-color 0.15s;
+  &:hover { background: #102010; border-color: #2a6a2a; }
 `
-
-const redirectLLMButtonCss = css`
-  flex: 1;
-  background: #78350f;
-  color: #fbbf24;
-  border: 1px solid #92400e;
-  border-radius: 5px;
-  padding: 5px 0;
-  font-size: 12px;
-  cursor: pointer;
-  font-family: 'Consolas', monospace;
-  transition: background 0.15s;
-  &:hover { background: #92400e; }
-`
-
-const impossibleRedirectResolvedCss = (redirected: boolean) => css`
-  font-family: 'Consolas', monospace;
-  font-size: 12px;
-  color: ${redirected ? '#fbbf24' : '#f87171'};
-  padding: 4px 8px;
-  border-radius: 4px;
-  background: ${redirected ? '#1a0e00' : '#1a0a0a'};
-  border: 1px solid ${redirected ? '#92400e' : '#4a1a1a'};
-  word-break: break-word;
-`
-
-// ---------------------------------------------------------------------------
-// AskHumanBubble styles
-// ---------------------------------------------------------------------------
-
-const askHumanCardCss = css`
-  background: #001a1a;
-  border: 1px solid #007a7a;
-  border-radius: 8px;
-  padding: 10px 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-`
-
-const askHumanLabelCss = css`
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.07em;
-  color: #40c0c0;
-  font-weight: 600;
-`
-
-const askHumanQuestionCss = css`
-  font-size: 13px;
-  color: #80e0e0;
-  line-height: 1.5;
-  word-break: break-word;
-`
-
-const askHumanTextareaCss = css`
-  width: 100%;
-  box-sizing: border-box;
-  background: #000f0f;
-  color: #a0e8e8;
-  border: 1px solid #007a7a;
-  border-radius: 4px;
-  padding: 7px 9px;
-  font-size: 13px;
-  font-family: 'Consolas', monospace;
-  resize: vertical;
-  outline: none;
-  min-height: 60px;
-  &:focus { border-color: #40c0c0; }
-`
-
-const askHumanResolvedCss = css`
-  font-family: 'Consolas', monospace;
-  font-size: 12px;
-  color: #4ade80;
-  padding: 4px 8px;
-  border-radius: 4px;
-  background: #0a1a0a;
-  border: 1px solid #1a4a1a;
-  word-break: break-word;
-`
-
 
 const loadingOverlayCss = css`
   position: fixed;
@@ -1737,125 +1614,6 @@ function ToolApprovalBubble({
 }
 
 // ---------------------------------------------------------------------------
-// ImpossibleRedirectBubble
-// ---------------------------------------------------------------------------
-
-function ImpossibleRedirectBubble({
-  item,
-  onTrulyImpossible,
-  onRedirect,
-}: {
-  item: ImpossibleRedirectItem
-  onTrulyImpossible: () => void
-  onRedirect: (message: string) => void
-}) {
-  const [showRedirect, setShowRedirect] = useState(false)
-  const [redirectText, setRedirectText] = useState('')
-
-  if (item.state === 'ended') {
-    return (
-      <div css={impossibleRedirectResolvedCss(false)}>
-        ✗ Confirmed impossible
-      </div>
-    )
-  }
-  if (item.state === 'redirected') {
-    return (
-      <div css={impossibleRedirectResolvedCss(true)}>
-        ↪ Redirected: {item.redirectText}
-      </div>
-    )
-  }
-  return (
-    <div css={impossibleRedirectCardCss}>
-      <span css={impossibleRedirectLabelCss}>Task impossible</span>
-      <span css={impossibleRedirectReasonCss}>{item.reason}</span>
-      <div css={approvalButtonRowCss}>
-        <button css={trulyImpossibleButtonCss} onClick={onTrulyImpossible}>Truly Impossible</button>
-        <button css={redirectLLMButtonCss} onClick={() => setShowRedirect(r => !r)}>Redirect LLM</button>
-      </div>
-      {showRedirect && (
-        <div css={redirectInputAreaCss}>
-          <textarea
-            css={redirectTextareaCss}
-            rows={3}
-            placeholder="Explain how to proceed..."
-            value={redirectText}
-            onChange={e => setRedirectText(e.target.value)}
-            autoFocus
-          />
-          <div css={redirectActionRowCss}>
-            <button
-              css={redirectSendButtonCss}
-              disabled={!redirectText.trim()}
-              onClick={() => onRedirect(redirectText.trim())}
-            >
-              Send
-            </button>
-            <button
-              css={redirectCancelButtonCss}
-              onClick={() => { setShowRedirect(false); setRedirectText('') }}
-            >
-              Cancel
-            </button>
-          </div>
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// AskHumanBubble
-// ---------------------------------------------------------------------------
-
-function AskHumanBubble({
-  item,
-  idx,
-  onAnswer,
-}: {
-  item: AskHumanItem
-  idx: number
-  onAnswer: (idx: number, answer: string) => void
-}) {
-  const [answerText, setAnswerText] = useState('')
-
-  if (item.state === 'answered') {
-    return (
-      <div css={askHumanCardCss}>
-        <span css={askHumanLabelCss}>Question answered</span>
-        <span css={askHumanQuestionCss}>{item.question}</span>
-        <div css={askHumanResolvedCss}>↩ {item.answer}</div>
-      </div>
-    )
-  }
-  return (
-    <div css={askHumanCardCss}>
-      <span css={askHumanLabelCss}>Question from AI</span>
-      <span css={askHumanQuestionCss}>{item.question}</span>
-      <textarea
-        css={askHumanTextareaCss}
-        rows={3}
-        placeholder="Type your answer..."
-        value={answerText}
-        onChange={e => setAnswerText(e.target.value)}
-        autoFocus
-      />
-      <div css={redirectActionRowCss}>
-        <button
-          css={redirectSendButtonCss}
-          disabled={!answerText.trim()}
-          onClick={() => onAnswer(idx, answerText.trim())}
-        >
-          Send
-        </button>
-      </div>
-    </div>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// ---------------------------------------------------------------------------
 // StopRedirectBubble — shown in left column when stop-and-redirect is submitted
 // ---------------------------------------------------------------------------
 
@@ -1873,65 +1631,66 @@ function StopRedirectBubble({ text }: { text: string }) {
 
 function TurnContainer({
   turn,
+  isLastTurn,
   onViewFull,
   onApprove,
   onDeny,
   onDenyWithRedirect,
   onDenyAndStop,
-  onTrulyImpossible,
-  onImpossibleRedirect,
-  onAskHumanAnswer,
   onStop,
   onSoftInterrupt,
   onStopAndRedirect,
   onStopAndTryAgain,
+  onFollowUp,
   cancelling,
 }: {
   turn: Turn
+  isLastTurn: boolean
   onViewFull: (content: string) => void
   onApprove: (id: string) => void
   onDeny: (id: string) => void
   onDenyWithRedirect: (id: string, message: string) => void
   onDenyAndStop: (id: string) => void
-  onTrulyImpossible: (turnId: string) => void
-  onImpossibleRedirect: (turnId: string, message: string) => void
-  onAskHumanAnswer: (turnId: string, idx: number, answer: string) => void
   onStop: () => void
   onSoftInterrupt: () => void
   onStopAndRedirect: (message: string) => void
   onStopAndTryAgain: () => void
+  onFollowUp: (text: string) => void
   cancelling: boolean
 }) {
   const [showStopRedirectWidget, setShowStopRedirectWidget] = useState(false)
   const [stopRedirectText, setStopRedirectText] = useState('')
-  const { todoItems, approvalItems, askHumanItems, impossibleRedirectItem, impossible, cancelled, exchanges, streaming, isInterimStreaming, interimShowCharCount, interimCharCount, interrupted } = turn
+  const [showFollowUpWidget, setShowFollowUpWidget] = useState(false)
+  const [followUpText, setFollowUpText] = useState('')
+  const { todoItems, approvalItems, impossible, cancelled, exchanges, subturns, streaming, isInterimStreaming, interimShowCharCount, interimCharCount, interrupted } = turn
 
   const { scrollRef: toolsScrollRef, contentRef: toolsContentRef } = useStickToBottom()
   const { scrollRef: outcomesScrollRef, contentRef: outcomesContentRef } = useStickToBottom()
-  const { scrollRef: qaHistoryScrollRef, contentRef: qaHistoryContentRef } = useStickToBottom()
   const hasPendingApproval = approvalItems.some(a => !a.resolved)
-  const hasPendingAskHuman = askHumanItems.some(i => i.state === 'pending')
   const resolvedApprovals = approvalItems.filter(a => a.resolved)
   const pendingApprovals = approvalItems.filter(a => !a.resolved)
-  const answeredAskHuman = askHumanItems.filter(i => i.state === 'answered')
-  const pendingAskHuman = askHumanItems.filter(i => i.state === 'pending')
 
-  // Collect all tool calls from all exchanges (for the tool calls panel)
-  const allToolCalls = exchanges.flatMap(ex => ex.toolCalls)
+  // Last subturn's exchanges for right-column display (most recent only)
+  const lastSubturn = subturns[subturns.length - 1]
+  const lastSubturnStart = lastSubturn?.startExchangeIdx ?? 0
+  const lastSubturnExchanges = exchanges.slice(lastSubturnStart)
 
-  // Display content: final exchange's content, or last exchange's content if it has no tool calls (live streaming)
-  const lastExchange = exchanges[exchanges.length - 1]
-  const finalExchange = exchanges.find(ex => ex.isFinal)
+  // Collect tool calls from the last subturn only (right column)
+  const allToolCalls = lastSubturnExchanges.flatMap(ex => ex.toolCalls)
+
+  // Display content for the current/last subturn: final exchange or live streaming
+  const lastExchange = lastSubturnExchanges[lastSubturnExchanges.length - 1]
+  const finalExchange = lastSubturnExchanges.find(ex => ex.isFinal)
   const liveContent = streaming && lastExchange && !lastExchange.isFinal && lastExchange.toolCalls.length === 0
     ? lastExchange.assistantContent
     : undefined
   const displayContent = finalExchange?.assistantContent ?? liveContent ?? ''
 
-  // Reasoning from the latest exchange that has any reasoning (native tokens — immediate)
-  const reasoning = [...exchanges].reverse().find(ex => ex.reasoning)?.reasoning ?? ''
+  // Reasoning from the latest exchange in the last subturn
+  const reasoning = [...lastSubturnExchanges].reverse().find(ex => ex.reasoning)?.reasoning ?? ''
 
-  // IRAT thinking: concatenation of all exchanges that had text-as-thinking flushed
-  const iratThinking = exchanges
+  // IRAT thinking: concatenation of all last-subturn exchanges
+  const iratThinking = lastSubturnExchanges
     .map(ex => ex.iratThinking)
     .filter(Boolean)
     .join('\n\n---\n\n')
@@ -1940,6 +1699,14 @@ function TurnContainer({
   const showPlaceholder = streaming && !displayContent && !isInterimStreaming && allToolCalls.length === 0
 
   const hasBanner = !!turn.taskTitle || (turn.loadedSkills?.length ?? 0) > 0
+
+  // For multi-subturn turns, build per-subturn content for the left column
+  const subturnContents: string[] = subturns.map((st, stIdx) => {
+    const nextStart = subturns[stIdx + 1]?.startExchangeIdx ?? exchanges.length
+    const stExchanges = exchanges.slice(st.startExchangeIdx, nextStart)
+    const stFinal = stExchanges.find(ex => ex.isFinal)
+    return stFinal?.assistantContent ?? ''
+  })
 
   return (
     <div css={turnWrapperCss}>
@@ -1958,33 +1725,61 @@ function TurnContainer({
         </div>
       ) : null}
       <div css={hasBanner ? turnContainerCss : turnContainerNoTitleCss}>
-      {/* Left column: user message + AI content + impossible notice */}
+      {/* Left column: user message(s) + AI content — multi-subturn aware */}
       <div css={leftColumnCss}>
-        <div css={userBubbleCss}>{turn.userText}</div>
-        {interimShowCharCount && (interimCharCount > 0 || isInterimStreaming) && (
-          <div css={interimBubbleCss}>
-            AI interim response: {interimCharCount} chars
-          </div>
+        {subturns.length > 1 ? (
+          // Multi-subturn: show each user bubble + its AI response
+          <>
+            {subturns.map((st, stIdx) => {
+              const isLast = stIdx === subturns.length - 1
+              const stContent = isLast ? displayContent : subturnContents[stIdx]
+              return (
+                <React.Fragment key={st.id}>
+                  <div css={userBubbleCss} style={st.isContinuation ? { opacity: 0.85 } : undefined}>{st.userText}</div>
+                  {isLast && interimShowCharCount && (interimCharCount > 0 || isInterimStreaming) && (
+                    <div css={interimBubbleCss}>
+                      AI interim response: {interimCharCount} chars
+                    </div>
+                  )}
+                  {stContent ? (
+                    <div css={assistantBubbleCss} style={!isLast ? { opacity: 0.7 } : undefined}>
+                      <TextPresenter
+                        content={stContent}
+                        maxHeight={isLast ? 600 : 300}
+                        streaming={isLast && isStreamingFinal}
+                      />
+                    </div>
+                  ) : isLast && showPlaceholder ? (
+                    <div css={streamingPlaceholderCss}>…</div>
+                  ) : null}
+                </React.Fragment>
+              )
+            })}
+          </>
+        ) : (
+          // Single subturn — original rendering
+          <>
+            <div css={userBubbleCss}>{turn.userText}</div>
+            {interimShowCharCount && (interimCharCount > 0 || isInterimStreaming) && (
+              <div css={interimBubbleCss}>
+                AI interim response: {interimCharCount} chars
+              </div>
+            )}
+            {displayContent ? (
+              <div css={assistantBubbleCss}>
+                <TextPresenter
+                  content={displayContent}
+                  maxHeight={600}
+                  streaming={isStreamingFinal}
+                />
+              </div>
+            ) : null}
+            {showPlaceholder && (
+              <div css={streamingPlaceholderCss}>…</div>
+            )}
+          </>
         )}
-        {displayContent ? (
-          <div css={assistantBubbleCss}>
-            <TextPresenter
-              content={displayContent}
-              maxHeight={600}
-              streaming={isStreamingFinal}
-            />
-          </div>
-        ) : null}
-        {showPlaceholder && (
-          <div css={streamingPlaceholderCss}>…</div>
-        )}
-        {impossibleRedirectItem ? (
-          <ImpossibleRedirectBubble
-            item={impossibleRedirectItem}
-            onTrulyImpossible={() => onTrulyImpossible(turn.id)}
-            onRedirect={(msg) => onImpossibleRedirect(turn.id, msg)}
-          />
-        ) : impossible ? (
+        {impossible ? (
           <div css={impossibleBubbleCss}>
             <span css={impossibleLabelCss}>Task impossible</span>
             <span css={impossibleReasonCss}>{impossible}</span>
@@ -2040,7 +1835,7 @@ function TurnContainer({
         )}
       </div>
 
-      {/* Right column: reasoning + irat thinking + tool calls */}
+      {/* Right column: reasoning + irat thinking + tool calls (scoped to last subturn) */}
       <div css={rightColumnCss}>
         {reasoning ? (
           <div css={reasoningWrapperCss}>
@@ -2086,7 +1881,7 @@ function TurnContainer({
         }
       </div>
 
-      {/* Fourth column: stop controls (only when turn is active/streaming) */}
+      {/* Fourth column: stop controls (active turn) OR follow-up button (last completed turn) */}
       {streaming ? (
         <div css={stopColumnCss}>
           {cancelling ? (
@@ -2108,19 +1903,59 @@ function TurnContainer({
             </>
           )}
         </div>
+      ) : isLastTurn && turn.completed ? (
+        <div css={followUpColumnCss}>
+          {showFollowUpWidget ? (
+            <>
+              <textarea
+                css={redirectTextareaCss}
+                rows={3}
+                placeholder="Follow up on this turn..."
+                value={followUpText}
+                onChange={e => setFollowUpText(e.target.value)}
+                autoFocus
+                style={{ minHeight: 60 }}
+              />
+              <div css={redirectActionRowCss}>
+                <button
+                  css={redirectSendButtonCss}
+                  disabled={!followUpText.trim()}
+                  onClick={() => {
+                    const msg = followUpText.trim()
+                    onFollowUp(msg)
+                    setShowFollowUpWidget(false)
+                    setFollowUpText('')
+                  }}
+                >
+                  Send
+                </button>
+                <button
+                  css={redirectCancelButtonCss}
+                  onClick={() => { setShowFollowUpWidget(false); setFollowUpText('') }}
+                >
+                  Cancel
+                </button>
+              </div>
+            </>
+          ) : (
+            <button css={followUpButtonCss} onClick={() => setShowFollowUpWidget(true)}>
+              Follow Up
+            </button>
+          )}
+        </div>
       ) : (
         <div />
       )}
 
-      {/* Full-width bottom row: 3-column approval/questions panel */}
-      {(approvalItems.length > 0 || askHumanItems.length > 0) && (
+      {/* Full-width bottom row: approval panel */}
+      {approvalItems.length > 0 && (
         <div css={approvalRowCss}>
           <div css={approvalInnerGridCss}>
 
-            {/* Col 1: Outcome chips — resolved approvals + answered question tags */}
+            {/* Col 1: Resolved approval chips */}
             <div css={approvalCol1Css}>
               <div css={approvalColHeaderCss}>Outcomes</div>
-              {resolvedApprovals.length === 0 && answeredAskHuman.length === 0 ? (
+              {resolvedApprovals.length === 0 ? (
                 <div css={activeDialogPlaceholderCss}>—</div>
               ) : (
                 <div css={outcomesScrollCss} ref={outcomesScrollRef}>
@@ -2130,26 +1965,19 @@ function TurnContainer({
                       {item.resolved!.approved ? '✓' : '✗'} {item.tool_name}
                     </div>
                   ))}
-                  {answeredAskHuman.map((item, idx) => (
-                    <div key={idx} css={outcomeAskChipCss} title={item.question}>
-                      ? {item.question.length > 28 ? item.question.slice(0, 28) + '…' : item.question}
-                    </div>
-                  ))}
                   </div>
                 </div>
               )}
             </div>
 
-            {/* Col 2: Active dialog — pending approval or pending ask_human */}
+            {/* Col 2: Active approval dialogs */}
             <div css={approvalCol2Css}>
               {hasPendingApproval ? (
                 <div css={approvalColHeaderPendingCss}>⚠ Approval Needed</div>
-              ) : hasPendingAskHuman ? (
-                <div css={approvalColHeaderAskPendingCss}>? Question</div>
               ) : (
                 <div css={approvalColHeaderCss}>Active</div>
               )}
-              {pendingApprovals.length === 0 && pendingAskHuman.length === 0 ? (
+              {pendingApprovals.length === 0 ? (
                 <div css={activeDialogPlaceholderCss}>—</div>
               ) : (
                 <>
@@ -2160,34 +1988,12 @@ function TurnContainer({
                       onDenyWithRedirect={onDenyWithRedirect} onDenyAndStop={onDenyAndStop}
                     />
                   ))}
-                  {pendingAskHuman.map((item, idx) => (
-                    <AskHumanBubble
-                      key={idx} item={item} idx={askHumanItems.indexOf(item)}
-                      onAnswer={(i, answer) => onAskHumanAnswer(turn.id, i, answer)}
-                    />
-                  ))}
                 </>
               )}
             </div>
 
-            {/* Col 3: Q&A history — scrollable answered question cards */}
-            <div css={approvalCol3Css}>
-              <div css={approvalColHeaderCss}>Questions</div>
-              {answeredAskHuman.length === 0 ? (
-                <div css={qaHistoryEmptyCss}>—</div>
-              ) : (
-                <div css={qaHistoryScrollCss} ref={qaHistoryScrollRef}>
-                  <div ref={qaHistoryContentRef} css={approvalListContentCss(6)}>
-                  {answeredAskHuman.map((item, idx) => (
-                    <div key={idx} css={qaHistoryCardCss}>
-                      <div css={qaHistoryQuestionCss}>Q: {item.question}</div>
-                      <div css={qaHistoryAnswerCss}>A: {item.answer}</div>
-                    </div>
-                  ))}
-                  </div>
-                </div>
-              )}
-            </div>
+            {/* Col 3: empty (reserved) */}
+            <div css={approvalCol3Css} />
 
           </div>
         </div>
@@ -2283,10 +2089,26 @@ export default function Chat() {
       case 'turn_start': {
         const id = data.turn_id as string
         const userText = data.user_text as string
-        setThread(prev => {
-          if (prev.some(t => t.id === id)) return prev
-          return [...prev, { ...newTurn(id, userText), streaming: false }]
-        })
+        const isCont = (data.is_continuation as boolean | undefined) ?? false
+        const subturnId = data.subturn_id as string | undefined
+        const exchangeStartIdx = (data.exchange_start_idx as number | undefined) ?? 0
+        if (isCont) {
+          setThread(prev => prev.map(t => {
+            if (t.id !== id) return t
+            const newSt: SubturnMeta = {
+              id: subturnId ?? crypto.randomUUID(),
+              userText,
+              startExchangeIdx: exchangeStartIdx,
+              isContinuation: true,
+            }
+            return { ...t, subturns: [...t.subturns, newSt], completed: false, streaming: false }
+          }))
+        } else {
+          setThread(prev => {
+            if (prev.some(t => t.id === id)) return prev
+            return [...prev, { ...newTurn(id, userText, subturnId, false), streaming: false }]
+          })
+        }
         break
       }
       case 'replay_content_snapshot': {
@@ -2377,9 +2199,6 @@ export default function Chat() {
       case 'todo_list_update':
         updateTurn(turnId, t => ({ ...t, todoItems: data.items as TodoItem[] }))
         break
-      case 'report_impossible':
-        updateTurn(turnId, t => ({ ...t, impossible: data.reason as string }))
-        break
       case 'turn_cancelled':
         updateTurn(turnId, t => ({ ...t, cancelled: 'Turn was cancelled' }))
         break
@@ -2427,24 +2246,6 @@ export default function Chat() {
           }
           return { ...t, completed: true, streaming: false, exchanges }
         })
-        break
-      }
-      case 'report_impossible_request':
-        updateTurn(turnId, t => ({
-          ...t,
-          impossibleRedirectItem: { reason: data.reason as string, state: 'pending' },
-        }))
-        break
-      case 'ask_human_request': {
-        const question = data.question as string
-        updateTurn(turnId, t => ({
-          ...t,
-          askHumanItems: [...(t.askHumanItems ?? []), { question, state: 'pending' }],
-        }))
-        break
-      }
-      case 'ask_human_resolved': {
-        // Resolved by user action; no state change needed during replay
         break
       }
       case 'task_title':
@@ -2591,13 +2392,47 @@ export default function Chat() {
     }
 
     // Live event handlers (mirror replay logic but also track lastEventId)
-    function onTurnStart(data: { event_id?: string; turn_id: string; user_text: string }) {
+    function onTurnStart(data: {
+      event_id?: string
+      turn_id: string
+      user_text: string
+      is_continuation?: boolean
+      subturn_id?: string
+      exchange_start_idx?: number
+    }) {
       if (data.event_id) updateLastEventId(data.event_id)
       const id = data.turn_id
-      setThread(prev => {
-        if (prev.some(t => t.id === id)) return prev
-        return [...prev, newTurn(id, data.user_text)]
-      })
+      const subturnId = data.subturn_id
+      const isCont = data.is_continuation ?? false
+      const exchangeStartIdx = data.exchange_start_idx ?? 0
+
+      if (isCont) {
+        // Continuation: find existing turn and append a new SubturnMeta
+        setThread(prev => prev.map(t => {
+          if (t.id !== id) return t
+          const newSt: SubturnMeta = {
+            id: subturnId ?? crypto.randomUUID(),
+            userText: data.user_text,
+            startExchangeIdx: exchangeStartIdx,
+            isContinuation: true,
+          }
+          return {
+            ...t,
+            subturns: [...t.subturns, newSt],
+            completed: false,
+            streaming: true,
+            isInterimStreaming: false,
+            interimShowCharCount: false,
+            interimCharCount: 0,
+          }
+        }))
+      } else {
+        setThread(prev => {
+          if (prev.some(t => t.id === id)) return prev
+          return [...prev, newTurn(id, data.user_text, subturnId, false)]
+        })
+      }
+      setBusy(true)
       scrollToBottom()
     }
 
@@ -2755,12 +2590,6 @@ export default function Chat() {
       setBusy(false)
     }
 
-    function onReportImpossible(data: { event_id?: string; turn_id?: string; reason: string }) {
-      if (data.event_id) updateLastEventId(data.event_id)
-      const turnId = data.turn_id ?? ''
-      updateTurn(turnId, t => ({ ...t, impossible: data.reason }))
-    }
-
     function onTurnCancelled(data: { event_id?: string; turn_id?: string }) {
       if (data.event_id) updateLastEventId(data.event_id)
       const turnId = data.turn_id ?? ''
@@ -2791,30 +2620,6 @@ export default function Chat() {
       }))
     }
 
-    function onReportImpossibleRequest(data: { event_id?: string; turn_id?: string; reason: string }) {
-      if (data.event_id) updateLastEventId(data.event_id)
-      const turnId = data.turn_id ?? ''
-      updateTurn(turnId, t => ({
-        ...t,
-        impossibleRedirectItem: { reason: data.reason, state: 'pending' },
-      }))
-    }
-
-    function onAskHumanRequest(data: { event_id?: string; turn_id?: string; question: string }) {
-      if (data.event_id) updateLastEventId(data.event_id)
-      const turnId = data.turn_id ?? ''
-      updateTurn(turnId, t => ({
-        ...t,
-        askHumanItems: [...(t.askHumanItems ?? []), { question: data.question, state: 'pending' }],
-      }))
-    }
-
-    function onAskHumanResolved(data: { event_id?: string; turn_id?: string; answer: string }) {
-      if (data.event_id) updateLastEventId(data.event_id)
-      // The turn state is updated optimistically when the user clicks Send,
-      // so this event mainly serves as a confirmation log; no state change needed.
-    }
-
     socket.on('connect', onConnect)
     socket.on('disconnect', onDisconnect)
     socket.on('pwd_update', onPwdUpdate)
@@ -2839,14 +2644,10 @@ export default function Chat() {
     socket.on('tool_result', onToolResult)
     socket.on('message_done', onMessageDone)
     socket.on('error', onError)
-    socket.on('report_impossible', onReportImpossible)
     socket.on('turn_cancelled', onTurnCancelled)
     socket.on('todo_list_update', onTodoListUpdate)
     socket.on('approval_request', onApprovalRequest)
     socket.on('approval_resolved', onApprovalResolved)
-    socket.on('report_impossible_request', onReportImpossibleRequest)
-    socket.on('ask_human_request', onAskHumanRequest)
-    socket.on('ask_human_resolved', onAskHumanResolved)
     socket.on('shell_output_snapshot', onShellOutputSnapshot)
     socket.on('task_title', (data: { turn_id: string; title: string }) => {
       applyReplayEvent('task_title', data)
@@ -2883,14 +2684,10 @@ export default function Chat() {
       socket.off('tool_result', onToolResult)
       socket.off('message_done', onMessageDone)
       socket.off('error', onError)
-      socket.off('report_impossible', onReportImpossible)
       socket.off('turn_cancelled', onTurnCancelled)
       socket.off('todo_list_update', onTodoListUpdate)
       socket.off('approval_request', onApprovalRequest)
       socket.off('approval_resolved', onApprovalResolved)
-      socket.off('report_impossible_request', onReportImpossibleRequest)
-      socket.off('ask_human_request', onAskHumanRequest)
-      socket.off('ask_human_resolved', onAskHumanResolved)
       socket.off('shell_output_snapshot', onShellOutputSnapshot)
       socket.off('task_title')
       socket.off('skills_loaded')
@@ -2921,35 +2718,11 @@ export default function Chat() {
     setCancelling(true)
   }, [socket])
 
-  const trulyImpossible = useCallback((turnId: string) => {
-    socket.emit('impossible_redirect_response', { redirect_message: null })
-    updateTurn(turnId, t => ({
-      ...t,
-      impossibleRedirectItem: t.impossibleRedirectItem
-        ? { ...t.impossibleRedirectItem, state: 'ended' }
-        : t.impossibleRedirectItem,
-    }))
-  }, [socket, updateTurn])
-
-  const impossibleRedirect = useCallback((turnId: string, message: string) => {
-    socket.emit('impossible_redirect_response', { redirect_message: message })
-    updateTurn(turnId, t => ({
-      ...t,
-      impossibleRedirectItem: t.impossibleRedirectItem
-        ? { ...t.impossibleRedirectItem, state: 'redirected', redirectText: message }
-        : t.impossibleRedirectItem,
-    }))
-  }, [socket, updateTurn])
-
-  const answerAskHuman = useCallback((turnId: string, idx: number, answer: string) => {
-    socket.emit('ask_human_response', { answer })
-    updateTurn(turnId, t => ({
-      ...t,
-      askHumanItems: t.askHumanItems.map((item, i) =>
-        i === idx ? { ...item, state: 'answered', answer } : item
-      ),
-    }))
-  }, [socket, updateTurn])
+  const forceContinuation = useCallback((_turnId: string, text: string) => {
+    socket.emit('force_continuation', { text })
+    setBusy(true)
+    scrollToBottom()
+  }, [socket, scrollToBottom])
 
   const cancelTurn = useCallback(() => {
     socket.emit('cancel_turn')
@@ -3094,22 +2867,21 @@ export default function Chat() {
                 onViewFull={setModalContent}
               />
             )}
-            {thread.map(turn => (
+            {thread.map((turn, idx) => (
               <TurnContainer
                 key={turn.id}
                 turn={turn}
+                isLastTurn={idx === thread.length - 1}
                 onViewFull={setModalContent}
                 onApprove={approve}
                 onDeny={deny}
                 onDenyWithRedirect={denyWithRedirect}
                 onDenyAndStop={denyAndStop}
-                onTrulyImpossible={trulyImpossible}
-                onImpossibleRedirect={impossibleRedirect}
-                onAskHumanAnswer={answerAskHuman}
                 onStop={cancelTurn}
                 onSoftInterrupt={softInterrupt}
                 onStopAndRedirect={(msg) => stopAndRedirect(msg, turn.id)}
                 onStopAndTryAgain={() => stopAndTryAgain(turn.id)}
+                onFollowUp={(text) => forceContinuation(turn.id, text)}
                 cancelling={cancelling}
               />
             ))}

@@ -40,7 +40,7 @@ from src.utils.redis_dict import RedisDict
 from src.utils.request_error_formatting import format_http_error
 from src.utils.env_info import format_environment_info, get_default_workspace_dir, get_os, get_shell
 from src.utils.session_model import (
-    Session, Turn, LLMExchange, ToolCallRecord,
+    Session, Turn, Subturn, LLMExchange, ToolCallRecord,
     session_to_dict, session_from_dict, turn_to_dict, turn_from_dict,
     CURRENT_SCHEMA_VERSION,
 )
@@ -285,106 +285,6 @@ def _request_approval(
     return bool(entry.get("approved", False)), entry.get("redirect_message")
 
 
-# ---------------------------------------------------------------------------
-# report_impossible redirect gate
-# ---------------------------------------------------------------------------
-
-# Maps socket session ID to pending redirect state
-_pending_impossible_redirects: dict[str, dict] = {}
-
-def _request_impossible_redirect(
-    sid: str,
-    session_id: str,
-    reason: str,
-    turn_id: str,
-    cancel_event: threading.Event | None,
-    redirect_event: threading.Event | None = None,
-) -> str | None:
-    """
-    Emit report_impossible_request and block until the user responds or the
-    turn is cancelled.  Waits indefinitely — there is no timeout.  Polls every
-    0.5 s so cancel_event/redirect_event are checked promptly.
-    Returns redirect_message (str) if the user chose to redirect the LLM, or
-    None if they chose "Truly Impossible" / cancelled.
-    If redirect_event fires, the stored redirect message is used as the redirect
-    guidance (stop-and-redirect resolves the impossible dialog automatically).
-    """
-    ev = threading.Event()
-    _pending_impossible_redirects[sid] = {
-        "event": ev, "redirect_message": None, "turn_id": turn_id,
-    }
-    _emit_and_log(session_id, "report_impossible_request", {
-        "reason": reason, "turn_id": turn_id,
-    })
-
-    while True:
-        if ev.wait(timeout=0.5):
-            break
-        if cancel_event is not None and cancel_event.is_set():
-            break
-        if redirect_event is not None and redirect_event.is_set():
-            break
-
-    entry = _pending_impossible_redirects.pop(sid, {})
-
-    if cancel_event is not None and cancel_event.is_set():
-        return None
-
-    if redirect_event is not None and redirect_event.is_set():
-        return _redirect_messages.get(session_id) or None
-
-    return entry.get("redirect_message") or None
-
-
-# ---------------------------------------------------------------------------
-# ask_human gate
-# ---------------------------------------------------------------------------
-
-# Maps session_id to pending human input state (keyed by session_id, not sid,
-# because the tool only has access to session_id via special_resources)
-_pending_human_inputs: dict[str, dict] = {}
-
-def _request_human_input(
-    session_id: str,
-    question: str,
-    turn_id: str,
-    cancel_event: threading.Event | None,
-    redirect_event: threading.Event | None = None,
-) -> str | None:
-    """
-    Emit ask_human_request and block until the user answers or the turn is
-    cancelled.  Waits indefinitely — there is no timeout.  Polls every 0.5 s
-    so cancel_event/redirect_event are checked promptly.
-    Returns the user's answer string, or None on cancel.
-    If redirect_event fires, returns the redirect message as the "answer" so
-    the LLM sees the guidance in tool results.
-    """
-    ev = threading.Event()
-    _pending_human_inputs[session_id] = {
-        "event": ev, "answer": None, "turn_id": turn_id,
-    }
-    _emit_and_log(session_id, "ask_human_request", {
-        "question": question, "turn_id": turn_id,
-    })
-
-    while True:
-        if ev.wait(timeout=0.5):
-            break
-        if cancel_event is not None and cancel_event.is_set():
-            break
-        if redirect_event is not None and redirect_event.is_set():
-            break
-
-    entry = _pending_human_inputs.pop(session_id, {})
-
-    if cancel_event is not None and cancel_event.is_set():
-        return None
-
-    if redirect_event is not None and redirect_event.is_set():
-        msg = _redirect_messages.get(session_id, "")
-        return f"(User interrupted this question with guidance: {msg})" if msg else None
-
-    return entry.get("answer")
 
 
 # ---------------------------------------------------------------------------
@@ -989,11 +889,10 @@ def _execute_tools(
     cancel_event: threading.Event | None = None,
     tool_map: dict | None = None,
     redirect_event: threading.Event | None = None,
-) -> tuple[bool, str | None, LLMExchange]:
+) -> LLMExchange:
     """
     Execute all tool calls in result, emit events, and build an LLMExchange record.
-    Returns (was_impossible, reason_or_none, exchange).
-    Always pops _report_impossible from session_data before returning.
+    Returns the exchange.
     """
     turn_id = current_turn.id
     special_resources = {
@@ -1002,9 +901,6 @@ def _execute_tools(
         "session_id": session_id,
         "initial_cwd": session.initial_cwd,
         "cancel_event": cancel_event,
-        "ask_human_fn": lambda q: _request_human_input(
-            session_id, q, turn_id, cancel_event, redirect_event=redirect_event
-        ),
     }
 
     actual_tool_map = tool_map if tool_map is not None else _TOOL_MAP
@@ -1027,14 +923,11 @@ def _execute_tools(
         is_final=False,
     )
 
-    was_impossible = False
-    reason: str | None = None
-
     try:
         for tc in result.tool_calls:
             # Check redirect before starting each tool; caller will inject guidance.
             if redirect_event is not None and redirect_event.is_set():
-                return False, None, exchange
+                return exchange
 
             _emit_and_log(session_id, "tool_call", {
                 "id": tc.id, "name": tc.name, "args": tc.arguments,
@@ -1053,9 +946,9 @@ def _execute_tools(
                     # If cancelled or redirected, return early — caller handles it.
                     if cancel_event is not None and cancel_event.is_set():
                         exchange.tool_calls.append(tool_record)
-                        return False, None, exchange
+                        return exchange
                     if redirect_event is not None and redirect_event.is_set():
-                        return False, None, exchange
+                        return exchange
 
                     if redirect_message:
                         denial = (
@@ -1122,13 +1015,9 @@ def _execute_tools(
 
             # Check redirect after tool completes; return partial exchange — caller injects guidance.
             if redirect_event is not None and redirect_event.is_set():
-                return False, None, exchange
+                return exchange
 
-        if session.session_data.get("_report_impossible"):
-            reason = session.session_data.get("_report_impossible")
-            was_impossible = True
-
-        return was_impossible, reason, exchange
+        return exchange
 
     finally:
         session.session_data.pop("_report_impossible", None)
@@ -1249,12 +1138,14 @@ async def _is_sufficient_final_answer(
     streaming_llm: StreamingLLM,
     session: Session,
     current_turn: Turn,
+    current_subturn: Subturn,
     candidate_text: str,
     watchdog_max_tokens: int | None,
 ) -> bool:
     """
-    Ask a small out-of-band evaluator whether candidate_text already serves as a
-    sufficient direct answer or final summary for the current turn.
+    Ask a small out-of-band evaluator whether candidate_text is a sufficient final answer,
+    question, or impossibility statement for the current subturn.
+    Scoped to the current subturn's request — uses full turn payload only as context.
     """
     payload = _build_llm_payload(session, current_turn)
     transcript = _messages_to_watchdog_transcript(payload)
@@ -1267,30 +1158,32 @@ async def _is_sufficient_final_answer(
         f"todo_items_closed={len(closed_items)}, "
         f"todo_items_open={len(open_items)}"
     )
+    subturn_had_tool_calls = current_subturn.count_tool_calls() > 0
 
     messages = [
         {
             "role": "system",
             "content": (
-                "You are evaluating whether an assistant's latest reply is already sufficient to end "
-                "a tool-assisted turn.\n"
+                "You are evaluating whether an assistant's latest reply is a valid final response "
+                "that ends the current subturn.\n"
                 "\n"
                 "Reply with exactly one word: YES or NO.\n"
                 "\n"
-                "Reply YES if the latest reply already functions as either:\n"
-                "  - a direct final answer to a simple request, or\n"
-                "  - a sufficient final summary/answer after tool use.\n"
+                "Reply YES if the latest reply is any of the following:\n"
+                "  - A direct final answer or summary of completed work.\n"
+                "  - A question or request for clarification directed at the user.\n"
+                "  - A statement that the task cannot be completed, with a clear explanation.\n"
                 "\n"
-                "Reply NO if the latest reply is only a partial status update, weak closing remark, "
-                "reasoning fragment, or otherwise fails to clearly answer/summarize the work."
+                "Reply NO if the reply is only a partial status update, reasoning fragment, "
+                "or interim step that does not resolve the subturn."
             ),
         },
         {
             "role": "user",
             "content": (
-                f"User request:\n{current_turn.user_text}\n\n"
+                f"User request:\n{current_subturn.user_text}\n\n"
                 f"Turn facts:\n"
-                f"- had_tool_calls: {current_turn.count_tool_calls() > 0}\n"
+                f"- had_tool_calls: {subturn_had_tool_calls}\n"
                 f"- {todo_status}\n\n"
                 f"Prior conversation transcript (already stripped/truncated for evaluator use):\n"
                 f"{transcript or '(empty)'}\n\n"
@@ -1304,6 +1197,59 @@ async def _is_sufficient_final_answer(
         return decision == "YES"
     except Exception as exc:
         logger.warning("Final-answer watchdog LLM call failed: %s", exc)
+        return False
+
+
+async def _is_continuation(
+    streaming_llm: StreamingLLM,
+    session: Session,
+    user_text: str,
+    watchdog_max_tokens: int | None,
+) -> bool:
+    """
+    Decide whether a new user message is a follow-up continuation of the previous turn
+    or an independent new request.  Leans conservative: ambiguous cases return False.
+    """
+    last_turn = session.completed_turns[-1]
+    condensed_assistant = last_turn.condensed_assistant or ""
+
+    todo_list = session.session_data.get("todo_list") or []
+    open_items = _get_open_items(todo_list)
+    open_count = len(open_items)
+    open_block = ""
+    if open_items:
+        open_block = "\n".join(f"  - {t}" for t in open_items[:5])
+        if len(open_items) > 5:
+            open_block += f"\n  ... ({len(open_items) - 5} more)"
+
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "You are deciding whether a new user message is a follow-up or continuation "
+                "of the previous task/response, or an independent new request.\n"
+                "Reply with exactly one word: YES or NO.\n"
+                "YES = the message continues, extends, redirects, or questions the previous response.\n"
+                "NO  = the message is an independent new request unrelated to the previous task.\n"
+                "When in doubt, reply NO."
+            ),
+        },
+        {
+            "role": "user",
+            "content": (
+                f"Previous assistant response:\n{condensed_assistant}\n\n"
+                f"Open todo items: {open_count}"
+                + (f"\n{open_block}" if open_block else "")
+                + f"\n\nNew user message:\n{user_text}"
+            ),
+        },
+    ]
+    try:
+        result = await asyncio.to_thread(streaming_llm.fetch, messages, watchdog_max_tokens)
+        decision = (result.content or "").strip().upper()
+        return decision == "YES"
+    except Exception as exc:
+        logger.warning("Continuation watchdog LLM call failed: %s", exc)
         return False
 
 
@@ -1410,6 +1356,7 @@ async def _async_agent_loop(
     streaming_llm: StreamingLLM,
     turn_id: str,
     current_turn: Turn,
+    current_subturn: Subturn,
     return_value_max_chars: int | None,
     cancel_event: threading.Event,
     watchdog_max_tokens: int | None = None,
@@ -1419,23 +1366,22 @@ async def _async_agent_loop(
     Main agentic loop. Runs inside a private asyncio event loop in the SocketIO thread.
     LLM calls are async (httpx) — immediately cancellable via asyncio task cancellation.
     Tool calls run in a thread pool (asyncio.to_thread) so the event loop stays responsive.
+    Per-subturn state variables are scoped to the current subturn only.
     """
     had_tool_calls = False
-    # Latched True the first time any todo item is created during this turn.
-    # Never reset — guards the reprompt and title-fetch gates against item deletions.
+    # Latched True the first time any todo item is created during this subturn.
     had_todo_items = False
     # One-shot latch: after we inject the explicit final-summary continuation,
     # the next no-tool response is accepted as final regardless of watchdog result.
     final_summary_reprompt_sent = False
     # Best no-tool response the watchdog rated as a sufficient final answer so far.
-    # May be set while todos are still open; used once todos close if the current
-    # response is not itself a candidate.
     pending_final_candidate: tuple[str, str] | None = None  # (content, reasoning)
-    was_impossible = False
-    impossible_reason: str | None = None
     was_cancelled = False
     last_assistant_content = ""
     turn_completed = False
+
+    # Count of exchanges in all prior subturns (for global exchange_idx within the turn)
+    _prior_exchange_count = sum(len(st.exchanges) for st in current_turn.subturns[:-1])
 
     session_tool_defs = _get_session_tool_defs(session_id)
     session_tool_map = _get_session_tool_map(session_id)
@@ -1444,7 +1390,7 @@ async def _async_agent_loop(
     baseline_skills = _get_autoloaded_session_skills(session_id)
     baseline_skill_ids = {entry["id"] for entry in baseline_skills}
     selected_skills = await _select_skills_for_turn(
-        streaming_llm, session, current_turn.user_text, skill_registry, watchdog_max_tokens
+        streaming_llm, session, current_subturn.user_text, skill_registry, watchdog_max_tokens
     )
     turn_resolved_skills = resolve_skill_dependency_closure(
         skill_registry,
@@ -1477,7 +1423,7 @@ async def _async_agent_loop(
                     "show_char_count": not session.interim_response_as_thinking,
                 })
 
-            exchange_idx = len(current_turn.exchanges)
+            exchange_idx = _prior_exchange_count + len(current_subturn.exchanges)
             payload = _build_llm_payload(session, current_turn, active_skills_section or None)
 
             # Run LLM call with a redirect watcher that cancels this task when
@@ -1544,7 +1490,7 @@ async def _async_agent_loop(
                     f"User interrupted you, and gave the following guidance: {redirect_msg}"
                 )
                 had_tool_calls = True
-                current_turn.exchanges.append(redir_ex)
+                current_subturn.exchanges.append(redir_ex)
                 _save_session(session_id, session)
                 continue
 
@@ -1566,7 +1512,7 @@ async def _async_agent_loop(
 
             if result.has_tool_calls:
                 try:
-                    impossible, reason, exchange = await asyncio.to_thread(
+                    exchange = await asyncio.to_thread(
                         _execute_tools,
                         result, content_for_history, session, sid, session_id,
                         current_turn, return_value_max_chars, cancel_event,
@@ -1581,7 +1527,7 @@ async def _async_agent_loop(
                 had_tool_calls = True
                 if not had_todo_items and session.session_data.get("todo_list"):
                     had_todo_items = True
-                current_turn.exchanges.append(exchange)
+                current_subturn.exchanges.append(exchange)
                 # Save in-progress turn state to Redis after each tool batch
                 _save_session(session_id, session)
 
@@ -1604,35 +1550,6 @@ async def _async_agent_loop(
                     )
                     _save_session(session_id, session)
                     continue
-
-                if impossible:
-                    redirect = _request_impossible_redirect(
-                        sid, session_id, reason, turn_id, cancel_event,
-                        redirect_event=redirect_event,
-                    )
-                    if redirect_event is not None and redirect_event.is_set():
-                        redirect_event.clear()
-                        _redirect_messages.pop(session_id, None)
-                    if redirect:
-                        # User chose to redirect — inject guidance and continue the loop.
-                        # exchange is already appended above; mutate it in place.
-                        exchange.user_continuation = (
-                            f"The user thinks your task is possible if you do the following: "
-                            f"{redirect}"
-                        )
-                        _save_session(session_id, session)
-                        continue
-                    # User confirmed truly impossible (or timed out / cancelled).
-                    was_impossible = True
-                    impossible_reason = reason
-                    _emit_and_log(session_id, "report_impossible", {
-                        "reason": reason, "turn_id": turn_id,
-                    })
-                    _emit_and_log(session_id, "message_done", {
-                        "content": None, "turn_id": turn_id,
-                    })
-                    turn_completed = True
-                    break
 
                 continue
 
@@ -1665,6 +1582,7 @@ async def _async_agent_loop(
                     streaming_llm,
                     session,
                     current_turn,
+                    current_subturn,
                     content_for_history,
                     watchdog_max_tokens,
                 )
@@ -1692,7 +1610,7 @@ async def _async_agent_loop(
                     is_final=False,
                     user_continuation=continuation,
                 )
-                current_turn.exchanges.append(interim_exchange)
+                current_subturn.exchanges.append(interim_exchange)
                 _save_session(session_id, session)
                 continue
 
@@ -1706,7 +1624,7 @@ async def _async_agent_loop(
                     reasoning=reasoning,
                     is_final=True,
                 )
-                current_turn.exchanges.append(final_exchange)
+                current_subturn.exchanges.append(final_exchange)
                 _emit_and_log(session_id, "message_done", {
                     "content": content_for_history, "turn_id": turn_id,
                 })
@@ -1723,7 +1641,7 @@ async def _async_agent_loop(
                     reasoning=cand_reasoning,
                     is_final=True,
                 )
-                current_turn.exchanges.append(final_exchange)
+                current_subturn.exchanges.append(final_exchange)
                 _emit_and_log(session_id, "message_done", {
                     "content": cand_content, "turn_id": turn_id,
                 })
@@ -1750,7 +1668,7 @@ async def _async_agent_loop(
                     is_final=False,
                     user_continuation=continuation,
                 )
-                current_turn.exchanges.append(interim_exchange)
+                current_subturn.exchanges.append(interim_exchange)
                 _emit_and_log(session_id, "final_reprompt", {"turn_id": turn_id})
                 _emit_and_log(session_id, "begin_final_summary", {"turn_id": turn_id})
                 _save_session(session_id, session)
@@ -1763,7 +1681,7 @@ async def _async_agent_loop(
                 reasoning=reasoning,
                 is_final=True,
             )
-            current_turn.exchanges.append(final_exchange)
+            current_subturn.exchanges.append(final_exchange)
             _emit_and_log(session_id, "message_done", {
                 "content": content_for_history, "turn_id": turn_id,
             })
@@ -1785,8 +1703,6 @@ async def _async_agent_loop(
             _emit_and_log(session_id, "turn_cancelled", {"turn_id": turn_id})
             _emit_and_log(session_id, "message_done", {"content": None, "turn_id": turn_id})
         elif turn_completed:
-            current_turn.was_impossible = was_impossible
-            current_turn.impossible_reason = impossible_reason
             current_turn.completed = True
             current_turn.todo_snapshot = _todo_format_items_for_ui(session.session_data.get("todo_list") or [])
             current_turn.finalize(session.session_data, last_assistant_content, had_todo_items)
@@ -1931,12 +1847,6 @@ def handle_soft_interrupt():
     pending_approval = _pending_approvals.get(sid)
     if pending_approval:
         pending_approval["event"].set()
-    pending_human = _pending_human_inputs.get(session_id)
-    if pending_human:
-        pending_human["event"].set()
-    pending_redirect = _pending_impossible_redirects.get(sid)
-    if pending_redirect:
-        pending_redirect["event"].set()
     logger.info("Soft interrupt for session %s", session_id)
 
 
@@ -1964,12 +1874,6 @@ def handle_stop_and_redirect(data):
         pending_approval = _pending_approvals.get(sid)
         if pending_approval:
             pending_approval["event"].set()
-        pending_human = _pending_human_inputs.get(session_id)
-        if pending_human:
-            pending_human["event"].set()
-        pending_redirect = _pending_impossible_redirects.get(sid)
-        if pending_redirect:
-            pending_redirect["event"].set()
     logger.info("Stop-and-redirect for session %s: %r", session_id, message)
 
 
@@ -2101,27 +2005,6 @@ def handle_approval_response(data: dict):
         _emit_and_log(session_id, "approval_resolved", {"id": tool_id, "approved": approved, "turn_id": pending.get("turn_id", "")})
         pending["event"].set()
 
-
-@socketio.on("impossible_redirect_response")
-def handle_impossible_redirect_response(data: dict):
-    sid = request.sid
-    pending = _pending_impossible_redirects.get(sid)
-    if pending:
-        pending["redirect_message"] = data.get("redirect_message") or None
-        pending["event"].set()
-
-
-@socketio.on("ask_human_response")
-def handle_ask_human_response(data: dict):
-    sid = request.sid
-    session_id = _sid_to_session_id.get(sid, sid)
-    pending = _pending_human_inputs.get(session_id)
-    if pending:
-        pending["answer"] = data.get("answer") or ""
-        _emit_and_log(session_id, "ask_human_resolved", {
-            "answer": pending["answer"], "turn_id": pending.get("turn_id", ""),
-        })
-        pending["event"].set()
 
 
 @socketio.on("save_traces")
@@ -2279,14 +2162,57 @@ def handle_user_message(data: dict):
             _emit_backend_log(session_id, f"Warning: could not chdir to {_effective_cwd!r}: {_chdir_err}")
 
     user_text_with_context = text
-    current_turn = Turn(
-        id=turn_id,
-        user_text=text,
-        user_text_with_context=user_text_with_context,
-    )
+
+    # Determine continuation vs new turn before touching session state.
+    _is_cont = False
+    if session.completed_turns:
+        _loop_for_watchdog = asyncio.new_event_loop()
+        try:
+            _is_cont = _loop_for_watchdog.run_until_complete(
+                _is_continuation(streaming_llm, session, text, watchdog_max_tokens)
+            )
+        except Exception as _wdog_exc:
+            logger.warning("Continuation watchdog error: %s", _wdog_exc)
+            _is_cont = False
+        finally:
+            _loop_for_watchdog.close()
+
+    subturn_id = str(_uuid_module.uuid4())
+    if _is_cont:
+        # Re-open the last completed turn and append a new continuation subturn.
+        current_turn = session.completed_turns.pop()
+        current_turn.completed = False
+        exchange_start_idx = current_turn.count_exchanges()
+        current_subturn = Subturn(
+            id=subturn_id,
+            user_text=text,
+            user_text_with_context=user_text_with_context,
+            is_continuation=True,
+        )
+        current_turn.subturns.append(current_subturn)
+        turn_id = current_turn.id
+    else:
+        current_subturn = Subturn(
+            id=subturn_id,
+            user_text=text,
+            user_text_with_context=user_text_with_context,
+            is_continuation=False,
+        )
+        current_turn = Turn(
+            id=turn_id,
+            subturns=[current_subturn],
+        )
+        exchange_start_idx = 0
+
     session.current_turn = current_turn
 
-    _emit_and_log(session_id, "turn_start", {"turn_id": turn_id, "user_text": text})
+    _emit_and_log(session_id, "turn_start", {
+        "turn_id": turn_id,
+        "user_text": text,
+        "is_continuation": _is_cont,
+        "subturn_id": subturn_id,
+        "exchange_start_idx": exchange_start_idx,
+    })
 
     # Create threading.Events for subprocess tools and a private asyncio event loop
     # for real httpx-level LLM cancellation.
@@ -2312,7 +2238,7 @@ def handle_user_message(data: dict):
         try:
             _had_todos = await _async_agent_loop(
                 sid, session_id, session, streaming_llm,
-                turn_id, current_turn,
+                turn_id, current_turn, current_subturn,
                 return_value_max_chars,
                 cancel_event,
                 watchdog_max_tokens=watchdog_max_tokens,
@@ -2323,6 +2249,114 @@ def handle_user_message(data: dict):
                 await _fetch_and_store_title()
         except asyncio.CancelledError:
             # cancel_event already set inside _async_agent_loop's finally
+            cancel_event.set()
+        finally:
+            _cancel_tasks.pop(session_id, None)
+            _cancel_loops.pop(session_id, None)
+
+    _session_active_turns.add(session_id)
+    try:
+        loop.run_until_complete(_run())
+    finally:
+        _session_active_turns.discard(session_id)
+        _redirect_events.pop(session_id, None)
+        _redirect_messages.pop(session_id, None)
+        loop.close()
+
+
+@socketio.on("force_continuation")
+def handle_force_continuation(data: dict):
+    """Force a continuation subturn, bypassing the continuation watchdog.
+    Used by the Follow-Up button in the UI."""
+    sid = request.sid
+    session_id = _sid_to_session_id.get(sid)
+    if not session_id:
+        emit("error", {"message": "No session_id — reconnect required."})
+        return
+
+    if session_id in _cancel_tasks:
+        emit("error", {"message": "A turn is already in progress. Please wait or cancel first."})
+        return
+
+    text = (data.get("text") or "").strip()
+    if not text:
+        return
+
+    if not _sid_to_session_id.get(sid):
+        return
+
+    llm_config = _load_llm_config()
+    if llm_config is None:
+        emit("error", {"message": "No active token/endpoint configured. Run `slbp token use` first."})
+        return
+
+    session = _load_session(session_id)
+
+    if not session.completed_turns:
+        emit("error", {"message": "No previous turn to continue."})
+        return
+
+    streaming_llm = StreamingLLM(
+        llm_config["endpoint_url"],
+        llm_config["token_value"],
+        60,
+        llm_config["model"],
+        llm_config["model_params"],
+    )
+    return_value_max_chars: int | None = llm_config["system_params"].get("return_value_max_chars")
+    watchdog_max_tokens: int | None = llm_config["system_params"].get("watchdog_max_tokens")
+
+    _effective_cwd = _session_current_cwd.get(session_id) or session.initial_cwd
+    if _effective_cwd:
+        try:
+            os.chdir(_effective_cwd)
+        except OSError as _chdir_err:
+            _emit_backend_log(session_id, f"Warning: could not chdir to {_effective_cwd!r}: {_chdir_err}")
+
+    current_turn = session.completed_turns.pop()
+    current_turn.completed = False
+    exchange_start_idx = current_turn.count_exchanges()
+
+    subturn_id = str(_uuid_module.uuid4())
+    turn_id = current_turn.id
+    current_subturn = Subturn(
+        id=subturn_id,
+        user_text=text,
+        user_text_with_context=text,
+        is_continuation=True,
+    )
+    current_turn.subturns.append(current_subturn)
+    session.current_turn = current_turn
+
+    _emit_and_log(session_id, "turn_start", {
+        "turn_id": turn_id,
+        "user_text": text,
+        "is_continuation": True,
+        "subturn_id": subturn_id,
+        "exchange_start_idx": exchange_start_idx,
+    })
+
+    cancel_event = threading.Event()
+    redirect_event = threading.Event()
+    _redirect_events[session_id] = redirect_event
+
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    _cancel_loops[session_id] = loop
+
+    async def _run() -> None:
+        task = asyncio.current_task()
+        _cancel_tasks[session_id] = task
+        try:
+            await _async_agent_loop(
+                sid, session_id, session, streaming_llm,
+                turn_id, current_turn, current_subturn,
+                return_value_max_chars,
+                cancel_event,
+                watchdog_max_tokens=watchdog_max_tokens,
+                redirect_event=redirect_event,
+            )
+        except asyncio.CancelledError:
             cancel_event.set()
         finally:
             _cancel_tasks.pop(session_id, None)
