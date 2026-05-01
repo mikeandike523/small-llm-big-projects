@@ -39,6 +39,7 @@ export interface LLMExchange {
   iratThinking: string    // IRAT-converted text-as-thinking — flushed after watchdog
   toolCalls: ToolCallEntry[]
   isFinal: boolean
+  isInterim?: boolean     // true after begin_final_summary — prevents onToken appending to this exchange
 }
 
 export interface Turn {

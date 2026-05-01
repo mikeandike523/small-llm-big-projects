@@ -2341,7 +2341,14 @@ export default function Chat() {
         }))
         break
       case 'begin_final_summary':
-        updateTurn(turnId, t => ({ ...t, isInterimStreaming: false }))
+        updateTurn(turnId, t => {
+          const exchanges = [...t.exchanges]
+          if (exchanges.length > 0) {
+            const last = exchanges[exchanges.length - 1]
+            exchanges[exchanges.length - 1] = { ...last, isInterim: true }
+          }
+          return { ...t, isInterimStreaming: false, exchanges }
+        })
         break
       case 'todo_list_update':
         updateTurn(turnId, t => ({ ...t, todoItems: data.items as TodoItem[] }))
@@ -2594,8 +2601,9 @@ export default function Chat() {
         const exchanges = [...t.exchanges]
         const lastEx = exchanges[exchanges.length - 1]
         // Create a new exchange if: no prior exchange, prior exchange has tool calls
-        // (new LLM call started), or prior exchange is already final (continuation subturn).
-        if (!lastEx || lastEx.toolCalls.length > 0 || lastEx.isFinal) {
+        // (new LLM call started), prior exchange is already final (continuation subturn),
+        // or prior exchange is marked interim (begin_final_summary fired).
+        if (!lastEx || lastEx.toolCalls.length > 0 || lastEx.isFinal || lastEx.isInterim) {
           exchanges.push({
             assistantContent: data.type === 'content' ? data.text : '',
             reasoning: data.type === 'reasoning' ? data.text : '',
@@ -2632,8 +2640,14 @@ export default function Chat() {
     function onBeginFinalSummary(data: { event_id?: string; turn_id?: string }) {
       if (data.event_id) updateLastEventId(data.event_id)
       const turnId = data.turn_id ?? ''
-      // Just clear the interim streaming flag; the next token event will create the new exchange
-      updateTurn(turnId, t => ({ ...t, isInterimStreaming: false }))
+      updateTurn(turnId, t => {
+        const exchanges = [...t.exchanges]
+        if (exchanges.length > 0) {
+          const last = exchanges[exchanges.length - 1]
+          exchanges[exchanges.length - 1] = { ...last, isInterim: true }
+        }
+        return { ...t, isInterimStreaming: false, exchanges }
+      })
     }
 
     function onIratThinkingFlush(data: { event_id?: string; turn_id?: string; exchange_idx: number; text: string }) {
