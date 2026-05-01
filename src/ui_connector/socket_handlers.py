@@ -722,6 +722,7 @@ async def _async_run_llm_call(
     payload: list[dict],
     session_id: str,
     turn_id: str,
+    subturn_id: str,
     exchange_idx: int,
     tool_defs: list[dict] | None = None,
     suppress_content_streaming: bool = False,
@@ -756,14 +757,14 @@ async def _async_run_llm_call(
                 }, room=session_id)
             token_count += 1
             if token_count % 50 == 0:
-                _emit_content_snapshot(session_id, turn_id, exchange_idx, acc["content"], acc["reasoning"])
+                _emit_content_snapshot(session_id, turn_id, subturn_id, exchange_idx, acc["content"], acc["reasoning"])
 
     result = await streaming_llm.stream(
         sanitize_messages_for_llm(payload), on_data,
         tools=(tool_defs if tool_defs is not None else ALL_TOOL_DEFINITIONS),
         record=record,
     )
-    _emit_content_snapshot(session_id, turn_id, exchange_idx, acc["content"], acc["reasoning"])
+    _emit_content_snapshot(session_id, turn_id, subturn_id, exchange_idx, acc["content"], acc["reasoning"])
 
     if result.trace is not None:
         result.trace.turn_id = turn_id
@@ -776,12 +777,13 @@ async def _async_run_llm_call(
 
 
 def _emit_content_snapshot(
-    session_id: str, turn_id: str, exchange_idx: int,
+    session_id: str, turn_id: str, subturn_id: str, exchange_idx: int,
     assistant_content: str, reasoning: str,
 ) -> None:
     """Emit a replay_content_snapshot event (logged to Redis Streams for replay)."""
     _emit_and_log(session_id, "replay_content_snapshot", {
         "turn_id": turn_id,
+        "subturn_id": subturn_id,
         "exchange_idx": exchange_idx,
         "assistant_content": assistant_content,
         "reasoning": reasoning,
@@ -797,6 +799,7 @@ async def _async_run_llm_call_with_retry(
     payload: list[dict],
     session_id: str,
     turn_id: str,
+    subturn_id: str,
     exchange_idx: int,
     tool_defs: list[dict] | None = None,
     suppress_content_streaming: bool = False,
@@ -807,7 +810,7 @@ async def _async_run_llm_call_with_retry(
     Returns (result, content_for_history, reasoning).
     """
     try:
-        return await _async_run_llm_call(streaming_llm, payload, session_id, turn_id, exchange_idx, tool_defs, suppress_content_streaming, record=record)
+        return await _async_run_llm_call(streaming_llm, payload, session_id, turn_id, subturn_id, exchange_idx, tool_defs, suppress_content_streaming, record=record)
     except Exception as exc:
         if _is_context_limit_error(exc):
             raise RuntimeError(
@@ -1508,8 +1511,6 @@ async def _async_agent_loop(
     last_assistant_content = ""
     turn_completed = False
 
-    # Count of exchanges in all prior subturns (for global exchange_idx within the turn)
-    _prior_exchange_count = sum(len(st.exchanges) for st in current_turn.subturns[:-1])
 
     session_tool_defs = _get_session_tool_defs(session_id)
     session_tool_map = _get_session_tool_map(session_id)
@@ -1551,7 +1552,7 @@ async def _async_agent_loop(
                     "show_char_count": not session.interim_response_as_thinking,
                 })
 
-            exchange_idx = _prior_exchange_count + len(current_subturn.exchanges)
+            exchange_idx = len(current_subturn.exchanges)
             payload = _build_llm_payload(session, current_turn, active_skills_section or None)
 
             # Run LLM call with a redirect watcher that cancels this task when
@@ -1566,6 +1567,7 @@ async def _async_agent_loop(
                     streaming_llm, payload,
                     session_id=session_id,
                     turn_id=turn_id,
+                    subturn_id=current_subturn.id,
                     exchange_idx=exchange_idx,
                     tool_defs=session_tool_defs,
                     # In IRAT mode, suppress real-time content emission for interim
@@ -1704,7 +1706,7 @@ async def _async_agent_loop(
             # Run watchdog on every non-blank response, regardless of todo state or
             # prior history. This catches final answers written before todos are closed.
             is_candidate = False
-            irat_flush_pending: tuple[int, str] | None = None  # (exchange_idx, text)
+            irat_flush_pending: tuple[str, int, str] | None = None  # (subturn_id, exchange_idx, text)
             if content_for_history and content_for_history.strip():
                 is_candidate = await _is_sufficient_final_answer(
                     streaming_llm,
@@ -1719,7 +1721,7 @@ async def _async_agent_loop(
                 elif session.interim_response_as_thinking and is_interim_call:
                     # Watchdog says NO — schedule IRAT flush for this exchange.
                     # Emitted only if this exchange will be stored as an interim step.
-                    irat_flush_pending = (exchange_idx, content_for_history)
+                    irat_flush_pending = (current_subturn.id, exchange_idx, content_for_history)
 
             # Hard block: todos must be closed before the turn can end.
             unclosed = _get_open_items(session.session_data.get("todo_list") or [])
@@ -1727,8 +1729,9 @@ async def _async_agent_loop(
                 if irat_flush_pending is not None:
                     _emit_and_log(session_id, "irat_thinking_flush", {
                         "turn_id": turn_id,
-                        "exchange_idx": irat_flush_pending[0],
-                        "text": irat_flush_pending[1],
+                        "subturn_id": irat_flush_pending[0],
+                        "exchange_idx": irat_flush_pending[1],
+                        "text": irat_flush_pending[2],
                     })
                 items_text = "\n".join(f"  {i + 1}. {item}" for i, item in enumerate(unclosed))
                 continuation = f"You still have {len(unclosed)} unclosed todo item(s). Please continue:\n{items_text}"
@@ -1789,8 +1792,9 @@ async def _async_agent_loop(
                 if irat_flush_pending is not None:
                     _emit_and_log(session_id, "irat_thinking_flush", {
                         "turn_id": turn_id,
-                        "exchange_idx": irat_flush_pending[0],
-                        "text": irat_flush_pending[1],
+                        "subturn_id": irat_flush_pending[0],
+                        "exchange_idx": irat_flush_pending[1],
+                        "text": irat_flush_pending[2],
                     })
                 final_summary_reprompt_sent = True
                 continuation = (
@@ -2331,7 +2335,6 @@ def handle_user_message(data: dict):
         # Re-open the last completed turn and append a new continuation subturn.
         current_turn = session.completed_turns.pop()
         current_turn.completed = False
-        exchange_start_idx = current_turn.count_exchanges()
         current_subturn = Subturn(
             id=subturn_id,
             user_text=text,
@@ -2351,16 +2354,13 @@ def handle_user_message(data: dict):
             id=turn_id,
             subturns=[current_subturn],
         )
-        exchange_start_idx = 0
 
     session.current_turn = current_turn
 
     _emit_and_log(session_id, "turn_start", {
         "turn_id": turn_id,
         "user_text": text,
-        "is_continuation": _is_cont,
         "subturn_id": subturn_id,
-        "exchange_start_idx": exchange_start_idx,
     })
 
     # Create threading.Events for subprocess tools and a private asyncio event loop
@@ -2466,7 +2466,6 @@ def handle_force_continuation(data: dict):
 
     current_turn = session.completed_turns.pop()
     current_turn.completed = False
-    exchange_start_idx = current_turn.count_exchanges()
 
     subturn_id = str(_uuid_module.uuid4())
     turn_id = current_turn.id
@@ -2482,9 +2481,7 @@ def handle_force_continuation(data: dict):
     _emit_and_log(session_id, "turn_start", {
         "turn_id": turn_id,
         "user_text": text,
-        "is_continuation": True,
         "subturn_id": subturn_id,
-        "exchange_start_idx": exchange_start_idx,
     })
 
     cancel_event = threading.Event()

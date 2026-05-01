@@ -25,14 +25,6 @@ export interface ApprovalItem {
   resolved?: { approved: boolean }
 }
 
-export interface SubturnMeta {
-  id: string
-  userText: string
-  startExchangeIdx: number  // index of first exchange in the flat exchanges array
-  isContinuation: boolean
-  detailedSummary?: string  // compaction string; undefined when subturn had no tool calls
-}
-
 export interface LLMExchange {
   assistantContent: string
   reasoning: string       // native reasoning tokens (model.reasoning) — immediate
@@ -42,13 +34,18 @@ export interface LLMExchange {
   isInterim?: boolean     // true after begin_final_summary — prevents onToken appending to this exchange
 }
 
+export interface Subturn {
+  id: string
+  userText: string
+  exchanges: LLMExchange[]
+  detailedSummary?: string  // compaction string; undefined when subturn had no tool calls
+}
+
 export interface Turn {
   id: string
-  userText: string          // first subturn's user text (for display/compat)
   taskTitle?: string        // Short LLM-generated title, arrives asynchronously
   loadedSkills?: string[]   // Fully resolved skill names active for this turn
-  subturns: SubturnMeta[]   // metadata for each subturn segment
-  exchanges: LLMExchange[]  // flat array across all subturns
+  subturns: Subturn[]       // each subturn owns its exchanges
   todoItems: TodoItem[]
   approvalItems: ApprovalItem[]
   impossible?: string       // legacy: was_impossible display

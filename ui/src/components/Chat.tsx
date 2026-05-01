@@ -9,7 +9,7 @@ import { useStickToBottom } from 'use-stick-to-bottom'
 import { TextPresenter } from './TextPresenter'
 import { DebugPanel } from './DebugPanel'
 import Ansi from 'ansi-to-react'
-import type { Turn, ToolCallEntry, TodoItem, ApprovalItem, SubturnMeta } from '../types'
+import type { Turn, Subturn, ToolCallEntry, TodoItem, ApprovalItem } from '../types'
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -141,13 +141,11 @@ interface BackendLogEntry {
 // Turn helpers
 // ---------------------------------------------------------------------------
 
-function newTurn(id: string, userText: string, subturnId?: string, isContinuation = false): Turn {
+function newTurn(id: string, userText: string, subturnId?: string): Turn {
   const stId = subturnId ?? crypto.randomUUID()
   return {
     id,
-    userText,
-    subturns: [{ id: stId, userText, startExchangeIdx: 0, isContinuation }],
-    exchanges: [],
+    subturns: [{ id: stId, userText, exchanges: [] }],
     todoItems: [],
     approvalItems: [],
     completed: false,
@@ -156,6 +154,10 @@ function newTurn(id: string, userText: string, subturnId?: string, isContinuatio
     interimShowCharCount: false,
     interimCharCount: 0,
   }
+}
+
+function emptyExchange() {
+  return { assistantContent: '', reasoning: '', iratThinking: '', toolCalls: [], isFinal: false as const }
 }
 
 function stripMdExtension(s: string): string {
@@ -181,7 +183,6 @@ type BackendSubturn = {
   id: string
   user_text: string
   exchanges: BackendExchange[]
-  is_continuation: boolean
   detailed_summary?: string
 }
 
@@ -205,9 +206,8 @@ function mapExchange(ex: BackendExchange) {
 
 function backendTurnToFrontendTurn(d: {
   id: string
-  // new format: subturns array
   subturns?: BackendSubturn[]
-  // legacy format: flat user_text + exchanges (schema v3 and below, handled by backend migration but kept here for safety)
+  // legacy format (schema v3 and below)
   user_text?: string
   exchanges?: BackendExchange[]
   task_title?: string
@@ -217,44 +217,23 @@ function backendTurnToFrontendTurn(d: {
   was_cancelled?: boolean
   completed: boolean
 }): Turn {
-  let subturns: SubturnMeta[]
-  let flatExchanges: ReturnType<typeof mapExchange>[]
-  let firstUserText: string
-
-  if (d.subturns && d.subturns.length > 0) {
-    let offset = 0
-    subturns = d.subturns.map(st => {
-      const meta: SubturnMeta = {
+  const subturns: Subturn[] = d.subturns && d.subturns.length > 0
+    ? d.subturns.map(st => ({
         id: st.id,
         userText: st.user_text,
-        startExchangeIdx: offset,
-        isContinuation: st.is_continuation,
+        exchanges: st.exchanges.map(mapExchange),
         detailedSummary: st.detailed_summary ?? undefined,
-      }
-      offset += st.exchanges.length
-      return meta
-    })
-    flatExchanges = d.subturns.flatMap(st => st.exchanges.map(mapExchange))
-    firstUserText = d.subturns[0].user_text
-  } else {
-    // Legacy fallback
-    const exchanges = (d.exchanges ?? []).map(mapExchange)
-    subturns = [{
-      id: crypto.randomUUID(),
-      userText: d.user_text ?? '',
-      startExchangeIdx: 0,
-      isContinuation: false,
-    }]
-    flatExchanges = exchanges
-    firstUserText = d.user_text ?? ''
-  }
+      }))
+    : [{
+        id: crypto.randomUUID(),
+        userText: d.user_text ?? '',
+        exchanges: (d.exchanges ?? []).map(mapExchange),
+      }]
 
   return {
     id: d.id,
-    userText: firstUserText,
     taskTitle: d.task_title ?? undefined,
     subturns,
-    exchanges: flatExchanges,
     todoItems: d.todo_snapshot ?? [],
     approvalItems: [],
     impossible: d.was_impossible ? (d.impossible_reason ?? 'Task was impossible') : undefined,
@@ -1759,7 +1738,7 @@ function TurnContainer({
     if (idx === -1) return null
     return detailedSummary.slice(idx + marker.length).trimStart()
   }
-  const { todoItems, approvalItems, impossible, cancelled, exchanges, subturns, streaming, isInterimStreaming, interimShowCharCount, interimCharCount, interrupted } = turn
+  const { todoItems, approvalItems, impossible, cancelled, subturns, streaming, isInterimStreaming, interimShowCharCount, interimCharCount, interrupted } = turn
 
   const { scrollRef: toolsScrollRef, contentRef: toolsContentRef } = useStickToBottom()
   const { scrollRef: outcomesScrollRef, contentRef: outcomesContentRef } = useStickToBottom()
@@ -1767,10 +1746,8 @@ function TurnContainer({
   const resolvedApprovals = approvalItems.filter(a => a.resolved)
   const pendingApprovals = approvalItems.filter(a => !a.resolved)
 
-  // Last subturn's exchanges for right-column display (most recent only)
   const lastSubturn = subturns[subturns.length - 1]
-  const lastSubturnStart = lastSubturn?.startExchangeIdx ?? 0
-  const lastSubturnExchanges = exchanges.slice(lastSubturnStart)
+  const lastSubturnExchanges = lastSubturn?.exchanges ?? []
 
   // Collect tool calls from the last subturn only (right column)
   const allToolCalls = lastSubturnExchanges.flatMap(ex => ex.toolCalls)
@@ -1797,14 +1774,6 @@ function TurnContainer({
 
   const hasBanner = !!turn.taskTitle || (turn.loadedSkills?.length ?? 0) > 0
 
-  // For multi-subturn turns, build per-subturn content for the left column
-  const subturnContents: string[] = subturns.map((st, stIdx) => {
-    const nextStart = subturns[stIdx + 1]?.startExchangeIdx ?? exchanges.length
-    const stExchanges = exchanges.slice(st.startExchangeIdx, nextStart)
-    const stFinal = stExchanges.find(ex => ex.isFinal)
-    return stFinal?.assistantContent ?? ''
-  })
-
   return (
     <div css={turnWrapperCss}>
       {hasBanner ? (
@@ -1822,85 +1791,48 @@ function TurnContainer({
         </div>
       ) : null}
       <div css={hasBanner ? turnContainerCss : turnContainerNoTitleCss}>
-      {/* Left column: user message(s) + AI content — multi-subturn aware */}
+      {/* Left column: user message(s) + AI content — one bubble-group per subturn */}
       <div css={leftColumnCss}>
-        {subturns.length > 1 ? (
-          // Multi-subturn: show each user bubble + its AI response
-          <>
-            {subturns.map((st, stIdx) => {
-              const isLast = stIdx === subturns.length - 1
-              const stContent = isLast ? displayContent : subturnContents[stIdx]
-              return (
-                <React.Fragment key={st.id}>
-                  <div css={userBubbleCss} style={st.isContinuation ? { opacity: 0.85 } : undefined}>{st.userText}</div>
-                  {isLast && interimShowCharCount && (interimCharCount > 0 || isInterimStreaming) && (
-                    <div css={interimBubbleCss}>
-                      AI interim response: {interimCharCount} chars
+        <>
+          {subturns.map((st, stIdx) => {
+            const isLast = stIdx === subturns.length - 1
+            const stFinal = st.exchanges.find(ex => ex.isFinal)
+            const stContent = isLast ? displayContent : (stFinal?.assistantContent ?? '')
+            return (
+              <React.Fragment key={st.id}>
+                <div css={userBubbleCss}>{st.userText}</div>
+                {isLast && interimShowCharCount && (interimCharCount > 0 || isInterimStreaming) && (
+                  <div css={interimBubbleCss}>
+                    AI interim response: {interimCharCount} chars
+                  </div>
+                )}
+                {stContent ? (
+                  <div css={assistantBubbleCss} style={!isLast ? { opacity: 0.7 } : undefined}>
+                    <TextPresenter
+                      content={stContent}
+                      maxHeight={isLast ? 600 : 300}
+                      streaming={isLast && isStreamingFinal}
+                    />
+                  </div>
+                ) : isLast && showPlaceholder ? (
+                  <div css={streamingPlaceholderCss}>…</div>
+                ) : null}
+                {(() => {
+                  if (!st.detailedSummary) return null
+                  if (isLast && streaming) return null
+                  const details = extractContextDetails(st.detailedSummary)
+                  if (!details) return null
+                  return (
+                    <div css={compactionBubbleCss}>
+                      <span css={compactionTextCss}>{details.slice(0, 200)}{details.length > 200 ? '…' : ''}</span>
+                      <button css={compactionDetailsButtonCss} onClick={() => setCompactionModalSubturnId(st.id)}>Details</button>
                     </div>
-                  )}
-                  {stContent ? (
-                    <div css={assistantBubbleCss} style={!isLast ? { opacity: 0.7 } : undefined}>
-                      <TextPresenter
-                        content={stContent}
-                        maxHeight={isLast ? 600 : 300}
-                        streaming={isLast && isStreamingFinal}
-                      />
-                    </div>
-                  ) : isLast && showPlaceholder ? (
-                    <div css={streamingPlaceholderCss}>…</div>
-                  ) : null}
-                  {(() => {
-                    if (!st.detailedSummary) return null
-                    if (isLast && streaming) return null
-                    const details = extractContextDetails(st.detailedSummary)
-                    if (!details) return null
-                    return (
-                      <div css={compactionBubbleCss}>
-                        <span css={compactionTextCss}>{details.slice(0, 200)}{details.length > 200 ? '…' : ''}</span>
-                        <button css={compactionDetailsButtonCss} onClick={() => setCompactionModalSubturnId(st.id)}>Details</button>
-                      </div>
-                    )
-                  })()}
-                </React.Fragment>
-              )
-            })}
-          </>
-        ) : (
-          // Single subturn — original rendering
-          <>
-            <div css={userBubbleCss}>{turn.userText}</div>
-            {interimShowCharCount && (interimCharCount > 0 || isInterimStreaming) && (
-              <div css={interimBubbleCss}>
-                AI interim response: {interimCharCount} chars
-              </div>
-            )}
-            {displayContent ? (
-              <div css={assistantBubbleCss}>
-                <TextPresenter
-                  content={displayContent}
-                  maxHeight={600}
-                  streaming={isStreamingFinal}
-                />
-              </div>
-            ) : null}
-            {showPlaceholder && (
-              <div css={streamingPlaceholderCss}>…</div>
-            )}
-            {(() => {
-              const st = subturns[0]
-              if (!st?.detailedSummary) return null
-              if (streaming) return null
-              const details = extractContextDetails(st.detailedSummary)
-              if (!details) return null
-              return (
-                <div css={compactionBubbleCss}>
-                  <span css={compactionTextCss}>{details.slice(0, 200)}{details.length > 200 ? '…' : ''}</span>
-                  <button css={compactionDetailsButtonCss} onClick={() => setCompactionModalSubturnId(st.id)}>Details</button>
-                </div>
-              )
-            })()}
-          </>
-        )}
+                  )
+                })()}
+              </React.Fragment>
+            )
+          })}
+        </>
         {impossible ? (
           <div css={impossibleBubbleCss}>
             <span css={impossibleLabelCss}>Task impossible</span>
@@ -2225,39 +2157,37 @@ export default function Chat() {
       case 'turn_start': {
         const id = data.turn_id as string
         const userText = data.user_text as string
-        const isCont = (data.is_continuation as boolean | undefined) ?? false
         const subturnId = data.subturn_id as string | undefined
-        const exchangeStartIdx = (data.exchange_start_idx as number | undefined) ?? 0
-        if (isCont) {
-          setThread(prev => prev.map(t => {
-            if (t.id !== id) return t
-            const newSt: SubturnMeta = {
-              id: subturnId ?? crypto.randomUUID(),
-              userText,
-              startExchangeIdx: exchangeStartIdx,
-              isContinuation: true,
-            }
-            return { ...t, subturns: [...t.subturns, newSt], completed: false, streaming: false }
-          }))
-        } else {
-          setThread(prev => {
-            if (prev.some(t => t.id === id)) return prev
-            return [...prev, { ...newTurn(id, userText, subturnId, false), streaming: false }]
-          })
-        }
+        setThread(prev => {
+          if (prev.some(t => t.id === id)) {
+            // Continuation: append new subturn to existing turn
+            return prev.map(t => {
+              if (t.id !== id) return t
+              const newSt: Subturn = { id: subturnId ?? crypto.randomUUID(), userText, exchanges: [] }
+              return { ...t, subturns: [...t.subturns, newSt], completed: false, streaming: false }
+            })
+          } else {
+            return [...prev, { ...newTurn(id, userText, subturnId), streaming: false }]
+          }
+        })
         break
       }
       case 'replay_content_snapshot': {
+        const subturnId = data.subturn_id as string
         const exchangeIdx = data.exchange_idx as number
         const assistantContent = (data.assistant_content as string) ?? ''
         const reasoning = (data.reasoning as string) ?? ''
         updateTurn(turnId, t => {
-          const exchanges = [...t.exchanges]
-          while (exchanges.length <= exchangeIdx) {
-            exchanges.push({ assistantContent: '', reasoning: '', iratThinking: '', toolCalls: [], isFinal: false })
-          }
+          const subturns = [...t.subturns]
+          const stIdx = subturns.findIndex(st => st.id === subturnId)
+          if (stIdx < 0) return t
+          const st = { ...subturns[stIdx] }
+          const exchanges = [...st.exchanges]
+          while (exchanges.length <= exchangeIdx) exchanges.push(emptyExchange())
           exchanges[exchangeIdx] = { ...exchanges[exchangeIdx], assistantContent, reasoning }
-          return { ...t, exchanges }
+          st.exchanges = exchanges
+          subturns[stIdx] = st
+          return { ...t, subturns }
         })
         break
       }
@@ -2268,17 +2198,22 @@ export default function Chat() {
           args: data.args as Record<string, unknown>,
         }
         updateTurn(turnId, t => {
-          // Find or create the current exchange (last non-final)
-          const exchanges = [...t.exchanges]
-          const idx = exchanges.findIndex((ex, i) => !ex.isFinal && i === exchanges.length - 1)
-          if (idx >= 0) {
-            if (!exchanges[idx].toolCalls.some(e => e.id === tc.id)) {
-              exchanges[idx] = { ...exchanges[idx], toolCalls: [...exchanges[idx].toolCalls, tc] }
+          const subturns = [...t.subturns]
+          const lastIdx = subturns.length - 1
+          if (lastIdx < 0) return t
+          const lastSt = { ...subturns[lastIdx] }
+          const exchanges = [...lastSt.exchanges]
+          const lastExIdx = exchanges.length - 1
+          if (lastExIdx >= 0 && !exchanges[lastExIdx].isFinal) {
+            if (!exchanges[lastExIdx].toolCalls.some(e => e.id === tc.id)) {
+              exchanges[lastExIdx] = { ...exchanges[lastExIdx], toolCalls: [...exchanges[lastExIdx].toolCalls, tc] }
             }
           } else {
-            exchanges.push({ assistantContent: '', reasoning: '', iratThinking: '', toolCalls: [tc], isFinal: false })
+            exchanges.push({ ...emptyExchange(), toolCalls: [tc] })
           }
-          return { ...t, exchanges }
+          lastSt.exchanges = exchanges
+          subturns[lastIdx] = lastSt
+          return { ...t, subturns }
         })
         break
       }
@@ -2287,9 +2222,12 @@ export default function Chat() {
         const startedAt = data.started_at as number
         updateTurn(turnId, t => ({
           ...t,
-          exchanges: t.exchanges.map(ex => ({
-            ...ex,
-            toolCalls: ex.toolCalls.map(tc => tc.id === id ? { ...tc, startedAt } : tc),
+          subturns: t.subturns.map(st => ({
+            ...st,
+            exchanges: st.exchanges.map(ex => ({
+              ...ex,
+              toolCalls: ex.toolCalls.map(tc => tc.id === id ? { ...tc, startedAt } : tc),
+            })),
           })),
         }))
         break
@@ -2300,25 +2238,33 @@ export default function Chat() {
         const finishedAt = data.finished_at as number | undefined
         updateTurn(turnId, t => ({
           ...t,
-          exchanges: t.exchanges.map(ex => ({
-            ...ex,
-            toolCalls: ex.toolCalls.map(tc =>
-              tc.id === id ? { ...tc, result, ...(finishedAt !== undefined ? { finishedAt } : {}) } : tc
-            ),
+          subturns: t.subturns.map(st => ({
+            ...st,
+            exchanges: st.exchanges.map(ex => ({
+              ...ex,
+              toolCalls: ex.toolCalls.map(tc =>
+                tc.id === id ? { ...tc, result, ...(finishedAt !== undefined ? { finishedAt } : {}) } : tc
+              ),
+            })),
           })),
         }))
         break
       }
       case 'irat_thinking_flush': {
+        const subturnId = data.subturn_id as string
         const idx = data.exchange_idx as number
         const text = (data.text as string) ?? ''
         updateTurn(turnId, t => {
-          const exchanges = [...t.exchanges]
-          while (exchanges.length <= idx) {
-            exchanges.push({ assistantContent: '', reasoning: '', iratThinking: '', toolCalls: [], isFinal: false })
-          }
+          const subturns = [...t.subturns]
+          const stIdx = subturns.findIndex(st => st.id === subturnId)
+          if (stIdx < 0) return t
+          const st = { ...subturns[stIdx] }
+          const exchanges = [...st.exchanges]
+          while (exchanges.length <= idx) exchanges.push(emptyExchange())
           exchanges[idx] = { ...exchanges[idx], iratThinking: text }
-          return { ...t, exchanges }
+          st.exchanges = exchanges
+          subturns[stIdx] = st
+          return { ...t, subturns }
         })
         break
       }
@@ -2342,12 +2288,17 @@ export default function Chat() {
         break
       case 'begin_final_summary':
         updateTurn(turnId, t => {
-          const exchanges = [...t.exchanges]
+          const subturns = [...t.subturns]
+          const lastIdx = subturns.length - 1
+          if (lastIdx < 0) return t
+          const lastSt = { ...subturns[lastIdx] }
+          const exchanges = [...lastSt.exchanges]
           if (exchanges.length > 0) {
-            const last = exchanges[exchanges.length - 1]
-            exchanges[exchanges.length - 1] = { ...last, isInterim: true }
+            exchanges[exchanges.length - 1] = { ...exchanges[exchanges.length - 1], isInterim: true }
           }
-          return { ...t, isInterimStreaming: false, exchanges }
+          lastSt.exchanges = exchanges
+          subturns[lastIdx] = lastSt
+          return { ...t, isInterimStreaming: false, subturns }
         })
         break
       case 'todo_list_update':
@@ -2379,26 +2330,42 @@ export default function Chat() {
       case 'message_done': {
         const content = data.content as string | null
         updateTurn(turnId, t => {
-          const exchanges = [...t.exchanges]
-          if (content !== null && exchanges.length > 0) {
-            const last = exchanges[exchanges.length - 1]
-            exchanges[exchanges.length - 1] = { ...last, assistantContent: content, isFinal: true }
+          if (content !== null) {
+            const subturns = [...t.subturns]
+            const lastIdx = subturns.length - 1
+            if (lastIdx >= 0) {
+              const lastSt = { ...subturns[lastIdx] }
+              const exchanges = [...lastSt.exchanges]
+              if (exchanges.length > 0) {
+                exchanges[exchanges.length - 1] = { ...exchanges[exchanges.length - 1], assistantContent: content, isFinal: true }
+              } else {
+                exchanges.push({ ...emptyExchange(), assistantContent: content, isFinal: true })
+              }
+              lastSt.exchanges = exchanges
+              subturns[lastIdx] = lastSt
+              return { ...t, completed: true, streaming: false, isInterimStreaming: false, subturns }
+            }
           }
-          return { ...t, completed: true, streaming: false, isInterimStreaming: false, exchanges }
+          return { ...t, completed: true, streaming: false, isInterimStreaming: false }
         })
         break
       }
       case 'error': {
         const message = data.message as string
         updateTurn(turnId, t => {
-          const exchanges = [...t.exchanges]
+          const subturns = [...t.subturns]
+          const lastIdx = subturns.length - 1
+          if (lastIdx < 0) return { ...t, completed: true, streaming: false }
+          const lastSt = { ...subturns[lastIdx] }
+          const exchanges = [...lastSt.exchanges]
           if (exchanges.length === 0) {
-            exchanges.push({ assistantContent: `⚠ ${message}`, reasoning: '', iratThinking: '', toolCalls: [], isFinal: true })
+            exchanges.push({ ...emptyExchange(), assistantContent: `⚠ ${message}`, isFinal: true })
           } else {
-            const last = exchanges[exchanges.length - 1]
-            exchanges[exchanges.length - 1] = { ...last, assistantContent: `⚠ ${message}`, isFinal: true }
+            exchanges[exchanges.length - 1] = { ...exchanges[exchanges.length - 1], assistantContent: `⚠ ${message}`, isFinal: true }
           }
-          return { ...t, completed: true, streaming: false, exchanges }
+          lastSt.exchanges = exchanges
+          subturns[lastIdx] = lastSt
+          return { ...t, completed: true, streaming: false, subturns }
         })
         break
       }
@@ -2529,63 +2496,42 @@ export default function Chat() {
     }
 
     // Shell output snapshot: emitted when browser reconnects during a running host_shell.
-    // Replaces the streaming result of the active (resultless) host_shell tool call.
     function onShellOutputSnapshot({ output }: { output: string }) {
       setThread(prev => prev.map(t => {
         if (!t.streaming) return t
-        const exchanges = t.exchanges.map(ex => ({
-          ...ex,
-          toolCalls: ex.toolCalls.map(tc =>
-            tc.name === 'host_shell' && tc.result === undefined
-              ? { ...tc, streamingResult: output }
-              : tc
-          ),
-        }))
-        return { ...t, exchanges }
+        return {
+          ...t,
+          subturns: t.subturns.map(st => ({
+            ...st,
+            exchanges: st.exchanges.map(ex => ({
+              ...ex,
+              toolCalls: ex.toolCalls.map(tc =>
+                tc.name === 'host_shell' && tc.result === undefined
+                  ? { ...tc, streamingResult: output }
+                  : tc
+              ),
+            })),
+          })),
+        }
       }))
     }
 
-    // Live event handlers (mirror replay logic but also track lastEventId)
-    function onTurnStart(data: {
-      event_id?: string
-      turn_id: string
-      user_text: string
-      is_continuation?: boolean
-      subturn_id?: string
-      exchange_start_idx?: number
-    }) {
+    // Live event handlers
+    function onTurnStart(data: { event_id?: string; turn_id: string; user_text: string; subturn_id?: string }) {
       if (data.event_id) updateLastEventId(data.event_id)
-      const id = data.turn_id
-      const subturnId = data.subturn_id
-      const isCont = data.is_continuation ?? false
-      const exchangeStartIdx = data.exchange_start_idx ?? 0
-
-      if (isCont) {
-        // Continuation: find existing turn and append a new SubturnMeta
-        setThread(prev => prev.map(t => {
-          if (t.id !== id) return t
-          const newSt: SubturnMeta = {
-            id: subturnId ?? crypto.randomUUID(),
-            userText: data.user_text,
-            startExchangeIdx: exchangeStartIdx,
-            isContinuation: true,
-          }
-          return {
-            ...t,
-            subturns: [...t.subturns, newSt],
-            completed: false,
-            streaming: true,
-            isInterimStreaming: false,
-            interimShowCharCount: false,
-            interimCharCount: 0,
-          }
-        }))
-      } else {
-        setThread(prev => {
-          if (prev.some(t => t.id === id)) return prev
-          return [...prev, newTurn(id, data.user_text, subturnId, false)]
-        })
-      }
+      const { turn_id: id, user_text: userText, subturn_id: subturnId } = data
+      setThread(prev => {
+        if (prev.some(t => t.id === id)) {
+          // Continuation: append new subturn to existing turn
+          return prev.map(t => {
+            if (t.id !== id) return t
+            const newSt: Subturn = { id: subturnId ?? crypto.randomUUID(), userText, exchanges: [] }
+            return { ...t, subturns: [...t.subturns, newSt], completed: false, streaming: true, isInterimStreaming: false, interimShowCharCount: false, interimCharCount: 0 }
+          })
+        } else {
+          return [...prev, newTurn(id, userText, subturnId)]
+        }
+      })
       setBusy(true)
       scrollToBottom()
     }
@@ -2598,12 +2544,14 @@ export default function Chat() {
         if (t.isInterimStreaming && data.type === 'content') {
           return { ...t, interimCharCount: t.interimCharCount + data.text.length }
         }
-        const exchanges = [...t.exchanges]
+        const subturns = [...t.subturns]
+        const lastStIdx = subturns.length - 1
+        if (lastStIdx < 0) return t
+        const lastSt = { ...subturns[lastStIdx] }
+        const exchanges = [...lastSt.exchanges]
         const lastEx = exchanges[exchanges.length - 1]
-        // Create a new exchange if: no prior exchange, prior exchange has tool calls
-        // (new LLM call started), prior exchange is already final (continuation subturn),
-        // or prior exchange is marked interim (begin_final_summary fired).
-        if (!lastEx || lastEx.toolCalls.length > 0 || lastEx.isFinal || lastEx.isInterim) {
+        const needsNew = !lastEx || lastEx.toolCalls.length > 0 || lastEx.isFinal || lastEx.isInterim
+        if (needsNew) {
           exchanges.push({
             assistantContent: data.type === 'content' ? data.text : '',
             reasoning: data.type === 'reasoning' ? data.text : '',
@@ -2615,42 +2563,27 @@ export default function Chat() {
           const idx = exchanges.length - 1
           exchanges[idx] = {
             ...exchanges[idx],
-            assistantContent: data.type === 'content'
-              ? exchanges[idx].assistantContent + data.text
-              : exchanges[idx].assistantContent,
-            reasoning: data.type === 'reasoning'
-              ? exchanges[idx].reasoning + data.text
-              : exchanges[idx].reasoning,
+            assistantContent: data.type === 'content' ? exchanges[idx].assistantContent + data.text : exchanges[idx].assistantContent,
+            reasoning: data.type === 'reasoning' ? exchanges[idx].reasoning + data.text : exchanges[idx].reasoning,
           }
         }
-        return { ...t, exchanges }
+        lastSt.exchanges = exchanges
+        subturns[lastStIdx] = lastSt
+        return { ...t, subturns }
       })
     }
 
     function onBeginInterimStream(data: { event_id?: string; turn_id?: string; show_char_count?: boolean }) {
       if (data.event_id) updateLastEventId(data.event_id)
-      const turnId = data.turn_id ?? ''
-      updateTurn(turnId, t => ({
-        ...t,
-        isInterimStreaming: true,
-        interimShowCharCount: !!(data.show_char_count),
-      }))
+      applyReplayEvent('begin_interim_stream', data)
     }
 
     function onBeginFinalSummary(data: { event_id?: string; turn_id?: string }) {
       if (data.event_id) updateLastEventId(data.event_id)
-      const turnId = data.turn_id ?? ''
-      updateTurn(turnId, t => {
-        const exchanges = [...t.exchanges]
-        if (exchanges.length > 0) {
-          const last = exchanges[exchanges.length - 1]
-          exchanges[exchanges.length - 1] = { ...last, isInterim: true }
-        }
-        return { ...t, isInterimStreaming: false, exchanges }
-      })
+      applyReplayEvent('begin_final_summary', data)
     }
 
-    function onIratThinkingFlush(data: { event_id?: string; turn_id?: string; exchange_idx: number; text: string }) {
+    function onIratThinkingFlush(data: { event_id?: string; turn_id?: string; subturn_id: string; exchange_idx: number; text: string }) {
       if (data.event_id) updateLastEventId(data.event_id)
       applyReplayEvent('irat_thinking_flush', data)
     }
@@ -2662,129 +2595,66 @@ export default function Chat() {
 
     function onToolCall(data: { event_id?: string; turn_id?: string; id: string; name: string; args: Record<string, unknown> }) {
       if (data.event_id) updateLastEventId(data.event_id)
-      const turnId = data.turn_id ?? ''
-      const tc: ToolCallEntry = { id: data.id, name: data.name, args: data.args }
-      updateTurn(turnId, t => {
-        const exchanges = [...t.exchanges]
-        const lastIdx = exchanges.length - 1
-        if (lastIdx >= 0 && !exchanges[lastIdx].isFinal) {
-          exchanges[lastIdx] = { ...exchanges[lastIdx], toolCalls: [...exchanges[lastIdx].toolCalls, tc] }
-        } else {
-          exchanges.push({ assistantContent: '', reasoning: '', iratThinking: '', toolCalls: [tc], isFinal: false })
-        }
-        return { ...t, exchanges }
-      })
+      applyReplayEvent('tool_call', data)
     }
 
     function onToolCallStart(data: { event_id?: string; turn_id?: string; id: string; started_at: number }) {
       if (data.event_id) updateLastEventId(data.event_id)
-      const turnId = data.turn_id ?? ''
-      const startedAt = data.started_at
-      updateTurn(turnId, t => ({
-        ...t,
-        exchanges: t.exchanges.map(ex => ({
-          ...ex,
-          toolCalls: ex.toolCalls.map(tc => tc.id === data.id ? { ...tc, startedAt } : tc),
-        })),
-      }))
+      applyReplayEvent('tool_call_start', data)
     }
 
     function onToolResultChunk(data: { turn_id?: string; id: string; chunk: string }) {
       const turnId = data.turn_id ?? ''
       updateTurn(turnId, t => ({
         ...t,
-        exchanges: t.exchanges.map(ex => ({
-          ...ex,
-          toolCalls: ex.toolCalls.map(tc =>
-            tc.id === data.id
-              ? { ...tc, streamingResult: (tc.streamingResult ?? '') + data.chunk }
-              : tc
-          ),
+        subturns: t.subturns.map(st => ({
+          ...st,
+          exchanges: st.exchanges.map(ex => ({
+            ...ex,
+            toolCalls: ex.toolCalls.map(tc =>
+              tc.id === data.id ? { ...tc, streamingResult: (tc.streamingResult ?? '') + data.chunk } : tc
+            ),
+          })),
         })),
       }))
     }
 
     function onToolResult(data: { event_id?: string; turn_id?: string; id: string; result: string; started_at?: number; finished_at?: number }) {
       if (data.event_id) updateLastEventId(data.event_id)
-      const turnId = data.turn_id ?? ''
-      const { id, result } = data
-      const finishedAt = data.finished_at
-      updateTurn(turnId, t => ({
-        ...t,
-        exchanges: t.exchanges.map(ex => ({
-          ...ex,
-          toolCalls: ex.toolCalls.map(tc =>
-            tc.id === id ? { ...tc, result, ...(finishedAt !== undefined ? { finishedAt } : {}) } : tc
-          ),
-        })),
-      }))
+      applyReplayEvent('tool_result', data)
     }
 
     function onMessageDone(data: { event_id?: string; turn_id?: string; content: string | null }) {
       if (data.event_id) updateLastEventId(data.event_id)
-      const turnId = data.turn_id ?? ''
-      const content = data.content
-      updateTurn(turnId, t => {
-        const exchanges = [...t.exchanges]
-        if (content !== null && exchanges.length > 0) {
-          const last = exchanges[exchanges.length - 1]
-          exchanges[exchanges.length - 1] = { ...last, assistantContent: content, isFinal: true }
-        } else if (content !== null) {
-          exchanges.push({ assistantContent: content, reasoning: '', iratThinking: '', toolCalls: [], isFinal: true })
-        }
-        return { ...t, completed: true, streaming: false, isInterimStreaming: false, exchanges }
-      })
+      applyReplayEvent('message_done', data)
       setBusy(false)
       setCancelling(false)
     }
 
     function onError(data: { event_id?: string; turn_id?: string; message: string }) {
       if (data.event_id) updateLastEventId(data.event_id)
-      const turnId = data.turn_id ?? ''
-      const message = data.message
-      if (turnId) {
-        updateTurn(turnId, t => {
-          const exchanges = [...t.exchanges]
-          if (exchanges.length === 0) {
-            exchanges.push({ assistantContent: `⚠ ${message}`, reasoning: '', iratThinking: '', toolCalls: [], isFinal: true })
-          } else {
-            const last = exchanges[exchanges.length - 1]
-            exchanges[exchanges.length - 1] = { ...last, assistantContent: `⚠ ${message}`, isFinal: true }
-          }
-          return { ...t, completed: true, streaming: false, exchanges }
-        })
-      }
+      if (data.turn_id) applyReplayEvent('error', data)
       setBusy(false)
     }
 
     function onTurnCancelled(data: { event_id?: string; turn_id?: string }) {
       if (data.event_id) updateLastEventId(data.event_id)
-      const turnId = data.turn_id ?? ''
-      updateTurn(turnId, t => ({ ...t, cancelled: 'Turn was cancelled' }))
+      applyReplayEvent('turn_cancelled', data)
     }
 
     function onTodoListUpdate(data: { event_id?: string; turn_id?: string; items: TodoItem[] }) {
       if (data.event_id) updateLastEventId(data.event_id)
-      const turnId = data.turn_id ?? ''
-      updateTurn(turnId, t => ({ ...t, todoItems: data.items }))
+      applyReplayEvent('todo_list_update', data)
     }
 
     function onApprovalRequest(data: { event_id?: string; turn_id?: string; id: string; tool_name: string; args: Record<string, unknown> }) {
       if (data.event_id) updateLastEventId(data.event_id)
-      const turnId = data.turn_id ?? ''
-      const item: ApprovalItem = { id: data.id, tool_name: data.tool_name, args: data.args }
-      updateTurn(turnId, t => ({ ...t, approvalItems: [...t.approvalItems, item] }))
+      applyReplayEvent('approval_request', data)
     }
 
     function onApprovalResolved(data: { event_id?: string; turn_id?: string; id: string; approved: boolean }) {
       if (data.event_id) updateLastEventId(data.event_id)
-      const turnId = data.turn_id ?? ''
-      updateTurn(turnId, t => ({
-        ...t,
-        approvalItems: t.approvalItems.map(a =>
-          a.id === data.id ? { ...a, resolved: { approved: data.approved } } : a
-        ),
-      }))
+      applyReplayEvent('approval_resolved', data)
     }
 
     socket.on('connect', onConnect)
