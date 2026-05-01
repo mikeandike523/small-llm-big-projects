@@ -1558,7 +1558,7 @@ async def _async_agent_loop(
                 was_cancelled = True
                 break
 
-            is_interim_call = had_tool_calls and not final_summary_reprompt_sent
+            is_interim_call = (had_tool_calls or bool(current_subturn.exchanges)) and not final_summary_reprompt_sent
             if is_interim_call:
                 _emit_and_log(session_id, "begin_interim_stream", {
                     "turn_id": turn_id,
@@ -1893,7 +1893,7 @@ async def _async_agent_loop(
             _emit_and_log(session_id, "message_done", {"content": last_assistant_content or None, "turn_id": turn_id})
 
         _save_session(session_id, session)
-        return had_todo_items
+        return had_tool_calls
 
 
 # ---------------------------------------------------------------------------
@@ -2429,7 +2429,7 @@ def handle_user_message(data: dict):
         task = asyncio.current_task()
         _cancel_tasks[session_id] = task
         try:
-            _had_todos = await _async_agent_loop(
+            _had_tool_calls = await _async_agent_loop(
                 sid, session_id, session, streaming_llm,
                 turn_id, current_turn, current_subturn,
                 return_value_max_chars,
@@ -2437,9 +2437,8 @@ def handle_user_message(data: dict):
                 watchdog_max_tokens=watchdog_max_tokens,
                 redirect_event=redirect_event,
             )
-            # Generate a title only if a todo list was ever created this turn
-            # and the turn doesn't already have a title (skip on continuation subturns).
-            if _had_todos and not current_turn.task_title:
+            # Generate a title if the turn used any tool calls and doesn't already have one.
+            if _had_tool_calls and not current_turn.task_title:
                 await _fetch_and_store_title()
         except asyncio.CancelledError:
             # cancel_event already set inside _async_agent_loop's finally

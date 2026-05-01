@@ -187,7 +187,7 @@ const threadCss = css`
   padding: 24px 16px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 28px;
 `
 
 const inputBarCss = css`
@@ -1614,7 +1614,7 @@ function TurnContainer({
   // Display content for the current/last subturn: final exchange or live streaming
   const lastExchange = lastSubturnExchanges[lastSubturnExchanges.length - 1]
   const finalExchange = lastSubturnExchanges.find(ex => ex.isFinal)
-  const liveContent = streaming && lastExchange && !lastExchange.isFinal && lastExchange.toolCalls.length === 0
+  const liveContent = streaming && !isInterimStreaming && lastExchange && !lastExchange.isFinal && lastExchange.toolCalls.length === 0
     ? lastExchange.assistantContent
     : undefined
   const displayContent = finalExchange?.assistantContent ?? liveContent ?? ''
