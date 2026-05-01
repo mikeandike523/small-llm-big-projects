@@ -86,6 +86,7 @@ class Turn:
     condensed_user: str = ""
     condensed_assistant: str = ""
     task_title: str | None = None  # Short LLM-generated title, fetched at turn start
+    selected_skill_ids: list[str] = field(default_factory=list)  # Skills selected for first subturn; borrowed by continuations
 
     def to_messages(self) -> list[dict]:
         """Rebuild OpenAI-format messages list from all subturns in order."""
@@ -248,6 +249,7 @@ def turn_to_dict(turn: Turn) -> dict:
         "condensed_user": turn.condensed_user,
         "condensed_assistant": turn.condensed_assistant,
         "task_title": turn.task_title,
+        "selected_skill_ids": turn.selected_skill_ids,
     }
 
 
@@ -274,6 +276,7 @@ def turn_from_dict(d: dict) -> Turn:
         condensed_user=d.get("condensed_user", ""),
         condensed_assistant=d.get("condensed_assistant", ""),
         task_title=d.get("task_title"),
+        selected_skill_ids=d.get("selected_skill_ids", []),
     )
 
 

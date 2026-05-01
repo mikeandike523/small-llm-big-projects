@@ -252,6 +252,7 @@ def _request_approval(
     tool_name: str,
     args: dict,
     turn_id: str = "",
+    subturn_id: str = "",
     cancel_event: threading.Event | None = None,
     redirect_event: threading.Event | None = None,
 ) -> tuple[bool, str | None]:
@@ -264,7 +265,10 @@ def _request_approval(
     """
     ev = threading.Event()
     _pending_approvals[sid] = {"event": ev, "approved": None, "redirect_message": None, "turn_id": turn_id}
-    _emit_and_log(session_id, "approval_request", {"id": tool_id, "tool_name": tool_name, "args": args, "turn_id": turn_id})
+    _emit_and_log(session_id, "approval_request", {
+        "id": tool_id, "tool_name": tool_name, "args": args,
+        "turn_id": turn_id, "subturn_id": subturn_id,
+    })
 
     while True:
         if ev.wait(timeout=0.5):
@@ -913,6 +917,7 @@ def _execute_tools(
     cancel_event: threading.Event | None = None,
     tool_map: dict | None = None,
     redirect_event: threading.Event | None = None,
+    subturn_id: str = "",
 ) -> LLMExchange:
     """
     Execute all tool calls in result, emit events, and build an LLMExchange record.
@@ -963,8 +968,8 @@ def _execute_tools(
             if check_needs_approval(tc.name, tc.arguments, tool_map=actual_tool_map):
                 approved, redirect_message = _request_approval(
                     sid, session_id, tc.id, tc.name, tc.arguments,
-                    turn_id=turn_id, cancel_event=cancel_event,
-                    redirect_event=redirect_event,
+                    turn_id=turn_id, subturn_id=subturn_id,
+                    cancel_event=cancel_event, redirect_event=redirect_event,
                 )
                 if not approved:
                     # If cancelled or redirected, return early — caller handles it.
@@ -1044,7 +1049,7 @@ def _execute_tools(
         return exchange
 
     finally:
-        session.session_data.pop("_report_impossible", None)
+        pass
 
 
 # ---------------------------------------------------------------------------
@@ -1518,9 +1523,18 @@ async def _async_agent_loop(
     skill_registry = _get_session_skill_registry(session_id)
     baseline_skills = _get_autoloaded_session_skills(session_id)
     baseline_skill_ids = {entry["id"] for entry in baseline_skills}
-    selected_skills = await _select_skills_for_turn(
-        streaming_llm, session, current_subturn.user_text, skill_registry, watchdog_max_tokens
-    )
+
+    # Skill selection: run once on the first subturn and borrow for continuations.
+    if current_subturn.is_continuation and current_turn.selected_skill_ids:
+        # Re-use skills chosen for the first subturn — no new LLM call.
+        entries_by_id = {e["id"]: e for e in skill_registry}
+        selected_skills = [entries_by_id[sid] for sid in current_turn.selected_skill_ids if sid in entries_by_id]
+    else:
+        selected_skills = await _select_skills_for_turn(
+            streaming_llm, session, current_subturn.user_text, skill_registry, watchdog_max_tokens
+        )
+        current_turn.selected_skill_ids = [e["id"] for e in selected_skills]
+
     turn_resolved_skills = resolve_skill_dependency_closure(
         skill_registry,
         [entry["id"] for entry in selected_skills],
@@ -1530,7 +1544,8 @@ async def _async_agent_loop(
         if entry["id"] not in baseline_skill_ids
     ]
     loaded_skills = baseline_skills + turn_only_skills
-    if loaded_skills:
+    if loaded_skills and not current_subturn.is_continuation:
+        # Only emit skills_loaded once (on the first subturn); continuations inherit it.
         _emit_and_log(session_id, "skills_loaded", {
             "turn_id": turn_id,
             "skill_names": [entry["name"] for entry in loaded_skills],
@@ -1646,7 +1661,7 @@ async def _async_agent_loop(
                         _execute_tools,
                         result, content_for_history, session, sid, session_id,
                         current_turn, return_value_max_chars, cancel_event,
-                        session_tool_map, redirect_event,
+                        session_tool_map, redirect_event, current_subturn.id,
                     )
                 except asyncio.CancelledError:
                     cancel_event.set()
@@ -1680,6 +1695,21 @@ async def _async_agent_loop(
                     )
                     _save_session(session_id, session)
                     continue
+
+                # Detect report_impossible call → end turn using the reason as final response.
+                impossible_call = next(
+                    (tc for tc in exchange.tool_calls if tc.name == "report_impossible"),
+                    None
+                )
+                if impossible_call is not None:
+                    reason = impossible_call.args.get("reason", "The task cannot be completed as requested.")
+                    _emit_and_log(session_id, "message_done", {"content": reason, "turn_id": turn_id})
+                    if current_subturn.count_tool_calls() > 0:
+                        await _generate_and_store_compaction(
+                            streaming_llm, session_id, turn_id, current_subturn, reason
+                        )
+                    turn_completed = True
+                    break
 
                 continue
 
@@ -2302,8 +2332,6 @@ def handle_user_message(data: dict):
     title_summary_max_tokens: int | None = llm_config["system_params"].get("title_summary_max_tokens")
 
     session = _load_session(session_id)
-    session.session_data["todo_list"] = []
-    _emit_and_log(session_id, "todo_list_update", {"items": [], "turn_id": turn_id})
 
     # Navigate to this session's current working directory before the turn runs.
     # _session_current_cwd tracks navigations across turns; falls back to initial_cwd.
@@ -2363,6 +2391,22 @@ def handle_user_message(data: dict):
         "subturn_id": subturn_id,
     })
 
+    # Handle todo list state for this subturn.
+    _existing_todos = session.session_data.get("todo_list") or []
+    if not _is_cont:
+        session.session_data["todo_list"] = []
+        _emit_and_log(session_id, "todo_list_update", {"items": [], "turn_id": turn_id})
+    elif _existing_todos and not _get_open_items(_existing_todos):
+        # Continuation, but all items were completed — auto-clear for a fresh start.
+        session.session_data["todo_list"] = []
+        _emit_and_log(session_id, "todo_list_update", {"items": [], "turn_id": turn_id})
+    elif _existing_todos:
+        # Continuation with open items — inherit and sync the UI.
+        _emit_and_log(session_id, "todo_list_update", {
+            "items": _todo_format_items_for_ui(_existing_todos), "turn_id": turn_id,
+        })
+    # else: continuation with empty list — no emit needed.
+
     # Create threading.Events for subprocess tools and a private asyncio event loop
     # for real httpx-level LLM cancellation.
     cancel_event = threading.Event()
@@ -2393,8 +2437,9 @@ def handle_user_message(data: dict):
                 watchdog_max_tokens=watchdog_max_tokens,
                 redirect_event=redirect_event,
             )
-            # Generate a title only if a todo list was ever created this turn.
-            if _had_todos:
+            # Generate a title only if a todo list was ever created this turn
+            # and the turn doesn't already have a title (skip on continuation subturns).
+            if _had_todos and not current_turn.task_title:
                 await _fetch_and_store_title()
         except asyncio.CancelledError:
             # cancel_event already set inside _async_agent_loop's finally
@@ -2483,6 +2528,19 @@ def handle_force_continuation(data: dict):
         "user_text": text,
         "subturn_id": subturn_id,
     })
+
+    # Handle todo list state for this forced continuation subturn.
+    _fc_existing_todos = session.session_data.get("todo_list") or []
+    if _fc_existing_todos and not _get_open_items(_fc_existing_todos):
+        # All items completed — auto-clear before continuing.
+        session.session_data["todo_list"] = []
+        _emit_and_log(session_id, "todo_list_update", {"items": [], "turn_id": turn_id})
+    elif _fc_existing_todos:
+        # Open items remain — sync UI with current state.
+        _emit_and_log(session_id, "todo_list_update", {
+            "items": _todo_format_items_for_ui(_fc_existing_todos), "turn_id": turn_id,
+        })
+    # else: empty list — no emit needed.
 
     cancel_event = threading.Event()
     redirect_event = threading.Event()

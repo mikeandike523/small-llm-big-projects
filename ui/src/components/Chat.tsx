@@ -18,104 +18,6 @@ import type { Turn, Subturn, ToolCallEntry, TodoItem, ApprovalItem } from '../ty
 const MAX_TOOL_CHARS = 80
 const MAX_LOGS = 100
 
-// ---------------------------------------------------------------------------
-// Help document
-// ---------------------------------------------------------------------------
-
-const HELP_MARKDOWN = `# small-llm-big-projects (slbp) — Agentic Loop Architecture
-
-## Overview
-
-slbp is an agentic loop designed to work with smaller LLMs (sub-100B parameter
-models) by augmenting decision-making with structured memory tools and explicit
-task management.
-
-## Turn Model
-
-Each turn bubble corresponds to one user message and its response. There are two modes:
-
-- **Conversational**: Direct answer or simple tool use. No todo list, no title badge.
-  The agent responds immediately and the turn completes in one pass.
-- **Task**: Complex multi-step work. The agent creates a todo list, executes steps,
-  closes items as it goes, and ends with a final summary. A "Task: ..." title badge
-  appears on the turn bubble once the task completes.
-
-The agent decides which mode fits based on the complexity of the request.
-
-Between turns, completed exchanges are condensed into a compact summary
-(condensed_user + condensed_assistant) so the context window stays manageable.
-
-## Human-in-the-Loop
-
-The LLM may pause the task at any point to involve you:
-
-- **Tool Approval**: The LLM requests permission before executing flagged tools
-  (e.g. shell commands, file writes). You can approve, deny, deny with a redirect
-  message, or deny-and-stop the whole task.
-
-- **ask_human**: Used for two purposes:
-  1. Requirements clarification — when the task description is ambiguous or
-     underspecified, the LLM asks a targeted question before proceeding.
-  2. Behavior boundaries — when an action is sensitive or potentially harmful,
-     the LLM asks for explicit confirmation rather than guessing.
-  This is a normal, common interaction, not an error condition.
-
-- **report_impossible**: If the LLM determines the task cannot be completed as
-  stated, it reports the reason and asks you to either confirm it is truly
-  impossible (ending the turn) or redirect it with a revised instruction.
-
-While any of these dialogs is active, the main input bar is disabled. Respond
-using the dialog widget in the turn bubble.
-
-## Stopping a Turn
-
-Three controls appear in the right column of an active turn bubble:
-
-- **Stop**: Immediately cancels the turn. Any in-progress LLM response is
-  discarded. A tool that is already running is allowed to finish first (see below).
-
-- **Stop & Redirect**: Sends an immediate interrupt to the backend (the LLM
-  response is cancelled), then opens a text field so you can type guidance.
-  When you hit "Send", the loop resumes with your message injected as context.
-  **Stop Turn** (the cancel button inside the widget) ends the turn instead.
-
-- **Stop & Try Again**: Immediately injects a fixed "please try again" message
-  and continues the loop from that point.
-
-**Note on running tools**: If a tool call is already executing when you stop or
-redirect, it is allowed to finish before the interrupt takes effect. There is no
-way to hard-kill a running tool mid-execution in the current threading model.
-This prevents leaving the environment in a broken state (e.g. a half-written
-file or an open network connection).
-
-## Memory
-
-The LLM has two persistent key-value memory stores:
-
-- **Session Memory**: scoped to the current session. Used for intermediate
-  results, scratch notes, large tool outputs too big to fit in context.
-- **Project Memory**: scoped to a project directory. Used for long-lived facts
-  like architecture decisions, naming conventions, ongoing work items.
-
-Both are accessible via the Debug Panel (right side, memory tabs).
-
-## Parameters
-
-Use the CLI to tune model behavior:
-
-  slbp param set model.temperature 0.4
-  slbp param set model.max_tokens 2048
-  slbp param set model.title_summary_max_tokens 30
-  slbp param manual   # full documentation for all params
-
-## CLI Quick Reference
-
-  slbp server run            # start the orchestration server
-  slbp session new           # open a new task session in the browser
-  slbp param set <k> <v>     # set a generation parameter
-  slbp param unset <k>       # remove a parameter
-  slbp param show            # list active parameters
-`
 
 // ---------------------------------------------------------------------------
 // Shared scrollbar styles
@@ -724,6 +626,16 @@ const toolCallsGroupCss = css`
   gap: 10px;
 `
 
+const subturnDividerCss = css`
+  font-size: 10px;
+  color: #3a4d6e;
+  text-align: center;
+  padding: 2px 0;
+  border-top: 1px solid #1e2d45;
+  margin: 2px 0;
+  letter-spacing: 0.04em;
+`
+
 const startupCardCss = css`
   border: 1px solid #2a3a2a;
   border-radius: 12px;
@@ -817,63 +729,6 @@ const dashboardButtonCss = css`
     border-color: #6f8fc5;
     transform: translateX(-1px);
   }
-`
-
-const helpButtonCss = css`
-  background: transparent;
-  color: #e6edff;
-  border: 1px solid #30405f;
-  border-radius: 50%;
-  width: 20px;
-  height: 20px;
-  font-size: 11px;
-  font-family: 'Consolas', monospace;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  line-height: 1;
-  padding: 0;
-  transition: color 0.15s, border-color 0.15s;
-  &:hover { color: #fff; border-color: #8aa4d8; }
-`
-
-const helpModalBodyCss = css`
-  ${scrollbarCss}
-  flex: 1;
-  overflow-y: auto;
-  padding: 20px 24px;
-  font-family: 'Consolas', monospace;
-  font-size: 13px;
-  color: #c0c0c0;
-  white-space: pre-wrap;
-  word-break: break-word;
-  background: #0f0f0f;
-  line-height: 1.7;
-`
-
-const helpModalFooterCss = css`
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  padding: 12px 20px;
-  border-top: 1px solid #24324d;
-  background: #101722;
-  flex-shrink: 0;
-`
-
-const downloadButtonCss = css`
-  background: #1e3a1e;
-  color: #4ade80;
-  border: 1px solid #166534;
-  border-radius: 6px;
-  padding: 6px 16px;
-  font-size: 12px;
-  font-family: 'Consolas', monospace;
-  cursor: pointer;
-  transition: background 0.15s;
-  &:hover { background: #166534; }
 `
 
 const turnWrapperCss = css`
@@ -1749,8 +1604,12 @@ function TurnContainer({
   const lastSubturn = subturns[subturns.length - 1]
   const lastSubturnExchanges = lastSubturn?.exchanges ?? []
 
-  // Collect tool calls from the last subturn only (right column)
-  const allToolCalls = lastSubturnExchanges.flatMap(ex => ex.toolCalls)
+  // Collect tool call groups from ALL subturns (right column — grows as subturns are added)
+  const toolCallGroups = subturns
+    .map((st, idx) => ({ subturnIdx: idx, subturnId: st.id, toolCalls: st.exchanges.flatMap(ex => ex.toolCalls) }))
+    .filter(g => g.toolCalls.length > 0)
+  const hasMultipleToolGroups = toolCallGroups.length > 1
+  const totalToolCallCount = toolCallGroups.reduce((n, g) => n + g.toolCalls.length, 0)
 
   // Display content for the current/last subturn: final exchange or live streaming
   const lastExchange = lastSubturnExchanges[lastSubturnExchanges.length - 1]
@@ -1770,7 +1629,7 @@ function TurnContainer({
     .join('\n\n---\n\n')
 
   const isStreamingFinal = streaming && !isInterimStreaming
-  const showPlaceholder = streaming && !displayContent && !isInterimStreaming && allToolCalls.length === 0
+  const showPlaceholder = streaming && !displayContent && !isInterimStreaming && totalToolCallCount === 0
 
   const hasBanner = !!turn.taskTitle || (turn.loadedSkills?.length ?? 0) > 0
 
@@ -1821,10 +1680,12 @@ function TurnContainer({
                   if (!st.detailedSummary) return null
                   if (isLast && streaming) return null
                   const details = extractContextDetails(st.detailedSummary)
-                  if (!details) return null
+                  const previewText = details
+                    ? details.slice(0, 200) + (details.length > 200 ? '…' : '')
+                    : 'Context recorded'
                   return (
                     <div css={compactionBubbleCss}>
-                      <span css={compactionTextCss}>{details.slice(0, 200)}{details.length > 200 ? '…' : ''}</span>
+                      <span css={compactionTextCss}>{previewText}</span>
                       <button css={compactionDetailsButtonCss} onClick={() => setCompactionModalSubturnId(st.id)}>Details</button>
                     </div>
                   )
@@ -1913,11 +1774,18 @@ function TurnContainer({
             />
           </div>
         ) : null}
-        {allToolCalls.length > 0 && (
+        {totalToolCallCount > 0 && (
           <div css={toolCallsGroupCss} ref={toolsScrollRef}>
             <div ref={toolsContentRef}>
-              {allToolCalls.map(tc => (
-                <ToolCallCard key={tc.id} tc={tc} onViewFull={onViewFull} />
+              {toolCallGroups.map((group) => (
+                <React.Fragment key={group.subturnId}>
+                  {hasMultipleToolGroups && (
+                    <div css={subturnDividerCss}>subturn {group.subturnIdx + 1}</div>
+                  )}
+                  {group.toolCalls.map(tc => (
+                    <ToolCallCard key={tc.id} tc={tc} onViewFull={onViewFull} />
+                  ))}
+                </React.Fragment>
               ))}
             </div>
           </div>
@@ -2006,7 +1874,7 @@ function TurnContainer({
         <div css={approvalRowCss}>
           <div css={approvalInnerGridCss}>
 
-            {/* Col 1: Resolved approval chips */}
+            {/* Col 1: Resolved approval chips, grouped by subturn */}
             <div css={approvalCol1Css}>
               <div css={approvalColHeaderCss}>Outcomes</div>
               {resolvedApprovals.length === 0 ? (
@@ -2014,11 +1882,35 @@ function TurnContainer({
               ) : (
                 <div css={outcomesScrollCss} ref={outcomesScrollRef}>
                   <div ref={outcomesContentRef} css={approvalListContentCss(3)}>
-                  {resolvedApprovals.map(item => (
-                    <div key={item.id} css={outcomeApprovalChipCss(item.resolved!.approved)} title={item.tool_name}>
-                      {item.resolved!.approved ? '✓' : '✗'} {item.tool_name}
-                    </div>
-                  ))}
+                  {(() => {
+                    // Group consecutive resolved approvals by subturnId for dividers
+                    const groups: { subturnId: string | undefined; items: typeof resolvedApprovals }[] = []
+                    for (const item of resolvedApprovals) {
+                      const last = groups[groups.length - 1]
+                      if (last && last.subturnId === item.subturnId) {
+                        last.items.push(item)
+                      } else {
+                        groups.push({ subturnId: item.subturnId, items: [item] })
+                      }
+                    }
+                    const showDividers = groups.length > 1
+                    return groups.map((group, gIdx) => (
+                      <React.Fragment key={group.subturnId ?? gIdx}>
+                        {showDividers && (
+                          <div css={subturnDividerCss}>
+                            {group.subturnId
+                              ? `subturn ${subturns.findIndex(st => st.id === group.subturnId) + 1}`
+                              : `group ${gIdx + 1}`}
+                          </div>
+                        )}
+                        {group.items.map(item => (
+                          <div key={item.id} css={outcomeApprovalChipCss(item.resolved!.approved)} title={item.tool_name}>
+                            {item.resolved!.approved ? '✓' : '✗'} {item.tool_name}
+                          </div>
+                        ))}
+                      </React.Fragment>
+                    ))
+                  })()}
                   </div>
                 </div>
               )}
@@ -2055,8 +1947,8 @@ function TurnContainer({
       </div>
       {compactionModalSubturnId && (() => {
         const st = subturns.find(s => s.id === compactionModalSubturnId)
-        const details = st?.detailedSummary ? extractContextDetails(st.detailedSummary) : null
-        if (!details) return null
+        if (!st?.detailedSummary) return null
+        const details = extractContextDetails(st.detailedSummary) ?? st.detailedSummary
         return (
           <div css={compactionModalOverlayCss} onClick={() => setCompactionModalSubturnId(null)}>
             <div css={compactionModalCss} onClick={e => e.stopPropagation()}>
@@ -2125,7 +2017,6 @@ export default function Chat() {
   const [systemPrompt, setSystemPrompt] = useState<string | null>(null)
   const [backendLogs, setBackendLogs] = useState<BackendLogEntry[]>([])
   const [isLoadingBackendState, setIsLoadingBackendState] = useState(false)
-  const [showHelpModal, setShowHelpModal] = useState(false)
 
   const { scrollRef: threadRef, contentRef: threadContentRef, scrollToBottom } = useStickToBottom()
 
@@ -2312,6 +2203,7 @@ export default function Chat() {
           id: data.id as string,
           tool_name: data.tool_name as string,
           args: data.args as Record<string, unknown>,
+          subturnId: (data.subturn_id as string | undefined) ?? undefined,
         }
         updateTurn(turnId, t => ({ ...t, approvalItems: [...t.approvalItems, item] }))
         break
@@ -2861,30 +2753,6 @@ export default function Chat() {
           </div>
         </div>
 
-        {/* Help modal */}
-        {showHelpModal && (
-          <div css={[modalOverlayBaseCss, modalOverlayVisibleCss]} onClick={() => setShowHelpModal(false)}>
-            <div css={modalCardCss} onClick={e => e.stopPropagation()}>
-              <div css={modalHeaderCss}>
-                <span css={modalTitleCss}>How this works</span>
-                <button css={modalCloseButtonCss} onClick={() => setShowHelpModal(false)}>×</button>
-              </div>
-              <div css={helpModalBodyCss}>{HELP_MARKDOWN}</div>
-              <div css={helpModalFooterCss}>
-                <button css={downloadButtonCss} onClick={() => {
-                  const blob = new Blob([HELP_MARKDOWN], { type: 'text/markdown' })
-                  const url = URL.createObjectURL(blob)
-                  const a = document.createElement('a')
-                  a.href = url
-                  a.download = 'slbp-agentic-loop.md'
-                  a.click()
-                  URL.revokeObjectURL(url)
-                }}>Download .md</button>
-              </div>
-            </div>
-          </div>
-        )}
-
         <div css={headerBarCss}>
           <div css={headerSideCss}>
             <button css={dashboardButtonCss} onClick={() => navigate('/')} title="Return to dashboard" aria-label="Return to dashboard">
@@ -2893,9 +2761,7 @@ export default function Chat() {
           <span css={statusCss}>{connected ? '●' : '○'} {connected ? 'connected' : 'disconnected'}</span>
           </div>
           <span css={sessionIdCss} title={sessionId}>session: {sessionId.slice(0, 8)}</span>
-          <div css={headerSideCss}>
-          <button css={helpButtonCss} onClick={() => setShowHelpModal(true)} title="Help">?</button>
-          </div>
+          <div css={headerSideCss} />
         </div>
         <div css={threadCss} ref={threadRef}>
           <div ref={threadContentRef}>

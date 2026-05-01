@@ -32,6 +32,7 @@ DEFINITION: dict = {
                         "close_item",
                         "close_many_items",
                         "reopen_item",
+                        "clear",
                     ],
                     "description": (
                         "The operation to perform.\n"
@@ -58,7 +59,8 @@ DEFINITION: dict = {
                         "Requires item_paths (array of path strings). "
                         "Each path is attempted independently; errors are reported per-item.\n"
                         "reopen_item: mark a leaf item as open again. "
-                        "Sub-list parents have no direct open/closed state — reopen a child instead."
+                        "Sub-list parents have no direct open/closed state — reopen a child instead.\n"
+                        "clear: delete all items from the list, leaving it empty."
                     ),
                 },
                 "item_path": {
@@ -658,5 +660,11 @@ def execute(args: dict, session_data: dict | None = None) -> str:
             "status": "open",
             "message": f"Reopened item '{item_path_str}': \"{item['text']}\"",
         })
+
+    # ---- clear ----
+    if action == "clear":
+        count = len(root_items)
+        root_items.clear()
+        return json.dumps({"message": f"Cleared {count} top-level item(s)."})
 
     return json.dumps({"error": f"Unknown action '{action}'."})

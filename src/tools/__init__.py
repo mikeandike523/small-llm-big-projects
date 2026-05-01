@@ -25,6 +25,7 @@ from src.tools import list_working_tree
 from src.tools import project_memory
 from src.tools import read_text_file
 from src.tools import remove_dir
+from src.tools import report_impossible
 from src.tools import scrape_web_page
 from src.tools import search_filesystem_by_regex
 from src.tools import session_memory
@@ -55,6 +56,7 @@ ALL_TOOL_DEFINITIONS: list[dict] = [
     project_memory.DEFINITION,
     read_text_file.DEFINITION,
     remove_dir.DEFINITION,
+    report_impossible.DEFINITION,
     scrape_web_page.DEFINITION,
     search_filesystem_by_regex.DEFINITION,
     session_memory.DEFINITION,
@@ -85,6 +87,7 @@ _TOOL_MAP: dict[str, object] = {
     "project_memory": project_memory,
     "read_text_file": read_text_file,
     "remove_dir": remove_dir,
+    "report_impossible": report_impossible,
     "scrape_web_page": scrape_web_page,
     "search_filesystem_by_regex": search_filesystem_by_regex,
     "session_memory": session_memory,

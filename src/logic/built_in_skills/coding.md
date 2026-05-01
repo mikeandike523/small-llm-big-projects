@@ -75,10 +75,11 @@ When writing new code, LOOK FOR EXAMPLE FILES that show how different functions,
 components, classes, and data is used.
 FOCUS on MATCHING CODEBASE style and design patterns.
 
-### Clarifying Requirements with ask_human
+### Clarifying Requirements
 
 Before writing any code, consider whether the request leaves room for interpretation.
-If it does, use `ask_human` to resolve the ambiguity before building your todo list.
+If it does, state your question clearly as your final response and stop — do not use tools.
+The user will follow up with an answer and the conversation will continue with full context.
 Common things worth clarifying up front:
 
 - Which file, module, or component should change — and which should stay untouched?
@@ -90,7 +91,7 @@ A single clarifying question before starting is almost always better than discov
 the wrong approach after several steps.
 
 At key branch points mid-task — where two valid paths exist and the choice has
-significant consequences — pause and ask rather than picking arbitrarily.
+significant consequences — state the question in your response and wait rather than picking arbitrarily.
 
 ### Security and Sensitive Operations
 
@@ -98,7 +99,7 @@ Do NOT read .env, or any sensitive files, unless you get explicit permission fro
 
 When a coding task touches security, authentication, authorization, credentials,
 cryptography, or destructive operations (mass deletes, schema changes, permission
-changes), use `ask_human` to establish boundaries *before* making any changes:
+changes), state your questions as your final response *before* making any changes:
 
 - What is in scope vs. off-limits?
 - Should existing mechanisms be modified or extended alongside?

@@ -23,6 +23,7 @@ export interface ApprovalItem {
   tool_name: string
   args: Record<string, unknown>
   resolved?: { approved: boolean }
+  subturnId?: string
 }
 
 export interface LLMExchange {
