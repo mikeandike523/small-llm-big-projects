@@ -746,7 +746,7 @@ const skillPillCss = css`
 
 const turnContainerCss = css`
   display: grid;
-  grid-template-columns: 3fr 2fr 2fr auto;
+  grid-template-columns: 3fr 2.5fr 1.5fr;
   gap: 24px;
   padding: 20px 24px;
   border: 1px solid #22304d;
@@ -757,7 +757,7 @@ const turnContainerCss = css`
 
 const turnContainerNoTitleCss = css`
   display: grid;
-  grid-template-columns: 3fr 2fr 2fr auto;
+  grid-template-columns: 3fr 2.5fr 1.5fr;
   gap: 24px;
   padding: 20px 24px;
   border: 1px solid #22304d;
@@ -1088,30 +1088,38 @@ const approvalResolvedBubbleCss = (approved: boolean) => css`
 `
 
 
-// Follow-Up button styles (4th column of completed turn)
-const followUpColumnCss = css`
+// Follow-up behavior footer (below input bar)
+const followupFooterCss = css`
   display: flex;
-  flex-direction: column;
-  gap: 6px;
-  align-items: stretch;
-  border-left: 1px solid #22304d;
-  padding-left: 14px;
-  min-width: 120px;
-  max-width: 140px;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 16px 6px;
+  background: #101722;
+  border-top: 1px solid #1a2535;
 `
 
-const followUpButtonCss = css`
-  background: #0a120a;
-  color: #60a060;
-  border: 1px solid #1a401a;
-  border-radius: 7px;
-  padding: 6px 10px;
-  font-size: 12px;
-  cursor: pointer;
+const followupLabelCss = css`
+  font-size: 11px;
+  color: #4a6080;
+  white-space: nowrap;
+  flex-shrink: 0;
+`
+
+const followupOptionCss = (active: boolean) => css`
+  background: ${active ? '#1a2f4a' : 'transparent'};
+  color: ${active ? '#7aaad4' : '#3a5070'};
+  border: 1px solid ${active ? '#2a4a6a' : '#1e2e40'};
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-size: 11px;
   font-family: inherit;
-  text-align: center;
-  transition: background 0.15s, border-color 0.15s;
-  &:hover { background: #102010; border-color: #2a6a2a; }
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s, border-color 0.1s;
+  &:hover {
+    background: #162840;
+    color: #6090b8;
+    border-color: #253a52;
+  }
 `
 
 const loadingOverlayCss = css`
@@ -1551,25 +1559,19 @@ function ToolApprovalBubble({
 
 function TurnContainer({
   turn,
-  isLastTurn,
   onViewFull,
   onApprove,
   onDeny,
   onDenyWithRedirect,
   onDenyAndStop,
-  onFollowUp,
 }: {
   turn: Turn
-  isLastTurn: boolean
   onViewFull: (content: string) => void
   onApprove: (id: string) => void
   onDeny: (id: string) => void
   onDenyWithRedirect: (id: string, message: string) => void
   onDenyAndStop: (id: string) => void
-  onFollowUp: (text: string) => void
 }) {
-  const [showFollowUpWidget, setShowFollowUpWidget] = useState(false)
-  const [followUpText, setFollowUpText] = useState('')
   const [compactionModalSubturnId, setCompactionModalSubturnId] = useState<string | null>(null)
 
   const { todoItems, approvalItems, impossible, subturns, streaming, isInterimStreaming, interimShowCharCount, interimCharCount, interrupted } = turn
@@ -1735,51 +1737,6 @@ function TurnContainer({
         }
       </div>
 
-      {/* Fourth column: follow-up button (last completed turn) */}
-      {isLastTurn && turn.completed && !streaming ? (
-        <div css={followUpColumnCss}>
-          {showFollowUpWidget ? (
-            <>
-              <textarea
-                css={redirectTextareaCss}
-                rows={3}
-                placeholder="Follow up on this turn..."
-                value={followUpText}
-                onChange={e => setFollowUpText(e.target.value)}
-                autoFocus
-                style={{ minHeight: 60 }}
-              />
-              <div css={redirectActionRowCss}>
-                <button
-                  css={redirectSendButtonCss}
-                  disabled={!followUpText.trim()}
-                  onClick={() => {
-                    const msg = followUpText.trim()
-                    onFollowUp(msg)
-                    setShowFollowUpWidget(false)
-                    setFollowUpText('')
-                  }}
-                >
-                  Send
-                </button>
-                <button
-                  css={redirectCancelButtonCss}
-                  onClick={() => { setShowFollowUpWidget(false); setFollowUpText('') }}
-                >
-                  Cancel
-                </button>
-              </div>
-            </>
-          ) : (
-            <button css={followUpButtonCss} onClick={() => setShowFollowUpWidget(true)}>
-              Follow Up
-            </button>
-          )}
-        </div>
-      ) : (
-        <div />
-      )}
-
       {/* Full-width bottom row: approval panel */}
       {approvalItems.length > 0 && (
         <div css={approvalRowCss}>
@@ -1909,6 +1866,7 @@ export default function Chat() {
   const [startupToolCalls, setStartupToolCalls] = useState<ToolCallEntry[]>([])
   const [startupDone, setStartupDone] = useState(false)
   const [inputText, setInputText] = useState('')
+  const [followupBehavior, setFollowupBehavior] = useState<'auto' | 'follow-up' | 'new-task'>('auto')
   const [connected, setConnected] = useState(false)
   const [busy, setBusy] = useState(false)
   const [cancelling, setCancelling] = useState(false)
@@ -2553,12 +2511,6 @@ export default function Chat() {
     setCancelling(true)
   }, [socket])
 
-  const forceContinuation = useCallback((_turnId: string, text: string) => {
-    socket.emit('force_continuation', { text })
-    setBusy(true)
-    scrollToBottom()
-  }, [socket, scrollToBottom])
-
   const cancelTurn = useCallback(() => {
     socket.emit('cancel_turn')
     setCancelling(true)
@@ -2573,11 +2525,11 @@ export default function Chat() {
     if (!text || busy || !connected) return
 
     const clientTurnId = crypto.randomUUID()
-    socket.emit('user_message', { text, clientTurnId })
+    socket.emit('user_message', { text, clientTurnId, followup_behavior: followupBehavior })
     setBusy(true)
     setInputText('')
     scrollToBottom()
-  }, [inputText, busy, connected, scrollToBottom])
+  }, [inputText, followupBehavior, busy, connected, scrollToBottom])
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -2657,17 +2609,15 @@ export default function Chat() {
                 onViewFull={setModalContent}
               />
             )}
-            {thread.map((turn, idx) => (
+            {thread.map((turn) => (
               <TurnContainer
                 key={turn.id}
                 turn={turn}
-                isLastTurn={idx === thread.length - 1}
                 onViewFull={setModalContent}
                 onApprove={approve}
                 onDeny={deny}
                 onDenyWithRedirect={denyWithRedirect}
                 onDenyAndStop={denyAndStop}
-                onFollowUp={(text) => forceContinuation(turn.id, text)}
               />
             ))}
           </div>
@@ -2691,6 +2641,14 @@ export default function Chat() {
             <span css={busy ? css`visibility: hidden` : undefined}>Send</span>
             {busy && <span css={spinnerCss} />}
           </button>
+        </div>
+        <div css={followupFooterCss}>
+          <span css={followupLabelCss}>Follow up behavior</span>
+          {(['auto', 'follow-up', 'new-task'] as const).map(opt => (
+            <button key={opt} css={followupOptionCss(followupBehavior === opt)} onClick={() => setFollowupBehavior(opt)}>
+              {opt === 'auto' ? 'auto-detect' : opt === 'follow-up' ? 'force-follow-up' : 'force-new-task'}
+            </button>
+          ))}
         </div>
       </div>
     </div>

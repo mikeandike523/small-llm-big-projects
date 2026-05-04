@@ -2234,8 +2234,13 @@ def handle_user_message(data: dict):
     user_text_with_context = text
 
     # Determine continuation vs new turn before touching session state.
+    followup_behavior = data.get("followup_behavior", "auto")
     _is_cont = False
-    if session.completed_turns:
+    if followup_behavior == "follow-up":
+        _is_cont = bool(session.completed_turns)
+    elif followup_behavior == "new-task":
+        _is_cont = False
+    elif session.completed_turns:
         _loop_for_watchdog = asyncio.new_event_loop()
         try:
             _is_cont = _loop_for_watchdog.run_until_complete(
