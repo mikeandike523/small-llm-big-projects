@@ -50,7 +50,6 @@ export interface Turn {
   todoItems: TodoItem[]
   approvalItems: ApprovalItem[]
   impossible?: string       // legacy: was_impossible display
-  cancelled?: string
   completed: boolean
   // Live state (only meaningful on current/in-progress turn):
   streaming: boolean
@@ -58,7 +57,4 @@ export interface Turn {
   interimShowCharCount: boolean
   interimCharCount: number
   interrupted?: boolean
-  // Stop-and-redirect state (local only, not replayed from backend):
-  stopRedirectState?: 'widget-open' | 'redirected'
-  stopRedirectText?: string
 }

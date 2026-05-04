@@ -116,7 +116,6 @@ function backendTurnToFrontendTurn(d: {
   todo_snapshot: TodoItem[]
   was_impossible?: boolean
   impossible_reason?: string
-  was_cancelled?: boolean
   completed: boolean
 }): Turn {
   const subturns: Subturn[] = d.subturns && d.subturns.length > 0
@@ -139,7 +138,6 @@ function backendTurnToFrontendTurn(d: {
     todoItems: d.todo_snapshot ?? [],
     approvalItems: [],
     impossible: d.was_impossible ? (d.impossible_reason ?? 'Task was impossible') : undefined,
-    cancelled: d.was_cancelled ? 'Turn was cancelled' : undefined,
     completed: d.completed,
     streaming: false,
     isInterimStreaming: false,
@@ -230,6 +228,22 @@ const sendButtonCss = css`
     background: #1e3a6e;
     cursor: not-allowed;
   }
+`
+
+const stopButtonCss = css`
+  background: #1a0a0a;
+  color: #c06060;
+  border: 1px solid #4a1818;
+  border-radius: 8px;
+  padding: 0 16px;
+  font-size: 14px;
+  cursor: pointer;
+  font-family: inherit;
+  height: 40px;
+  align-self: flex-end;
+  transition: background 0.15s, border-color 0.15s;
+  &:hover { background: #2a1010; border-color: #6a2424; }
+  &:disabled { opacity: 0.4; cursor: not-allowed; }
 `
 
 const _spin = keyframes`
@@ -327,19 +341,6 @@ const interruptedBubbleCss = css`
   font-style: italic;
 `
 
-const cancelledBubbleCss = css`
-  background: #0a1020;
-  border: 1px solid #2a3a60;
-  border-radius: 10px;
-  padding: 8px 14px;
-`
-
-const cancelledLabelCss = css`
-  font-size: 12px;
-  color: #d7e3ff;
-  font-weight: 500;
-`
-
 // Mini compaction bubble (appears below assistant response when detailed_summary is available)
 const compactionBubbleCss = css`
   background: #1a0815;
@@ -425,99 +426,6 @@ const compactionModalCloseCss = css`
   cursor: pointer;
   align-self: flex-end;
   &:hover { background: #3a1030; }
-`
-
-// Stop column (4th column of TurnContainer — visible only on active turns)
-const stopColumnCss = css`
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  align-items: stretch;
-  border-left: 1px solid #22304d;
-  padding-left: 14px;
-  min-width: 120px;
-  max-width: 140px;
-`
-
-const stopButtonCss = css`
-  background: #1a0a0a;
-  color: #c06060;
-  border: 1px solid #4a1818;
-  border-radius: 7px;
-  padding: 6px 10px;
-  font-size: 12px;
-  cursor: pointer;
-  font-family: inherit;
-  text-align: center;
-  transition: background 0.15s, border-color 0.15s;
-  &:hover { background: #2a1010; border-color: #6a2424; }
-  &:disabled { opacity: 0.4; cursor: not-allowed; }
-`
-
-const stopRedirectButtonCss = css`
-  background: #0a0a1a;
-  color: #8080c0;
-  border: 1px solid #2a2a50;
-  border-radius: 7px;
-  padding: 6px 10px;
-  font-size: 12px;
-  cursor: pointer;
-  font-family: inherit;
-  text-align: center;
-  transition: background 0.15s, border-color 0.15s;
-  &:hover { background: #14142a; border-color: #4040a0; }
-  &:disabled { opacity: 0.4; cursor: not-allowed; }
-`
-
-const stopTryAgainButtonCss = css`
-  background: #0a120a;
-  color: #60a060;
-  border: 1px solid #1a401a;
-  border-radius: 7px;
-  padding: 6px 10px;
-  font-size: 12px;
-  cursor: pointer;
-  font-family: inherit;
-  text-align: center;
-  transition: background 0.15s, border-color 0.15s;
-  &:hover { background: #102010; border-color: #2a6a2a; }
-  &:disabled { opacity: 0.4; cursor: not-allowed; }
-`
-
-const stopColumnLabelCss = css`
-  font-size: 11px;
-  color: #dbe5ff;
-  font-style: italic;
-  text-align: center;
-  padding: 2px 0;
-`
-
-// Stop-and-redirect inline widget (shown in left column)
-const stopRedirectCardCss = css`
-  background: #0d0d1f;
-  border: 1px solid #2a2a60;
-  border-radius: 10px;
-  padding: 12px 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-`
-
-const stopRedirectLabelCss = css`
-  font-size: 11px;
-  color: #6060a0;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  font-weight: 600;
-`
-
-const stopRedirectResolvedCss = css`
-  background: #0d1020;
-  border: 1px solid #2a3060;
-  border-radius: 8px;
-  padding: 7px 12px;
-  font-size: 12px;
-  color: #8080c0;
 `
 
 const reasoningWrapperCss = css`
@@ -1537,18 +1445,6 @@ function ToolApprovalBubble({
 }
 
 // ---------------------------------------------------------------------------
-// StopRedirectBubble — shown in left column when stop-and-redirect is submitted
-// ---------------------------------------------------------------------------
-
-function StopRedirectBubble({ text }: { text: string }) {
-  return (
-    <div css={stopRedirectResolvedCss}>
-      ↪ Redirected: {text}
-    </div>
-  )
-}
-
-// ---------------------------------------------------------------------------
 // TurnContainer
 // ---------------------------------------------------------------------------
 
@@ -1560,12 +1456,7 @@ function TurnContainer({
   onDeny,
   onDenyWithRedirect,
   onDenyAndStop,
-  onStop,
-  onSoftInterrupt,
-  onStopAndRedirect,
-  onStopAndTryAgain,
   onFollowUp,
-  cancelling,
 }: {
   turn: Turn
   isLastTurn: boolean
@@ -1574,20 +1465,13 @@ function TurnContainer({
   onDeny: (id: string) => void
   onDenyWithRedirect: (id: string, message: string) => void
   onDenyAndStop: (id: string) => void
-  onStop: () => void
-  onSoftInterrupt: () => void
-  onStopAndRedirect: (message: string) => void
-  onStopAndTryAgain: () => void
   onFollowUp: (text: string) => void
-  cancelling: boolean
 }) {
-  const [showStopRedirectWidget, setShowStopRedirectWidget] = useState(false)
-  const [stopRedirectText, setStopRedirectText] = useState('')
   const [showFollowUpWidget, setShowFollowUpWidget] = useState(false)
   const [followUpText, setFollowUpText] = useState('')
   const [compactionModalSubturnId, setCompactionModalSubturnId] = useState<string | null>(null)
 
-  const { todoItems, approvalItems, impossible, cancelled, subturns, streaming, isInterimStreaming, interimShowCharCount, interimCharCount, interrupted } = turn
+  const { todoItems, approvalItems, impossible, subturns, streaming, isInterimStreaming, interimShowCharCount, interimCharCount, interrupted } = turn
 
   const { scrollRef: toolsScrollRef, contentRef: toolsContentRef } = useStickToBottom()
   const { scrollRef: outcomesScrollRef, contentRef: outcomesContentRef } = useStickToBottom()
@@ -1692,53 +1576,8 @@ function TurnContainer({
             <span css={impossibleReasonCss}>{impossible}</span>
           </div>
         ) : null}
-        {cancelled && (
-          <div css={cancelledBubbleCss}>
-            <span css={cancelledLabelCss}>Turn cancelled</span>
-          </div>
-        )}
         {interrupted && (
           <div css={interruptedBubbleCss}>Connection interrupted</div>
-        )}
-        {turn.stopRedirectState === 'redirected' && turn.stopRedirectText && (
-          <StopRedirectBubble text={turn.stopRedirectText} />
-        )}
-        {showStopRedirectWidget && (
-          <div css={stopRedirectCardCss}>
-            <span css={stopRedirectLabelCss}>Stop &amp; Redirect</span>
-            <textarea
-              css={redirectTextareaCss}
-              rows={3}
-              placeholder="Give guidance for the agent to continue with..."
-              value={stopRedirectText}
-              onChange={e => setStopRedirectText(e.target.value)}
-              autoFocus
-            />
-            <div css={redirectActionRowCss}>
-              <button
-                css={redirectSendButtonCss}
-                disabled={!stopRedirectText.trim()}
-                onClick={() => {
-                  const msg = stopRedirectText.trim()
-                  onStopAndRedirect(msg)
-                  setShowStopRedirectWidget(false)
-                  setStopRedirectText('')
-                }}
-              >
-                Send
-              </button>
-              <button
-                css={redirectCancelButtonCss}
-                onClick={() => {
-                  onStop()
-                  setShowStopRedirectWidget(false)
-                  setStopRedirectText('')
-                }}
-              >
-                Stop Turn
-              </button>
-            </div>
-          </div>
         )}
       </div>
 
@@ -1795,29 +1634,8 @@ function TurnContainer({
         }
       </div>
 
-      {/* Fourth column: stop controls (active turn) OR follow-up button (last completed turn) */}
-      {streaming ? (
-        <div css={stopColumnCss}>
-          {cancelling ? (
-            <span css={stopColumnLabelCss}>stopping...</span>
-          ) : showStopRedirectWidget ? (
-            <span css={stopColumnLabelCss}>redirecting...</span>
-          ) : (
-            <>
-              <button css={stopButtonCss} onClick={onStop}>Stop</button>
-              <button
-                css={stopRedirectButtonCss}
-                onClick={() => { onSoftInterrupt(); setShowStopRedirectWidget(true) }}
-              >
-                Stop &amp; Redirect
-              </button>
-              <button css={stopTryAgainButtonCss} onClick={onStopAndTryAgain}>
-                Stop &amp; Try Again
-              </button>
-            </>
-          )}
-        </div>
-      ) : isLastTurn && turn.completed ? (
+      {/* Fourth column: follow-up button (last completed turn) */}
+      {isLastTurn && turn.completed && !streaming ? (
         <div css={followUpColumnCss}>
           {showFollowUpWidget ? (
             <>
@@ -2186,9 +2004,6 @@ export default function Chat() {
       case 'todo_list_update':
         updateTurn(turnId, t => ({ ...t, todoItems: data.items as TodoItem[] }))
         break
-      case 'turn_cancelled':
-        updateTurn(turnId, t => ({ ...t, cancelled: 'Turn was cancelled' }))
-        break
       case 'approval_request': {
         const item: ApprovalItem = {
           id: data.id as string,
@@ -2520,11 +2335,6 @@ export default function Chat() {
       setBusy(false)
     }
 
-    function onTurnCancelled(data: { event_id?: string; turn_id?: string }) {
-      if (data.event_id) updateLastEventId(data.event_id)
-      applyReplayEvent('turn_cancelled', data)
-    }
-
     function onTodoListUpdate(data: { event_id?: string; turn_id?: string; items: TodoItem[] }) {
       if (data.event_id) updateLastEventId(data.event_id)
       applyReplayEvent('todo_list_update', data)
@@ -2565,7 +2375,6 @@ export default function Chat() {
     socket.on('tool_result', onToolResult)
     socket.on('message_done', onMessageDone)
     socket.on('error', onError)
-    socket.on('turn_cancelled', onTurnCancelled)
     socket.on('todo_list_update', onTodoListUpdate)
     socket.on('approval_request', onApprovalRequest)
     socket.on('approval_resolved', onApprovalResolved)
@@ -2606,7 +2415,6 @@ export default function Chat() {
       socket.off('tool_result', onToolResult)
       socket.off('message_done', onMessageDone)
       socket.off('error', onError)
-      socket.off('turn_cancelled', onTurnCancelled)
       socket.off('todo_list_update', onTodoListUpdate)
       socket.off('approval_request', onApprovalRequest)
       socket.off('approval_resolved', onApprovalResolved)
@@ -2650,29 +2458,6 @@ export default function Chat() {
     socket.emit('cancel_turn')
     setCancelling(true)
   }, [socket])
-
-  const softInterrupt = useCallback(() => {
-    socket.emit('soft_interrupt')
-  }, [socket])
-
-  const stopAndRedirect = useCallback((message: string, turnId: string) => {
-    socket.emit('stop_and_redirect', { message })
-    updateTurn(turnId, t => ({
-      ...t,
-      stopRedirectState: 'redirected' as const,
-      stopRedirectText: message,
-    }))
-  }, [socket, updateTurn])
-
-  const stopAndTryAgain = useCallback((turnId: string) => {
-    const msg = 'User interrupted turn, please try again.'
-    socket.emit('stop_and_redirect', { message: msg })
-    updateTurn(turnId, t => ({
-      ...t,
-      stopRedirectState: 'redirected' as const,
-      stopRedirectText: msg,
-    }))
-  }, [socket, updateTurn])
 
   // ---------------------------------------------------------------------------
   // Send
@@ -2773,12 +2558,7 @@ export default function Chat() {
                 onDeny={deny}
                 onDenyWithRedirect={denyWithRedirect}
                 onDenyAndStop={denyAndStop}
-                onStop={cancelTurn}
-                onSoftInterrupt={softInterrupt}
-                onStopAndRedirect={(msg) => stopAndRedirect(msg, turn.id)}
-                onStopAndTryAgain={() => stopAndTryAgain(turn.id)}
                 onFollowUp={(text) => forceContinuation(turn.id, text)}
-                cancelling={cancelling}
               />
             ))}
           </div>
@@ -2793,6 +2573,11 @@ export default function Chat() {
             onKeyDown={onKeyDown}
             disabled={busy || !connected}
           />
+          {busy && (
+            <button css={stopButtonCss} onClick={cancelTurn} disabled={cancelling}>
+              {cancelling ? '...' : 'Stop'}
+            </button>
+          )}
           <button css={sendButtonCss} onClick={send} disabled={busy || !connected || !inputText.trim()}>
             <span css={busy ? css`visibility: hidden` : undefined}>Send</span>
             {busy && <span css={spinnerCss} />}
