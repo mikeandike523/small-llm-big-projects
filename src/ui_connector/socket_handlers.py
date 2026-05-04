@@ -536,7 +536,7 @@ _SESSION_DEFAULTS_HARDCODED: dict = {
 
 # Maps DB param key (as stored in kv_store) -> session defaults key
 _SESSION_DEFAULTS_FROM_DB: dict[str, str] = {
-    "params.model.default_irat": "interim_response_as_thinking",
+    "params.model.irat": "interim_response_as_thinking",
 }
 
 

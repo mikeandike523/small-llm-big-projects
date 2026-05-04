@@ -43,18 +43,6 @@ def session():
     help='Working directory for this session. Defaults to the current directory.',
 )
 @click.option(
-    '--interim-response-as-thinking', '--irat',
-    'interim_response_as_thinking',
-    is_flag=True,
-    default=None,
-    help=(
-        'Emit interim assistant content (between tool call rounds) as reasoning tokens '
-        'so they appear in the thinking panel instead of the char-count bubble. '
-        'Useful for non-thinking models that reason aloud through interim output. '
-        'Omit to use the model.default_irat param (falls back to false if not set).'
-    ),
-)
-@click.option(
     '--enable-trace-recording', '--etr', is_flag=True, default=False,
     help=(
         'Record every LLM completion (full request payload + response) in memory '
@@ -62,7 +50,7 @@ def session():
         'flush the buffer to disk as an XML file.'
     ),
 )
-def session_new(pin_project_memory, load_skills, load_tools, load_startup_tool_calls, cwd, interim_response_as_thinking, enable_trace_recording):
+def session_new(pin_project_memory, load_skills, load_tools, load_startup_tool_calls, cwd, enable_trace_recording):
     """
     Create a new agentic session and open it in the default web browser.
 
@@ -72,14 +60,13 @@ def session_new(pin_project_memory, load_skills, load_tools, load_startup_tool_c
 
     Requires `slbp server run` to already be running.
     """
-    if interim_response_as_thinking is None:
-        try:
-            pool = get_pool()
-            with pool.get_connection() as conn:
-                val = KVManager(conn).get_value("params.model.default_irat")
-            interim_response_as_thinking = val if val is not None else False
-        except Exception as exc:
-            raise click.ClickException(f"Failed to load session defaults from database: {exc}")
+    try:
+        pool = get_pool()
+        with pool.get_connection() as conn:
+            val = KVManager(conn).get_value("params.model.irat")
+        interim_response_as_thinking = val if val is not None else False
+    except Exception as exc:
+        raise click.ClickException(f"Failed to load session defaults from database: {exc}")
 
     state = read_state()
     if state is None:

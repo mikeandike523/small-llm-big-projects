@@ -16,9 +16,14 @@ _ALLOWED_PARAMS = {
     "model.watchdog_max_tokens",
     "model.title_summary_max_tokens",
     "model.request_extra_params",
-    "model.default_irat",
+    "model.irat",
     "system.return_value_max_chars",
 }
+
+# Params that existed in older versions but are no longer advertised.
+# They are silently filtered from list/show/manual output and still
+# deletable via `param unset`, but cannot be set or displayed.
+DEPRECATED_PARAMS: set[str] = {"model.default_irat"}
 
 _PARAM_DOCS = {
     "model.temperature": {
@@ -73,14 +78,14 @@ _PARAM_DOCS = {
             "the title; display truncation (TITLE_MAX_CHARS) handles overflow."
         ),
     },
-    "model.default_irat": {
+    "model.irat": {
         "type": "bool (true/false)",
         "description": (
-            "Default value for --interim-response-as-thinking (--irat) when creating a "
-            "new session. Set to true when using a model that does not produce native "
-            "reasoning tokens but narrates its thinking through text output -- irat "
-            "redirects that interim text into the thinking panel instead of a char-count "
-            "bubble. Typically this should match the active model. If not set, defaults to false."
+            "Enable interim-response-as-thinking for all new sessions. "
+            "When true, interim assistant content (text produced between tool call rounds) "
+            "is redirected into the thinking panel instead of a char-count bubble. "
+            "Useful for non-thinking models that narrate reasoning through text output. "
+            "Typically set to match the active model. If not set, defaults to false."
         ),
     },
     "model.request_extra_params": {
@@ -113,9 +118,9 @@ def _parse_and_validate(name: str, raw_value: str):
             param_hint="name",
         )
     try:
-        if name == "model.default_irat":
+        if name == "model.irat":
             if raw_value.lower() not in ("true", "false"):
-                raise click.BadParameter("model.default_irat must be 'true' or 'false'", param_hint="value")
+                raise click.BadParameter("model.irat must be 'true' or 'false'", param_hint="value")
             return raw_value.lower() == "true"
         elif name == "model.request_extra_params":
             try:
@@ -177,7 +182,7 @@ def param():
 @click.option("--available", is_flag=True, default=False, help="List all available params with their types and descriptions.")
 def sub_cmd_list(available):
     if available:
-        entries = sorted(_PARAM_DOCS.items())
+        entries = sorted((k, v) for k, v in _PARAM_DOCS.items() if k not in DEPRECATED_PARAMS)
         for i, (name, doc) in enumerate(entries):
             if i:
                 click.echo("")
@@ -193,7 +198,7 @@ def sub_cmd_list(available):
         profile = get_active_profile(kv)
         prefix = _kv_prefix(profile)
         params_prefix = prefix + "params."
-        keys = kv.list_keys(prefix=params_prefix)
+        keys = [k for k in kv.list_keys(prefix=params_prefix) if k[len(params_prefix):] not in DEPRECATED_PARAMS]
         if not keys:
             click.echo(f"No params set.  (profile: {profile})")
         else:
@@ -237,7 +242,7 @@ def sub_cmd_show():
         profile = get_active_profile(kv)
         prefix = _kv_prefix(profile)
         params_prefix = prefix + "params."
-        keys = kv.list_keys(prefix=params_prefix)
+        keys = [k for k in kv.list_keys(prefix=params_prefix) if k[len(params_prefix):] not in DEPRECATED_PARAMS]
         if not keys:
             click.echo(f"No params set.  (profile: {profile})")
             return
@@ -254,7 +259,7 @@ def sub_cmd_unset(name):
     """
     Remove a generation parameter.
     """
-    if name not in _ALLOWED_PARAMS:
+    if name not in _ALLOWED_PARAMS and name not in DEPRECATED_PARAMS:
         raise click.BadParameter(
             f"Unknown param '{name}'. Allowed: {', '.join(sorted(_ALLOWED_PARAMS))}",
             param_hint="name",
@@ -277,11 +282,10 @@ def sub_cmd_manual():
     """
     Print documentation for every available parameter.
     """
-    entries = sorted(_PARAM_DOCS.items())
+    entries = sorted((k, v) for k, v in _PARAM_DOCS.items() if k not in DEPRECATED_PARAMS)
     for i, (name, doc) in enumerate(entries):
         if i:
             click.echo("")
         click.echo(colored(name, "blue") + f"  ({doc['type']})")
-        # Indent each line of the description by two spaces
         for line in doc["description"].splitlines():
             click.echo(f"  {line}")

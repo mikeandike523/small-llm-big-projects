@@ -8,7 +8,6 @@ import { useEffect, useState } from 'react'
 
 export interface SessionDefaults {
   pin_project_memory: boolean
-  interim_response_as_thinking: boolean
   record_traces: boolean
   load_skills: boolean
   load_tools: boolean
@@ -202,12 +201,6 @@ const OPTIONS: CheckOption[] = [
     desc: 'Scope project memory to this session\'s working directory.',
   },
   {
-    key: 'interim_response_as_thinking',
-    label: 'Interim response as thinking',
-    flag: '--irat',
-    desc: 'Show interim assistant content in the thinking panel instead of a char-count bubble.',
-  },
-  {
     key: 'record_traces',
     label: 'Enable trace recording',
     flag: '--etr',
@@ -289,7 +282,6 @@ export default function NewSessionDialog({ sessionDefaults, onCreated, onClose }
     const payload: Record<string, unknown> = {
       initial_cwd: cwd,
       pin_project_memory: flags.pin_project_memory,
-      interim_response_as_thinking: flags.interim_response_as_thinking,
       record_traces: flags.record_traces,
     }
     if (flags.load_skills) payload.skills_path = `${cwd}/skills`

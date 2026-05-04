@@ -1,6 +1,7 @@
 import click
 
 from src.cli_obj import cli
+from src.cli_routes.param import DEPRECATED_PARAMS
 from src.data import get_pool
 from src.utils.sql.kv_manager import KVManager
 from src.utils.profile_utils import get_active_profile, _kv_prefix, validate_profile_name
@@ -45,10 +46,11 @@ def _profile_verbose_lines(conn, kv, name: str) -> list[str]:
 
     lines.append(f"  model : {model_name or '(none)'}")
 
-    if param_keys:
+    visible_param_keys = [k for k in param_keys if k[len(prefix + "params."):] not in DEPRECATED_PARAMS]
+    if visible_param_keys:
         params_prefix = prefix + "params."
         parts = []
-        for key in param_keys:
+        for key in visible_param_keys:
             param_name = key[len(params_prefix):]
             val = kv.get_value(key)
             parts.append(f"{param_name}={val}")
