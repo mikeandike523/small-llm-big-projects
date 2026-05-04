@@ -24,7 +24,8 @@ from src.data import get_pool
 from src.utils.sql.kv_manager import KVManager
 from src.utils.llm.streaming import StreamingLLM
 from src.utils.llm.factory import load_llm_config
-from src.tools import ALL_TOOL_DEFINITIONS, execute_tool, check_needs_approval, _TOOL_MAP, load_custom_tools
+from src.tools import ALL_TOOL_DEFINITIONS, execute_tool, check_needs_approval, get_dirty_effects, _TOOL_MAP, load_custom_tools
+from src.tools import _dirty_cache
 from src.tools.todo_list import format_items_for_ui as _todo_format_items_for_ui
 from src.logic.system_prompt import (
     SkillManifestError,
@@ -965,6 +966,17 @@ def _execute_tools(
 
             tool_record = ToolCallRecord(id=tc.id, name=tc.name, args=tc.arguments)
 
+            # Dirty cache check: block partial edits on resources modified since last read.
+            _effects = get_dirty_effects(tc.name, tc.arguments, tool_map=actual_tool_map)
+            _dirty_error = _dirty_cache.check_requires_clean(session_id, _effects, tc.name)
+            if _dirty_error:
+                tool_record.result = _dirty_error
+                exchange.tool_calls.append(tool_record)
+                _emit_and_log(session_id, "tool_result", {
+                    "id": tc.id, "result": _dirty_error, "turn_id": turn_id,
+                })
+                continue
+
             if check_needs_approval(tc.name, tc.arguments, tool_map=actual_tool_map):
                 approved, redirect_message = _request_approval(
                     sid, session_id, tc.id, tc.name, tc.arguments,
@@ -1028,6 +1040,11 @@ def _execute_tools(
 
             tool_record.result = tool_result
             exchange.tool_calls.append(tool_record)
+
+            # Apply dirty effects only when the tool did not return an error.
+            if _effects and not tool_result.startswith("Error"):
+                if _dirty_cache.apply_effects(session_id, _effects):
+                    _emit_and_log(session_id, "dirty_cache_update", _dirty_cache.snapshot(session_id))
 
             _emit_and_log(session_id, "tool_result", {
                 "id": tc.id, "result": tool_result, "turn_id": turn_id,
@@ -2156,6 +2173,13 @@ def handle_get_project_memory_value(data: dict):
         socketio.emit("project_memory_value", {"key": key, "value": value_str, "found": True}, room=session_id)
     else:
         socketio.emit("project_memory_value", {"key": key, "value": "", "found": False}, room=session_id)
+
+
+@socketio.on("get_dirty_cache")
+def handle_get_dirty_cache():
+    sid = request.sid
+    session_id = _sid_to_session_id.get(sid, sid)
+    socketio.emit("dirty_cache_update", _dirty_cache.snapshot(session_id), room=session_id)
 
 
 @socketio.on("get_tools_info")

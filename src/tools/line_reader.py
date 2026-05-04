@@ -72,6 +72,16 @@ DEFINITION: dict = {
 }
 
 
+def dirty_effects(args: dict) -> dict:
+    path = args.get("path")
+    key = args.get("session_memory_key")
+    if path:
+        return {"cleans_files": [path]}
+    if key:
+        return {"cleans_mem": [key]}
+    return {}
+
+
 def needs_approval(args: dict) -> bool:
     if args.get("path"):
         from src.tools._approval import needs_path_approval

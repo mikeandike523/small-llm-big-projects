@@ -132,6 +132,20 @@ def check_needs_approval(name: str, args: dict, tool_map: dict | None = None) ->
     return bool(fn(args))
 
 
+def get_dirty_effects(name: str, args: dict, tool_map: dict | None = None) -> dict:
+    """Return the dirty effects dict for a tool call, or {} if the tool defines none."""
+    module = (tool_map if tool_map is not None else _TOOL_MAP).get(name)
+    if module is None:
+        return {}
+    fn = getattr(module, "dirty_effects", None)
+    if fn is None:
+        return {}
+    try:
+        return fn(args) or {}
+    except Exception:
+        return {}
+
+
 def _accepts_special_resources(fn) -> bool:
     """Return True if the tool's execute function declares a third parameter."""
     try:

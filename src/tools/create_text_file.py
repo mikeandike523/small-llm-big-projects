@@ -30,6 +30,13 @@ DEFINITION: dict = {
 }
 
 
+def dirty_effects(args: dict) -> dict:
+    path = args.get("path")
+    if path:
+        return {"dirties_files": [path]}
+    return {}
+
+
 def needs_approval(args: dict) -> bool:
     return True
 

@@ -57,7 +57,7 @@ interface Props {
 // Tab system
 // ---------------------------------------------------------------------------
 
-type TabId = 'system' | 'session' | 'project' | 'prompt' | 'logs'
+type TabId = 'system' | 'session' | 'project' | 'prompt' | 'logs' | 'dirty'
 
 const TABS: { id: TabId; label: string }[] = [
   { id: 'system',  label: 'System Info' },
@@ -65,6 +65,7 @@ const TABS: { id: TabId; label: string }[] = [
   { id: 'project', label: 'Project Mem' },
   { id: 'prompt',  label: 'Sys Prompt' },
   { id: 'logs',    label: 'Backend Logs' },
+  { id: 'dirty',   label: 'Dirty' },
 ]
 
 // ---------------------------------------------------------------------------
@@ -460,6 +461,32 @@ const memEventEmptyCss = css`
   font-style: italic;
 `
 
+const dirtyAsteriskCss = css`
+  color: #c07828;
+  font-size: 11px;
+  margin-left: 4px;
+  flex-shrink: 0;
+`
+
+const dirtySectionLabelCss = css`
+  font-family: 'Consolas', monospace;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: #555;
+  margin-bottom: 4px;
+  margin-top: 8px;
+  &:first-of-type { margin-top: 0; }
+`
+
+const dirtyItemCss = css`
+  font-family: 'Consolas', monospace;
+  font-size: 10px;
+  color: #c07828;
+  word-break: break-all;
+  padding: 2px 4px;
+`
+
 const saveTracesBtnCss = css`
   background: transparent;
   border: 1px solid #2a2a2a;
@@ -716,11 +743,13 @@ function ProjectMemTab({
 
 function SessionMemTab({
   keys,
+  dirtyMemKeys,
   onRefresh,
   onView,
   loading,
 }: {
   keys: string[]
+  dirtyMemKeys: Set<string>
   onRefresh: () => void
   onView: (key: string) => void
   loading: boolean
@@ -741,13 +770,37 @@ function SessionMemTab({
           <div css={memKeyListCss}>
             {keys.map(key => (
               <div key={key} css={memKeyRowCss}>
-                <span css={memKeyNameCss}>{key}</span>
+                <span css={memKeyNameCss}>
+                  {key}
+                  {dirtyMemKeys.has(key) && <span css={dirtyAsteriskCss} title="Modified since last read">*</span>}
+                </span>
                 <button css={viewButtonCss} onClick={() => onView(key)}>View</button>
               </div>
             ))}
           </div>
         )
       }
+    </>
+  )
+}
+
+function DirtyTab({ files, memKeys }: { files: string[]; memKeys: string[] }) {
+  const empty = files.length === 0 && memKeys.length === 0
+  return (
+    <>
+      {empty && <div css={placeholderCss}>No dirty resources.</div>}
+      {files.length > 0 && (
+        <>
+          <div css={dirtySectionLabelCss}>Dirty files</div>
+          {files.map(f => <div key={f} css={dirtyItemCss}>{f}</div>)}
+        </>
+      )}
+      {memKeys.length > 0 && (
+        <>
+          <div css={dirtySectionLabelCss}>Dirty session memory keys</div>
+          {memKeys.map(k => <div key={k} css={dirtyItemCss}>{k}</div>)}
+        </>
+      )}
     </>
   )
 }
@@ -806,6 +859,8 @@ export function DebugPanel({ open, onToggle, pwd, sessionId, envInfo, skillsInfo
   const [projectMemModal, setProjectMemModal] = useState<MemModal | null>(null)
   const [savingTraces, setSavingTraces] = useState(false)
   const [traceSaveStatus, setTraceSaveStatus] = useState<{ ok: boolean; message: string } | null>(null)
+  const [dirtyFiles, setDirtyFiles] = useState<string[]>([])
+  const [dirtyMemKeys, setDirtyMemKeys] = useState<string[]>([])
 
   // Listen for session and project memory socket events
   useEffect(() => {
@@ -857,6 +912,10 @@ export function DebugPanel({ open, onToggle, pwd, sessionId, envInfo, skillsInfo
       setSavingTraces(false)
       setTraceSaveStatus({ ok: false, message: `Error: ${message}` })
     }
+    function onDirtyCacheUpdate({ files, mem_keys }: { files: string[]; mem_keys: string[] }) {
+      setDirtyFiles(files)
+      setDirtyMemKeys(mem_keys)
+    }
 
     socket.on('session_memory_keys_update', onSessionMemoryKeys)
     socket.on('session_memory_value', onSessionMemoryValue)
@@ -866,6 +925,8 @@ export function DebugPanel({ open, onToggle, pwd, sessionId, envInfo, skillsInfo
     socket.on('project_memory_key_event', onProjectMemoryKeyEvent)
     socket.on('traces_saved', onTracesSaved)
     socket.on('traces_save_error', onTracesSaveError)
+    socket.on('dirty_cache_update', onDirtyCacheUpdate)
+    socket.emit('get_dirty_cache')
     return () => {
       socket.off('session_memory_keys_update', onSessionMemoryKeys)
       socket.off('session_memory_value', onSessionMemoryValue)
@@ -875,6 +936,7 @@ export function DebugPanel({ open, onToggle, pwd, sessionId, envInfo, skillsInfo
       socket.off('project_memory_key_event', onProjectMemoryKeyEvent)
       socket.off('traces_saved', onTracesSaved)
       socket.off('traces_save_error', onTracesSaveError)
+      socket.off('dirty_cache_update', onDirtyCacheUpdate)
     }
   }, [])
 
@@ -1025,6 +1087,7 @@ export function DebugPanel({ open, onToggle, pwd, sessionId, envInfo, skillsInfo
             <div css={memTabScrollCss}>
               <SessionMemTab
                 keys={sessionMemKeys}
+                dirtyMemKeys={new Set(dirtyMemKeys)}
                 onRefresh={refreshMemoryKeys}
                 onView={viewMemoryValue}
                 loading={sessionMemLoading}
@@ -1057,6 +1120,10 @@ export function DebugPanel({ open, onToggle, pwd, sessionId, envInfo, skillsInfo
             }
           </div>
           <BackendLogsTab logs={backendLogs} visible={activeTab === 'logs'} />
+
+          <div css={tabPanelCss(activeTab === 'dirty')}>
+            <DirtyTab files={dirtyFiles} memKeys={dirtyMemKeys} />
+          </div>
         </div>
       </div>
     </>

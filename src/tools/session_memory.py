@@ -144,6 +144,28 @@ DEFINITION: dict = {
 }
 
 
+def dirty_effects(args: dict) -> dict:
+    action = args.get("action", "")
+    key = args.get("key")
+    if action == "get" and key:
+        return {"cleans_mem": [key]}
+    if action in ("search_by_regex", "extract_json") and key:
+        return {"cleans_mem": [key]}
+    if action == "set" and key:
+        # Pure write — mark dirty but don't require clean (value is fully specified)
+        return {"dirties_mem": [key]}
+    if action == "append" and key:
+        # Partial modification — requires knowing current content
+        return {"requires_clean_mem": [key], "dirties_mem": [key]}
+    if action == "delete" and key:
+        return {"cleans_mem": [key]}
+    if action in ("copy", "rename", "concat"):
+        dest_key = args.get("dest_key")
+        if dest_key:
+            return {"dirties_mem": [dest_key]}
+    return {}
+
+
 def needs_approval(args: dict) -> bool:
     return False
 

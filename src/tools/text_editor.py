@@ -236,6 +236,34 @@ DEFINITION: dict = {
 # Approval gating
 # ---------------------------------------------------------------------------
 
+_READ_ONLY_ACTIONS_SET = {
+    "read_lines", "read_char_range", "search_by_regex",
+    "count_chars", "count_lines", "check_eol", "check_indentation",
+}
+_WRITE_ACTIONS_SET = {
+    "insert_lines", "replace_lines", "delete_lines",
+    "insert_chars", "replace_chars", "delete_chars",
+    "normalize_eol", "convert_indentation", "apply_patch",
+}
+
+
+def dirty_effects(args: dict) -> dict:
+    action = args.get("action", "")
+    filepath = args.get("filepath")
+    key = args.get("key")
+    if filepath:
+        if action in _READ_ONLY_ACTIONS_SET:
+            return {"cleans_files": [filepath]}
+        if action in _WRITE_ACTIONS_SET:
+            return {"requires_clean_files": [filepath], "dirties_files": [filepath]}
+    elif key:
+        if action in _READ_ONLY_ACTIONS_SET:
+            return {"cleans_mem": [key]}
+        if action in _WRITE_ACTIONS_SET:
+            return {"requires_clean_mem": [key], "dirties_mem": [key]}
+    return {}
+
+
 def needs_approval(args: dict) -> bool:
     filepath = args.get("filepath")
     if filepath is not None:

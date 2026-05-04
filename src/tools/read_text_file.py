@@ -40,6 +40,18 @@ DEFINITION: dict = {
 }
 
 
+def dirty_effects(args: dict) -> dict:
+    path = args.get("path")
+    session_memory_key = args.get("session_memory_key")
+    effects: dict = {}
+    if path:
+        effects["cleans_files"] = [path]
+    if session_memory_key:
+        # Loading file into memory establishes a known state — treat as clean
+        effects["cleans_mem"] = [session_memory_key]
+    return effects
+
+
 def needs_approval(args: dict) -> bool:
     from src.tools._approval import needs_path_approval
     return needs_path_approval(args.get("path"))
