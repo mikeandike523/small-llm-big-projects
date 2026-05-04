@@ -233,6 +233,7 @@ function TerminalTab({
     xterm.loadAddon(fitAddon)
     xterm.open(containerRef.current)
     if (tab.pendingOutput) xterm.write(tab.pendingOutput)
+    xterm.focus()
 
     const dataDisposable = xterm.onData(data => {
       socket.emit('terminal_input', { terminal_id: tab.terminalId, data })
@@ -242,14 +243,26 @@ function TerminalTab({
     })
 
     updateTab(tab.terminalId, { xterm, fitAddon, pendingOutput: '' })
-    safeFit(containerRef.current, fitAddon)
+    // Defer fit so the layout has fully settled (especially important on first
+    // terminal creation when the container div is newly mounted).
+    requestAnimationFrame(() => safeFit(containerRef.current, fitAddon))
 
     return () => {
+      // Reset openedRef so StrictMode's cleanup+remount cycle can re-initialize.
+      openedRef.current = false
       dataDisposable.dispose()
       resizeDisposable.dispose()
       xterm.dispose()
     }
   }, [socket, tab.pendingOutput, tab.terminalId, updateTab])
+
+  // Drain any output buffered in pendingOutput after xterm is initialized.
+  // This handles the window between xterm init and tabsRef being updated.
+  useEffect(() => {
+    if (!tab.xterm || !tab.pendingOutput) return
+    tab.xterm.write(tab.pendingOutput)
+    updateTab(tab.terminalId, { pendingOutput: '' })
+  }, [tab.xterm, tab.pendingOutput, tab.terminalId, updateTab])
 
   useEffect(() => {
     if (!panelOpen || !active) return
@@ -318,7 +331,11 @@ export function TerminalPanel({ open, onToggle, socket, pwd }: Props) {
       setTabs(prev => {
         if (prev.some(tab => tab.terminalId === terminal_id)) return prev
         setActiveTabIdx(prev.length)
-        return [...prev, makeTab(terminal_id, name)]
+        const next = [...prev, makeTab(terminal_id, name)]
+        // Sync tabsRef immediately so onTerminalOutput can buffer before the
+        // post-render useEffect runs (fixes first-terminal race condition).
+        tabsRef.current = next
+        return next
       })
     }
 

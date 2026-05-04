@@ -1892,7 +1892,7 @@ export default function Chat() {
     names: string[]
     customPlugins: { name: string; count: number; path: string }[] | null
   } | null>(null)
-  const [debugOpen, setDebugOpen] = useState(true)
+  const [debugOpen, setDebugOpen] = useState(false)
   const [terminalOpen, setTerminalOpen] = useState(false)
   const [systemPrompt, setSystemPrompt] = useState<string | null>(null)
   const [backendLogs, setBackendLogs] = useState<BackendLogEntry[]>([])

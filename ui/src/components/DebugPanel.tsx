@@ -132,9 +132,20 @@ const collapsedStripCss = css`
   flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 12px;
   height: 100%;
   background: #0d0d0d;
   border-right: 1px solid #1e1e1e;
+`
+
+const collapsedLabelCss = css`
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  font-family: 'Consolas', monospace;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  color: #484848;
+  text-transform: uppercase;
 `
 
 const tabBarCss = css`
@@ -982,6 +993,7 @@ export function DebugPanel({ open, onToggle, pwd, sessionId, envInfo, skillsInfo
     return (
       <div css={collapsedStripCss}>
         <button css={toggleButtonCss} onClick={onToggle} title="Open debug panel">»</button>
+        <span css={collapsedLabelCss}>Debug</span>
       </div>
     )
   }
