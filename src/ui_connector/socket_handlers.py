@@ -246,6 +246,35 @@ def _terminal_belongs_to_session(session_id: str, terminal_id: str) -> bool:
     return bool(terminal_id) and _terminal_session_rooms.get(terminal_id) == session_id
 
 
+def _launch_terminal_for_session(session_id: str, command_line: str, name: str) -> None:
+    """
+    Open an interactive login shell and type *command_line* into it.
+    Mirrors what the "New Terminal" button does, then pre-types the command.
+    Emits terminal_open_panel (expand the side panel) then terminal_created.
+    Called from the open_in_terminal tool via special_resources["create_terminal"].
+    """
+    import os
+    from src.terminal.shell_resolver import resolve_shell
+    cwd = os.getcwd() or None
+    session = _terminal_manager.create(name=name, cwd=cwd, rows=24, cols=80, cmd=resolve_shell())
+    _terminal_session_rooms[session.id] = session_id
+    t = threading.Thread(
+        target=_terminal_output_pump,
+        args=(session_id, session.id, session.process),
+        daemon=True,
+    )
+    _terminal_output_threads[session.id] = t
+    t.start()
+    # Type the command into the shell's PTY input buffer. The data sits in
+    # the kernel TTY buffer and is consumed by bash's readline loop once
+    # startup scripts finish — no delay needed.
+    session.process.write((command_line + "\n").encode("utf-8"))
+    # Open the panel first, then announce the new terminal so the frontend
+    # can focus the tab immediately when terminal_created arrives.
+    socketio.emit("terminal_open_panel", {}, room=session_id)
+    socketio.emit("terminal_created", {"terminal_id": session.id, "name": name}, room=session_id)
+
+
 # ---------------------------------------------------------------------------
 # Event log + emit helper
 # ---------------------------------------------------------------------------
@@ -948,6 +977,7 @@ def _execute_tools(
         "session_id": session_id,
         "initial_cwd": session.initial_cwd,
         "cancel_event": cancel_event,
+        "create_terminal": lambda cmd_line, tab_name: _launch_terminal_for_session(session_id, cmd_line, tab_name),
     }
 
     actual_tool_map = tool_map if tool_map is not None else _TOOL_MAP

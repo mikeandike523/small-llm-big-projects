@@ -29,6 +29,38 @@ def _find_git_bash() -> str | None:
     return None
 
 
+def resolve_shell_cmd(command_line: str) -> list[str]:
+    """
+    Wrap *command_line* in the platform shell for non-interactive PTY execution.
+    Like resolve_shell() but runs a specific command instead of an interactive REPL.
+    """
+    os_name = get_os()
+
+    if os_name == "Windows":
+        git_bash = _find_git_bash()
+        if git_bash is None:
+            raise ShellNotFoundError(
+                "Git Bash not found. "
+                "Install Git for Windows from https://git-scm.com/"
+            )
+        return [git_bash, "-lc", command_line]
+
+    if os_name == "macOS":
+        for shell in ("zsh", "bash"):
+            path = shutil.which(shell)
+            if path:
+                return [path, "-lc", command_line]
+        raise ShellNotFoundError("Neither zsh nor bash found on macOS")
+
+    user_shell = os.environ.get("SHELL", "")
+    if user_shell and os.path.isfile(user_shell):
+        return [user_shell, "-lc", command_line]
+    bash = shutil.which("bash")
+    if bash:
+        return [bash, "-lc", command_line]
+    raise ShellNotFoundError("No suitable shell found on this Linux system")
+
+
 def resolve_shell() -> list[str]:
     """
     Return spawn argv for an interactive login shell on the current platform.

@@ -2423,6 +2423,10 @@ export default function Chat() {
       applyReplayEvent('approval_resolved', data)
     }
 
+    function onTerminalOpenPanel() {
+      setTerminalOpen(true)
+    }
+
     socket.on('connect', onConnect)
     socket.on('disconnect', onDisconnect)
     socket.on('pwd_update', onPwdUpdate)
@@ -2453,6 +2457,7 @@ export default function Chat() {
     socket.on('approval_request', onApprovalRequest)
     socket.on('approval_resolved', onApprovalResolved)
     socket.on('shell_output_snapshot', onShellOutputSnapshot)
+    socket.on('terminal_open_panel', onTerminalOpenPanel)
     socket.on('task_title', (data: { turn_id: string; title: string }) => {
       applyReplayEvent('task_title', data)
     })
@@ -2494,6 +2499,7 @@ export default function Chat() {
       socket.off('approval_request', onApprovalRequest)
       socket.off('approval_resolved', onApprovalResolved)
       socket.off('shell_output_snapshot', onShellOutputSnapshot)
+      socket.off('terminal_open_panel', onTerminalOpenPanel)
       socket.off('task_title')
       socket.off('skills_loaded')
       socket.disconnect()

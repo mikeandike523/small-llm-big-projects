@@ -155,6 +155,30 @@ the correct build, lint, and typecheck commands for the active project.
 Do NOT use host_shell for file writing (cat/sed/awk/echo redirects) — use `text_editor` or `write_text_file` instead.
 After a build or test run, check the todo list — close verification steps only when they actually pass.
 
+### Presenting Interactive Programs to the User
+
+Use **`open_in_terminal`** — not `host_shell` — whenever you want the user to see and interact
+with a program you have written. `host_shell` captures output silently and returns when the
+command finishes; `open_in_terminal` opens a live terminal tab in the browser UI where the user
+can watch output stream in real time, type input, press arrow keys, and experiment freely.
+
+**Use `open_in_terminal` for:**
+- Terminal games (Tic-Tac-Toe, Snake, Hangman, any game that uses `input()` or curses)
+- Flashcard programs, quizzes, or any program with a question-and-answer loop
+- TUI applications built with curses, rich, prompt_toolkit, or similar libraries
+- Interactive data-exploration scripts (menus, prompted filters, live plots in the terminal)
+- Local development servers the user needs to visit in a browser (e.g. `python -m http.server`, `npm run dev`, `flask run`)
+- Any REPL or interpreter session where the user wants to experiment (`python`, `node`, `ipython`)
+- Long-running processes where watching live output matters (data pipelines, training loops)
+
+**Use `host_shell` for:**
+- Non-interactive commands that produce a fixed result: builds, tests, linters, installs, git ops
+- Scripts that take no user input and whose output you need to inspect or act on programmatically
+
+The terminal opened by `open_in_terminal` is a full interactive login shell — Ctrl+C kills only
+the running program and returns to a shell prompt, so the user can re-run, tweak arguments, or
+explore further without closing the tab.
+
 ### Stay Up to Date
 
 If you don't know something, search the web using `brave_web_search`, then scrape promising URLs
