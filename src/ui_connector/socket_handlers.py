@@ -22,6 +22,7 @@ from src.ui_connector.app import app, socketio
 from src.data import get_pool
 
 from src.utils.sql.kv_manager import KVManager
+from src.utils.profile_utils import get_active_profile, _kv_prefix
 from src.utils.llm.streaming import StreamingLLM
 from src.utils.llm.factory import load_llm_config
 from src.tools import ALL_TOOL_DEFINITIONS, execute_tool, check_needs_approval, get_dirty_effects, _TOOL_MAP, load_custom_tools
@@ -548,8 +549,10 @@ def api_session_defaults():
         pool = get_pool()
         with pool.get_connection() as conn:
             kv = KVManager(conn)
+            profile = get_active_profile(kv)
+            prefix = _kv_prefix(profile)
             for param_key, defaults_key in _SESSION_DEFAULTS_FROM_DB.items():
-                val = kv.get_value(param_key)
+                val = kv.get_value(prefix + param_key)
                 if val is not None:
                     defaults[defaults_key] = val
     except Exception as exc:

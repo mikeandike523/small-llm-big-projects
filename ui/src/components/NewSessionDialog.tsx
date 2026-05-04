@@ -8,6 +8,7 @@ import { useEffect, useState } from 'react'
 
 export interface SessionDefaults {
   pin_project_memory: boolean
+  interim_response_as_thinking: boolean
   record_traces: boolean
   load_skills: boolean
   load_tools: boolean
@@ -282,6 +283,7 @@ export default function NewSessionDialog({ sessionDefaults, onCreated, onClose }
     const payload: Record<string, unknown> = {
       initial_cwd: cwd,
       pin_project_memory: flags.pin_project_memory,
+      interim_response_as_thinking: sessionDefaults.interim_response_as_thinking,
       record_traces: flags.record_traces,
     }
     if (flags.load_skills) payload.skills_path = `${cwd}/skills`
