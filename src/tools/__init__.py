@@ -121,7 +121,7 @@ if _load_excluded:
         _TOOL_MAP.pop(_excl_name, None)
 
 
-def check_needs_approval(name: str, args: dict, tool_map: dict | None = None) -> bool:
+def check_needs_approval(name: str, args: dict, tool_map: dict | None = None, session_cwd: str | None = None) -> bool:
     """Return True if this tool call requires user approval before executing."""
     module = (tool_map if tool_map is not None else _TOOL_MAP).get(name)
     if module is None:
@@ -129,7 +129,12 @@ def check_needs_approval(name: str, args: dict, tool_map: dict | None = None) ->
     fn = getattr(module, "needs_approval", None)
     if fn is None:
         return False
-    return bool(fn(args))
+    from src.tools._approval import set_approval_cwd
+    set_approval_cwd(session_cwd or None)
+    try:
+        return bool(fn(args))
+    finally:
+        set_approval_cwd(None)
 
 
 def _accepts_session_data(fn) -> bool:

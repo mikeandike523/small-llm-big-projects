@@ -17,6 +17,7 @@ import type { Turn, Subturn, ToolCallEntry, TodoItem, ApprovalItem } from '../ty
 
 const MAX_TOOL_CHARS = 80
 const MAX_LOGS = 100
+const JSON_VALUE_MAX_LINES = 10
 
 function formatCost(usd: number): string {
   if (usd < 0.001) return usd.toFixed(6)
@@ -496,12 +497,55 @@ const viewFullButtonCss = css`
 
 const toolArgsCss = css`
   background: #16162a;
-  color: #edf2ff;
   padding: 8px 14px;
+  border-top: 1px solid #252545;
+`
+
+const jsonRowCss = css`
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  margin-bottom: 2px;
+`
+
+const jsonKeyCss = css`
+  color: #6b9fe4;
   font-family: 'Consolas', monospace;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  flex-shrink: 0;
+`
+
+const jsonValueCss = css`
+  background: #202030;
+  color: #b8bfd8;
+  font-family: 'Consolas', monospace;
+  font-size: 11px;
+  padding: 0px 5px;
+  border-radius: 3px;
   white-space: pre-wrap;
   word-break: break-word;
-  border-top: 1px solid #252545;
+  flex: 1;
+  min-width: 0;
+`
+
+const jsonValueScrollableCss = css`
+  background: #202030;
+  color: #b8bfd8;
+  font-family: 'Consolas', monospace;
+  font-size: 11px;
+  padding: 2px 5px;
+  border-radius: 3px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  width: 100%;
+  box-sizing: border-box;
+  max-height: ${JSON_VALUE_MAX_LINES}em;
+  overflow-y: auto;
+  display: block;
+  ${scrollbarCss}
 `
 
 const toolResultCss = css`
@@ -911,14 +955,7 @@ const approvalToolNameCss = css`
 `
 
 const approvalArgsCss = css`
-  font-family: 'Consolas', monospace;
-  font-size: 11px;
-  color: #f6dfb2;
-  white-space: pre-wrap;
-  word-break: break-word;
-  max-height: 120px;
-  overflow-y: auto;
-  ${scrollbarCss}
+  margin-bottom: 4px;
 `
 
 const approvalButtonRowCss = css`
@@ -1251,6 +1288,57 @@ function ElapsedTimer({ startedAt, finishedAt }: { startedAt?: number; finishedA
 }
 
 // ---------------------------------------------------------------------------
+// JsonArgsViewer
+// ---------------------------------------------------------------------------
+
+function formatJsonLeaf(value: unknown): string {
+  if (typeof value === 'string') return value
+  return JSON.stringify(value) ?? 'undefined'
+}
+
+function JsonEntry({ name, value, depth }: { name: string; value: unknown; depth: number }): React.ReactElement {
+  const isNested = value !== null && typeof value === 'object'
+
+  if (isNested) {
+    const entries: [string, unknown][] = Array.isArray(value)
+      ? (value as unknown[]).map((v, i) => [String(i), v])
+      : Object.entries(value as Record<string, unknown>)
+    return (
+      <>
+        <div css={jsonRowCss} style={{ paddingLeft: depth * 16 }}>
+          <span css={jsonKeyCss}>{name}</span>
+        </div>
+        {entries.map(([k, v]) => (
+          <JsonEntry key={k} name={k} value={v} depth={depth + 1} />
+        ))}
+      </>
+    )
+  }
+
+  const text = formatJsonLeaf(value)
+  const isMultiline = typeof value === 'string' && value.includes('\n')
+
+  return (
+    <div css={jsonRowCss} style={{ paddingLeft: depth * 16 }}>
+      <span css={jsonKeyCss}>{name}</span>
+      <code css={isMultiline ? jsonValueScrollableCss : jsonValueCss}>{text}</code>
+    </div>
+  )
+}
+
+function JsonArgsViewer({ args }: { args: Record<string, unknown> }) {
+  const entries = Object.entries(args)
+  if (entries.length === 0) return null
+  return (
+    <div>
+      {entries.map(([k, v]) => (
+        <JsonEntry key={k} name={k} value={v} depth={0} />
+      ))}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // StartupToolCallsCard
 // ---------------------------------------------------------------------------
 
@@ -1296,7 +1384,7 @@ function StartupToolCallsCard({
                   )}
                 </div>
                 {Object.keys(tc.args).length > 0 && (
-                  <div css={toolArgsCss}>{JSON.stringify(tc.args, null, 2)}</div>
+                  <div css={toolArgsCss}><JsonArgsViewer args={tc.args} /></div>
                 )}
                 {hasResult && (
                   <div css={toolResultCss}><Ansi>{displayResult}</Ansi></div>
@@ -1375,7 +1463,7 @@ function ToolCallCard({ tc, onViewFull }: { tc: ToolCallEntry; onViewFull: (c: s
         </span>
       </div>
       {Object.keys(tc.args).length > 0 && (
-        <div css={toolArgsCss}>{JSON.stringify(tc.args, null, 2)}</div>
+        <div css={toolArgsCss}><JsonArgsViewer args={tc.args} /></div>
       )}
       {isStreaming && displayResult !== undefined && (
         <div css={streamingResultCss}><Ansi>{displayResult}</Ansi></div>
@@ -1418,7 +1506,7 @@ function ToolApprovalBubble({
     <div css={approvalPendingCardCss}>
       <div css={approvalToolNameCss}>{item.tool_name}</div>
       {Object.keys(item.args).length > 0 && (
-        <div css={approvalArgsCss}>{JSON.stringify(item.args, null, 2)}</div>
+        <div css={approvalArgsCss}><JsonArgsViewer args={item.args} /></div>
       )}
       <div css={approvalButtonRowCss}>
         <button css={approveButtonCss} onClick={() => onApprove(item.id)}>Approve</button>

@@ -962,7 +962,7 @@ def _execute_tools(
                 })
                 continue
 
-            if check_needs_approval(tc.name, tc.arguments, tool_map=actual_tool_map):
+            if check_needs_approval(tc.name, tc.arguments, tool_map=actual_tool_map, session_cwd=session.initial_cwd or None):
                 approved, redirect_message = _request_approval(
                     sid, session_id, tc.id, tc.name, tc.arguments,
                     turn_id=turn_id, subturn_id=subturn_id,

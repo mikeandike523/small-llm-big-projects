@@ -2,22 +2,37 @@ from __future__ import annotations
 
 import os
 import subprocess
+import threading
 from pathlib import Path
 
 from src.tools._subprocess import run_command
 
 _APPROVAL_CMD_TIMEOUT = 5  # seconds; deny approval if git commands stall
 
+# Thread-local storage so check_needs_approval can inject the session CWD
+# without changing every tool's needs_approval signature.
+_tl = threading.local()
+
+
+def set_approval_cwd(cwd: str | None) -> None:
+    """Set the effective CWD for approval checks on the current thread."""
+    _tl.session_cwd = cwd
+
+
+def _get_effective_cwd() -> str:
+    cwd = getattr(_tl, "session_cwd", None)
+    return str(Path(cwd).resolve()) if cwd else str(Path(os.getcwd()).resolve())
+
 
 def _resolve(raw_path: str) -> str:
-    """Resolve a raw path (absolute or relative-to-cwd) to an absolute string."""
+    """Resolve a raw path (absolute or relative-to-session-cwd) to an absolute string."""
     if os.path.isabs(raw_path):
         return str(Path(raw_path).resolve())
-    return str(Path(os.path.join(os.getcwd(), raw_path)).resolve())
+    return str(Path(os.path.join(_get_effective_cwd(), raw_path)).resolve())
 
 
 def _is_under_cwd(resolved: str) -> bool:
-    cwd = str(Path(os.getcwd()).resolve())
+    cwd = _get_effective_cwd()
     try:
         Path(resolved).relative_to(cwd)
         return True
@@ -69,7 +84,7 @@ def needs_path_approval(raw_path: str | None) -> bool:
     if not _is_under_cwd(resolved):
         return True
 
-    cwd = str(Path(os.getcwd()).resolve())
+    cwd = _get_effective_cwd()
     if resolved == cwd:
         return False
 
