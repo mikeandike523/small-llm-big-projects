@@ -18,6 +18,12 @@ import type { Turn, Subturn, ToolCallEntry, TodoItem, ApprovalItem } from '../ty
 const MAX_TOOL_CHARS = 80
 const MAX_LOGS = 100
 
+function formatCost(usd: number): string {
+  if (usd < 0.001) return usd.toFixed(6)
+  if (usd < 0.1) return usd.toFixed(4)
+  return usd.toFixed(2)
+}
+
 
 // ---------------------------------------------------------------------------
 // Shared scrollbar styles
@@ -601,6 +607,13 @@ const headerSideCss = css`
   align-items: center;
   gap: 10px;
   min-width: 0;
+`
+
+const sessionCostCss = css`
+  font-size: 10px;
+  color: #6a9060;
+  font-family: 'Consolas', monospace;
+  white-space: nowrap;
 `
 
 const statusCss = css`
@@ -1826,6 +1839,7 @@ export default function Chat() {
   const [systemPrompt, setSystemPrompt] = useState<string | null>(null)
   const [backendLogs, setBackendLogs] = useState<BackendLogEntry[]>([])
   const [isLoadingBackendState, setIsLoadingBackendState] = useState(false)
+  const [sessionCost, setSessionCost] = useState<number | null>(null)
 
   const { scrollRef: threadRef, contentRef: threadContentRef, scrollToBottom } = useStickToBottom()
 
@@ -2106,6 +2120,7 @@ export default function Chat() {
     function onEnvInfo(data: { os: string; shell: string; initialCwd: string }) { setEnvInfo(data) }
     function onToolsInfo(data: { totalCount: number; builtinCount: number; builtinPath: string; names: string[]; customPlugins: { name: string; count: number; path: string }[] | null }) { setToolsInfo(data) }
     function onSystemPrompt({ text }: { text: string }) { setSystemPrompt(text) }
+    function onSessionCostUpdate({ total_usd }: { total_usd: number }) { setSessionCost(total_usd) }
     function onBackendLog({ id, text }: { id: number; text: string }) {
       setBackendLogs(prev => {
         const next = [...prev, { id, text }]
@@ -2357,6 +2372,7 @@ export default function Chat() {
     socket.on('env_info', onEnvInfo)
     socket.on('tools_info', onToolsInfo)
     socket.on('system_prompt', onSystemPrompt)
+    socket.on('session_cost_update', onSessionCostUpdate)
     socket.on('backend_log', onBackendLog)
     socket.on('startup_tool_call', onStartupToolCall)
     socket.on('startup_tool_result', onStartupToolResult)
@@ -2397,6 +2413,7 @@ export default function Chat() {
       socket.off('env_info', onEnvInfo)
       socket.off('tools_info', onToolsInfo)
       socket.off('system_prompt', onSystemPrompt)
+      socket.off('session_cost_update', onSessionCostUpdate)
       socket.off('backend_log', onBackendLog)
       socket.off('startup_tool_call', onStartupToolCall)
       socket.off('startup_tool_result', onStartupToolResult)
@@ -2537,7 +2554,11 @@ export default function Chat() {
           <span css={statusCss}>{connected ? '●' : '○'} {connected ? 'connected' : 'disconnected'}</span>
           </div>
           <span css={sessionIdCss} title={sessionId}>session: {sessionId.slice(0, 8)}</span>
-          <div css={headerSideCss} />
+          <div css={headerSideCss}>
+            {sessionCost !== null && (
+              <span css={sessionCostCss} title="Accumulated session cost (provider-reported)">${formatCost(sessionCost)}</span>
+            )}
+          </div>
         </div>
         <div css={threadCss} ref={threadRef}>
           <div ref={threadContentRef}>

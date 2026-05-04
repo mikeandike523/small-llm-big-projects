@@ -88,6 +88,8 @@ _session_project_config: dict[str, dict] = {}
 _session_current_cwd: dict[str, str] = {}
 # session_id -> deque of TraceEntry objects (only populated when session.record_traces=True)
 _session_trace_buffers: dict[str, deque] = {}
+# session_id -> accumulated cost in USD for this session (only populated when provider returns cost)
+_session_costs: dict[str, float] = {}
 # Set of session_ids that are currently executing a turn
 _session_active_turns: set[str] = set()
 
@@ -351,6 +353,7 @@ def _delete_session(session_id: str) -> None:
     _session_project_config.pop(session_id, None)
     _session_current_cwd.pop(session_id, None)
     _session_trace_buffers.pop(session_id, None)
+    _session_costs.pop(session_id, None)
 
 
 def clear_all_sessions_on_startup() -> None:
@@ -1588,12 +1591,24 @@ async def _async_agent_loop(
 
             usage = getattr(result, "usage", None)
             if usage:
+                cost = usage.get("cost")
+                cost_str = ""
+                if cost is not None:
+                    try:
+                        cost = float(cost)
+                        _session_costs[session_id] = _session_costs.get(session_id, 0.0) + cost
+                        total_cost = _session_costs[session_id]
+                        socketio.emit("session_cost_update", {"total_usd": total_cost}, room=session_id)
+                        cost_str = f", cost=${cost:.6f} (session=${total_cost:.6f})"
+                    except (TypeError, ValueError):
+                        pass
                 _emit_backend_log(
                     session_id,
                     colored("Usage: ", "cyan") +
                     f"prompt={usage.get('prompt_tokens', '?')}, "
                     f"completion={usage.get('completion_tokens', '?')}, "
                     f"total={usage.get('total_tokens', '?')}"
+                    + cost_str
                 )
 
             last_assistant_content = content_for_history
@@ -1876,6 +1891,10 @@ def handle_resume_session(data: dict):
         "currentTurn": current_turn_data,
         "isTurnActive": is_turn_active,
     })
+
+    total_cost = _session_costs.get(session_id)
+    if total_cost is not None:
+        emit("session_cost_update", {"total_usd": total_cost})
 
     # Always emit event_replay (even if empty) — frontend uses it as the "restore done" signal.
     try:
