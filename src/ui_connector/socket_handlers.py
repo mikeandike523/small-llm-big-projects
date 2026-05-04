@@ -1230,13 +1230,7 @@ async def _is_sufficient_final_answer(
 
 
 def _subturn_final_response(subturn: Subturn) -> str:
-    """Extract just the final response text from a subturn (stripping Context Details if present)."""
-    if subturn.detailed_summary:
-        marker = "\nContext Details:"
-        idx = subturn.detailed_summary.find(marker)
-        if idx >= 0:
-            return subturn.detailed_summary[:idx].strip()
-        return subturn.detailed_summary.strip()
+    """Extract the final response text from a subturn's exchanges."""
     for ex in reversed(subturn.exchanges):
         if ex.is_final:
             return ex.assistant_content
@@ -1246,15 +1240,20 @@ def _subturn_final_response(subturn: Subturn) -> str:
 
 
 def _subturn_assistant_context(subturn: Subturn) -> str:
-    """Return the full context string for a completed subturn (compaction if available, else final response)."""
+    """Return the context string for a completed subturn injected into future LLM payloads.
+
+    When a context annotation exists (tool calls were made), reconstructs:
+      {final response}
+
+      Context Notes:
+      {annotation}
+
+    Otherwise returns just the final response.
+    """
+    final_response = _subturn_final_response(subturn)
     if subturn.detailed_summary:
-        return subturn.detailed_summary
-    for ex in reversed(subturn.exchanges):
-        if ex.is_final:
-            return ex.assistant_content
-    if subturn.exchanges:
-        return subturn.exchanges[-1].assistant_content
-    return ""
+        return f"{final_response}\n\nContext Notes:\n{subturn.detailed_summary}"
+    return final_response
 
 
 def _format_tool_calls_for_compaction(subturn: Subturn) -> str:
@@ -1280,24 +1279,25 @@ def _compute_subturn_compaction(
     subturn: Subturn,
     final_content: str,
 ) -> str:
-    """Synchronous: call LLM to produce a detailed compaction for a completed subturn."""
+    """Synchronous: call LLM to produce a context annotation for a completed subturn."""
     tool_calls_text = _format_tool_calls_for_compaction(subturn)
     messages = [
         {
             "role": "system",
             "content": (
-                "You are writing a context summary of an AI agent's completed work unit.\n"
+                "You are writing a context annotation for a completed AI agent work unit.\n"
                 "Output EXACTLY this format, nothing else:\n\n"
-                "{verbatim final response}\n\n"
-                "Context Details:\n"
                 "Tools used:\n"
                 "- {tool_name}: {one-sentence: why called and what it accomplished}\n"
                 "Memory changes:\n"
-                "- {key or path}: {one-sentence: what was stored and why}\n\n"
+                "- {key or path}: {one-sentence: what was stored and why}\n"
+                "Notable insights:\n"
+                "- {any important problem-solving strategy, decision, or approach used}\n\n"
                 "Rules:\n"
-                "- Copy the final response EXACTLY as provided — do not alter it\n"
                 "- List every tool call under 'Tools used:'\n"
                 "- Under 'Memory changes:' list only session_memory and project_memory writes; "
+                "if none, write a single line: (none)\n"
+                "- Under 'Notable insights:' list any non-obvious approaches; "
                 "if none, write a single line: (none)\n"
                 "- One bullet per item, one sentence each\n"
                 "- Output nothing else"
@@ -1306,7 +1306,7 @@ def _compute_subturn_compaction(
         {
             "role": "user",
             "content": (
-                f"Final response (copy verbatim):\n{final_content}\n\n"
+                f"Final response:\n{final_content}\n\n"
                 f"Tool calls made:\n{tool_calls_text}"
             ),
         },
@@ -1318,7 +1318,7 @@ def _compute_subturn_compaction(
             return text
     except Exception as exc:
         logger.warning("Subturn compaction LLM call failed: %s", exc)
-    return f"{final_content}\n\nContext Details:\n(summary unavailable)"
+    return "(context annotation unavailable)"
 
 
 async def _generate_and_store_compaction(
@@ -1703,11 +1703,11 @@ async def _async_agent_loop(
                 )
                 if impossible_call is not None:
                     reason = impossible_call.args.get("reason", "The task cannot be completed as requested.")
-                    _emit_and_log(session_id, "message_done", {"content": reason, "turn_id": turn_id})
                     if current_subturn.count_tool_calls() > 0:
                         await _generate_and_store_compaction(
                             streaming_llm, session_id, turn_id, current_subturn, reason
                         )
+                    _emit_and_log(session_id, "message_done", {"content": reason, "turn_id": turn_id})
                     turn_completed = True
                     break
 
@@ -1786,13 +1786,13 @@ async def _async_agent_loop(
                     is_final=True,
                 )
                 current_subturn.exchanges.append(final_exchange)
-                _emit_and_log(session_id, "message_done", {
-                    "content": content_for_history, "turn_id": turn_id,
-                })
                 if current_subturn.count_tool_calls() > 0:
                     await _generate_and_store_compaction(
                         streaming_llm, session_id, turn_id, current_subturn, content_for_history
                     )
+                _emit_and_log(session_id, "message_done", {
+                    "content": content_for_history, "turn_id": turn_id,
+                })
                 turn_completed = True
                 break
 
@@ -1807,13 +1807,13 @@ async def _async_agent_loop(
                     is_final=True,
                 )
                 current_subturn.exchanges.append(final_exchange)
-                _emit_and_log(session_id, "message_done", {
-                    "content": cand_content, "turn_id": turn_id,
-                })
                 if current_subturn.count_tool_calls() > 0:
                     await _generate_and_store_compaction(
                         streaming_llm, session_id, turn_id, current_subturn, cand_content
                     )
+                _emit_and_log(session_id, "message_done", {
+                    "content": cand_content, "turn_id": turn_id,
+                })
                 turn_completed = True
                 break
 
@@ -1852,13 +1852,13 @@ async def _async_agent_loop(
                 is_final=True,
             )
             current_subturn.exchanges.append(final_exchange)
-            _emit_and_log(session_id, "message_done", {
-                "content": content_for_history, "turn_id": turn_id,
-            })
             if current_subturn.count_tool_calls() > 0:
                 await _generate_and_store_compaction(
                     streaming_llm, session_id, turn_id, current_subturn, content_for_history
                 )
+            _emit_and_log(session_id, "message_done", {
+                "content": content_for_history, "turn_id": turn_id,
+            })
             turn_completed = True
             break
 

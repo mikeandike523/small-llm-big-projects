@@ -1587,12 +1587,6 @@ function TurnContainer({
   const [followUpText, setFollowUpText] = useState('')
   const [compactionModalSubturnId, setCompactionModalSubturnId] = useState<string | null>(null)
 
-  function extractContextDetails(detailedSummary: string): string | null {
-    const marker = '\nContext Details:'
-    const idx = detailedSummary.indexOf(marker)
-    if (idx === -1) return null
-    return detailedSummary.slice(idx + marker.length).trimStart()
-  }
   const { todoItems, approvalItems, impossible, cancelled, subturns, streaming, isInterimStreaming, interimShowCharCount, interimCharCount, interrupted } = turn
 
   const { scrollRef: toolsScrollRef, contentRef: toolsContentRef } = useStickToBottom()
@@ -1679,10 +1673,8 @@ function TurnContainer({
                 {(() => {
                   if (!st.detailedSummary) return null
                   if (isLast && streaming) return null
-                  const details = extractContextDetails(st.detailedSummary)
-                  const previewText = details
-                    ? details.slice(0, 200) + (details.length > 200 ? '…' : '')
-                    : 'Context recorded'
+                  const summary = st.detailedSummary
+                  const previewText = summary.slice(0, 200) + (summary.length > 200 ? '…' : '')
                   return (
                     <div css={compactionBubbleCss}>
                       <span css={compactionTextCss}>{previewText}</span>
@@ -1948,12 +1940,11 @@ function TurnContainer({
       {compactionModalSubturnId && (() => {
         const st = subturns.find(s => s.id === compactionModalSubturnId)
         if (!st?.detailedSummary) return null
-        const details = extractContextDetails(st.detailedSummary) ?? st.detailedSummary
         return (
           <div css={compactionModalOverlayCss} onClick={() => setCompactionModalSubturnId(null)}>
             <div css={compactionModalCss} onClick={e => e.stopPropagation()}>
-              <div css={compactionModalTitleCss}>Context Details</div>
-              <div css={compactionModalBodyCss}>{details}</div>
+              <div css={compactionModalTitleCss}>Context Notes</div>
+              <div css={compactionModalBodyCss}>{st.detailedSummary}</div>
               <button css={compactionModalCloseCss} onClick={() => setCompactionModalSubturnId(null)}>Close</button>
             </div>
           </div>
