@@ -20,6 +20,7 @@ from flask_socketio import emit, join_room
 
 from src.ui_connector.app import app, socketio
 from src.data import get_pool
+from src.terminal import PtyProcess, TerminalSessionManager
 
 from src.utils.sql.kv_manager import KVManager
 from src.utils.profile_utils import get_active_profile, _kv_prefix
@@ -92,6 +93,10 @@ _session_trace_buffers: dict[str, deque] = {}
 _session_costs: dict[str, float] = {}
 # Set of session_ids that are currently executing a turn
 _session_active_turns: set[str] = set()
+
+_terminal_manager = TerminalSessionManager()
+_terminal_output_threads: dict[str, threading.Thread] = {}
+_terminal_session_rooms: dict[str, str] = {}
 
 
 def _build_starting_environment_info(session: "Session") -> str:
@@ -216,6 +221,29 @@ def _emit_backend_log(session_id: str, text: str) -> None:
         _log_counter += 1
         n = _log_counter
     socketio.emit("backend_log", {"id": n, "text": text}, room=session_id)
+
+
+def _terminal_output_pump(session_id: str, terminal_id: str, proc: PtyProcess) -> None:
+    while proc.is_alive():
+        data = proc.read(timeout=0.05)
+        if data:
+            socketio.emit(
+                "terminal_output",
+                {"terminal_id": terminal_id, "data": data.decode("utf-8", errors="replace")},
+                room=session_id,
+            )
+
+    socketio.emit(
+        "terminal_exited",
+        {"terminal_id": terminal_id, "exit_code": proc.exit_code},
+        room=session_id,
+    )
+    _terminal_output_threads.pop(terminal_id, None)
+    _terminal_session_rooms.pop(terminal_id, None)
+
+
+def _terminal_belongs_to_session(session_id: str, terminal_id: str) -> bool:
+    return bool(terminal_id) and _terminal_session_rooms.get(terminal_id) == session_id
 
 
 # ---------------------------------------------------------------------------
@@ -1915,6 +1943,100 @@ def handle_resume_session(data: dict):
     except Exception as exc:
         logger.warning("shell_output_snapshot error for session %s: %s", session_id, exc)
 
+    sessions = [
+        s
+        for s in _terminal_manager.list_sessions()
+        if _terminal_session_rooms.get(s.id) == session_id and s.process.is_alive()
+    ]
+    emit("terminal_sessions_state", {
+        "sessions": [{"terminal_id": s.id, "name": s.name} for s in sessions],
+    })
+
+
+@socketio.on("terminal_create")
+def handle_terminal_create(data: dict):
+    data = data or {}
+    sid = request.sid
+    session_id = _sid_to_session_id.get(sid)
+    if not session_id:
+        return
+
+    name = str(data.get("name") or "terminal")
+    cwd = data.get("cwd") or None
+    try:
+        session = _terminal_manager.create(name=name, cwd=cwd, rows=24, cols=80)
+    except Exception as exc:
+        logger.warning("Failed to create terminal for session %s: %s", session_id, exc)
+        socketio.emit("error", {"message": f"Failed to create terminal: {exc}"}, room=session_id)
+        return
+
+    _terminal_session_rooms[session.id] = session_id
+    t = threading.Thread(
+        target=_terminal_output_pump,
+        args=(session_id, session.id, session.process),
+        daemon=True,
+    )
+    _terminal_output_threads[session.id] = t
+    t.start()
+    socketio.emit("terminal_created", {"terminal_id": session.id, "name": session.name}, room=session_id)
+
+
+@socketio.on("terminal_input")
+def handle_terminal_input(data: dict):
+    data = data or {}
+    sid = request.sid
+    session_id = _sid_to_session_id.get(sid)
+    if not session_id:
+        return
+
+    terminal_id = str(data.get("terminal_id") or "")
+    if not _terminal_belongs_to_session(session_id, terminal_id):
+        return
+
+    raw = str(data.get("data") or "")
+    session = _terminal_manager.get(terminal_id)
+    if session and session.process.is_alive():
+        session.process.write(raw.encode("utf-8", errors="replace"))
+
+
+@socketio.on("terminal_resize")
+def handle_terminal_resize(data: dict):
+    data = data or {}
+    sid = request.sid
+    session_id = _sid_to_session_id.get(sid)
+    if not session_id:
+        return
+
+    terminal_id = str(data.get("terminal_id") or "")
+    if not _terminal_belongs_to_session(session_id, terminal_id):
+        return
+
+    try:
+        rows = max(1, int(data.get("rows", 24)))
+        cols = max(1, int(data.get("cols", 80)))
+    except (TypeError, ValueError):
+        rows, cols = 24, 80
+
+    session = _terminal_manager.get(terminal_id)
+    if session and session.process.is_alive():
+        session.process.resize(rows, cols)
+
+
+@socketio.on("terminal_close")
+def handle_terminal_close(data: dict):
+    data = data or {}
+    sid = request.sid
+    session_id = _sid_to_session_id.get(sid)
+    if not session_id:
+        return
+
+    terminal_id = str(data.get("terminal_id") or "")
+    if not _terminal_belongs_to_session(session_id, terminal_id):
+        return
+
+    _terminal_session_rooms.pop(terminal_id, None)
+    _terminal_manager.destroy(terminal_id)
+
 
 @socketio.on("disconnect")
 def handle_disconnect():
@@ -2459,4 +2581,3 @@ def handle_force_continuation(data: dict):
     finally:
         _session_active_turns.discard(session_id)
         loop.close()
-

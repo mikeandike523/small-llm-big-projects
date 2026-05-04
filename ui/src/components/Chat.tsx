@@ -8,6 +8,7 @@ import { createSocket } from '../socket'
 import { useStickToBottom } from 'use-stick-to-bottom'
 import { TextPresenter } from './TextPresenter'
 import { DebugPanel } from './DebugPanel'
+import { TerminalPanel } from './TerminalPanel'
 import Ansi from 'ansi-to-react'
 import type { Turn, Subturn, ToolCallEntry, TodoItem, ApprovalItem } from '../types'
 
@@ -171,6 +172,16 @@ const debugPanelWrapperCss = (open: boolean) => css`
   width: ${open ? '20%' : '28px'};
   min-width: ${open ? '160px' : '28px'};
   max-width: ${open ? '320px' : '28px'};
+  transition: width 0.2s ease, min-width 0.2s ease, max-width 0.2s ease;
+  overflow: hidden;
+  flex-shrink: 0;
+  height: 100%;
+`
+
+const terminalPanelWrapperCss = (open: boolean) => css`
+  width: ${open ? '38%' : '28px'};
+  min-width: ${open ? '280px' : '28px'};
+  max-width: ${open ? '680px' : '28px'};
   transition: width 0.2s ease, min-width 0.2s ease, max-width 0.2s ease;
   overflow: hidden;
   flex-shrink: 0;
@@ -1882,6 +1893,7 @@ export default function Chat() {
     customPlugins: { name: string; count: number; path: string }[] | null
   } | null>(null)
   const [debugOpen, setDebugOpen] = useState(true)
+  const [terminalOpen, setTerminalOpen] = useState(false)
   const [systemPrompt, setSystemPrompt] = useState<string | null>(null)
   const [backendLogs, setBackendLogs] = useState<BackendLogEntry[]>([])
   const [isLoadingBackendState, setIsLoadingBackendState] = useState(false)
@@ -2650,6 +2662,16 @@ export default function Chat() {
             </button>
           ))}
         </div>
+      </div>
+
+      {/* Terminal panel */}
+      <div css={terminalPanelWrapperCss(terminalOpen)}>
+        <TerminalPanel
+          open={terminalOpen}
+          onToggle={() => setTerminalOpen(o => !o)}
+          socket={socket}
+          pwd={pwd}
+        />
       </div>
     </div>
   )
