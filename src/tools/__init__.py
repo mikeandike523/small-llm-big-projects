@@ -132,7 +132,20 @@ def check_needs_approval(name: str, args: dict, tool_map: dict | None = None) ->
     return bool(fn(args))
 
 
-def get_dirty_effects(name: str, args: dict, tool_map: dict | None = None) -> dict:
+def _accepts_session_data(fn) -> bool:
+    """Return True if the function declares a second parameter (session_data)."""
+    try:
+        return len(inspect.signature(fn).parameters) >= 2
+    except (ValueError, TypeError):
+        return False
+
+
+def get_dirty_effects(
+    name: str,
+    args: dict,
+    session_data: dict | None = None,
+    tool_map: dict | None = None,
+) -> dict:
     """Return the dirty effects dict for a tool call, or {} if the tool defines none."""
     module = (tool_map if tool_map is not None else _TOOL_MAP).get(name)
     if module is None:
@@ -141,6 +154,8 @@ def get_dirty_effects(name: str, args: dict, tool_map: dict | None = None) -> di
     if fn is None:
         return {}
     try:
+        if session_data is not None and _accepts_session_data(fn):
+            return fn(args, session_data) or {}
         return fn(args) or {}
     except Exception:
         return {}

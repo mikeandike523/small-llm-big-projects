@@ -47,15 +47,9 @@ DEFINITION: dict = {
 
 def dirty_effects(args: dict) -> dict:
     path = args.get("path")
-    session_memory_key = args.get("session_memory_key")
-    effects: dict = {}
     if path:
-        # Pure overwrite — mark dirty but don't require clean
-        effects["dirties_files"] = [path]
-    if session_memory_key:
-        # Memory key was consumed (flushed to disk) — mark clean
-        effects["cleans_mem"] = [session_memory_key]
-    return effects
+        return {"dirties_files": [path]}
+    return {}
 
 
 def needs_approval(args: dict) -> bool:

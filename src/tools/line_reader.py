@@ -72,13 +72,40 @@ DEFINITION: dict = {
 }
 
 
-def dirty_effects(args: dict) -> dict:
+def dirty_effects(args: dict, session_data: dict | None = None) -> dict:
+    if args.get("action") != "read_lines":
+        return {}
+    start = args.get("start_line")
+    end = args.get("end_line")
+    # Must read from the beginning
+    if start is not None and start != 1:
+        return {}
     path = args.get("path")
     key = args.get("session_memory_key")
+    # No upper bound — unconditionally a full read
+    if end is None:
+        if path:
+            return {"cleans_files": [path]}
+        if key:
+            return {"cleans_mem": [key]}
+        return {}
+    # Explicit end — verify against the actual content length
     if path:
-        return {"cleans_files": [path]}
-    if key:
-        return {"cleans_mem": [key]}
+        try:
+            with open(os.path.realpath(path), "r", encoding="utf-8") as fh:
+                content = fh.read()
+            total = 0 if content == "" else content.count("\n") + (0 if content.endswith("\n") else 1)
+            if end >= total:
+                return {"cleans_files": [path]}
+        except OSError:
+            pass
+    if key and session_data is not None:
+        memory = session_data.get("memory") or {}
+        content = memory.get(key)
+        if isinstance(content, str):
+            total = 0 if content == "" else content.count("\n") + (0 if content.endswith("\n") else 1)
+            if end >= total:
+                return {"cleans_mem": [key]}
     return {}
 
 

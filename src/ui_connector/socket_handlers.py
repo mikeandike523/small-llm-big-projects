@@ -946,7 +946,7 @@ def _execute_tools(
             tool_record = ToolCallRecord(id=tc.id, name=tc.name, args=tc.arguments)
 
             # Dirty cache check: block partial edits on resources modified since last read.
-            _effects = get_dirty_effects(tc.name, tc.arguments, tool_map=actual_tool_map)
+            _effects = get_dirty_effects(tc.name, tc.arguments, session_data=session.session_data, tool_map=actual_tool_map)
             _dirty_error = _dirty_cache.check_requires_clean(session_id, _effects, tc.name)
             if _dirty_error:
                 tool_record.result = _dirty_error
