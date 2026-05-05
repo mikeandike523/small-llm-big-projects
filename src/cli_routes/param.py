@@ -20,11 +20,6 @@ _ALLOWED_PARAMS = {
     "system.return_value_max_chars",
 }
 
-# Params that existed in older versions but are no longer advertised.
-# They are silently filtered from list/show/manual output and still
-# deletable via `param unset`, but cannot be set or displayed.
-DEPRECATED_PARAMS: set[str] = {"model.default_irat"}
-
 _PARAM_DOCS = {
     "model.temperature": {
         "type": "float (0.0 - 2.0)",
@@ -182,7 +177,7 @@ def param():
 @click.option("--available", is_flag=True, default=False, help="List all available params with their types and descriptions.")
 def sub_cmd_list(available):
     if available:
-        entries = sorted((k, v) for k, v in _PARAM_DOCS.items() if k not in DEPRECATED_PARAMS)
+        entries = sorted(_PARAM_DOCS.items())
         for i, (name, doc) in enumerate(entries):
             if i:
                 click.echo("")
@@ -198,7 +193,7 @@ def sub_cmd_list(available):
         profile = get_active_profile(kv)
         prefix = _kv_prefix(profile)
         params_prefix = prefix + "params."
-        keys = [k for k in kv.list_keys(prefix=params_prefix) if k[len(params_prefix):] not in DEPRECATED_PARAMS]
+        keys = [k for k in kv.list_keys(prefix=params_prefix) if k[len(params_prefix):] in _ALLOWED_PARAMS]
         if not keys:
             click.echo(f"No params set.  (profile: {profile})")
         else:
@@ -242,7 +237,7 @@ def sub_cmd_show():
         profile = get_active_profile(kv)
         prefix = _kv_prefix(profile)
         params_prefix = prefix + "params."
-        keys = [k for k in kv.list_keys(prefix=params_prefix) if k[len(params_prefix):] not in DEPRECATED_PARAMS]
+        keys = [k for k in kv.list_keys(prefix=params_prefix) if k[len(params_prefix):] in _ALLOWED_PARAMS]
         if not keys:
             click.echo(f"No params set.  (profile: {profile})")
             return
@@ -259,11 +254,6 @@ def sub_cmd_unset(name):
     """
     Remove a generation parameter.
     """
-    if name not in _ALLOWED_PARAMS and name not in DEPRECATED_PARAMS:
-        raise click.BadParameter(
-            f"Unknown param '{name}'. Allowed: {', '.join(sorted(_ALLOWED_PARAMS))}",
-            param_hint="name",
-        )
     pool = get_pool()
     with pool.get_connection() as conn:
         kv = KVManager(conn)
@@ -282,7 +272,7 @@ def sub_cmd_manual():
     """
     Print documentation for every available parameter.
     """
-    entries = sorted((k, v) for k, v in _PARAM_DOCS.items() if k not in DEPRECATED_PARAMS)
+    entries = sorted(_PARAM_DOCS.items())
     for i, (name, doc) in enumerate(entries):
         if i:
             click.echo("")
