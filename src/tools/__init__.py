@@ -21,6 +21,7 @@ from src.tools import get_pwd
 from src.tools import host_check_command
 from src.tools import host_shell
 from src.tools import open_in_terminal
+from src.tools import read_open_terminal
 from src.tools import list_dir
 from src.tools import list_working_tree
 from src.tools import project_memory
@@ -53,6 +54,7 @@ ALL_TOOL_DEFINITIONS: list[dict] = [
     host_check_command.DEFINITION,
     host_shell.DEFINITION,
     open_in_terminal.DEFINITION,
+    read_open_terminal.DEFINITION,
     list_dir.DEFINITION,
     list_working_tree.DEFINITION,
     project_memory.DEFINITION,
@@ -85,6 +87,7 @@ _TOOL_MAP: dict[str, object] = {
     "host_check_command": host_check_command,
     "host_shell": host_shell,
     "open_in_terminal": open_in_terminal,
+    "read_open_terminal": read_open_terminal,
     "list_dir": list_dir,
     "list_working_tree": list_working_tree,
     "project_memory": project_memory,

@@ -17,4 +17,5 @@ protego
 trafilatura
 pywinpty; sys_platform == "win32"
 ptyprocess; sys_platform != "win32"
+pyte
 pytest-timeout

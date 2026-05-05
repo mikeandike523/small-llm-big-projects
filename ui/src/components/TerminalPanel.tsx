@@ -104,11 +104,11 @@ const titleCss = css`
 
 const tabBarCss = css`
   display: flex;
-  align-items: center;
-  gap: 6px;
+  align-items: flex-end;
+  gap: 4px;
   min-height: 36px;
-  padding: 5px 8px;
-  border-bottom: 1px solid #17283c;
+  padding: 5px 8px 0 8px;
+  border-bottom: 1px solid #2a4a6a;
   background: #09111c;
   overflow-x: auto;
   flex-shrink: 0;
@@ -118,18 +118,26 @@ const tabButtonCss = (active: boolean, exited: boolean) => css`
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  max-width: 150px;
+  max-width: 160px;
   min-width: 0;
-  height: 24px;
-  padding: 0 7px;
-  border-radius: 5px;
-  border: 1px solid ${active ? '#477bb0' : '#1e344d'};
-  background: ${active ? '#132940' : '#0d1a28'};
-  color: ${exited ? '#617286' : active ? '#e3f0ff' : '#9ab3ce'};
+  height: 26px;
+  padding: 0 8px;
+  border-radius: 4px 4px 0 0;
+  border: 1px solid ${active ? '#3d6b99' : '#1e344d'};
+  border-bottom-color: ${active ? '#0d0d0d' : '#2a4a6a'};
+  background: ${active ? '#0d0d0d' : '#0b1521'};
+  color: ${exited ? '#55697a' : active ? '#d8ecff' : '#7fa0bc'};
   font-family: 'Consolas', monospace;
   font-size: 11px;
   cursor: pointer;
-  &:hover { border-color: #5f8fc0; }
+  margin-bottom: -1px;
+  position: relative;
+  z-index: ${active ? 1 : 0};
+  &:hover {
+    border-color: #4d7ba8;
+    border-bottom-color: ${active ? '#0d0d0d' : '#2a4a6a'};
+    color: ${exited ? '#55697a' : '#b8d8f4'};
+  }
 `
 
 const tabNameCss = css`
@@ -373,8 +381,7 @@ export function TerminalPanel({ open, onToggle, socket, pwd }: Props) {
   }, [activeTabIdx, tabs.length])
 
   const createTerminal = useCallback(() => {
-    const name = `terminal-${tabsRef.current.length + 1}`
-    socket.emit('terminal_create', { name, cwd: pwd || undefined })
+    socket.emit('terminal_create', { cwd: pwd || undefined })
   }, [pwd, socket])
 
   const closeTerminal = useCallback((terminalId: string) => {

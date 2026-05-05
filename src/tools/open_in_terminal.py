@@ -67,8 +67,8 @@ def execute(args: dict, session_data: dict | None = None, special_resources: dic
         return "Error: open_in_terminal is not available in this context (no terminal backend attached)."
 
     try:
-        create_terminal(cmd, name)
+        terminal_id = create_terminal(cmd, name)
     except Exception as exc:
         return f"Error: Failed to open terminal: {exc}"
 
-    return "Command successfully opened in terminal."
+    return f"Terminal opened. id={terminal_id}"
