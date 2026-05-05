@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from src.terminal.shell_resolver import resolve_cmd
+
 
 DEFINITION = {
     "type": "function",
@@ -18,23 +20,28 @@ DEFINITION = {
         "parameters": {
             "type": "object",
             "properties": {
-                "command_line": {
+                "command": {
                     "type": "string",
                     "description": (
-                        "The shell command line to run. "
-                        "Executed via 'bash -lc' (or platform equivalent) inside a PTY "
-                        "so the full PATH and shell environment are available."
+                        "Command name or path to executable. "
+                        "If resolvable via PATH, executed directly; "
+                        "otherwise wrapped in the platform login shell."
                     ),
+                },
+                "command_args": {
+                    "type": "array",
+                    "description": "List of arguments to pass to the command.",
+                    "items": {"type": "string"},
                 },
                 "name": {
                     "type": "string",
                     "description": (
                         "Optional label for the terminal tab (e.g. 'dev server', 'python repl'). "
-                        "Defaults to the command line, truncated to 40 characters."
+                        "Defaults to the command, truncated to 40 characters."
                     ),
                 },
             },
-            "required": ["command_line"],
+            "required": ["command", "command_args"],
             "additionalProperties": False,
         },
     },
@@ -47,15 +54,20 @@ def needs_approval(args: dict) -> bool:
 
 def execute(args: dict, session_data: dict | None = None, special_resources: dict | None = None) -> str:
     sr = special_resources or {}
-    command_line = args["command_line"]
-    name = args.get("name") or (command_line[:40] if len(command_line) > 40 else command_line)
+    command = args["command"]
+    command_args = args.get("command_args", [])
+    name = args.get("name") or (command[:40] if len(command) > 40 else command)
+
+    cmd = resolve_cmd(command, command_args)
+    if isinstance(cmd, str):
+        return cmd  # error from shell resolution
 
     create_terminal = sr.get("create_terminal")
     if create_terminal is None:
         return "Error: open_in_terminal is not available in this context (no terminal backend attached)."
 
     try:
-        create_terminal(command_line, name)
+        create_terminal(cmd, name)
     except Exception as exc:
         return f"Error: Failed to open terminal: {exc}"
 

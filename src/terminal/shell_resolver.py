@@ -29,6 +29,52 @@ def _find_git_bash() -> str | None:
     return None
 
 
+def resolve_cmd(command: str, command_args: list[str]) -> list[str] | str:
+    """
+    Build the final argv list for *command* + *command_args*.
+
+    If *command* is directly resolvable via shutil.which, run it as-is.
+    Otherwise wrap in the platform login shell (bash -lc / zsh -lc) so that
+    shell-managed PATH entries (nvm, pyenv, etc.) are available.
+
+    Returns list[str] on success, or an error string if the required shell
+    cannot be found.
+    """
+    import shlex
+
+    resolved = shutil.which(command)
+    if resolved:
+        return [resolved] + command_args
+
+    os_name = get_os()
+    shell_cmd = shlex.join([command] + command_args)
+
+    if os_name == "Windows":
+        git_bash = _find_git_bash()
+        if git_bash is None:
+            return (
+                "Error: Git Bash not found. "
+                "Git Bash is a prerequisite of slbp on Windows. "
+                "Install from https://git-scm.com/"
+            )
+        return [git_bash, "-lc", shell_cmd]
+
+    if os_name == "macOS":
+        for shell in ("zsh", "bash"):
+            path = shutil.which(shell)
+            if path:
+                return [path, "-lc", shell_cmd]
+        return "Error: Neither zsh nor bash found on macOS."
+
+    user_shell = os.environ.get("SHELL", "")
+    if user_shell and os.path.isfile(user_shell):
+        return [user_shell, "-lc", shell_cmd]
+    bash = shutil.which("bash")
+    if bash:
+        return [bash, "-lc", shell_cmd]
+    return "Error: No suitable shell found on this Linux system."
+
+
 def resolve_shell_cmd(command_line: str) -> list[str]:
     """
     Wrap *command_line* in the platform shell for non-interactive PTY execution.
