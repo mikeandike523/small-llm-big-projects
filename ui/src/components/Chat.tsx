@@ -20,13 +20,28 @@ const MAX_TOOL_CHARS = 80
 const MAX_LOGS = 100
 const JSON_VALUE_MAX_LINES = 10
 
-function formatCost(usd: number): string {
-  if (usd < 0.001) return usd.toFixed(6)
-  if (usd < 0.1) return usd.toFixed(4)
-  return usd.toFixed(2)
+
+function formatCostWithColor(usd: number): React.ReactNode {
+  const costStr = usd.toFixed(4)
+  const parts = costStr.split('.')
+
+  if (parts.length !== 2) {
+    throw new Error(`Unexpected cost format: ${costStr}`) // should never happen with the current formatCost implementation
+  }
+  
+  const dollars = parts[0].padStart(2, '0')
+  const cents = parts[1].slice(0, 2)
+  const partialCents = parts[1].slice(2)
+
+  return <>
+    <span style={{color:"#FFF"}}>{dollars}</span>
+    <span style={{color:"#FFF"}}>.</span>
+    <span style={{color:"#FFF"}}>{cents}</span>
+    <span style={{color:"#888"}}>{partialCents}</span>
+  </>
+  
+  
 }
-
-
 // ---------------------------------------------------------------------------
 // Shared scrollbar styles
 // ---------------------------------------------------------------------------
@@ -2614,9 +2629,10 @@ export default function Chat() {
           <span css={sessionIdCss} title={sessionId}>session: {sessionId.slice(0, 8)}</span>
           <div css={headerSideCss}>
             {sessionCost !== null && (
-              <span css={sessionCostCss} title="Accumulated session cost (provider-reported)">${formatCost(sessionCost)}</span>
-            )}
-          </div>
+              <span css={sessionCostCss} title="Accumulated session cost (provider-reported)">
+                <span style={{ color: '#fff' }}>$</span>{formatCostWithColor(sessionCost)}
+              </span>
+            )}          </div>
         </div>
         <div css={threadCss} ref={threadRef}>
           <div ref={threadContentRef}>
