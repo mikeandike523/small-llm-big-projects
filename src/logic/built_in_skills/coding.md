@@ -38,7 +38,7 @@ files directly without a session memory buffer.
       host_shell("git status --short <file>") or host_shell("git diff --name-only <file>")
     for each target file. Do this once per task — not before every individual edit in a
     multi-step sequence. If a file has unstaged changes or uncommitted staged changes,
-    warn the user and use the `ask_human` tool to get approval before proceeding.
+    warn the user and state your concern clearly as your final response, waiting for their approval before proceeding.
 
 Writing Small Files (new or complete rewrite):
 
@@ -175,9 +175,9 @@ can watch output stream in real time, type input, press arrow keys, and experime
 - Non-interactive commands that produce a fixed result: builds, tests, linters, installs, git ops
 - Scripts that take no user input and whose output you need to inspect or act on programmatically
 
-The terminal opened by `open_in_terminal` is a full interactive login shell — Ctrl+C kills only
-the running program and returns to a shell prompt, so the user can re-run, tweak arguments, or
-explore further without closing the tab.
+The terminal opened by `open_in_terminal` spawns the command directly in a PTY. When the process
+exits (Ctrl+C, Ctrl+D, or natural completion), the terminal tab's session ends. For a persistent
+shell the user can keep working in, pass `command="bash"` (or `"python"` for a REPL, etc.).
 
 ### Stay Up to Date
 
