@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import os
+import subprocess
 from pathlib import Path
 
 import click
+from termcolor import colored
 
 from src.cli_obj import cli
+from src.utils.docker_compose import _find_docker_compose, get_service_port
 from src.utils.env_info import get_default_workspace_dir
 from src.utils.free_port import find_free_port
 from src.utils.process import ManagedProcess, find_bash, run_processes
@@ -15,6 +18,51 @@ from src.utils.sql.kv_manager import KVManager
 from src.utils.profile_utils import get_active_profile, _kv_prefix
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+
+_DOCKER_SERVICES = [
+    ("mysql", 3306),
+    ("redis", 6379),
+    ("piston", 2000),
+]
+
+
+def _ok(label: str) -> None:
+    click.echo(colored(f"  ✅ {label}", "green"))
+
+
+def _fail(label: str, detail: str) -> None:
+    click.echo(colored(f"  ❌ {label}: {detail}", "red"))
+    raise SystemExit(1)
+
+
+def _run_preflight_checks() -> None:
+    click.echo("[slbp] Pre-flight checks:")
+
+    # 1. docker compose CLI available
+    try:
+        _find_docker_compose()
+        _ok("docker compose available")
+    except RuntimeError as exc:
+        _fail("docker compose available", str(exc))
+
+    # 2. Docker daemon reachable
+    try:
+        r = subprocess.run(["docker", "info"], capture_output=True, timeout=10)
+        if r.returncode != 0:
+            _fail("docker daemon running", "docker info returned non-zero — is Docker Desktop running?")
+        _ok("docker daemon running")
+    except FileNotFoundError:
+        _fail("docker daemon running", "docker not found in PATH")
+    except subprocess.TimeoutExpired:
+        _fail("docker daemon running", "docker info timed out")
+
+    # 3. Each compose service
+    for service, port in _DOCKER_SERVICES:
+        try:
+            get_service_port(service, port)
+            _ok(f"{service} service running (port {port})")
+        except Exception as exc:
+            _fail(f"{service} service running", str(exc))
 
 
 @cli.group()
@@ -91,6 +139,8 @@ def server_run(
       - Docker Compose services (MySQL, Redis, Piston) are running
       - .env exists at the project root (copy from .env.example)
     """
+    _run_preflight_checks()
+
     # Lightweight pre-flight config check.
     try:
         pool = get_pool()
