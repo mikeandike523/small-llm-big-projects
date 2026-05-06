@@ -52,6 +52,20 @@ def load_llm_config() -> dict | None:
 
         token_value, endpoint_url = row
 
+        if not endpoint_url:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT default_endpoint_url
+                    FROM known_providers
+                    WHERE BINARY provider_key = BINARY %s
+                    LIMIT 1
+                    """,
+                    (provider,),
+                )
+                kp_row = cursor.fetchone()
+            endpoint_url = kp_row[0] if kp_row else None
+
         model = kv.get_value(prefix + "model") or None
         full_params_prefix = prefix + "params."
         full_model_prefix = prefix + "params.model."
