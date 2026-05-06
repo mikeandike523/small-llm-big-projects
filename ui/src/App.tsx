@@ -3,6 +3,7 @@ import { Global, css } from '@emotion/react'
 import { Routes, Route } from 'react-router-dom'
 import Chat from './components/Chat'
 import Dashboard from './components/Dashboard'
+import ConfigPage from './components/ConfigPage'
 
 const globalCss = css`
   *, *::before, *::after {
@@ -27,6 +28,7 @@ export default function App() {
       <Routes>
         <Route path="/" element={<Dashboard />} />
         <Route path="/session" element={<Chat />} />
+        <Route path="/config" element={<ConfigPage />} />
       </Routes>
     </>
   )

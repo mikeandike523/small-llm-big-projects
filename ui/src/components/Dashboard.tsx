@@ -1,7 +1,7 @@
 /** @jsxImportSource @emotion/react */
 import { css, keyframes } from '@emotion/react'
 import { useEffect, useState, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, Link } from 'react-router-dom'
 import NewSessionDialog, { type SessionDefaults } from './NewSessionDialog'
 
 // ---------------------------------------------------------------------------
@@ -357,6 +357,18 @@ const retryBtnCss = css`
   &:hover { border-color: #cc6666; }
 `
 
+const configLinkCss = css`
+  background: none;
+  border: 1px solid #30405f;
+  border-radius: 6px;
+  color: #8a9ab8;
+  font-size: 12px;
+  font-family: inherit;
+  padding: 7px 14px;
+  text-decoration: none;
+  &:hover { border-color: #8aa4d8; color: #eef3ff; }
+`
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -444,14 +456,17 @@ export default function Dashboard() {
           <div css={titleCss}>SLBP</div>
           <div css={subtitleCss}>small llm, big projects</div>
         </div>
-        <button
-          css={newSessionBtnCss}
-          onClick={() => setShowNewSession(true)}
-          disabled={sessionDefaults === null}
-          title={sessionDefaults === null ? 'Loading session defaults...' : undefined}
-        >
-          + New Session
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <Link css={configLinkCss} to="/config">Config</Link>
+          <button
+            css={newSessionBtnCss}
+            onClick={() => setShowNewSession(true)}
+            disabled={sessionDefaults === null}
+            title={sessionDefaults === null ? 'Loading session defaults...' : undefined}
+          >
+            + New Session
+          </button>
+        </div>
       </div>
 
       <div css={bodyScrollCss}>
