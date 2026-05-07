@@ -66,6 +66,23 @@ class TerminalSession:
 
         return "\n".join(result)
 
+    def get_snapshot(self) -> str:
+        """
+        Return current terminal content as a string suitable for writing into a
+        fresh xterm.js instance.  Includes scrollback history + visible screen,
+        strips trailing blank lines, and uses \\r\\n line endings.
+        """
+        with self._pyte_lock:
+            cols = self._screen.columns
+            history = [_render_line(line, cols) for line in self._screen.history.top]
+            visible = [line.rstrip() for line in self._screen.display]
+
+        lines = history + visible
+        # Drop trailing blank lines so xterm.js cursor lands at the right row.
+        while lines and not lines[-1]:
+            lines.pop()
+        return "\r\n".join(lines)
+
 
 class TerminalSessionManager:
     """

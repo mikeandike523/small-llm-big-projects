@@ -19,6 +19,7 @@ interface TerminalTabState {
 interface TerminalSessionState {
   terminal_id: string
   name: string
+  snapshot?: string
 }
 
 interface Props {
@@ -365,7 +366,10 @@ export function TerminalPanel({ open, onToggle, socket, pwd }: Props) {
         const byId = new Map(prev.map(tab => [tab.terminalId, tab]))
         const next = sessions.map(session => {
           const existing = byId.get(session.terminal_id)
-          return existing ? { ...existing, name: session.name, exited: false, exitCode: null } : makeTab(session.terminal_id, session.name)
+          if (existing) return { ...existing, name: session.name, exited: false, exitCode: null }
+          const tab = makeTab(session.terminal_id, session.name)
+          if (session.snapshot) tab.pendingOutput = session.snapshot
+          return tab
         })
         setActiveTabIdx(idx => Math.min(idx, Math.max(0, next.length - 1)))
         return next

@@ -1995,7 +1995,10 @@ def handle_resume_session(data: dict):
         if _terminal_session_rooms.get(s.id) == session_id and s.process.is_alive()
     ]
     emit("terminal_sessions_state", {
-        "sessions": [{"terminal_id": s.id, "name": s.name} for s in sessions],
+        "sessions": [
+            {"terminal_id": s.id, "name": s.name, "snapshot": s.get_snapshot()}
+            for s in sessions
+        ],
     })
 
 
