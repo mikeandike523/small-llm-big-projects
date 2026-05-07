@@ -284,9 +284,9 @@ def _launch_terminal_for_session(session_id: str, cmd: list[str], name: str) -> 
         daemon=True,
     )
     _terminal_output_threads[session.id] = t
-    t.start()
     socketio.emit("terminal_open_panel", {}, room=session_id)
     socketio.emit("terminal_created", {"terminal_id": session.id, "name": name}, room=session_id)
+    t.start()
     return session.id
 
 
@@ -2024,8 +2024,8 @@ def handle_terminal_create(data: dict):
         daemon=True,
     )
     _terminal_output_threads[session.id] = t
-    t.start()
     socketio.emit("terminal_created", {"terminal_id": session.id, "name": session.name}, room=session_id)
+    t.start()
 
 
 @socketio.on("terminal_input")

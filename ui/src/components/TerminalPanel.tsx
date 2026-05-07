@@ -305,13 +305,19 @@ export function TerminalPanel({ open, onToggle, socket, pwd }: Props) {
   const [tabs, setTabs] = useState<TerminalTabState[]>([])
   const [activeTabIdx, setActiveTabIdx] = useState(0)
   const tabsRef = useRef<TerminalTabState[]>([])
+  // Buffers terminal_output events that arrive before terminal_created for that ID.
+  const orphanOutputRef = useRef<Map<string, string>>(new Map())
 
   useEffect(() => {
     tabsRef.current = tabs
   }, [tabs])
 
-  const updateTab = useCallback((terminalId: string, patch: Partial<TerminalTabState>) => {
-    setTabs(prev => prev.map(tab => tab.terminalId === terminalId ? { ...tab, ...patch } : tab))
+  const updateTab = useCallback((terminalId: string, patch: Partial<TerminalTabState> | ((tab: TerminalTabState) => Partial<TerminalTabState>)) => {
+    setTabs(prev => prev.map(tab => {
+      if (tab.terminalId !== terminalId) return tab
+      const p = typeof patch === 'function' ? patch(tab) : patch
+      return { ...tab, ...p }
+    }))
   }, [])
 
   useEffect(() => {
@@ -320,7 +326,10 @@ export function TerminalPanel({ open, onToggle, socket, pwd }: Props) {
       if (tab?.xterm) {
         tab.xterm.write(data)
       } else if (tab) {
-        updateTab(terminal_id, { pendingOutput: tab.pendingOutput + data })
+        updateTab(terminal_id, t => ({ pendingOutput: t.pendingOutput + data }))
+      } else {
+        // Terminal not registered yet — buffer until terminal_created arrives.
+        orphanOutputRef.current.set(terminal_id, (orphanOutputRef.current.get(terminal_id) ?? '') + data)
       }
     }
 
@@ -328,18 +337,22 @@ export function TerminalPanel({ open, onToggle, socket, pwd }: Props) {
       const exitText = `\r\n\x1b[33m[process exited with code ${exit_code ?? '?'}]\x1b[0m\r\n`
       const tab = tabsRef.current.find(t => t.terminalId === terminal_id)
       tab?.xterm?.write(exitText)
-      updateTab(terminal_id, {
+      updateTab(terminal_id, t => ({
         exited: true,
         exitCode: exit_code,
-        pendingOutput: tab?.xterm ? tab.pendingOutput : (tab?.pendingOutput ?? '') + exitText,
-      })
+        pendingOutput: t.xterm ? t.pendingOutput : t.pendingOutput + exitText,
+      }))
     }
 
     function onTerminalCreated({ terminal_id, name }: { terminal_id: string; name: string }) {
+      const orphaned = orphanOutputRef.current.get(terminal_id) ?? ''
+      orphanOutputRef.current.delete(terminal_id)
       setTabs(prev => {
         if (prev.some(tab => tab.terminalId === terminal_id)) return prev
         setActiveTabIdx(prev.length)
-        const next = [...prev, makeTab(terminal_id, name)]
+        const tab = makeTab(terminal_id, name)
+        if (orphaned) tab.pendingOutput = orphaned
+        const next = [...prev, tab]
         // Sync tabsRef immediately so onTerminalOutput can buffer before the
         // post-render useEffect runs (fixes first-terminal race condition).
         tabsRef.current = next
