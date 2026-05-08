@@ -2692,7 +2692,6 @@ export default function Chat() {
           open={terminalOpen}
           onToggle={() => setTerminalOpen(o => !o)}
           socket={socket}
-          pwd={pwd}
         />
       </div>
     </div>

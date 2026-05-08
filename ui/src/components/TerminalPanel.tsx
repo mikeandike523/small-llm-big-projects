@@ -27,7 +27,6 @@ interface Props {
   open: boolean
   onToggle: () => void
   socket: Socket
-  pwd: string
 }
 
 const panelCss = css`
@@ -350,7 +349,7 @@ function makeTab(terminalId: string, name: string, cmdDisplay: string): Terminal
   }
 }
 
-export function TerminalPanel({ open, onToggle, socket, pwd }: Props) {
+export function TerminalPanel({ open, onToggle, socket }: Props) {
   const [tabs, setTabs] = useState<TerminalTabState[]>([])
   const [activeTabIdx, setActiveTabIdx] = useState(0)
   const tabsRef = useRef<TerminalTabState[]>([])
@@ -463,8 +462,8 @@ export function TerminalPanel({ open, onToggle, socket, pwd }: Props) {
   }, [activeTabIdx, tabs.length])
 
   const createTerminal = useCallback(() => {
-    socket.emit('terminal_create', { cwd: pwd || undefined })
-  }, [pwd, socket])
+    socket.emit('terminal_create', {})
+  }, [socket])
 
   const closeTerminal = useCallback((terminalId: string) => {
     const closingIdx = tabsRef.current.findIndex(tab => tab.terminalId === terminalId)
@@ -506,11 +505,11 @@ export function TerminalPanel({ open, onToggle, socket, pwd }: Props) {
             onMouseEnter={e => showTooltip(e, tab.cmdDisplay)}
             onMouseLeave={hideTooltip}
           >
-            <span css={tabNameCss}>{tab.terminalId}{tab.exited ? ' (exited)' : ''}</span>
+            <span css={tabNameCss}>{tab.name || tab.terminalId}{tab.exited ? ' (exited)' : ''}</span>
             <span
               css={closeTabCss}
               role="button"
-              aria-label={`Close ${tab.terminalId}`}
+              aria-label={`Close ${tab.name || tab.terminalId}`}
               onClick={event => {
                 event.stopPropagation()
                 closeTerminal(tab.terminalId)

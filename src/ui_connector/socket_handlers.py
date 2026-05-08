@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import pathlib
+import re
 import subprocess
 import sys
 import threading
@@ -121,6 +122,26 @@ def _format_cmd_display(cmd: list[str]) -> str:
         return cmd[2]
     name = os.path.splitext(os.path.basename(cmd[0]))[0]
     return " ".join([name] + cmd[1:])
+
+
+_HUMAN_TERMINAL_RE = re.compile(r'^Terminal (\d+)$', re.IGNORECASE)
+
+
+def _next_human_terminal_name(session_id: str) -> str:
+    """Return the next auto-incremented 'Terminal N' name for a human-created terminal.
+
+    Scans all currently tracked terminals for this session, finds the highest
+    existing 'Terminal N' index, and returns N+1. This handles gaps from closed
+    terminals without ever reusing a number that is still live.
+    """
+    max_n = 0
+    for s in _terminal_manager.list_sessions():
+        if _terminal_session_rooms.get(s.id) != session_id:
+            continue
+        m = _HUMAN_TERMINAL_RE.match(s.name)
+        if m:
+            max_n = max(max_n, int(m.group(1)))
+    return f"Terminal {max_n + 1}"
 
 
 def _build_starting_environment_info(session: "Session") -> str:
@@ -287,7 +308,7 @@ def _launch_terminal_for_session(session_id: str, cmd: list[str], name: str) -> 
     Emits terminal_open_panel (expand the side panel) then terminal_created.
     Called from the open_in_terminal tool via special_resources["create_terminal"].
     """
-    cwd = os.getcwd() or None
+    cwd = _session_current_cwd.get(session_id) or os.getcwd() or None
     terminal_id = _new_terminal_id()
     try:
         session = _terminal_manager.create(name=name, cwd=cwd, rows=24, cols=80, cmd=cmd, terminal_id=terminal_id)
@@ -2036,9 +2057,11 @@ def handle_terminal_create(data: dict):
     if not session_id:
         return
 
-    cwd = data.get("cwd") or None
+    # Always use the session's live CWD (updated by change_pwd) rather than
+    # the frontend-supplied hint or the server process's own CWD.
+    cwd = _session_current_cwd.get(session_id) or os.getcwd() or None
     terminal_id = _new_terminal_id()
-    name = str(data.get("name") or terminal_id)
+    name = str(data.get("name") or _next_human_terminal_name(session_id))
     try:
         session = _terminal_manager.create(name=name, cwd=cwd, rows=24, cols=80, terminal_id=terminal_id)
         _terminal_session_rooms[session.id] = session_id
