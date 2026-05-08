@@ -112,9 +112,16 @@ class TerminalSessionManager:
         *cmd* overrides the default platform shell.
         *terminal_id* pins the session ID; a UUID is generated if omitted.
         """
+        import os
         import uuid
         shell_cmd = cmd if cmd is not None else resolve_shell()
-        proc = PtyProcess(shell_cmd, rows=rows, cols=cols, cwd=cwd)
+        # Always declare the terminal type explicitly. Without TERM, ncurses
+        # programs (clear, vim, etc.) refuse to run. We use xterm-256color
+        # because xterm.js interprets exactly those sequences.
+        env = dict(os.environ)
+        env["TERM"] = "xterm-256color"
+        env["COLORTERM"] = "truecolor"
+        proc = PtyProcess(shell_cmd, rows=rows, cols=cols, cwd=cwd, env=env)
         sid = terminal_id if terminal_id is not None else str(uuid.uuid4())
         session = TerminalSession(
             id=sid,
