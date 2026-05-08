@@ -97,16 +97,30 @@ _session_active_turns: set[str] = set()
 _terminal_manager = TerminalSessionManager()
 _terminal_output_threads: dict[str, threading.Thread] = {}
 _terminal_session_rooms: dict[str, str] = {}
-_terminal_id_counter: int = 0
-_terminal_id_counter_lock = threading.Lock()
+_terminal_id_lock = threading.Lock()
 
 
-def _next_terminal_id() -> str:
-    """Return a session-unique 6-hex-digit terminal ID using a global monotonic counter."""
-    global _terminal_id_counter
-    with _terminal_id_counter_lock:
-        _terminal_id_counter += 1
-        return format(_terminal_id_counter, "06x")
+def _new_terminal_id() -> str:
+    """Return an unused random 6-hex terminal ID, reserving it atomically."""
+    import secrets
+    with _terminal_id_lock:
+        while True:
+            tid = secrets.token_hex(3)
+            if tid not in _terminal_session_rooms:
+                # Reserve the slot so concurrent callers skip this ID.
+                _terminal_session_rooms[tid] = ""
+                return tid
+
+
+def _format_cmd_display(cmd: list[str]) -> str:
+    """Format a raw argv list into a human-readable command string for the UI tooltip."""
+    if not cmd:
+        return ""
+    # If the shell wraps a command via -lc/-c, show just the inner command string.
+    if len(cmd) >= 3 and cmd[1] in ("-lc", "-c"):
+        return cmd[2]
+    name = os.path.splitext(os.path.basename(cmd[0]))[0]
+    return " ".join([name] + cmd[1:])
 
 
 def _build_starting_environment_info(session: "Session") -> str:
@@ -273,11 +287,14 @@ def _launch_terminal_for_session(session_id: str, cmd: list[str], name: str) -> 
     Emits terminal_open_panel (expand the side panel) then terminal_created.
     Called from the open_in_terminal tool via special_resources["create_terminal"].
     """
-    import os
     cwd = os.getcwd() or None
-    terminal_id = _next_terminal_id()
-    session = _terminal_manager.create(name=name, cwd=cwd, rows=24, cols=80, cmd=cmd, terminal_id=terminal_id)
-    _terminal_session_rooms[session.id] = session_id
+    terminal_id = _new_terminal_id()
+    try:
+        session = _terminal_manager.create(name=name, cwd=cwd, rows=24, cols=80, cmd=cmd, terminal_id=terminal_id)
+        _terminal_session_rooms[session.id] = session_id
+    except Exception:
+        _terminal_session_rooms.pop(terminal_id, None)
+        raise
     t = threading.Thread(
         target=_terminal_output_pump,
         args=(session_id, session, session.process),
@@ -285,7 +302,11 @@ def _launch_terminal_for_session(session_id: str, cmd: list[str], name: str) -> 
     )
     _terminal_output_threads[session.id] = t
     socketio.emit("terminal_open_panel", {}, room=session_id)
-    socketio.emit("terminal_created", {"terminal_id": session.id, "name": name}, room=session_id)
+    socketio.emit("terminal_created", {
+        "terminal_id": session.id,
+        "name": name,
+        "cmd_display": _format_cmd_display(session.cmd),
+    }, room=session_id)
     t.start()
     return session.id
 
@@ -1996,7 +2017,12 @@ def handle_resume_session(data: dict):
     ]
     emit("terminal_sessions_state", {
         "sessions": [
-            {"terminal_id": s.id, "name": s.name, "snapshot": s.get_snapshot()}
+            {
+                "terminal_id": s.id,
+                "name": s.name,
+                "snapshot": s.get_snapshot(),
+                "cmd_display": _format_cmd_display(s.cmd),
+            }
             for s in sessions
         ],
     })
@@ -2011,23 +2037,28 @@ def handle_terminal_create(data: dict):
         return
 
     cwd = data.get("cwd") or None
-    terminal_id = _next_terminal_id()
+    terminal_id = _new_terminal_id()
     name = str(data.get("name") or terminal_id)
     try:
         session = _terminal_manager.create(name=name, cwd=cwd, rows=24, cols=80, terminal_id=terminal_id)
+        _terminal_session_rooms[session.id] = session_id
     except Exception as exc:
+        _terminal_session_rooms.pop(terminal_id, None)
         logger.warning("Failed to create terminal for session %s: %s", session_id, exc)
         socketio.emit("error", {"message": f"Failed to create terminal: {exc}"}, room=session_id)
         return
 
-    _terminal_session_rooms[session.id] = session_id
     t = threading.Thread(
         target=_terminal_output_pump,
         args=(session_id, session, session.process),
         daemon=True,
     )
     _terminal_output_threads[session.id] = t
-    socketio.emit("terminal_created", {"terminal_id": session.id, "name": session.name}, room=session_id)
+    socketio.emit("terminal_created", {
+        "terminal_id": session.id,
+        "name": session.name,
+        "cmd_display": _format_cmd_display(session.cmd),
+    }, room=session_id)
     t.start()
 
 

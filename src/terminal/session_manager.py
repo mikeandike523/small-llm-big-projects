@@ -25,6 +25,7 @@ class TerminalSession:
     process: PtyProcess
     name: str
     cwd: str
+    cmd: list[str] = field(default_factory=list)
     created_at: float = field(default_factory=time.time)
     _screen: pyte.HistoryScreen = field(init=False)
     _stream: pyte.ByteStream = field(init=False)
@@ -120,6 +121,7 @@ class TerminalSessionManager:
             process=proc,
             name=name,
             cwd=cwd or "",
+            cmd=shell_cmd,
         )
         session.resize_screen(rows, cols)
         with self._lock:

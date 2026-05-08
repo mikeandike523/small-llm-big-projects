@@ -1,5 +1,5 @@
 /** @jsxImportSource @emotion/react */
-import { css } from '@emotion/react'
+import { css, keyframes } from '@emotion/react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { type Socket } from 'socket.io-client'
 import { Terminal } from '@xterm/xterm'
@@ -9,6 +9,7 @@ import '@xterm/xterm/css/xterm.css'
 interface TerminalTabState {
   terminalId: string
   name: string
+  cmdDisplay: string
   xterm: Terminal | null
   fitAddon: FitAddon | null
   exited: boolean
@@ -18,6 +19,7 @@ interface TerminalTabState {
 interface TerminalSessionState {
   terminal_id: string
   name: string
+  cmd_display?: string
   snapshot?: string
 }
 
@@ -202,6 +204,32 @@ const emptyCss = css`
   font-size: 12px;
 `
 
+const tooltipFadeIn = keyframes`
+  from { opacity: 0; }
+  to   { opacity: 1; }
+`
+
+const tooltipFadeOut = keyframes`
+  from { opacity: 1; }
+  to   { opacity: 0; }
+`
+
+const tooltipCss = (visible: boolean) => css`
+  position: fixed;
+  transform: translate(-50%, calc(-100% - 6px));
+  background: #0e1f33;
+  border: 1px solid #2a4a6a;
+  border-radius: 4px;
+  color: #a8c8e8;
+  font-family: 'Consolas', monospace;
+  font-size: 10px;
+  padding: 3px 8px;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 9999;
+  animation: ${visible ? tooltipFadeIn : tooltipFadeOut} 80ms ease forwards;
+`
+
 function safeFit(container: HTMLDivElement | null, fitAddon: FitAddon | null) {
   if (!container || !fitAddon || container.clientWidth <= 0 || container.clientHeight <= 0) return
   try {
@@ -291,10 +319,11 @@ function TerminalTab({
   return <div ref={containerRef} css={terminalContainerCss(active)} />
 }
 
-function makeTab(terminalId: string, name: string): TerminalTabState {
+function makeTab(terminalId: string, name: string, cmdDisplay: string): TerminalTabState {
   return {
     terminalId,
     name,
+    cmdDisplay,
     xterm: null,
     fitAddon: null,
     exited: false,
@@ -311,6 +340,26 @@ export function TerminalPanel({ open, onToggle, socket, pwd }: Props) {
   // Keyed by terminal_id. Lives outside React state so appending never triggers
   // a re-render or causes the init effect to re-run (which was the root bug).
   const outputBufferRef = useRef<Map<string, string>>(new Map())
+
+  // Tooltip state: null = hidden, otherwise track position + text + animation phase.
+  const [tooltip, setTooltip] = useState<{ x: number; y: number; text: string; visible: boolean } | null>(null)
+  const tooltipHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => () => {
+    if (tooltipHideTimerRef.current) clearTimeout(tooltipHideTimerRef.current)
+  }, [])
+
+  const showTooltip = useCallback((e: React.MouseEvent<HTMLButtonElement>, text: string) => {
+    if (!text) return
+    if (tooltipHideTimerRef.current) { clearTimeout(tooltipHideTimerRef.current); tooltipHideTimerRef.current = null }
+    const rect = e.currentTarget.getBoundingClientRect()
+    setTooltip({ x: rect.left + rect.width / 2, y: rect.top, text, visible: true })
+  }, [])
+
+  const hideTooltip = useCallback(() => {
+    setTooltip(prev => prev ? { ...prev, visible: false } : null)
+    tooltipHideTimerRef.current = setTimeout(() => setTooltip(null), 85)
+  }, [])
 
   // Sync tabsRef immediately (before the async React re-render) so that socket
   // event handlers always read current xterm references without a render cycle gap.
@@ -350,11 +399,11 @@ export function TerminalPanel({ open, onToggle, socket, pwd }: Props) {
       updateTab(terminal_id, { exited: true, exitCode: exit_code })
     }
 
-    function onTerminalCreated({ terminal_id, name }: { terminal_id: string; name: string }) {
+    function onTerminalCreated({ terminal_id, name, cmd_display }: { terminal_id: string; name: string; cmd_display?: string }) {
       // Any output that arrived before terminal_created is already in outputBufferRef
       // (written by onTerminalOutput's else branch), so no separate orphan map needed.
       if (tabsRef.current.some(t => t.terminalId === terminal_id)) return
-      const next = [...tabsRef.current, makeTab(terminal_id, name)]
+      const next = [...tabsRef.current, makeTab(terminal_id, name, cmd_display ?? '')]
       tabsRef.current = next
       setTabs(next)
       setActiveTabIdx(next.length - 1)
@@ -366,7 +415,7 @@ export function TerminalPanel({ open, onToggle, socket, pwd }: Props) {
         const existing = byId.get(session.terminal_id)
         if (existing) return { ...existing, name: session.name, exited: false, exitCode: null }
         if (session.snapshot) outputBufferRef.current.set(session.terminal_id, session.snapshot)
-        return makeTab(session.terminal_id, session.name)
+        return makeTab(session.terminal_id, session.name, session.cmd_display ?? '')
       })
       tabsRef.current = next
       setTabs(next)
@@ -435,13 +484,14 @@ export function TerminalPanel({ open, onToggle, socket, pwd }: Props) {
             key={tab.terminalId}
             css={tabButtonCss(idx === activeTabIdx, tab.exited)}
             onClick={() => setActiveTabIdx(idx)}
-            title={`${tab.name}${tab.exited ? ` (exited ${tab.exitCode ?? '?'})` : ''}`}
+            onMouseEnter={e => showTooltip(e, tab.cmdDisplay)}
+            onMouseLeave={hideTooltip}
           >
-            <span css={tabNameCss}>{tab.name}{tab.exited ? ' (exited)' : ''}</span>
+            <span css={tabNameCss}>{tab.terminalId}{tab.exited ? ' (exited)' : ''}</span>
             <span
               css={closeTabCss}
               role="button"
-              aria-label={`Close ${tab.name}`}
+              aria-label={`Close ${tab.terminalId}`}
               onClick={event => {
                 event.stopPropagation()
                 closeTerminal(tab.terminalId)
@@ -470,6 +520,11 @@ export function TerminalPanel({ open, onToggle, socket, pwd }: Props) {
       ) : (
         <div css={emptyCss}>
           <button css={newButtonCss} onClick={createTerminal}>+ New terminal</button>
+        </div>
+      )}
+      {tooltip && (
+        <div css={tooltipCss(tooltip.visible)} style={{ left: tooltip.x, top: tooltip.y }}>
+          {tooltip.text}
         </div>
       )}
     </div>
