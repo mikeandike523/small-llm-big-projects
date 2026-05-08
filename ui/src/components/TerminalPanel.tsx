@@ -13,7 +13,6 @@ interface TerminalTabState {
   fitAddon: FitAddon | null
   exited: boolean
   exitCode: number | null
-  pendingOutput: string
 }
 
 interface TerminalSessionState {
@@ -218,12 +217,14 @@ function TerminalTab({
   panelOpen,
   socket,
   updateTab,
+  drainBuffer,
 }: {
   tab: TerminalTabState
   active: boolean
   panelOpen: boolean
   socket: Socket
   updateTab: (terminalId: string, patch: Partial<TerminalTabState>) => void
+  drainBuffer: (terminalId: string) => string
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const openedRef = useRef(false)
@@ -240,8 +241,13 @@ function TerminalTab({
     })
     const fitAddon = new FitAddon()
     xterm.loadAddon(fitAddon)
+
+    // Drain buffered output BEFORE open() — xterm queues writes internally and
+    // flushes them atomically on open(), so the terminal never shows a blank frame.
+    const pending = drainBuffer(tab.terminalId)
+    if (pending) xterm.write(pending)
+
     xterm.open(containerRef.current)
-    if (tab.pendingOutput) xterm.write(tab.pendingOutput)
     xterm.focus()
 
     const dataDisposable = xterm.onData(data => {
@@ -251,27 +257,22 @@ function TerminalTab({
       socket.emit('terminal_resize', { terminal_id: tab.terminalId, rows, cols })
     })
 
-    updateTab(tab.terminalId, { xterm, fitAddon, pendingOutput: '' })
-    // Defer fit so the layout has fully settled (especially important on first
-    // terminal creation when the container div is newly mounted).
+    // updateTab syncs tabsRef synchronously, so output events immediately write
+    // to this xterm instance instead of going to the buffer.
+    updateTab(tab.terminalId, { xterm, fitAddon })
     requestAnimationFrame(() => safeFit(containerRef.current, fitAddon))
 
     return () => {
-      // Reset openedRef so StrictMode's cleanup+remount cycle can re-initialize.
       openedRef.current = false
       dataDisposable.dispose()
       resizeDisposable.dispose()
+      // Null out xterm in tabsRef synchronously BEFORE dispose, so that any
+      // output arriving during the StrictMode cleanup+remount window goes to
+      // the buffer and gets drained by the next effect run.
+      updateTab(tab.terminalId, { xterm: null, fitAddon: null })
       xterm.dispose()
     }
-  }, [socket, tab.pendingOutput, tab.terminalId, updateTab])
-
-  // Drain any output buffered in pendingOutput after xterm is initialized.
-  // This handles the window between xterm init and tabsRef being updated.
-  useEffect(() => {
-    if (!tab.xterm || !tab.pendingOutput) return
-    tab.xterm.write(tab.pendingOutput)
-    updateTab(tab.terminalId, { pendingOutput: '' })
-  }, [tab.xterm, tab.pendingOutput, tab.terminalId, updateTab])
+  }, [socket, tab.terminalId, updateTab, drainBuffer])
 
   useEffect(() => {
     if (!panelOpen || !active) return
@@ -298,7 +299,6 @@ function makeTab(terminalId: string, name: string): TerminalTabState {
     fitAddon: null,
     exited: false,
     exitCode: null,
-    pendingOutput: '',
   }
 }
 
@@ -306,19 +306,26 @@ export function TerminalPanel({ open, onToggle, socket, pwd }: Props) {
   const [tabs, setTabs] = useState<TerminalTabState[]>([])
   const [activeTabIdx, setActiveTabIdx] = useState(0)
   const tabsRef = useRef<TerminalTabState[]>([])
-  // Buffers terminal_output events that arrive before terminal_created for that ID.
-  const orphanOutputRef = useRef<Map<string, string>>(new Map())
+  // Single output buffer for all terminals: accumulates data from terminal_output
+  // events that arrive before the xterm instance is ready to accept writes.
+  // Keyed by terminal_id. Lives outside React state so appending never triggers
+  // a re-render or causes the init effect to re-run (which was the root bug).
+  const outputBufferRef = useRef<Map<string, string>>(new Map())
 
-  useEffect(() => {
-    tabsRef.current = tabs
-  }, [tabs])
+  // Sync tabsRef immediately (before the async React re-render) so that socket
+  // event handlers always read current xterm references without a render cycle gap.
+  const updateTab = useCallback((terminalId: string, patch: Partial<TerminalTabState>) => {
+    const next = tabsRef.current.map(tab =>
+      tab.terminalId === terminalId ? { ...tab, ...patch } : tab
+    )
+    tabsRef.current = next
+    setTabs(next)
+  }, [])
 
-  const updateTab = useCallback((terminalId: string, patch: Partial<TerminalTabState> | ((tab: TerminalTabState) => Partial<TerminalTabState>)) => {
-    setTabs(prev => prev.map(tab => {
-      if (tab.terminalId !== terminalId) return tab
-      const p = typeof patch === 'function' ? patch(tab) : patch
-      return { ...tab, ...p }
-    }))
+  const drainBuffer = useCallback((terminalId: string): string => {
+    const data = outputBufferRef.current.get(terminalId) ?? ''
+    outputBufferRef.current.delete(terminalId)
+    return data
   }, [])
 
   useEffect(() => {
@@ -326,54 +333,44 @@ export function TerminalPanel({ open, onToggle, socket, pwd }: Props) {
       const tab = tabsRef.current.find(t => t.terminalId === terminal_id)
       if (tab?.xterm) {
         tab.xterm.write(data)
-      } else if (tab) {
-        updateTab(terminal_id, t => ({ pendingOutput: t.pendingOutput + data }))
       } else {
-        // Terminal not registered yet — buffer until terminal_created arrives.
-        orphanOutputRef.current.set(terminal_id, (orphanOutputRef.current.get(terminal_id) ?? '') + data)
+        // xterm not ready yet (tab unknown or init effect not run) — buffer it.
+        outputBufferRef.current.set(terminal_id, (outputBufferRef.current.get(terminal_id) ?? '') + data)
       }
     }
 
     function onTerminalExited({ terminal_id, exit_code }: { terminal_id: string; exit_code: number | null }) {
       const exitText = `\r\n\x1b[33m[process exited with code ${exit_code ?? '?'}]\x1b[0m\r\n`
       const tab = tabsRef.current.find(t => t.terminalId === terminal_id)
-      tab?.xterm?.write(exitText)
-      updateTab(terminal_id, t => ({
-        exited: true,
-        exitCode: exit_code,
-        pendingOutput: t.xterm ? t.pendingOutput : t.pendingOutput + exitText,
-      }))
+      if (tab?.xterm) {
+        tab.xterm.write(exitText)
+      } else {
+        outputBufferRef.current.set(terminal_id, (outputBufferRef.current.get(terminal_id) ?? '') + exitText)
+      }
+      updateTab(terminal_id, { exited: true, exitCode: exit_code })
     }
 
     function onTerminalCreated({ terminal_id, name }: { terminal_id: string; name: string }) {
-      const orphaned = orphanOutputRef.current.get(terminal_id) ?? ''
-      orphanOutputRef.current.delete(terminal_id)
-      setTabs(prev => {
-        if (prev.some(tab => tab.terminalId === terminal_id)) return prev
-        setActiveTabIdx(prev.length)
-        const tab = makeTab(terminal_id, name)
-        if (orphaned) tab.pendingOutput = orphaned
-        const next = [...prev, tab]
-        // Sync tabsRef immediately so onTerminalOutput can buffer before the
-        // post-render useEffect runs (fixes first-terminal race condition).
-        tabsRef.current = next
-        return next
-      })
+      // Any output that arrived before terminal_created is already in outputBufferRef
+      // (written by onTerminalOutput's else branch), so no separate orphan map needed.
+      if (tabsRef.current.some(t => t.terminalId === terminal_id)) return
+      const next = [...tabsRef.current, makeTab(terminal_id, name)]
+      tabsRef.current = next
+      setTabs(next)
+      setActiveTabIdx(next.length - 1)
     }
 
     function onTerminalSessionsState({ sessions }: { sessions: TerminalSessionState[] }) {
-      setTabs(prev => {
-        const byId = new Map(prev.map(tab => [tab.terminalId, tab]))
-        const next = sessions.map(session => {
-          const existing = byId.get(session.terminal_id)
-          if (existing) return { ...existing, name: session.name, exited: false, exitCode: null }
-          const tab = makeTab(session.terminal_id, session.name)
-          if (session.snapshot) tab.pendingOutput = session.snapshot
-          return tab
-        })
-        setActiveTabIdx(idx => Math.min(idx, Math.max(0, next.length - 1)))
-        return next
+      const byId = new Map(tabsRef.current.map(tab => [tab.terminalId, tab]))
+      const next = sessions.map(session => {
+        const existing = byId.get(session.terminal_id)
+        if (existing) return { ...existing, name: session.name, exited: false, exitCode: null }
+        if (session.snapshot) outputBufferRef.current.set(session.terminal_id, session.snapshot)
+        return makeTab(session.terminal_id, session.name)
       })
+      tabsRef.current = next
+      setTabs(next)
+      setActiveTabIdx(idx => Math.min(idx, Math.max(0, next.length - 1)))
     }
 
     socket.on('terminal_output', onTerminalOutput)
@@ -404,7 +401,10 @@ export function TerminalPanel({ open, onToggle, socket, pwd }: Props) {
   const closeTerminal = useCallback((terminalId: string) => {
     const closingIdx = tabsRef.current.findIndex(tab => tab.terminalId === terminalId)
     socket.emit('terminal_close', { terminal_id: terminalId })
-    setTabs(prev => prev.filter(tab => tab.terminalId !== terminalId))
+    const next = tabsRef.current.filter(tab => tab.terminalId !== terminalId)
+    tabsRef.current = next
+    setTabs(next)
+    outputBufferRef.current.delete(terminalId)
     setActiveTabIdx(idx => {
       if (closingIdx < 0 || idx < closingIdx) return idx
       return Math.max(0, idx - 1)
@@ -463,6 +463,7 @@ export function TerminalPanel({ open, onToggle, socket, pwd }: Props) {
               panelOpen={open}
               socket={socket}
               updateTab={updateTab}
+              drainBuffer={drainBuffer}
             />
           ))}
         </div>
