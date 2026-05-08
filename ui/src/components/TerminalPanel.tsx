@@ -231,11 +231,11 @@ const tooltipCss = (visible: boolean) => css`
 `
 
 function safeFit(container: HTMLDivElement | null, fitAddon: FitAddon | null) {
-  if (!container || !fitAddon || container.clientWidth <= 0 || container.clientHeight <= 0) return
+  if (!container || !fitAddon) return
   try {
     fitAddon.fit()
   } catch {
-    // xterm can briefly have no measurable cell size while the panel is animating.
+    // xterm can briefly have no measurable cell size while layout is settling.
   }
 }
 
@@ -256,6 +256,14 @@ function TerminalTab({
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const openedRef = useRef(false)
+
+  // Refs that always hold the latest prop values so rAF and ResizeObserver
+  // callbacks never act on stale closures. Initialized from props so they
+  // are correct even before the sync effects below have a chance to run.
+  const panelOpenRef = useRef(panelOpen)
+  const activeRef = useRef(active)
+  useEffect(() => { panelOpenRef.current = panelOpen }, [panelOpen])
+  useEffect(() => { activeRef.current = active }, [active])
 
   useEffect(() => {
     if (!containerRef.current || openedRef.current) return
@@ -288,7 +296,13 @@ function TerminalTab({
     // updateTab syncs tabsRef synchronously, so output events immediately write
     // to this xterm instance instead of going to the buffer.
     updateTab(tab.terminalId, { xterm, fitAddon })
-    requestAnimationFrame(() => safeFit(containerRef.current, fitAddon))
+
+    // Defer fit so the layout has settled. Read refs (not closure values) so
+    // we never fit a tab that became inactive or whose panel closed before the
+    // frame fired — avoiding a fit on a display:none container.
+    requestAnimationFrame(() => {
+      if (panelOpenRef.current && activeRef.current) safeFit(containerRef.current, fitAddon)
+    })
 
     return () => {
       openedRef.current = false
@@ -302,19 +316,24 @@ function TerminalTab({
     }
   }, [socket, tab.terminalId, updateTab, drainBuffer])
 
+  // Fit whenever the tab becomes active or the panel opens. fitAddon in deps
+  // so this fires once fitAddon is available after init.
   useEffect(() => {
     if (!panelOpen || !active) return
     safeFit(containerRef.current, tab.fitAddon)
   }, [active, panelOpen, tab.fitAddon])
 
+  // Container resize → refit, but only when this tab is the visible one.
+  // ResizeObserver is recreated only when fitAddon changes (via refs for the
+  // panelOpen/active guards so we don't recreate on every tab switch).
   useEffect(() => {
     if (!containerRef.current || !tab.fitAddon) return
     const obs = new ResizeObserver(() => {
-      if (panelOpen && active) safeFit(containerRef.current, tab.fitAddon)
+      if (panelOpenRef.current && activeRef.current) safeFit(containerRef.current, tab.fitAddon)
     })
     obs.observe(containerRef.current)
     return () => obs.disconnect()
-  }, [active, panelOpen, tab.fitAddon])
+  }, [tab.fitAddon])
 
   return <div ref={containerRef} css={terminalContainerCss(active)} />
 }
