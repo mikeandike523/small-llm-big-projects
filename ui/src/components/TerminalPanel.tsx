@@ -399,11 +399,11 @@ const modalSubmitBtnCss = (disabled: boolean) => css`
   &:hover { ${disabled ? '' : 'background: #163d68; border-color: #4d86c0; color: #aad8ff;'} }
 `
 
-function getLastLines(xterm: Terminal | null, n: number): string {
+function getScreenOutput(xterm: Terminal | null): string {
   if (!xterm) return ''
   const buf = xterm.buffer.active
-  const end = buf.length - 1
-  const start = Math.max(0, end - n + 1)
+  const start = buf.viewportY
+  const end = start + xterm.rows - 1
   const lines: string[] = []
   for (let i = start; i <= end; i++) {
     const line = buf.getLine(i)
@@ -721,15 +721,14 @@ export function TerminalPanel({ open, onToggle, socket, busy }: Props) {
     const tab = tabsRef.current[activeTabIdx]
     if (!tab || !askModalText.trim()) return
     const { terminalId, name, xterm } = tab
-    const last20 = getLastLines(xterm, 20)
-    const last20Block = last20 || '(no output available)'
+    const screen = getScreenOutput(xterm)
+    const screenBlock = screen || '(no output available)'
     const text =
       `Regarding terminal [${terminalId}] (${name}), I have the following question/request.\n\n` +
       `${askModalText.trim()}\n\n` +
-      `Additional Notes:\n\n` +
-      `Last 20 lines from terminal:\n\n` +
-      `${last20Block}\n\n` +
-      `Use the \`read_open_terminal\` with id ${terminalId} or \`last_asked\` to get more lines, view the terminal screen, or get additional information.`
+      `Use the \`read_open_terminal\` tool with id ${terminalId} or \`last_asked\` if the following data is not sufficient.\n\n` +
+      `Terminal Screen Capture:\n\n` +
+      `${screenBlock}`
     socket.emit('terminal_ask_about', { terminal_id: terminalId })
     socket.emit('user_message', { text, clientTurnId: crypto.randomUUID(), followup_behavior: askModalFollowup })
     setAskModalOpen(false)
