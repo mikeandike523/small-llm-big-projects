@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import difflib
 import re
 from io import StringIO
 from pathlib import Path
@@ -41,6 +42,8 @@ DEFINITION: dict = {
             "apply_patch always respects the patch's own trailing-newline specification "
             "(the '\\ No newline at end of file' marker), independent of disable_auto_eol. "
             "\n\n"
+            "Prefer apply_patch over insert_lines / replace_lines / delete_lines for "
+            "multi-line edits -- patches are more precise and the returned diff confirms what changed.\n\n"
             "Actions: read_lines, search_by_regex, "
             "insert_lines, replace_lines, delete_lines, "
             "count_lines, check_eol, normalize_eol, "
@@ -350,6 +353,18 @@ def _count_lines(text: str) -> int:
 
 
 # ---------------------------------------------------------------------------
+# diff helper
+# ---------------------------------------------------------------------------
+
+def _make_diff(before: str, after: str) -> str:
+    """Return a unified diff string comparing before to after (no trailing newline)."""
+    before_lines = before.splitlines()
+    after_lines = after.splitlines()
+    diff_lines = list(difflib.unified_diff(before_lines, after_lines, fromfile="before", tofile="after", lineterm=""))
+    return "\n".join(diff_lines) if diff_lines else "(no visible changes)"
+
+
+# ---------------------------------------------------------------------------
 # patch helper
 # ---------------------------------------------------------------------------
 
@@ -526,7 +541,7 @@ def _do_insert_lines(args: dict, key: str, value: str, memory: dict) -> str:
     memory[key] = result
 
     inserted_count = len(inserted_lines)
-    return f"Inserted {inserted_count} line(s) before line {before_line} in {key!r}."
+    return f"Inserted {inserted_count} line(s) before line {before_line} in {key!r}.\n\n{_make_diff(value, result)}"
 
 
 def _do_replace_lines(args: dict, key: str, value: str, memory: dict) -> str:
@@ -564,10 +579,11 @@ def _do_replace_lines(args: dict, key: str, value: str, memory: dict) -> str:
 
     removed = clamped_end - start_line + 1
     added = len(replacement_lines)
-    return (
+    summary = (
         f"Replaced lines {start_line}-{clamped_end} ({removed} line(s)) "
         f"with {added} line(s) in {key!r}."
     )
+    return f"{summary}\n\n{_make_diff(value, result)}"
 
 
 def _do_delete_lines(args: dict, key: str, value: str, memory: dict) -> str:
@@ -596,7 +612,7 @@ def _do_delete_lines(args: dict, key: str, value: str, memory: dict) -> str:
 
     memory[key] = result
 
-    return f"Deleted {deleted_count} line(s) ({start_line}-{clamped_end}) from {key!r}."
+    return f"Deleted {deleted_count} line(s) ({start_line}-{clamped_end}) from {key!r}.\n\n{_make_diff(value, result)}"
 
 
 def _do_search_by_regex(args: dict, key: str, value: str) -> str:
@@ -649,8 +665,9 @@ def _do_normalize_eol(args: dict, key: str, value: str, memory: dict) -> str:
     eol = args.get("eol")
     if not eol:
         return "Error: 'eol' is required for action 'normalize_eol'."
-    memory[key] = normalize_eol(value, eol)
-    return f"Line endings normalized to {eol.upper()} for {key!r}."
+    result = normalize_eol(value, eol)
+    memory[key] = result
+    return f"Line endings normalized to {eol.upper()} for {key!r}.\n\n{_make_diff(value, result)}"
 
 
 def _do_check_indentation(args: dict, key: str, value: str) -> str:
@@ -662,8 +679,9 @@ def _do_convert_indentation(args: dict, key: str, value: str, memory: dict) -> s
     if not to:
         return "Error: 'to' is required for action 'convert_indentation'."
     spaces_per_tab = int(args.get("spaces_per_tab", DEFAULT_SPACES_PER_TAB))
-    memory[key] = convert_indentation(value, to, spaces_per_tab)
-    return f"Indentation converted to {to} (spaces_per_tab={spaces_per_tab}) for {key!r}."
+    result = convert_indentation(value, to, spaces_per_tab)
+    memory[key] = result
+    return f"Indentation converted to {to} (spaces_per_tab={spaces_per_tab}) for {key!r}.\n\n{_make_diff(value, result)}"
 
 
 def _do_apply_patch(args: dict, key: str, value: str, memory: dict) -> str:
@@ -686,10 +704,8 @@ def _do_apply_patch(args: dict, key: str, value: str, memory: dict) -> str:
     new_lines = _count_lines(result)
     delta = new_lines - original_lines
     sign = "+" if delta >= 0 else ""
-    return (
-        f"Patch applied to {key!r}. "
-        f"Lines: {original_lines} -> {new_lines} ({sign}{delta})."
-    )
+    summary = f"Patch applied to {key!r}. Lines: {original_lines} -> {new_lines} ({sign}{delta})."
+    return f"{summary}\n\n{_make_diff(value, result)}"
 
 
 # ---------------------------------------------------------------------------

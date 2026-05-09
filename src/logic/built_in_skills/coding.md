@@ -40,6 +40,8 @@ files directly without a session memory buffer.
     multi-step sequence. If a file has unstaged changes or uncommitted staged changes,
     warn the user and state your concern clearly as your final response, waiting for their approval before proceeding.
 
+When editing existing content (session memory or disk), **prefer `apply_patch` over `insert_lines` / `replace_lines` / `delete_lines`** for any multi-line change. Patches express intent more precisely and the returned diff confirms exactly what was applied.
+
 Writing Small Files (new or complete rewrite):
 
     Use `write_text_file(path=..., content=...)` to write the full content in one step.
