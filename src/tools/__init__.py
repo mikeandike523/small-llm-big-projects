@@ -20,6 +20,7 @@ from src.tools import get_global_workspace_dir
 from src.tools import get_pwd
 from src.tools import host_check_command
 from src.tools import host_shell
+from src.tools import check_terminal_state
 from src.tools import open_in_terminal
 from src.tools import read_open_terminal
 from src.tools import list_dir
@@ -53,6 +54,7 @@ ALL_TOOL_DEFINITIONS: list[dict] = [
     get_pwd.DEFINITION,
     host_check_command.DEFINITION,
     host_shell.DEFINITION,
+    check_terminal_state.DEFINITION,
     open_in_terminal.DEFINITION,
     read_open_terminal.DEFINITION,
     list_dir.DEFINITION,
@@ -86,6 +88,7 @@ _TOOL_MAP: dict[str, object] = {
     "get_pwd": get_pwd,
     "host_check_command": host_check_command,
     "host_shell": host_shell,
+    "check_terminal_state": check_terminal_state,
     "open_in_terminal": open_in_terminal,
     "read_open_terminal": read_open_terminal,
     "list_dir": list_dir,

@@ -71,7 +71,4 @@ def execute(args: dict, session_data: dict | None = None, special_resources: dic
     except Exception as exc:
         return f"Error: Failed to open terminal: {exc}"
 
-    if session_data is not None:
-        session_data["__last_opened_terminal_id__"] = terminal_id
-
     return f"Terminal opened. id={terminal_id}"

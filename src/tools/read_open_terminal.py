@@ -11,11 +11,12 @@ DEFINITION = {
             "Output is rendered by a full VT100 emulator (pyte) that mirrors the terminal state, "
             "including alternate-screen-buffer programs (vim, htop, etc.) and resize events. "
             "History holds up to 10,000 scrollback lines.\n\n"
-            "terminal_id: pass the exact id returned by open_in_terminal, or the special value "
-            "'last_opened' to automatically use the most recent terminal opened by a tool call. "
-            "WARNING: if the output looks unrelated to the current task, 'last_opened' may be "
-            "pointing to a terminal from an earlier part of the conversation — review recent "
-            "tool call results for the correct terminal id."
+            "terminal_id accepts either a literal 6-hex terminal ID or one of the sentinel values: "
+            "'agent_last_opened' (last terminal opened by a tool call), "
+            "'user_last_opened' (last terminal opened by the user in the UI), "
+            "'active' (the terminal tab currently visible in the UI), "
+            "'last_asked' (the terminal the user flagged with 'Ask about this terminal'). "
+            "Use check_terminal_state first when you are unsure which terminal to target."
         ),
         "parameters": {
             "type": "object",
@@ -23,9 +24,9 @@ DEFINITION = {
                 "terminal_id": {
                     "type": "string",
                     "description": (
-                        "The terminal ID returned by open_in_terminal (6 hex digits), "
-                        "or 'last_opened' to resolve to the most recent tool-opened terminal "
-                        "in this session. Omitting this field is an error."
+                        "A 6-hex terminal ID returned by open_in_terminal, or one of the sentinels: "
+                        "'agent_last_opened', 'user_last_opened', 'active', 'last_asked'. "
+                        "Omitting this field is an error."
                     ),
                 },
                 "mode": {
@@ -63,16 +64,10 @@ def execute(args: dict, session_data: dict | None = None, special_resources: dic
         num_lines = int(num_lines)
 
     if not terminal_id:
-        return "Error: terminal_id is required. Pass a terminal id from open_in_terminal, or 'last_opened'."
-
-    if terminal_id == "last_opened":
-        resolved = (session_data or {}).get("__last_opened_terminal_id__")
-        if not resolved:
-            return (
-                "Error: no terminal has been opened by a tool call in this session yet. "
-                "Use open_in_terminal first, then read with its returned id or 'last_opened'."
-            )
-        terminal_id = resolved
+        return (
+            "Error: terminal_id is required. Pass a 6-hex terminal ID or a sentinel: "
+            "'agent_last_opened', 'user_last_opened', 'active', 'last_asked'."
+        )
 
     get_output = sr.get("get_terminal_output")
     if get_output is None:

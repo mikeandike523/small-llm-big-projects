@@ -99,6 +99,33 @@ _terminal_manager = TerminalSessionManager()
 _terminal_output_threads: dict[str, threading.Thread] = {}
 _terminal_session_rooms: dict[str, str] = {}
 _terminal_id_lock = threading.Lock()
+# terminal_id -> "agent" | "user"
+_terminal_opened_by: dict[str, str] = {}
+# session_id -> {agent_last_opened, user_last_opened, active, last_asked}
+_session_terminal_state_meta: dict[str, dict] = {}
+
+_TERMINAL_SENTINELS = {"agent_last_opened", "user_last_opened", "active", "last_asked"}
+
+
+def _get_terminal_meta(session_id: str) -> dict:
+    if session_id not in _session_terminal_state_meta:
+        _session_terminal_state_meta[session_id] = {
+            "agent_last_opened": None,
+            "user_last_opened": None,
+            "active": None,
+            "last_asked": None,
+        }
+    return _session_terminal_state_meta[session_id]
+
+
+def _resolve_terminal_sentinel(session_id: str, terminal_id: str) -> tuple:
+    """Resolve a sentinel string to a real terminal ID. Returns (resolved_id, error_str)."""
+    if terminal_id not in _TERMINAL_SENTINELS:
+        return terminal_id, None
+    resolved = _get_terminal_meta(session_id).get(terminal_id)
+    if not resolved:
+        return None, f"Error: sentinel '{terminal_id}' has no terminal associated yet in this session."
+    return resolved, None
 
 
 def _new_terminal_id() -> str:
@@ -294,6 +321,9 @@ def _terminal_belongs_to_session(session_id: str, terminal_id: str) -> bool:
 
 
 def _read_terminal_output(session_id: str, terminal_id: str, mode: str, num_lines: int | None) -> str:
+    terminal_id, err = _resolve_terminal_sentinel(session_id, terminal_id)
+    if err:
+        return err
     if not _terminal_belongs_to_session(session_id, terminal_id):
         return f"Error: Terminal {terminal_id!r} not found in this session."
     session = _terminal_manager.get(terminal_id)
@@ -316,6 +346,9 @@ def _launch_terminal_for_session(session_id: str, cmd: list[str], name: str) -> 
     except Exception:
         _terminal_session_rooms.pop(terminal_id, None)
         raise
+    _terminal_opened_by[session.id] = "agent"
+    meta = _get_terminal_meta(session_id)
+    meta["agent_last_opened"] = session.id
     t = threading.Thread(
         target=_terminal_output_pump,
         args=(session_id, session, session.process),
@@ -330,6 +363,34 @@ def _launch_terminal_for_session(session_id: str, cmd: list[str], name: str) -> 
     }, room=session_id)
     t.start()
     return session.id
+
+
+def _get_terminals_state(session_id: str, lines: int) -> list:
+    """Build the check_terminal_state payload for all terminals in this session."""
+    lines = max(0, min(100, lines))
+    meta = _get_terminal_meta(session_id)
+    priority = ("agent_last_opened", "user_last_opened", "active", "last_asked")
+
+    result = []
+    for ts in _terminal_manager.list_sessions():
+        if _terminal_session_rooms.get(ts.id) != session_id:
+            continue
+        special_status = None
+        for status in priority:
+            if meta.get(status) == ts.id:
+                special_status = status
+                break
+        entry = {
+            "id": ts.id,
+            "name": ts.name,
+            "starting_command": _format_cmd_display(ts.cmd),
+            "opened_by": _terminal_opened_by.get(ts.id, "user"),
+            "special_status": special_status,
+        }
+        if lines > 0:
+            entry[f"last_{lines}_lines"] = ts.read_lines("tail", lines)
+        result.append(entry)
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -1036,6 +1097,7 @@ def _execute_tools(
         "cancel_event": cancel_event,
         "create_terminal": lambda cmd, tab_name: _launch_terminal_for_session(session_id, cmd, tab_name),
         "get_terminal_output": lambda tid, mode, num_lines=None: _read_terminal_output(session_id, tid, mode, num_lines),
+        "get_terminals_state": lambda lines=10: _get_terminals_state(session_id, lines),
     }
 
     actual_tool_map = tool_map if tool_map is not None else _TOOL_MAP
@@ -2071,6 +2133,9 @@ def handle_terminal_create(data: dict):
         socketio.emit("error", {"message": f"Failed to create terminal: {exc}"}, room=session_id)
         return
 
+    _terminal_opened_by[session.id] = "user"
+    meta = _get_terminal_meta(session_id)
+    meta["user_last_opened"] = session.id
     t = threading.Thread(
         target=_terminal_output_pump,
         args=(session_id, session, session.process),
@@ -2140,7 +2205,38 @@ def handle_terminal_close(data: dict):
         return
 
     _terminal_session_rooms.pop(terminal_id, None)
+    _terminal_opened_by.pop(terminal_id, None)
     _terminal_manager.destroy(terminal_id)
+
+
+@socketio.on("terminal_tab_focused")
+def handle_terminal_tab_focused(data: dict):
+    data = data or {}
+    sid = request.sid
+    session_id = _sid_to_session_id.get(sid)
+    if not session_id:
+        return
+    terminal_id = str(data.get("terminal_id") or "")
+    if not _terminal_belongs_to_session(session_id, terminal_id):
+        return
+    _get_terminal_meta(session_id)["active"] = terminal_id
+
+
+@socketio.on("terminal_ask_about")
+def handle_terminal_ask_about(data: dict):
+    # Tracks which terminal the user wants to discuss with the agent.
+    # Wire this up to a frontend "Ask about this terminal" button that emits
+    # {terminal_id: <id>} — the agent can then call check_terminal_state and
+    # look for special_status == "last_asked" to know which terminal was flagged.
+    data = data or {}
+    sid = request.sid
+    session_id = _sid_to_session_id.get(sid)
+    if not session_id:
+        return
+    terminal_id = str(data.get("terminal_id") or "")
+    if not _terminal_belongs_to_session(session_id, terminal_id):
+        return
+    _get_terminal_meta(session_id)["last_asked"] = terminal_id
 
 
 @socketio.on("disconnect")
