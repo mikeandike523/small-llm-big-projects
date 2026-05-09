@@ -27,6 +27,7 @@ interface Props {
   open: boolean
   onToggle: () => void
   socket: Socket
+  busy: boolean
 }
 
 const panelCss = css`
@@ -36,6 +37,7 @@ const panelCss = css`
   background: #080f18;
   border-left: 1px solid #1a2a40;
   overflow: hidden;
+  position: relative;
 `
 
 const collapsedStripCss = css`
@@ -229,6 +231,188 @@ const tooltipCss = (visible: boolean) => css`
   animation: ${visible ? tooltipFadeIn : tooltipFadeOut} 80ms ease forwards;
 `
 
+const footerCss = css`
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 44px;
+  padding: 0 12px;
+  background: #091525;
+  border-top: 1px solid #17283c;
+  flex-shrink: 0;
+`
+
+const askButtonCss = css`
+  height: 30px;
+  padding: 0 18px;
+  border-radius: 6px;
+  border: 1px solid #2d5580;
+  background: #0f2540;
+  color: #8fc6f0;
+  font-family: 'Consolas', monospace;
+  font-size: 12px;
+  cursor: pointer;
+  letter-spacing: 0.03em;
+  transition: background 80ms, border-color 80ms, color 80ms;
+  &:hover {
+    background: #163353;
+    border-color: #4d86bf;
+    color: #c0dff8;
+  }
+`
+
+const modalBackdropCss = css`
+  position: absolute;
+  inset: 0;
+  background: rgba(4, 10, 20, 0.72);
+  z-index: 100;
+`
+
+const modalBoxCss = css`
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 101;
+  width: min(420px, 90%);
+  background: #0b1b2e;
+  border: 1px solid #2a4a6a;
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+`
+
+const modalHeaderRowCss = css`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px 10px 14px;
+  border-bottom: 1px solid #1e3651;
+`
+
+const modalTitleCss = css`
+  font-family: 'Consolas', monospace;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #88a8c8;
+`
+
+const modalCloseXCss = css`
+  background: transparent;
+  border: none;
+  color: #54708f;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 2px;
+  &:hover { color: #b9d3ee; }
+`
+
+const modalBodyCss = css`
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+`
+
+const modalTextareaCss = css`
+  width: 100%;
+  min-height: 80px;
+  resize: vertical;
+  background: #07111e;
+  border: 1px solid #1e3651;
+  border-radius: 5px;
+  color: #c8dff0;
+  font-family: 'Consolas', monospace;
+  font-size: 12px;
+  padding: 8px 10px;
+  box-sizing: border-box;
+  outline: none;
+  &:focus { border-color: #3d6b99; }
+  &::placeholder { color: #3f5a72; }
+`
+
+const modalFollowupRowCss = css`
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+`
+
+const modalFollowupLabelCss = css`
+  font-family: 'Consolas', monospace;
+  font-size: 10px;
+  color: #4f6a82;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-right: 2px;
+`
+
+const modalFollowupPillCss = (active: boolean) => css`
+  height: 22px;
+  padding: 0 10px;
+  border-radius: 11px;
+  border: 1px solid ${active ? '#3d6b99' : '#1e344d'};
+  background: ${active ? '#0f2a48' : 'transparent'};
+  color: ${active ? '#a8d0f0' : '#4f6a82'};
+  font-family: 'Consolas', monospace;
+  font-size: 10px;
+  cursor: pointer;
+  &:hover { border-color: #4d7ba8; color: #8ab8e0; }
+`
+
+const modalActionsRowCss = css`
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 10px 14px 14px 14px;
+  border-top: 1px solid #1e3651;
+`
+
+const modalCancelBtnCss = css`
+  height: 28px;
+  padding: 0 14px;
+  border-radius: 5px;
+  border: 1px solid #1e344d;
+  background: transparent;
+  color: #6a8aaa;
+  font-family: 'Consolas', monospace;
+  font-size: 11px;
+  cursor: pointer;
+  &:hover { border-color: #3d6b99; color: #9dbce0; }
+`
+
+const modalSubmitBtnCss = (disabled: boolean) => css`
+  height: 28px;
+  padding: 0 16px;
+  border-radius: 5px;
+  border: 1px solid ${disabled ? '#1e344d' : '#2d6fa0'};
+  background: ${disabled ? 'transparent' : '#0f2f52'};
+  color: ${disabled ? '#3a5570' : '#7fc0f0'};
+  font-family: 'Consolas', monospace;
+  font-size: 11px;
+  cursor: ${disabled ? 'not-allowed' : 'pointer'};
+  &:hover { ${disabled ? '' : 'background: #163d68; border-color: #4d86c0; color: #aad8ff;'} }
+`
+
+function getLastLines(xterm: Terminal | null, n: number): string {
+  if (!xterm) return ''
+  const buf = xterm.buffer.active
+  const end = buf.length - 1
+  const start = Math.max(0, end - n + 1)
+  const lines: string[] = []
+  for (let i = start; i <= end; i++) {
+    const line = buf.getLine(i)
+    if (line) lines.push(line.translateToString().trimEnd())
+  }
+  while (lines.length > 0 && lines[lines.length - 1] === '') lines.pop()
+  return lines.join('\n')
+}
+
 function safeFit(container: HTMLDivElement | null, fitAddon: FitAddon | null) {
   if (!container || !fitAddon) return
   try {
@@ -349,10 +533,15 @@ function makeTab(terminalId: string, name: string, cmdDisplay: string): Terminal
   }
 }
 
-export function TerminalPanel({ open, onToggle, socket }: Props) {
+export function TerminalPanel({ open, onToggle, socket, busy }: Props) {
   const [tabs, setTabs] = useState<TerminalTabState[]>([])
   const [activeTabIdx, setActiveTabIdx] = useState(0)
   const tabsRef = useRef<TerminalTabState[]>([])
+
+  const [askModalOpen, setAskModalOpen] = useState(false)
+  const [askModalText, setAskModalText] = useState('')
+  const [askModalFollowup, setAskModalFollowup] = useState<'auto' | 'follow-up' | 'new-task'>('auto')
+  const askTextareaRef = useRef<HTMLTextAreaElement | null>(null)
   // Single output buffer for all terminals: accumulates data from terminal_output
   // events that arrive before the xterm instance is ready to accept writes.
   // Keyed by terminal_id. Lives outside React state so appending never triggers
@@ -514,6 +703,40 @@ export function TerminalPanel({ open, onToggle, socket }: Props) {
     if (activeTabIdx >= tabs.length) setActiveTabIdx(tabs.length - 1)
   }, [activeTabIdx, tabs.length])
 
+  useEffect(() => {
+    if (!askModalOpen) return
+    const t = setTimeout(() => askTextareaRef.current?.focus(), 50)
+    return () => clearTimeout(t)
+  }, [askModalOpen])
+
+  useEffect(() => {
+    if (!askModalOpen) return
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') setAskModalOpen(false) }
+    document.addEventListener('keydown', handler)
+    return () => document.removeEventListener('keydown', handler)
+  }, [askModalOpen])
+
+  const submitAskModal = useCallback(() => {
+    if (busy) return
+    const tab = tabsRef.current[activeTabIdx]
+    if (!tab || !askModalText.trim()) return
+    const { terminalId, name, xterm } = tab
+    const last20 = getLastLines(xterm, 20)
+    const last20Block = last20 || '(no output available)'
+    const text =
+      `Regarding terminal [${terminalId}] (${name}), I have the following question/request.\n\n` +
+      `${askModalText.trim()}\n\n` +
+      `Additional Notes:\n\n` +
+      `Last 20 lines from terminal:\n\n` +
+      `${last20Block}\n\n` +
+      `Use the \`read_open_terminal\` with id ${terminalId} or \`last_asked\` to get more lines, view the terminal screen, or get additional information.`
+    socket.emit('terminal_ask_about', { terminal_id: terminalId })
+    socket.emit('user_message', { text, clientTurnId: crypto.randomUUID(), followup_behavior: askModalFollowup })
+    setAskModalOpen(false)
+    setAskModalText('')
+    setAskModalFollowup('auto')
+  }, [busy, activeTabIdx, askModalText, askModalFollowup, socket])
+
   const createTerminal = useCallback(() => {
     socket.emit('terminal_create', {})
   }, [socket])
@@ -593,10 +816,61 @@ export function TerminalPanel({ open, onToggle, socket }: Props) {
           <button css={newButtonCss} onClick={createTerminal}>+ New terminal</button>
         </div>
       )}
+      {activeTab && (
+        <div css={footerCss}>
+          <button css={askButtonCss} onClick={() => setAskModalOpen(true)}>
+            Ask about this terminal
+          </button>
+        </div>
+      )}
       {tooltip && (
         <div css={tooltipCss(tooltip.visible)} style={{ left: tooltip.x, top: tooltip.y }}>
           {tooltip.text}
         </div>
+      )}
+      {askModalOpen && (
+        <>
+          <div css={modalBackdropCss} onClick={() => setAskModalOpen(false)} />
+          <div css={modalBoxCss} role="dialog" aria-modal="true" aria-label="Ask about this terminal">
+            <div css={modalHeaderRowCss}>
+              <span css={modalTitleCss}>Ask about this terminal</span>
+              <button css={modalCloseXCss} onClick={() => setAskModalOpen(false)} aria-label="Close">×</button>
+            </div>
+            <div css={modalBodyCss}>
+              <textarea
+                ref={askTextareaRef}
+                css={modalTextareaCss}
+                placeholder="Type your question or request..."
+                value={askModalText}
+                onChange={e => setAskModalText(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) submitAskModal() }}
+                rows={4}
+              />
+              <div css={modalFollowupRowCss}>
+                <span css={modalFollowupLabelCss}>Follow-up</span>
+                {(['auto', 'follow-up', 'new-task'] as const).map(opt => (
+                  <button
+                    key={opt}
+                    css={modalFollowupPillCss(askModalFollowup === opt)}
+                    onClick={() => setAskModalFollowup(opt)}
+                  >
+                    {opt === 'auto' ? 'auto-detect' : opt === 'follow-up' ? 'force-follow-up' : 'force-new-task'}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div css={modalActionsRowCss}>
+              <button css={modalCancelBtnCss} onClick={() => setAskModalOpen(false)}>Cancel</button>
+              <button
+                css={modalSubmitBtnCss(!askModalText.trim() || busy)}
+                disabled={!askModalText.trim() || busy}
+                onClick={submitAskModal}
+              >
+                Send to Agent
+              </button>
+            </div>
+          </div>
+        </>
       )}
     </div>
   )
