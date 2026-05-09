@@ -33,7 +33,6 @@ DEFINITION: dict = {
             "Line-mutating actions (insert_lines, replace_lines, delete_lines, apply_patch) "
             "re-encode the result to match the existing EOL style of the value "
             "(CRLF if any CRLF present, else LF); set disable_auto_eol=true to suppress. "
-            "Char actions perform raw character-level edits with no EOL conversion. "
             "\n\n"
             "TRAILING NEWLINE RULES:\n"
             "insert_lines and replace_lines do NOT add or remove a trailing newline -- "
@@ -42,10 +41,9 @@ DEFINITION: dict = {
             "apply_patch always respects the patch's own trailing-newline specification "
             "(the '\\ No newline at end of file' marker), independent of disable_auto_eol. "
             "\n\n"
-            "Actions: read_lines, read_char_range, search_by_regex, "
+            "Actions: read_lines, search_by_regex, "
             "insert_lines, replace_lines, delete_lines, "
-            "insert_chars, replace_chars, delete_chars, "
-            "count_chars, count_lines, check_eol, normalize_eol, "
+            "count_lines, check_eol, normalize_eol, "
             "check_indentation, convert_indentation, apply_patch."
         ),
         "parameters": {
@@ -54,10 +52,9 @@ DEFINITION: dict = {
                 "action": {
                     "type": "string",
                     "enum": [
-                        "read_lines", "read_char_range", "search_by_regex",
+                        "read_lines", "search_by_regex",
                         "insert_lines", "replace_lines", "delete_lines",
-                        "insert_chars", "replace_chars", "delete_chars",
-                        "count_chars", "count_lines",
+                        "count_lines",
                         "check_eol", "normalize_eol",
                         "check_indentation", "convert_indentation",
                         "apply_patch",
@@ -65,17 +62,12 @@ DEFINITION: dict = {
                     "description": (
                         "The operation to perform:\n"
                         "  read_lines          -- read all or a line range (1-based inclusive).\n"
-                        "  read_char_range     -- read all or a char range (0-based, end exclusive).\n"
                         "  search_by_regex     -- search for lines matching a regex; returns matching lines with line numbers.\n"
                         "  insert_lines        -- insert text before a 1-based line number; "
                         "auto-matches EOL style; trailing newline not added unless ensure_newline=true.\n"
                         "  replace_lines       -- replace a 1-based inclusive line range with new text; "
                         "auto-matches EOL style; trailing newline not added unless ensure_newline=true.\n"
                         "  delete_lines        -- delete a 1-based inclusive line range; auto-matches EOL style.\n"
-                        "  insert_chars        -- insert text before a 0-based char position; no EOL conversion.\n"
-                        "  replace_chars       -- replace a 0-based char range (end exclusive) with new text; no EOL conversion.\n"
-                        "  delete_chars        -- delete a 0-based char range (end exclusive); no EOL conversion.\n"
-                        "  count_chars         -- count total characters.\n"
                         "  count_lines         -- count total lines.\n"
                         "  check_eol           -- report line-ending style statistics.\n"
                         "  normalize_eol       -- normalize all line endings to a single style.\n"
@@ -129,24 +121,6 @@ DEFINITION: dict = {
                         "Defaults to ' | '. Used by: read_lines."
                     ),
                 },
-                "start_char": {
-                    "type": "integer",
-                    "minimum": 0,
-                    "description": (
-                        "0-based character index. "
-                        "Used by: read_char_range (start, inclusive), "
-                        "insert_chars (insert before this position; 0 = prepend, beyond end = append), "
-                        "replace_chars (start, inclusive), delete_chars (start, inclusive)."
-                    ),
-                },
-                "end_char": {
-                    "type": "integer",
-                    "minimum": 0,
-                    "description": (
-                        "0-based character index (exclusive). "
-                        "Used by: read_char_range, replace_chars, delete_chars."
-                    ),
-                },
                 "before_line": {
                     "type": "integer",
                     "minimum": 1,
@@ -159,14 +133,12 @@ DEFINITION: dict = {
                 "text": {
                     "type": "string",
                     "description": (
-                        "The text content. "
-                        "For line operations (insert_lines, replace_lines): inserted verbatim after "
+                        "The text content to insert or replace. Inserted verbatim after "
                         "EOL style normalisation (auto-match to existing value unless disable_auto_eol=true). "
                         "A trailing newline is NOT added automatically -- include one if you want the "
                         "inserted block to end as a complete line; omit it to fuse the last inserted "
                         "fragment with whatever follows. Set ensure_newline=true to add one if absent. "
-                        "For char operations (insert_chars, replace_chars): written verbatim with no EOL conversion. "
-                        "Used by: insert_lines, replace_lines, insert_chars, replace_chars."
+                        "Used by: insert_lines, replace_lines."
                     ),
                 },
                 "disable_auto_eol": {
@@ -237,12 +209,11 @@ DEFINITION: dict = {
 # ---------------------------------------------------------------------------
 
 _READ_ONLY_ACTIONS_SET = {
-    "read_lines", "read_char_range", "search_by_regex",
-    "count_chars", "count_lines", "check_eol", "check_indentation",
+    "read_lines", "search_by_regex",
+    "count_lines", "check_eol", "check_indentation",
 }
 _WRITE_ACTIONS_SET = {
     "insert_lines", "replace_lines", "delete_lines",
-    "insert_chars", "replace_chars", "delete_chars",
     "normalize_eol", "convert_indentation", "apply_patch",
 }
 
@@ -288,33 +259,7 @@ def dirty_effects(args: dict, session_data: dict | None = None) -> dict:
                     return {"cleans_mem": [key]}
         return {}
 
-    if action == "read_char_range":
-        start = args.get("start_char")
-        end = args.get("end_char")
-        if start is not None and start != 0:
-            return {}
-        if end is None:
-            if filepath:
-                return {"cleans_files": [filepath]}
-            if key:
-                return {"cleans_mem": [key]}
-            return {}
-        # Explicit end — verify against actual content length
-        if filepath:
-            try:
-                content = Path(filepath).resolve().read_text(encoding="utf-8")
-                if end >= len(content):
-                    return {"cleans_files": [filepath]}
-            except OSError:
-                pass
-        if key and session_data is not None:
-            memory = session_data.get("memory") or {}
-            content = memory.get(key)
-            if isinstance(content, str) and end >= len(content):
-                return {"cleans_mem": [key]}
-        return {}
-
-    # search_by_regex, count_chars, count_lines, check_eol, check_indentation:
+    # search_by_regex, count_lines, check_eol, check_indentation:
     # these reveal metadata but not the full content — no clean signal
     return {}
 
@@ -554,20 +499,6 @@ def _read_lines_range(text: str, start_line: int | None, end_line: int | None) -
     return "".join(selected)
 
 
-def _do_read_char_range(args: dict, key: str, value: str) -> str:
-    start_char = args.get("start_char")
-    end_char = args.get("end_char")
-
-    if start_char is not None and start_char < 0:
-        return "Error: start_char must be >= 0"
-    if end_char is not None and end_char < 0:
-        return "Error: end_char must be >= 0"
-    if start_char is not None and end_char is not None and end_char < start_char:
-        return "Error: end_char must be >= start_char"
-
-    return value[start_char:end_char]
-
-
 def _do_insert_lines(args: dict, key: str, value: str, memory: dict) -> str:
     before_line = args.get("before_line")
     text = args.get("text")
@@ -668,54 +599,6 @@ def _do_delete_lines(args: dict, key: str, value: str, memory: dict) -> str:
     return f"Deleted {deleted_count} line(s) ({start_line}-{clamped_end}) from {key!r}."
 
 
-def _do_insert_chars(args: dict, key: str, value: str, memory: dict) -> str:
-    start_char = args.get("start_char")
-    text = args.get("text")
-
-    if start_char is None:
-        return "Error: 'start_char' is required for action 'insert_chars'."
-    if text is None:
-        return "Error: 'text' is required for action 'insert_chars'."
-
-    idx = max(0, min(start_char, len(value)))
-    memory[key] = value[:idx] + text + value[idx:]
-    return f"Inserted {len(text)} character(s) at position {start_char} in {key!r}."
-
-
-def _do_replace_chars(args: dict, key: str, value: str, memory: dict) -> str:
-    start_char = args.get("start_char")
-    end_char = args.get("end_char")
-    text = args.get("text")
-
-    if start_char is None or end_char is None:
-        return "Error: 'start_char' and 'end_char' are required for action 'replace_chars'."
-    if text is None:
-        return "Error: 'text' is required for action 'replace_chars'."
-    if end_char < start_char:
-        return "Error: end_char must be >= start_char."
-
-    removed = value[start_char:end_char]
-    memory[key] = value[:start_char] + text + value[end_char:]
-    return (
-        f"Replaced {len(removed)} character(s) ({start_char}-{end_char}) "
-        f"with {len(text)} character(s) in {key!r}."
-    )
-
-
-def _do_delete_chars(args: dict, key: str, value: str, memory: dict) -> str:
-    start_char = args.get("start_char")
-    end_char = args.get("end_char")
-
-    if start_char is None or end_char is None:
-        return "Error: 'start_char' and 'end_char' are required for action 'delete_chars'."
-    if end_char < start_char:
-        return "Error: end_char must be >= start_char."
-
-    deleted = value[start_char:end_char]
-    memory[key] = value[:start_char] + value[end_char:]
-    return f"Deleted {len(deleted)} character(s) ({start_char}-{end_char}) from {key!r}."
-
-
 def _do_search_by_regex(args: dict, key: str, value: str) -> str:
     pattern = args.get("pattern")
     if not pattern:
@@ -752,10 +635,6 @@ def _do_search_by_regex(args: dict, key: str, value: str) -> str:
     if not matches:
         return f"No matches found in {key!r}."
     return f"{len(matches)} match(es) in {key!r}:\n" + "\n".join(matches)
-
-
-def _do_count_chars(args: dict, key: str, value: str) -> str:
-    return str(len(value))
 
 
 def _do_count_lines(args: dict, key: str, value: str) -> str:
@@ -819,9 +698,7 @@ def _do_apply_patch(args: dict, key: str, value: str, memory: dict) -> str:
 
 _READ_ONLY_ACTIONS = {
     "read_lines": _do_read_lines,
-    "read_char_range": _do_read_char_range,
     "search_by_regex": _do_search_by_regex,
-    "count_chars": _do_count_chars,
     "count_lines": _do_count_lines,
     "check_eol": _do_check_eol,
     "check_indentation": _do_check_indentation,
@@ -831,9 +708,6 @@ _WRITE_ACTIONS = {
     "insert_lines": _do_insert_lines,
     "replace_lines": _do_replace_lines,
     "delete_lines": _do_delete_lines,
-    "insert_chars": _do_insert_chars,
-    "replace_chars": _do_replace_chars,
-    "delete_chars": _do_delete_chars,
     "normalize_eol": _do_normalize_eol,
     "convert_indentation": _do_convert_indentation,
     "apply_patch": _do_apply_patch,
