@@ -1,0 +1,42 @@
+from __future__ import annotations
+
+import logging
+
+import src.ui_connector.socket_handler_components.state as _state
+from src.ui_connector.app import socketio
+from src.utils.event_log import log_event, REPLAY_EXCLUDED_EVENTS
+
+logger = logging.getLogger(__name__)
+
+
+def _emit_backend_log(session_id: str, text: str) -> None:
+    with _state._log_counter_lock:
+        _state._log_counter += 1
+        n = _state._log_counter
+    socketio.emit("backend_log", {"id": n, "text": text}, room=session_id)
+
+
+def _emit_and_log(session_id: str, event_type: str, data: dict) -> None:
+    """Emit a socket event to the session room and log it to Redis Streams (if not excluded)."""
+    if event_type not in REPLAY_EXCLUDED_EVENTS:
+        try:
+            r = _state._get_redis()
+            event_id = log_event(r, session_id, event_type, data)
+            data = {**data, "event_id": event_id}
+        except Exception as exc:
+            logger.warning("Failed to log event %r: %s", event_type, exc)
+    socketio.emit(event_type, data, room=session_id)
+
+
+def _emit_content_snapshot(
+    session_id: str, turn_id: str, subturn_id: str, exchange_idx: int,
+    assistant_content: str, reasoning: str,
+) -> None:
+    """Emit a replay_content_snapshot event (logged to Redis Streams for replay)."""
+    _emit_and_log(session_id, "replay_content_snapshot", {
+        "turn_id": turn_id,
+        "subturn_id": subturn_id,
+        "exchange_idx": exchange_idx,
+        "assistant_content": assistant_content,
+        "reasoning": reasoning,
+    })
