@@ -42,6 +42,8 @@ files directly without a session memory buffer.
 
 When editing existing content (session memory or disk), **prefer `apply_patch` over `insert_lines` / `replace_lines` / `delete_lines`** for any multi-line change. Patches express intent more precisely and the returned diff confirms exactly what was applied.
 
+**Always include context lines in every hunk, including insertions.** Context lines (unchanged lines with a space prefix, or no prefix) anchor the patch to actual file content — the tool searches the entire file for them, so the `@@ line numbers` do not need to be accurate. A hunk that contains only `+` lines and no context cannot be anchored by content at all and falls back to the stated line number, which may be wrong. Even a single context line above and below an insertion eliminates this risk entirely.
+
 Writing Small Files (new or complete rewrite):
 
     Use `write_text_file(path=..., content=...)` to write the full content in one step.

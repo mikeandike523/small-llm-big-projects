@@ -76,8 +76,10 @@ DEFINITION: dict = {
                         "  normalize_eol       -- normalize all line endings to a single style.\n"
                         "  check_indentation   -- report indentation style statistics.\n"
                         "  convert_indentation -- convert leading-whitespace indentation style.\n"
-                        "  apply_patch         -- apply a unified diff patch; auto-matches EOL style; "
-                        "always respects the patch's trailing-newline specification."
+                        "  apply_patch         -- apply a unified diff patch; hunk header line numbers are "
+                        "advisory only -- context lines are matched across the entire file; "
+                        "trailing whitespace on context lines is ignored during matching; "
+                        "auto-matches EOL style; always respects the patch's trailing-newline specification."
                     ),
                 },
                 "key": {
@@ -196,6 +198,15 @@ DEFINITION: dict = {
                     "description": (
                         "Standard unified diff text (e.g. output of `diff -u`). "
                         "Must start with --- / +++ header lines and contain one or more hunks. "
+                        "The @@ line numbers are used only as a fallback for pure-insertion hunks -- "
+                        "for hunks with context or removed lines, matching searches the entire file, "
+                        "so hallucinated line numbers do not cause failures. "
+                        "IMPORTANT: always include at least one unchanged context line (no prefix, "
+                        "or a space prefix) before and after every change, including insertions. "
+                        "A hunk with only '+' lines and no context cannot be anchored by content "
+                        "and must rely on the @@ line number, which may be inaccurate -- "
+                        "adding even one context line above and below converts it to a "
+                        "fully content-anchored hunk that does not depend on line numbers at all. "
                         "Do NOT include 'begin patch', 'end patch', or any other wrapper -- "
                         "raw diff text only. Used by: apply_patch."
                     ),
@@ -394,11 +405,8 @@ def _apply_patch(original_text: str, patch_text: str, auto_eol: bool = True) -> 
 
     pfile = patchset[0]
     lines = list(orig_lines)
-    max_offset = 3
 
     for hunk in pfile:
-        target_index_0 = max(hunk.source_start - 1, 0)
-
         expected_before: List[str] = [
             ln.value.rstrip("\n\r")
             for ln in hunk
@@ -410,32 +418,31 @@ def _apply_patch(original_text: str, patch_text: str, auto_eol: bool = True) -> 
             if ln.is_context or ln.is_added
         ]
 
+        # Trailing-whitespace-normalized keys used only for matching, not for output.
+        before_keys: List[str] = [s.rstrip() for s in expected_before]
+
         def matches_at(idx: int) -> bool:
             if idx < 0:
                 return False
-            if idx + len(expected_before) > len(lines):
+            if idx + len(before_keys) > len(lines):
                 return False
-            return lines[idx: idx + len(expected_before)] == expected_before
+            return [s.rstrip() for s in lines[idx: idx + len(before_keys)]] == before_keys
 
-        apply_at: Optional[int] = None
-
-        if matches_at(target_index_0):
-            apply_at = target_index_0
+        if not expected_before:
+            # Pure insertion with no context lines: fall back to stated line number.
+            apply_at: Optional[int] = max(hunk.source_start - 1, 0)
         else:
-            lo = max(0, target_index_0 - max_offset)
-            hi = min(len(lines), target_index_0 + max_offset + 1)
-            hits = [i for i in range(lo, hi) if matches_at(i)]
+            hits = [i for i in range(len(lines)) if matches_at(i)]
 
             if len(hits) == 1:
                 apply_at = hits[0]
             elif len(hits) == 0:
                 raise ValueError(
-                    f"Hunk @@ line {hunk.source_start} did not match anywhere within "
-                    f"+/-{max_offset} lines of the stated position."
+                    "Hunk context did not match anywhere in the target."
                 )
             else:
                 raise ValueError(
-                    f"Hunk @@ line {hunk.source_start} matches multiple locations "
+                    f"Hunk context matches multiple locations "
                     f"({[h + 1 for h in hits]}); ambiguous, refusing to apply."
                 )
 
