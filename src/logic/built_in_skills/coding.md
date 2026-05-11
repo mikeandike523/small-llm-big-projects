@@ -40,9 +40,31 @@ files directly without a session memory buffer.
     multi-step sequence. If a file has unstaged changes or uncommitted staged changes,
     warn the user and state your concern clearly as your final response, waiting for their approval before proceeding.
 
-When editing existing content (session memory or disk), **prefer `apply_patch` over `insert_lines` / `replace_lines` / `delete_lines`** for any multi-line change. Patches express intent more precisely and the returned diff confirms exactly what was applied.
+When editing existing content (session memory or disk), **use `apply_patch` with `edits`** for any change. The returned diff confirms exactly what was applied.
 
-**Always include context lines in every hunk, including insertions.** Context lines (unchanged lines with a space prefix, or no prefix) anchor the patch to actual file content — the tool searches the entire file for them, so the `@@ line numbers` do not need to be accurate. A hunk that contains only `+` lines and no context cannot be anchored by content at all and falls back to the stated line number, which may be wrong. Even a single context line above and below an insertion eliminates this risk entirely.
+**`edits` is a list of edit objects**, each with a `text` field (and optional `position` for pure insertions). Lines in `text` are prefixed with:
+- `+` — add this line
+- `-` — remove this line
+- ` ` (space prefix, or no prefix) — context line: must exist unchanged; used to locate the edit
+
+No headers, no line numbers needed. Each edit anchors itself by searching the entire file for its context/removed lines.
+
+**Always surround every change with context lines, including insertions.** An edit with only `+` lines has nothing to anchor on — include at least one context line above and below, or set `position` (1-based line number) for a true positional insertion.
+
+Example — replacing one line:
+```json
+{"text": " def old_function():\n-    return False\n+    return True\n "}
+```
+
+Example — inserting after a known line (context-anchored, no position needed):
+```json
+{"text": " def setup():\n+    configure_logging()\n     start_server()"}
+```
+
+Example — pure insertion at line 1 (no context possible):
+```json
+{"text": "+# generated file\n", "position": 1}
+```
 
 Writing Small Files (new or complete rewrite):
 
