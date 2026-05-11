@@ -66,10 +66,10 @@ def check_requires_clean(session_id: str, effects: dict, tool_name: str) -> str 
     if not blocked_files and not blocked_mem:
         return None
 
-    lines = [f"Error: '{tool_name}' blocked — resource(s) modified since last read:"]
+    lines = [f"Error: '{tool_name}' blocked -- resource(s) modified since last read:"]
     for p in blocked_files:
         lines.append(f"  File: {p}")
-        lines.append(f"    Re-read with: read_text_file(path='...') or line_reader(path='...', action='read_lines')")
+        lines.append(f"    Re-read with: read_text_file(path='...')")
     for k in blocked_mem:
         lines.append(f"  Session memory key: '{k}'")
         lines.append(f"    Re-read with: session_memory(action='get', key='{k}')")

@@ -610,6 +610,14 @@ const toolCallsGroupCss = css`
   gap: 10px;
 `
 
+// Same layout as toolCallsGroupCss but without its own scroll — for use inside
+// a column that is itself the scroll viewport (see TurnContainer right column).
+const toolCallsGroupInnerCss = css`
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+`
+
 const subturnDividerCss = css`
   font-size: 10px;
   color: #3a4d6e;
@@ -793,24 +801,33 @@ const turnContainerNoTitleCss = css`
 `
 
 const leftColumnCss = css`
+  ${scrollbarCss}
   display: flex;
   flex-direction: column;
   gap: 14px;
+  overflow-y: auto;
+  max-height: 480px;
 `
 
 const rightColumnCss = css`
+  ${scrollbarCss}
   display: flex;
   flex-direction: column;
   gap: 12px;
+  overflow-y: auto;
+  max-height: 480px;
 `
 
 const todoColumnCss = css`
+  ${scrollbarCss}
   display: flex;
   flex-direction: column;
   gap: 4px;
   border-left: 1px solid #22304d;
   padding-left: 16px;
   min-width: 0;
+  overflow-y: auto;
+  max-height: 480px;
 `
 
 const todoHeaderCss = css`
@@ -819,15 +836,6 @@ const todoHeaderCss = css`
   text-transform: uppercase;
   letter-spacing: 0.06em;
   margin-bottom: 4px;
-`
-
-const todoListScrollCss = css`
-  overflow: auto;
-  max-height: 320px;
-  &::-webkit-scrollbar { width: 6px; height: 6px; }
-  &::-webkit-scrollbar-track { background: #0a0a0a; }
-  &::-webkit-scrollbar-thumb { background: #3a3a3a; border-radius: 3px; }
-  &::-webkit-scrollbar-thumb:hover { background: #555; }
 `
 
 const todoItemOpenCss = css`
@@ -1602,7 +1610,9 @@ function TurnContainer({
 
   const { todoItems, approvalItems, impossible, subturns, streaming, isInterimStreaming, interimShowCharCount, interimCharCount, interrupted } = turn
 
+  const { scrollRef: leftScrollRef, contentRef: leftContentRef } = useStickToBottom()
   const { scrollRef: toolsScrollRef, contentRef: toolsContentRef } = useStickToBottom()
+  const { scrollRef: todoScrollRef, contentRef: todoContentRef } = useStickToBottom()
   const { scrollRef: outcomesScrollRef, contentRef: outcomesContentRef } = useStickToBottom()
   const hasPendingApproval = approvalItems.some(a => !a.resolved)
   const resolvedApprovals = approvalItems.filter(a => a.resolved)
@@ -1658,8 +1668,8 @@ function TurnContainer({
       ) : null}
       <div css={hasBanner ? turnContainerCss : turnContainerNoTitleCss}>
       {/* Left column: user message(s) + AI content — one bubble-group per subturn */}
-      <div css={leftColumnCss}>
-        <>
+      <div css={leftColumnCss} ref={leftScrollRef}>
+        <div ref={leftContentRef}>
           {subturns.map((st, stIdx) => {
             const isLast = stIdx === subturns.length - 1
             const stFinal = st.exchanges.find(ex => ex.isFinal)
@@ -1698,45 +1708,45 @@ function TurnContainer({
               </React.Fragment>
             )
           })}
-        </>
-        {impossible ? (
-          <div css={impossibleBubbleCss}>
-            <span css={impossibleLabelCss}>Task impossible</span>
-            <span css={impossibleReasonCss}>{impossible}</span>
-          </div>
-        ) : null}
-        {interrupted && (
-          <div css={interruptedBubbleCss}>Connection interrupted</div>
-        )}
+          {impossible ? (
+            <div css={impossibleBubbleCss}>
+              <span css={impossibleLabelCss}>Task impossible</span>
+              <span css={impossibleReasonCss}>{impossible}</span>
+            </div>
+          ) : null}
+          {interrupted && (
+            <div css={interruptedBubbleCss}>Connection interrupted</div>
+          )}
+        </div>
       </div>
 
       {/* Right column: reasoning + irat thinking + tool calls (scoped to last subturn) */}
-      <div css={rightColumnCss}>
-        {reasoning ? (
-          <div css={reasoningWrapperCss}>
-            <TextPresenter
-              content={reasoning}
-              maxHeight={200}
-              streaming={streaming}
-              initialMode="plain"
-              showToggle={false}
-            />
-          </div>
-        ) : null}
-        {iratThinking ? (
-          <div css={iratThinkingWrapperCss}>
-            <TextPresenter
-              content={iratThinking}
-              maxHeight={200}
-              streaming={false}
-              initialMode="plain"
-              showToggle={false}
-            />
-          </div>
-        ) : null}
-        {totalToolCallCount > 0 && (
-          <div css={toolCallsGroupCss} ref={toolsScrollRef}>
-            <div ref={toolsContentRef}>
+      <div css={rightColumnCss} ref={toolsScrollRef}>
+        <div ref={toolsContentRef}>
+          {reasoning ? (
+            <div css={reasoningWrapperCss}>
+              <TextPresenter
+                content={reasoning}
+                maxHeight={200}
+                streaming={streaming}
+                initialMode="plain"
+                showToggle={false}
+              />
+            </div>
+          ) : null}
+          {iratThinking ? (
+            <div css={iratThinkingWrapperCss}>
+              <TextPresenter
+                content={iratThinking}
+                maxHeight={200}
+                streaming={false}
+                initialMode="plain"
+                showToggle={false}
+              />
+            </div>
+          ) : null}
+          {totalToolCallCount > 0 && (
+            <div css={toolCallsGroupInnerCss}>
               {toolCallGroups.map((group) => (
                 <React.Fragment key={group.subturnId}>
                   {hasMultipleToolGroups && (
@@ -1748,19 +1758,19 @@ function TurnContainer({
                 </React.Fragment>
               ))}
             </div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       {/* Third column: todo list */}
-      <div css={todoColumnCss}>
+      <div css={todoColumnCss} ref={todoScrollRef}>
         <div css={todoHeaderCss}>Todo</div>
-        {todoItems.length === 0
-          ? <div css={todoEmptyCss}>empty</div>
-          : <div css={todoListScrollCss}>
-              {renderTodoItems(todoItems)}
-            </div>
-        }
+        <div ref={todoContentRef}>
+          {todoItems.length === 0
+            ? <div css={todoEmptyCss}>empty</div>
+            : renderTodoItems(todoItems)
+          }
+        </div>
       </div>
 
       {/* Full-width bottom row: approval panel */}

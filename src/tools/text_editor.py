@@ -209,34 +209,39 @@ def dirty_effects(args: dict, session_data: dict | None = None) -> dict:
             return {"requires_clean_mem": [key], "dirties_mem": [key]}
         return {}
 
-    if action == "read_lines":
-        start = args.get("start_line")
-        end = args.get("end_line")
-        if start is not None and start != 1:
-            return {}
-        if end is None:
-            if filepath:
-                return {"cleans_files": [filepath]}
-            if key:
-                return {"cleans_mem": [key]}
-            return {}
-        # Explicit end — verify against actual content length
-        if filepath:
-            try:
-                content = Path(filepath).resolve().read_text(encoding="utf-8")
-                total = 0 if content == "" else content.count("\n") + (0 if content.endswith("\n") else 1)
-                if end >= total:
-                    return {"cleans_files": [filepath]}
-            except OSError:
-                pass
-        if key and session_data is not None:
-            memory = session_data.get("memory") or {}
-            content = memory.get(key)
-            if isinstance(content, str):
-                total = 0 if content == "" else content.count("\n") + (0 if content.endswith("\n") else 1)
-                if end >= total:
-                    return {"cleans_mem": [key]}
-        return {}
+    # read_lines: cleaning logic commented out — partial reads do not clean dirty state.
+    # Only read_text_file (for files) or session_memory(action="get") (for mem) can clean.
+    # The range-based cleaning below caused agent loops where a partial read was expected
+    # to unblock subsequent writes, but then the write was blocked again on the next edit.
+    #
+    # if action == "read_lines":
+    #     start = args.get("start_line")
+    #     end = args.get("end_line")
+    #     if start is not None and start != 1:
+    #         return {}
+    #     if end is None:
+    #         if filepath:
+    #             return {"cleans_files": [filepath]}
+    #         if key:
+    #             return {"cleans_mem": [key]}
+    #         return {}
+    #     # Explicit end -- verify against actual content length
+    #     if filepath:
+    #         try:
+    #             content = Path(filepath).resolve().read_text(encoding="utf-8")
+    #             total = 0 if content == "" else content.count("\n") + (0 if content.endswith("\n") else 1)
+    #             if end >= total:
+    #                 return {"cleans_files": [filepath]}
+    #         except OSError:
+    #             pass
+    #     if key and session_data is not None:
+    #         memory = session_data.get("memory") or {}
+    #         content = memory.get(key)
+    #         if isinstance(content, str):
+    #             total = 0 if content == "" else content.count("\n") + (0 if content.endswith("\n") else 1)
+    #             if end >= total:
+    #                 return {"cleans_mem": [key]}
+    #     return {}
 
     # search_by_regex, count_lines, check_eol, check_indentation:
     # these reveal metadata but not the full content — no clean signal
