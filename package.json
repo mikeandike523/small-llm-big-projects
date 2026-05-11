@@ -4,10 +4,17 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "db-first-time-setup":"bash scripts/db-first-time-setup.sh"
+    "db-first-time-setup": "bash scripts/db-first-time-setup.sh",
+    "code-operations:extract-ts-symbol": "./node_modules/.bin/tsx --tsconfig tsconfig.json code-operations/extract-ts-symbol.ts"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "packageManager": "pnpm@10.28.2"
+  "packageManager": "pnpm@10.28.2",
+  "devDependencies": {
+    "@types/node": "^25.7.0",
+    "commander": "^14.0.3",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.3"
+  }
 }
