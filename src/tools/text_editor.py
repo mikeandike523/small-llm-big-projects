@@ -59,7 +59,7 @@ DEFINITION: dict = {
                         "  convert_indentation -- convert leading-whitespace indentation style.\n"
                         "  apply_patch         -- apply a list of edits (see 'edits' parameter). "
                         "Each edit locates itself by content search; no line numbers required. "
-                        "auto-matches EOL style."
+                        "Auto-matches EOL style."
                     ),
                 },
                 "key": {
@@ -104,7 +104,19 @@ DEFINITION: dict = {
                     "description": (
                         "If true, skip automatic EOL style normalisation for apply_patch and write verbatim. "
                         "By default (false), apply_patch re-encodes the result to match the existing "
-                        "EOL style: CRLF if any CRLF present, else LF."
+                        "EOL style: CRLF if any CRLF present, else LF. "
+                        "Used by: apply_patch."
+                    ),
+                },
+                "trailing_newline": {
+                    "type": "boolean",
+                    "description": (
+                        "Override trailing-newline behaviour for apply_patch. "
+                        "Omit (default) to preserve the original file's trailing newline state. "
+                        "true = always end result with a newline. "
+                        "false = always strip trailing newline. "
+                        "Useful for data files (e.g. flashcard decks, CSV) expected to have no trailing newline. "
+                        "Used by: apply_patch."
                     ),
                 },
                 "eol": {
@@ -163,11 +175,7 @@ DEFINITION: dict = {
                         "required": ["text"],
                         "additionalProperties": False,
                     },
-                    "description": (
-                        "List of edits for apply_patch. Each edit locates itself by searching the entire file "
-                        "for its context/removed lines -- no line numbers needed for anchored edits. "
-                        "Edits are applied sequentially. Used by: apply_patch."
-                    ),
+                    "description": "List of edits to apply sequentially. Used by: apply_patch.",
                 },
             },
             "required": ["action"],
@@ -340,8 +348,16 @@ def _parse_simple_edit(edit_text: str) -> tuple[list[str], list[str]]:
     return before, after
 
 
-def _apply_edits(original_text: str, edits: list[dict], auto_eol: bool = True) -> str:
-    """Apply a list of simple edit objects to original_text."""
+def _apply_edits(
+    original_text: str,
+    edits: list[dict],
+    auto_eol: bool = True,
+    trailing_newline: bool | None = None,
+) -> str:
+    """Apply a list of simple edit objects to original_text.
+
+    trailing_newline: None = preserve original, True = ensure, False = strip.
+    """
     newline = _detect_newline_style(original_text) if auto_eol else "\n"
     lines, had_trailing_nl = _split_lines_preserve(original_text)
 
@@ -379,8 +395,9 @@ def _apply_edits(original_text: str, edits: list[dict], auto_eol: bool = True) -
             apply_at = hits[0]
             lines = lines[:apply_at] + after + lines[apply_at + len(before):]
 
+    ends_with_nl = had_trailing_nl if trailing_newline is None else trailing_newline
     result = newline.join(lines)
-    if had_trailing_nl:
+    if ends_with_nl:
         result += newline
     return result
 
@@ -495,6 +512,7 @@ def _do_convert_indentation(args: dict, key: str, value: str, memory: dict) -> s
 def _do_apply_patch(args: dict, key: str, value: str, memory: dict) -> str:
     edits = args.get("edits")
     disable_auto_eol = bool(args.get("disable_auto_eol", False))
+    trailing_newline = args.get("trailing_newline")  # bool | None
 
     if not edits:
         return "Error: 'edits' is required for action 'apply_patch'."
@@ -502,7 +520,11 @@ def _do_apply_patch(args: dict, key: str, value: str, memory: dict) -> str:
         return "Error: 'edits' must be an array of objects."
 
     try:
-        result = _apply_edits(value, edits, auto_eol=not disable_auto_eol)
+        result = _apply_edits(
+            value, edits,
+            auto_eol=not disable_auto_eol,
+            trailing_newline=trailing_newline,
+        )
     except (ValueError, RuntimeError) as exc:
         return f"Error: {exc}"
     except Exception as exc:

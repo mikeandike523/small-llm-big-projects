@@ -51,19 +51,24 @@ No headers, no line numbers needed. Each edit anchors itself by searching the en
 
 **Always surround every change with context lines, including insertions.** An edit with only `+` lines has nothing to anchor on — include at least one context line above and below, or set `position` (1-based line number) for a true positional insertion.
 
-Example — replacing one line:
-```json
-{"text": " def old_function():\n-    return False\n+    return True\n "}
+Example — replacing a line (the `text` field value, one edit object):
+```
+ def old_function():
+-    return False
++    return True
+ def bar():
 ```
 
-Example — inserting after a known line (context-anchored, no position needed):
-```json
-{"text": " def setup():\n+    configure_logging()\n     start_server()"}
+Example — inserting after a known line (context-anchored, no `position` needed):
+```
+ def setup():
++    configure_logging()
+     start_server()
 ```
 
-Example — pure insertion at line 1 (no context possible):
+Example — pure insertion at line 1 (no surrounding context exists):
 ```json
-{"text": "+# generated file\n", "position": 1}
+{"text": "+# generated file", "position": 1}
 ```
 
 Writing Small Files (new or complete rewrite):

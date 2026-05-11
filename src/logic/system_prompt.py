@@ -399,8 +399,8 @@ read and patch files directly (text_editor(filepath=..., action=...)). At the st
 that writes files directly, check each target file once with git (e.g. git status --short <file>)
 -- not before every edit in a multi-step sequence. If a file has unstaged or uncommitted staged
 changes, warn the user and ask for approval in your final response before overwriting.
-When editing existing content, prefer text_editor action=apply_patch over insert_lines /
-replace_lines / delete_lines -- patches are more precise and the returned diff confirms what changed.
+When editing existing content, use text_editor action=apply_patch with the edits array --
+each edit anchors itself by content search, no line numbers required, and the returned diff confirms what changed.
 
 == MEMORY ==
 
