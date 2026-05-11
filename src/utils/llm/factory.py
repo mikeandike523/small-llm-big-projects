@@ -5,6 +5,7 @@ import logging
 from src.data import get_pool
 from src.utils.sql.kv_manager import KVManager
 from src.utils.llm.streaming import StreamingLLM
+from src.utils.llm.dialect import detect_dialect, get_adapter
 from src.utils.profile_utils import get_active_profile, _kv_prefix
 
 logger = logging.getLogger(__name__)
@@ -98,10 +99,32 @@ def load_llm_config() -> dict | None:
     return {
         "endpoint_url": endpoint_url,
         "token_value": token_value,
+        "provider": provider,
         "model": model,
         "model_params": model_params,
         "system_params": system_params,
     }
+
+
+def make_llm_from_config(config: dict, timeout_s: float | None = None) -> StreamingLLM:
+    """
+    Create a StreamingLLM from an already-loaded config dict (as returned by
+    load_llm_config). Avoids a second DB round-trip when the caller already
+    has the config in hand. Caller must check config is not None before calling.
+    """
+    dialect = detect_dialect(
+        provider=config.get("provider"),
+        endpoint_url=config.get("endpoint_url"),
+    )
+    adapter = get_adapter(dialect)
+    return StreamingLLM(
+        config["endpoint_url"],
+        config["token_value"],
+        timeout_s,
+        config["model"],
+        config["model_params"],
+        adapter=adapter,
+    )
 
 
 def make_llm(timeout_s: float | None = None) -> StreamingLLM | None:
@@ -115,10 +138,16 @@ def make_llm(timeout_s: float | None = None) -> StreamingLLM | None:
     config = load_llm_config()
     if config is None:
         return None
+    dialect = detect_dialect(
+        provider=config.get("provider"),
+        endpoint_url=config.get("endpoint_url"),
+    )
+    adapter = get_adapter(dialect)
     return StreamingLLM(
         config["endpoint_url"],
         config["token_value"],
         timeout_s,
         config["model"],
         config["model_params"],
+        adapter=adapter,
     )

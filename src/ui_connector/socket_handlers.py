@@ -26,7 +26,7 @@ from src.terminal import PtyProcess, TerminalSession, TerminalSessionManager
 from src.utils.sql.kv_manager import KVManager
 from src.utils.profile_utils import get_active_profile, _kv_prefix
 from src.utils.llm.streaming import StreamingLLM
-from src.utils.llm.factory import load_llm_config
+from src.utils.llm.factory import load_llm_config, make_llm_from_config
 from src.tools import ALL_TOOL_DEFINITIONS, execute_tool, check_needs_approval, get_dirty_effects, _TOOL_MAP, load_custom_tools
 from src.tools import _dirty_cache
 from src.tools.todo_list import format_items_for_ui as _todo_format_items_for_ui
@@ -2486,13 +2486,7 @@ def handle_user_message(data: dict):
         })
         return
 
-    streaming_llm = StreamingLLM(
-        llm_config["endpoint_url"],
-        llm_config["token_value"],
-        60,
-        llm_config["model"],
-        llm_config["model_params"],
-    )
+    streaming_llm = make_llm_from_config(llm_config, timeout_s=60)
     return_value_max_chars: int | None = llm_config["system_params"].get("return_value_max_chars")
     watchdog_max_tokens: int | None = llm_config["system_params"].get("watchdog_max_tokens")
     title_summary_max_tokens: int | None = llm_config["system_params"].get("title_summary_max_tokens")
@@ -2655,13 +2649,7 @@ def handle_force_continuation(data: dict):
         emit("error", {"message": "No previous turn to continue."})
         return
 
-    streaming_llm = StreamingLLM(
-        llm_config["endpoint_url"],
-        llm_config["token_value"],
-        60,
-        llm_config["model"],
-        llm_config["model_params"],
-    )
+    streaming_llm = make_llm_from_config(llm_config, timeout_s=60)
     return_value_max_chars: int | None = llm_config["system_params"].get("return_value_max_chars")
     watchdog_max_tokens: int | None = llm_config["system_params"].get("watchdog_max_tokens")
 

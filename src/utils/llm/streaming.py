@@ -3,21 +3,15 @@ from dataclasses import dataclass, field
 import json
 import logging
 import time
-import warnings
 from numbers import Number
 from typing import Callable, Optional
 
 import httpx
 from termcolor import colored
 
+from src.utils.llm.types import DialectAdapter, ToolCall
+
 logger = logging.getLogger(__name__)
-
-
-@dataclass
-class ToolCall:
-    id: str
-    name: str
-    arguments: dict
 
 @dataclass
 class TraceEntry:
@@ -62,9 +56,16 @@ class StreamingLLM:
     _model: Optional[str]
     _default_parameters: dict
     _timeout_s: Optional[Number]
+    _adapter: "DialectAdapter"
 
     def __init__(
-        self, endpoint, token, timeout_s=None, model=None, default_parameters={}
+        self,
+        endpoint: str,
+        token: str,
+        timeout_s=None,
+        model=None,
+        default_parameters={},
+        adapter: "DialectAdapter | None" = None,
     ):
         self._endpoint = endpoint
         self._token = token
@@ -72,15 +73,20 @@ class StreamingLLM:
         self._default_parameters = default_parameters
         self._timeout_s = timeout_s
 
-    async def stream(self, messages, on_data: Callable[[dict], None],
-                     max_tokens=None, parameters={},
-                     tools: Optional[list[dict]] = None,
-                     record: bool = False) -> StreamResult:
-        """Async streaming LLM call. Cancellable via asyncio task cancellation."""
-        payload = {
-            "stream": True,
-            "stream_options": {"include_usage": True},
-        }
+        if adapter is not None:
+            self._adapter = adapter
+        else:
+            from src.utils.llm.dialect import OpenAIDialect
+            self._adapter = OpenAIDialect()
+
+    def _build_base_payload(self, messages, max_tokens, parameters, tools, streaming: bool) -> dict:
+        """Assemble the OpenAI-normalized payload before dialect adaptation."""
+        payload: dict = {}
+        if streaming:
+            payload["stream"] = True
+            payload["stream_options"] = {"include_usage": True}
+        else:
+            payload["stream"] = False
         payload.update(self._default_parameters)
         if self._model:
             payload["model"] = self._model
@@ -91,8 +97,24 @@ class StreamingLLM:
             payload["max_tokens"] = max_tokens
         if tools:
             payload["tools"] = tools
+        return payload
 
-        headers = {"Authorization": f"Bearer {self._token}"}
+    async def stream(
+        self,
+        messages,
+        on_data: Callable[[dict], None],
+        max_tokens=None,
+        parameters={},
+        tools: Optional[list[dict]] = None,
+        record: bool = False,
+    ) -> StreamResult:
+        """Async streaming LLM call. Cancellable via asyncio task cancellation."""
+        payload = self._adapter.adapt_payload(
+            self._build_base_payload(messages, max_tokens, parameters, tools, streaming=True)
+        )
+        headers = self._adapter.headers(self._token)
+        url = self._adapter.endpoint_url(self._endpoint)
+        state = self._adapter.new_stream_state()
 
         _pending_tool_calls: dict[int, dict] = {}
         _last_usage: dict | None = None
@@ -110,7 +132,7 @@ class StreamingLLM:
         async with httpx.AsyncClient() as client:
             async with client.stream(
                 "POST",
-                self._endpoint.rstrip("/") + "/chat/completions",
+                url,
                 json=payload,
                 headers=headers,
                 timeout=None,
@@ -121,10 +143,7 @@ class StreamingLLM:
                 r.raise_for_status()
 
                 async for line in r.aiter_lines():
-                    if not line:
-                        continue
-
-                    if not line.startswith("data: "):
+                    if not line or not line.startswith("data: "):
                         continue
 
                     raw = line[len("data: "):].strip()
@@ -136,49 +155,26 @@ class StreamingLLM:
                     except json.JSONDecodeError:
                         continue
 
-                    # Capture top-level usage (present in the final usage-only chunk
-                    # when stream_options.include_usage is True).
-                    top_usage = obj.get("usage")
-                    if top_usage:
-                        _last_usage = top_usage
+                    for event in self._adapter.parse_data(obj, state):
+                        etype = event["type"]
 
-                    choices = obj.get("choices") or []
-                    if not choices:
-                        continue
+                        if etype == "on_data":
+                            chunk = {"content": event.get("content"), "reasoning": event.get("reasoning")}
+                            on_data(chunk)
 
-                    choice = choices[0]
-                    delta = choice.get("delta", {}) or {}
-
-                    # Handle tool call deltas
-                    tc_deltas = delta.get("tool_calls")
-                    if tc_deltas:
-                        for tc_delta in tc_deltas:
-                            idx = tc_delta.get("index", 0)
+                        elif etype == "tool_delta":
+                            idx = event["index"]
                             if idx not in _pending_tool_calls:
                                 _pending_tool_calls[idx] = {"id": "", "name": "", "arguments": ""}
-                            if tc_delta.get("id"):
-                                _pending_tool_calls[idx]["id"] = tc_delta["id"]
-                            func = tc_delta.get("function", {})
-                            if func.get("name"):
-                                _pending_tool_calls[idx]["name"] = func["name"]
-                            if func.get("arguments"):
-                                _pending_tool_calls[idx]["arguments"] += func["arguments"]
-                        continue
+                            if event.get("id"):
+                                _pending_tool_calls[idx]["id"] = event["id"]
+                            if event.get("name"):
+                                _pending_tool_calls[idx]["name"] = event["name"]
+                            if event.get("arguments"):
+                                _pending_tool_calls[idx]["arguments"] += event["arguments"]
 
-                    event_data = {
-                        "reasoning": delta.get("reasoning"),
-                        "content": delta.get("content"),
-                    }
-
-                    if all(v is None for v in event_data.values()):
-                        warnings.warn(
-                            colored(
-                                "Warning: got event from server with no useful data.",
-                                "yellow",
-                            )
-                        )
-                        continue
-                    on_data(event_data)
+                        elif etype == "usage":
+                            _last_usage = event["usage"]
 
         tool_calls = []
         for entry in _pending_tool_calls.values():
@@ -200,52 +196,27 @@ class StreamingLLM:
 
         return StreamResult(tool_calls=tool_calls, usage=_last_usage, trace=trace)
 
-    def fetch(self, messages, max_tokens=None, parameters={},
-              tools: Optional[list[dict]] = None) -> FetchResult:
-        """Synchronous (non-streaming) request — used for out-of-band calls (e.g. hang triage).
-        Returns the full response in one shot."""
-        payload = {"stream": False}
-        payload.update(self._default_parameters)
-        if self._model:
-            payload["model"] = self._model
-        if parameters:
-            payload.update(parameters)
-        payload["messages"] = messages
-        if max_tokens:
-            payload["max_tokens"] = max_tokens
-        if tools:
-            payload["tools"] = tools
-
-        headers = {"Authorization": f"Bearer {self._token}"}
+    def fetch(
+        self,
+        messages,
+        max_tokens=None,
+        parameters={},
+        tools: Optional[list[dict]] = None,
+    ) -> FetchResult:
+        """Synchronous (non-streaming) request — used for out-of-band calls (e.g. hang triage)."""
+        payload = self._adapter.adapt_payload(
+            self._build_base_payload(messages, max_tokens, parameters, tools, streaming=False)
+        )
+        headers = self._adapter.headers(self._token)
+        url = self._adapter.endpoint_url(self._endpoint)
         timeout = httpx.Timeout(float(self._timeout_s)) if self._timeout_s else None
+
         with httpx.Client() as client:
-            r = client.post(
-                self._endpoint.rstrip("/") + "/chat/completions",
-                json=payload,
-                headers=headers,
-                timeout=timeout,
-            )
+            r = client.post(url, json=payload, headers=headers, timeout=timeout)
+
         if r.status_code != 200:
             logger.error(colored(r.text, "red"))
         r.raise_for_status()
 
-        obj = r.json()
-        message = obj.get("choices", [{}])[0].get("message", {}) or {}
-        content = message.get("content") or ""
-        reasoning = message.get("reasoning") or ""
-
-        tool_calls = []
-        for tc in message.get("tool_calls") or []:
-            func = tc.get("function", {})
-            raw_args = func.get("arguments", "{}")
-            try:
-                arguments = json.loads(raw_args) if raw_args else {}
-            except json.JSONDecodeError:
-                arguments = {}
-            tool_calls.append(ToolCall(
-                id=tc.get("id", ""),
-                name=func.get("name", ""),
-                arguments=arguments,
-            ))
-
+        content, reasoning, tool_calls = self._adapter.parse_response(r.json())
         return FetchResult(content=content, reasoning=reasoning, tool_calls=tool_calls)
