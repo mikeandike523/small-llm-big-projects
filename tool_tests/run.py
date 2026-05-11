@@ -56,8 +56,6 @@ _TEST_MODULES = [
     # Network tools
     "tool_tests.individual.test_basic_web_request",
     "tool_tests.individual.test_brave_web_search",
-    # Project memory tools
-    "tool_tests.individual.test_project_memory",
     # Other tools
     "tool_tests.individual.test_code_interpreter",
     "tool_tests.individual.test_scrape_web_page",

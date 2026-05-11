@@ -4,9 +4,6 @@ import os
 import time
 from pathlib import Path
 
-from src.data import get_pool
-from src.utils.sql.kv_manager import KVManager
-
 DEFAULT_TIMEOUT = 30  # seconds
 TIMEOUT_HINT = "list_dir timed out; consider restricting traversal depth (use the 'depth' parameter)"
 
@@ -79,19 +76,18 @@ DEFINITION: dict = {
                 },
                 "target": {
                     "type": "string",
-                    "enum": ["return_value", "session_memory", "project_memory"],
+                    "enum": ["return_value", "session_memory"],
                     "description": (
                         "Where to send the result. "
                         "'return_value' (default) returns the result directly. "
-                        "'session_memory' writes to a session memory key. "
-                        "'project_memory' writes to a project memory key."
+                        "'session_memory' writes to a session memory key."
                     ),
                 },
                 "memory_key": {
                     "type": "string",
                     "description": (
                         "The memory key to write the result to. "
-                        "Required when target is 'session_memory' or 'project_memory'."
+                        "Required when target is 'session_memory'."
                     ),
                 },
             },
@@ -597,13 +593,5 @@ def execute(args: dict, session_data: dict) -> str:
         memory = _ensure_session_memory(session_data)
         memory[memory_key] = result_str
         return f"Directory listing written to session memory key {memory_key!r}."
-
-    if target == "project_memory":
-        project = os.getcwd()
-        pool = get_pool()
-        with pool.get_connection() as conn:
-            KVManager(conn, project).set_value(memory_key, result_str)
-            conn.commit()
-        return f"Directory listing written to project memory key {memory_key!r}."
 
     return result_str

@@ -57,12 +57,11 @@ interface Props {
 // Tab system
 // ---------------------------------------------------------------------------
 
-type TabId = 'system' | 'session' | 'project' | 'prompt' | 'logs' | 'dirty'
+type TabId = 'system' | 'session' | 'prompt' | 'logs' | 'dirty'
 
 const TABS: { id: TabId; label: string }[] = [
   { id: 'system',  label: 'System Info' },
   { id: 'session', label: 'Session Mem' },
-  { id: 'project', label: 'Project Mem' },
   { id: 'prompt',  label: 'Sys Prompt' },
   { id: 'logs',    label: 'Backend Logs' },
   { id: 'dirty',   label: 'Dirty' },
@@ -714,44 +713,6 @@ function SystemTab({ pwd, sessionId, envInfo, skillsInfo, toolsInfo }: { pwd: st
   )
 }
 
-function ProjectMemTab({
-  keys,
-  onRefresh,
-  onView,
-  loading,
-}: {
-  keys: string[]
-  onRefresh: () => void
-  onView: (key: string) => void
-  loading: boolean
-}) {
-  return (
-    <>
-      <div css={sessionToolbarCss}>
-        <span css={sessionKeyCountCss}>
-          {keys.length} key{keys.length !== 1 ? 's' : ''}
-        </span>
-        <button css={refreshButtonCss} onClick={onRefresh} disabled={loading}>
-          {loading ? <span css={refreshSpinnerCss} /> : 'Refresh'}
-        </button>
-      </div>
-      {keys.length === 0
-        ? <div css={placeholderCss}>No project memory keys.</div>
-        : (
-          <div css={memKeyListCss}>
-            {keys.map(key => (
-              <div key={key} css={memKeyRowCss}>
-                <span css={memKeyNameCss}>{key}</span>
-                <button css={viewButtonCss} onClick={() => onView(key)}>View</button>
-              </div>
-            ))}
-          </div>
-        )
-      }
-    </>
-  )
-}
-
 function SessionMemTab({
   keys,
   dirtyMemKeys,
@@ -864,10 +825,6 @@ export function DebugPanel({ open, onToggle, pwd, sessionId, envInfo, skillsInfo
   const [sessionMemLoading, setSessionMemLoading] = useState(false)
   const [lastSessionMemEvent, setLastSessionMemEvent] = useState<MemKeyEvent | null>(null)
   const [memModal, setMemModal] = useState<MemModal | null>(null)
-  const [projectMemKeys, setProjectMemKeys] = useState<string[]>([])
-  const [projectMemLoading, setProjectMemLoading] = useState(false)
-  const [lastProjectMemEvent, setLastProjectMemEvent] = useState<MemKeyEvent | null>(null)
-  const [projectMemModal, setProjectMemModal] = useState<MemModal | null>(null)
   const [savingTraces, setSavingTraces] = useState(false)
   const [traceSaveStatus, setTraceSaveStatus] = useState<{ ok: boolean; message: string } | null>(null)
   const [dirtyFiles, setDirtyFiles] = useState<string[]>([])
@@ -885,28 +842,11 @@ export function DebugPanel({ open, onToggle, pwd, sessionId, envInfo, skillsInfo
         return { key, value: found ? value : '(key not found)', loading: false, notification: null }
       })
     }
-    function onProjectMemoryKeys({ keys }: { keys: string[] }) {
-      setProjectMemKeys(keys)
-      setProjectMemLoading(false)
-    }
-    function onProjectMemoryValue({ key, value, found }: { key: string; value: string; found: boolean }) {
-      setProjectMemModal(prev => {
-        if (!prev || prev.key !== key) return prev
-        return { key, value: found ? value : '(key not found)', loading: false, notification: null }
-      })
-    }
     function onSessionMemoryKeyEvent({ key, type }: { key: string; type: 'modified' | 'deleted' }) {
       // Always update the last-event footer regardless of whether the modal is open
       setLastSessionMemEvent({ key, type })
       // Also notify the modal if it's showing this key
       setMemModal(prev => {
-        if (!prev || prev.key !== key) return prev
-        return { ...prev, notification: type }
-      })
-    }
-    function onProjectMemoryKeyEvent({ key, type }: { key: string; type: 'modified' | 'deleted' }) {
-      setLastProjectMemEvent({ key, type })
-      setProjectMemModal(prev => {
         if (!prev || prev.key !== key) return prev
         return { ...prev, notification: type }
       })
@@ -930,10 +870,7 @@ export function DebugPanel({ open, onToggle, pwd, sessionId, envInfo, skillsInfo
 
     socket.on('session_memory_keys_update', onSessionMemoryKeys)
     socket.on('session_memory_value', onSessionMemoryValue)
-    socket.on('project_memory_keys_update', onProjectMemoryKeys)
-    socket.on('project_memory_value', onProjectMemoryValue)
     socket.on('session_memory_key_event', onSessionMemoryKeyEvent)
-    socket.on('project_memory_key_event', onProjectMemoryKeyEvent)
     socket.on('traces_saved', onTracesSaved)
     socket.on('traces_save_error', onTracesSaveError)
     socket.on('dirty_cache_update', onDirtyCacheUpdate)
@@ -941,10 +878,7 @@ export function DebugPanel({ open, onToggle, pwd, sessionId, envInfo, skillsInfo
     return () => {
       socket.off('session_memory_keys_update', onSessionMemoryKeys)
       socket.off('session_memory_value', onSessionMemoryValue)
-      socket.off('project_memory_keys_update', onProjectMemoryKeys)
-      socket.off('project_memory_value', onProjectMemoryValue)
       socket.off('session_memory_key_event', onSessionMemoryKeyEvent)
-      socket.off('project_memory_key_event', onProjectMemoryKeyEvent)
       socket.off('traces_saved', onTracesSaved)
       socket.off('traces_save_error', onTracesSaveError)
       socket.off('dirty_cache_update', onDirtyCacheUpdate)
@@ -957,10 +891,6 @@ export function DebugPanel({ open, onToggle, pwd, sessionId, envInfo, skillsInfo
       setSessionMemLoading(true)
       socket.emit('get_session_memory_keys')
     }
-    if (open && activeTab === 'project') {
-      setProjectMemLoading(true)
-      socket.emit('get_project_memory_keys')
-    }
   }, [open, activeTab])
 
   function refreshMemoryKeys() {
@@ -971,16 +901,6 @@ export function DebugPanel({ open, onToggle, pwd, sessionId, envInfo, skillsInfo
   function viewMemoryValue(key: string) {
     setMemModal({ key, value: '', loading: true, notification: null })
     socket.emit('get_session_memory_value', { key })
-  }
-
-  function refreshProjectMemoryKeys() {
-    setProjectMemLoading(true)
-    socket.emit('get_project_memory_keys')
-  }
-
-  function viewProjectMemoryValue(key: string) {
-    setProjectMemModal({ key, value: '', loading: true, notification: null })
-    socket.emit('get_project_memory_value', { key })
   }
 
   function saveTraces() {
@@ -1021,37 +941,6 @@ export function DebugPanel({ open, onToggle, pwd, sessionId, envInfo, skillsInfo
                   <span css={modalFooterModifiedCss} onClick={() => {
                     setMemModal(prev => prev ? { ...prev, loading: true, notification: null } : prev)
                     socket.emit('get_session_memory_value', { key: memModal.key })
-                  }}>
-                    Memory item modified since modal opened — click to refetch
-                  </span>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {projectMemModal && (
-        <div css={modalOverlayCss} onClick={() => setProjectMemModal(null)}>
-          <div css={modalCardCss} onClick={e => e.stopPropagation()}>
-            <div css={modalHeaderCss}>
-              <span css={modalTitleCss}>[project] {projectMemModal.key}</span>
-              <button css={modalCloseButtonCss} onClick={() => setProjectMemModal(null)}>×</button>
-            </div>
-            <div css={modalBodyCss}>
-              {projectMemModal.loading
-                ? <div css={modalLoadingWrapCss}><div css={modalSpinnerCss} /></div>
-                : projectMemModal.value
-              }
-            </div>
-            {projectMemModal.notification && (
-              <div css={modalFooterCss}>
-                {projectMemModal.notification === 'deleted' ? (
-                  <span css={modalFooterDeletedCss}>Memory item deleted since modal opened</span>
-                ) : (
-                  <span css={modalFooterModifiedCss} onClick={() => {
-                    setProjectMemModal(prev => prev ? { ...prev, loading: true, notification: null } : prev)
-                    socket.emit('get_project_memory_value', { key: projectMemModal.key })
                   }}>
                     Memory item modified since modal opened — click to refetch
                   </span>
@@ -1107,21 +996,6 @@ export function DebugPanel({ open, onToggle, pwd, sessionId, envInfo, skillsInfo
             </div>
             <div css={memTabFooterCss}>
               <MemTabFooter event={lastSessionMemEvent} />
-            </div>
-          </div>
-
-          {/* Project memory tab: flex column with scrollable content + fixed footer */}
-          <div css={memTabContainerCss(activeTab === 'project')}>
-            <div css={memTabScrollCss}>
-              <ProjectMemTab
-                keys={projectMemKeys}
-                onRefresh={refreshProjectMemoryKeys}
-                onView={viewProjectMemoryValue}
-                loading={projectMemLoading}
-              />
-            </div>
-            <div css={memTabFooterCss}>
-              <MemTabFooter event={lastProjectMemEvent} />
             </div>
           </div>
 

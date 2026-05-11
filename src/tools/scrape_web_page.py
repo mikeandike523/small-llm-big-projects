@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import random
 import time
 from typing import Literal
@@ -11,8 +10,6 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 from src.utils.http.helpers import ensure_session_memory
-from src.utils.sql.kv_manager import KVManager
-from src.data import get_pool
 
 
 DEFAULT_TIMEOUT = 20       # seconds per request
@@ -116,19 +113,18 @@ DEFINITION: dict = {
                 },
                 "target": {
                     "type": "string",
-                    "enum": ["return_value", "session_memory", "project_memory"],
+                    "enum": ["return_value", "session_memory"],
                     "description": (
                         "Where to send the page content. "
                         "'return_value' (default) returns it directly. "
-                        "'session_memory' writes to a session memory key. "
-                        "'project_memory' writes to a project memory key."
+                        "'session_memory' writes to a session memory key."
                     ),
                 },
                 "memory_key": {
                     "type": "string",
                     "description": (
                         "The memory key to write results to. "
-                        "Required when target is 'session_memory' or 'project_memory'."
+                        "Required when target is 'session_memory'."
                     ),
                 },
             },
@@ -296,8 +292,8 @@ def execute(args: dict, session_data: dict | None = None) -> str:
     target: str = args.get("target", "return_value")
     memory_key: str | None = args.get("memory_key")
 
-    if target in ("session_memory", "project_memory") and not memory_key:
-        return "Error: 'memory_key' is required when target is 'session_memory' or 'project_memory'."
+    if target == "session_memory" and not memory_key:
+        return "Error: 'memory_key' is required when target is 'session_memory'."
 
     host = _host(url)
     if not host:
@@ -363,13 +359,5 @@ def execute(args: dict, session_data: dict | None = None) -> str:
         memory = ensure_session_memory(session_data)
         memory[memory_key] = result
         return f"Page content written to session memory key {memory_key!r}."
-
-    if target == "project_memory":
-        project = os.getcwd()
-        pool = get_pool()
-        with pool.get_connection() as conn:
-            KVManager(conn, project).set_value(memory_key, result)
-            conn.commit()
-        return f"Page content written to project memory key {memory_key!r}."
 
     return result

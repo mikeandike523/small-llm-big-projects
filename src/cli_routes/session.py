@@ -21,13 +21,6 @@ def session():
 
 @session.command(name="new")
 @click.option(
-    '--pin-project-memory', default=False, type=bool, show_default=True,
-    help=(
-        'Pin the default project memory scope to the working directory of this session. '
-        'When False, project memory defaults to os.getcwd() at the time of each tool call.'
-    ),
-)
-@click.option(
     '--load-skills', is_flag=True, default=False,
     help='Load custom skills from a skills/ directory in the working directory of this session.',
 )
@@ -51,7 +44,7 @@ def session():
         'flush the buffer to disk as an XML file.'
     ),
 )
-def session_new(pin_project_memory, load_skills, load_tools, load_startup_tool_calls, cwd, enable_trace_recording):
+def session_new(load_skills, load_tools, load_startup_tool_calls, cwd, enable_trace_recording):
     """
     Create a new agentic session and open it in the default web browser.
 
@@ -88,7 +81,6 @@ def session_new(pin_project_memory, load_skills, load_tools, load_startup_tool_c
 
     payload: dict = {
         "initial_cwd": session_cwd,
-        "pin_project_memory": pin_project_memory,
         "interim_response_as_thinking": interim_response_as_thinking,
         "record_traces": enable_trace_recording,
     }

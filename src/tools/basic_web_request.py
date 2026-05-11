@@ -1,5 +1,4 @@
 import json
-import os
 from typing import Any
 
 import httpx
@@ -12,8 +11,6 @@ from src.utils.http.helpers import (
     load_latest_service_tokens_from_db,
     validate_string_list,
 )
-from src.utils.sql.kv_manager import KVManager
-from src.data import get_pool
 
 
 DEFAULT_TIMEOUT = 30  # informational; actual value comes from args
@@ -100,19 +97,18 @@ DEFINITION: dict = {
                 },
                 "target": {
                     "type": "string",
-                    "enum": ["return_value", "session_memory", "project_memory"],
+                    "enum": ["return_value", "session_memory"],
                     "description": (
                         "Where to send the file contents. "
                         "'return_value' (default) returns the contents directly. "
-                        "'session_memory' writes the contents to a session memory key. "
-                        "'project_memory' writes the contents to a project memory key."
+                        "'session_memory' writes the contents to a session memory key."
                     ),
                 },
                 "memory_key": {
                     "type": "string",
                     "description": (
                         "The memory key to write the file contents to. "
-                        "Required when target is 'session_memory' or 'project_memory'."
+                        "Required when target is 'session_memory'."
                     ),
                 },
             },
@@ -177,8 +173,8 @@ def execute(args, session_data):
         if len(tokens) == 1 and not any(k.lower() == "authorization" for k in headers):
             headers["Authorization"] = f"Bearer {next(iter(tokens.values()))}"
 
-    if target in ("session_memory", "project_memory") and not args.get("memory_key"):
-        return "Error: 'memory_key' is required when target is 'session_memory' or 'project_memory'."
+    if target == "session_memory" and not args.get("memory_key"):
+        return "Error: 'memory_key' is required when target is 'session_memory'."
 
     if content_type is not None:
         headers.setdefault("Content-Type", content_type)
@@ -250,13 +246,5 @@ def execute(args, session_data):
         memory = ensure_session_memory(session_data)
         memory[memory_key] = result
         return f"Response data written to session memory item {memory_key}"
-
-    if target == "project_memory":
-        project = os.getcwd()
-        pool = get_pool()
-        with pool.get_connection() as conn:
-            KVManager(conn, project).set_value(memory_key, result)
-            conn.commit()
-        return f"Response data written to project memory item {memory_key}"
 
     return result

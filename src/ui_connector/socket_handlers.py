@@ -39,7 +39,6 @@ from src.logic.system_prompt import (
     get_selector_candidate_entries,
     resolve_skill_dependency_closure,
 )
-from src.utils.emitting_kv_manager import EmittingKVManager
 from src.utils.redis_dict import RedisDict
 from src.utils.request_error_formatting import format_http_error
 from src.utils.env_info import format_environment_info, get_default_workspace_dir, get_os, get_shell
@@ -84,7 +83,7 @@ _session_tool_sets: dict[str, tuple[list, dict, list]] = {}
 _session_system_prompts: dict[str, str] = {}
 # session_id -> list of skill descriptors {id, name, blurb, filename, path, source, dependencies, autoload}
 _session_skill_registries: dict[str, list[dict]] = {}
-# session_id -> {initial_cwd, pin_project_memory} — lightweight cache for info handlers
+# session_id -> {initial_cwd} — lightweight cache for info handlers
 _session_project_config: dict[str, dict] = {}
 # session_id -> current working directory for this session (updated by change_pwd tool)
 _session_current_cwd: dict[str, str] = {}
@@ -182,13 +181,6 @@ def _build_starting_environment_info(session: "Session") -> str:
     )
 
 
-def _get_default_project(session_id: str) -> str:
-    cfg = _session_project_config.get(session_id, {})
-    if cfg.get("pin_project_memory", True):
-        return cfg.get("initial_cwd", "") or os.getcwd()
-    return os.getcwd()
-
-
 def _get_session_tool_defs(session_id: str) -> list[dict]:
     return _session_tool_sets.get(session_id, (ALL_TOOL_DEFINITIONS, _TOOL_MAP, []))[0]
 
@@ -253,7 +245,6 @@ def _init_session_caches(session: "Session", session_id: str) -> None:
 
     _session_project_config[session_id] = {
         "initial_cwd": session.initial_cwd,
-        "pin_project_memory": session.pin_project_memory,
     }
 
     # Track per-session CWD; only initialise if not already set so mid-session
@@ -555,7 +546,6 @@ def api_create_session():
     Create a new session with per-session context.
     Body (JSON):
       initial_cwd                   str   — working directory for this session
-      pin_project_memory            bool  — pin project memory to initial_cwd (default true)
       skills_path                   str?  — path to skills/ directory (or null)
       custom_tools_path             str?  — path to tools/ directory (or null)
       startup_tool_calls_path       str?  — path to startup_tool_calls.json (or null)
@@ -567,7 +557,6 @@ def api_create_session():
 
     session_id = str(_uuid_module.uuid4())
     initial_cwd = data.get("initial_cwd", "")
-    pin_project_memory = bool(data.get("pin_project_memory", True))
     skills_path = data.get("skills_path") or None
     custom_tools_path = data.get("custom_tools_path") or None
     startup_tool_calls_path = data.get("startup_tool_calls_path") or None
@@ -587,7 +576,6 @@ def api_create_session():
     session = Session(
         session_id=session_id,
         initial_cwd=initial_cwd,
-        pin_project_memory=pin_project_memory,
         skills_path=skills_path,
         custom_tools_path=custom_tools_path,
         startup_tool_calls=startup_tool_calls,
@@ -628,7 +616,6 @@ def api_create_session():
     )
     _session_project_config[session_id] = {
         "initial_cwd": initial_cwd,
-        "pin_project_memory": pin_project_memory,
     }
     _session_current_cwd[session_id] = initial_cwd
 
@@ -680,7 +667,6 @@ def api_list_sessions():
             "task_titles": task_titles,
             "interim_response_as_thinking": d.get("interim_response_as_thinking", False),
             "record_traces": d.get("record_traces", False),
-            "pin_project_memory": d.get("pin_project_memory", True),
             "skills_path": d.get("skills_path") or None,
             "custom_tools_path": d.get("custom_tools_path") or None,
         })
@@ -705,7 +691,6 @@ def api_delete_session(session_id: str):
 # ---------------------------------------------------------------------------
 
 _SESSION_DEFAULTS_HARDCODED: dict = {
-    "pin_project_memory":           False,
     "interim_response_as_thinking": False,
     "record_traces":                False,
     "load_skills":                  False,
@@ -1090,7 +1075,6 @@ def _execute_tools(
     """
     turn_id = current_turn.id
     special_resources = {
-        "emitting_kv_manager": EmittingKVManager(get_pool(), socketio, session_id),
         "on_log": lambda msg: _emit_backend_log(session_id, msg),
         "session_id": session_id,
         "initial_cwd": session.initial_cwd,
@@ -1180,7 +1164,6 @@ def _execute_tools(
                 "id": tc.id, "turn_id": turn_id, "started_at": started_at,
             })
 
-            session.session_data["__pinned_project__"] = session.initial_cwd if session.pin_project_memory else None
             try:
                 tool_result = execute_tool(tc.name, tc.arguments, session.session_data, special_resources, tool_map=actual_tool_map)
             except ToolHangError as e:
@@ -1468,7 +1451,7 @@ def _compute_subturn_compaction(
                 "- {any important problem-solving strategy, decision, or approach used}\n\n"
                 "Rules:\n"
                 "- List every tool call under 'Tools used:'\n"
-                "- Under 'Memory changes:' list only session_memory and project_memory writes; "
+                "- Under 'Memory changes:' list only session_memory writes; "
                 "if none, write a single line: (none)\n"
                 "- Under 'Notable insights:' list any non-obvious approaches; "
                 "if none, write a single line: (none)\n"
@@ -2336,33 +2319,6 @@ def handle_get_session_memory_value(data: dict):
         socketio.emit("session_memory_value", {"key": key, "value": "", "found": False}, room=session_id)
 
 
-@socketio.on("get_project_memory_keys")
-def handle_get_project_memory_keys():
-    sid = request.sid
-    session_id = _sid_to_session_id.get(sid, sid)
-    project = _get_default_project(session_id)
-    pool = get_pool()
-    with pool.get_connection() as conn:
-        keys = KVManager(conn).list_keys(project=project)
-    socketio.emit("project_memory_keys_update", {"keys": keys}, room=session_id)
-
-
-@socketio.on("get_project_memory_value")
-def handle_get_project_memory_value(data: dict):
-    sid = request.sid
-    session_id = _sid_to_session_id.get(sid, sid)
-    key = data.get("key", "")
-    project = _get_default_project(session_id)
-    pool = get_pool()
-    with pool.get_connection() as conn:
-        value = KVManager(conn).get_value(key, project=project)
-    if value is not None:
-        value_str = value if isinstance(value, str) else json.dumps(value, indent=2, ensure_ascii=False)
-        socketio.emit("project_memory_value", {"key": key, "value": value_str, "found": True}, room=session_id)
-    else:
-        socketio.emit("project_memory_value", {"key": key, "value": "", "found": False}, room=session_id)
-
-
 @socketio.on("get_dirty_cache")
 def handle_get_dirty_cache():
     sid = request.sid
@@ -2473,7 +2429,6 @@ def handle_run_startup_tool_calls():
             socketio.emit("backend_log", {"text": f"Warning: could not chdir to {_startup_cwd!r}: {_chdir_err}"}, room=session_id)
 
     special_resources = {
-        "emitting_kv_manager": EmittingKVManager(get_pool(), socketio, session_id),
         "on_log": lambda msg: _emit_backend_log(session_id, msg),
         "initial_cwd": session.initial_cwd,
     }
@@ -2486,7 +2441,6 @@ def handle_run_startup_tool_calls():
 
         socketio.emit("startup_tool_call", {"id": tc_id, "name": name, "args": args}, room=session_id)
 
-        session.session_data["__pinned_project__"] = session.initial_cwd if session.pin_project_memory else None
         try:
             result = execute_tool(name, args, session.session_data, special_resources, tool_map=startup_tool_map)
         except Exception as exc:

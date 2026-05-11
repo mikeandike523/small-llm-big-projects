@@ -14,7 +14,6 @@ from src.utils.redis_dict import RedisDict
 class TestEnv:
     redis_client: redis.Redis
     session_data: dict
-    test_project: str
     tmp_dir: str
     _redis_hash_key: str
 
@@ -22,21 +21,6 @@ class TestEnv:
         # Delete the Redis hash
         try:
             self.redis_client.delete(self._redis_hash_key)
-        except Exception:
-            pass
-
-        # Delete all project_memory rows for test_project
-        try:
-            from src.data import get_pool
-            from src.utils.sql.kv_manager import KVManager
-
-            pool = get_pool()
-            with pool.get_connection() as conn:
-                kv = KVManager(conn)
-                keys = kv.list_keys(project=self.test_project)
-                for k in keys:
-                    kv.delete_value(k, project=self.test_project)
-                conn.commit()
         except Exception:
             pass
 
@@ -55,17 +39,14 @@ def make_env(suffix: str) -> TestEnv:
     memory = RedisDict(r, hash_key)
 
     tmp_dir = tempfile.mkdtemp(prefix=f"tooltest_{suffix}_")
-    test_project = f"/test_project/{suffix}/{unique}"
 
     session_data: dict = {
         "memory": memory,
-        "__pinned_project__": test_project,
     }
 
     return TestEnv(
         redis_client=r,
         session_data=session_data,
-        test_project=test_project,
         tmp_dir=tmp_dir,
         _redis_hash_key=hash_key,
     )

@@ -25,7 +25,6 @@ from src.tools import open_in_terminal
 from src.tools import read_open_terminal
 from src.tools import list_dir
 from src.tools import list_working_tree
-from src.tools import project_memory
 from src.tools import read_text_file
 from src.tools import remove_dir
 from src.tools import report_impossible
@@ -59,7 +58,6 @@ ALL_TOOL_DEFINITIONS: list[dict] = [
     read_open_terminal.DEFINITION,
     list_dir.DEFINITION,
     list_working_tree.DEFINITION,
-    project_memory.DEFINITION,
     read_text_file.DEFINITION,
     remove_dir.DEFINITION,
     report_impossible.DEFINITION,
@@ -93,7 +91,6 @@ _TOOL_MAP: dict[str, object] = {
     "read_open_terminal": read_open_terminal,
     "list_dir": list_dir,
     "list_working_tree": list_working_tree,
-    "project_memory": project_memory,
     "read_text_file": read_text_file,
     "remove_dir": remove_dir,
     "report_impossible": report_impossible,

@@ -158,7 +158,6 @@ class Session:
     session_data: dict = field(default_factory=dict)
     # Per-session context (set at creation time via slbp session new)
     initial_cwd: str = ""
-    pin_project_memory: bool = True
     skills_path: str | None = None
     custom_tools_path: str | None = None
     startup_tool_calls: list = field(default_factory=list)
@@ -282,8 +281,7 @@ def turn_from_dict(d: dict) -> Turn:
 
 def session_to_dict(session: Session) -> dict:
     # Exclude "memory" (RedisDict), "todo_list" (ephemeral), "_report_impossible"
-    # (always cleaned before save), "__pinned_project__" (re-injected each call)
-    _EXCLUDED = {"memory", "todo_list", "_report_impossible", "__pinned_project__"}
+    _EXCLUDED = {"memory", "todo_list", "_report_impossible"}
     session_data_clean = {
         k: v for k, v in session.session_data.items() if k not in _EXCLUDED
     }
@@ -295,7 +293,6 @@ def session_to_dict(session: Session) -> dict:
         "current_turn": turn_to_dict(session.current_turn) if session.current_turn else None,
         "session_data": session_data_clean,
         "initial_cwd": session.initial_cwd,
-        "pin_project_memory": session.pin_project_memory,
         "skills_path": session.skills_path,
         "custom_tools_path": session.custom_tools_path,
         "startup_tool_calls": session.startup_tool_calls,
@@ -314,7 +311,6 @@ def session_from_dict(d: dict) -> Session:
         current_turn=turn_from_dict(d["current_turn"]) if d.get("current_turn") else None,
         session_data=d.get("session_data", {}),
         initial_cwd=d.get("initial_cwd", ""),
-        pin_project_memory=d.get("pin_project_memory", True),
         skills_path=d.get("skills_path"),
         custom_tools_path=d.get("custom_tools_path"),
         startup_tool_calls=d.get("startup_tool_calls", []),

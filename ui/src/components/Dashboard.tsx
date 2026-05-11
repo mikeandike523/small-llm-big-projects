@@ -18,7 +18,6 @@ interface SessionSummary {
   interim_response_as_thinking: boolean
   record_traces: boolean
   task_titles: string[]
-  pin_project_memory: boolean
   skills_path: string | null
   custom_tools_path: string | null
 }
@@ -603,7 +602,6 @@ function SessionCard({
         <span>{relativeTime(session.created_at)}</span>
         {session.interim_response_as_thinking && <span css={metaBadgeCss}>irat</span>}
         {session.record_traces && <span css={metaBadgeCss}>traces</span>}
-        {session.pin_project_memory && <span css={metaBadgeCss}>pin-mem</span>}
         {session.skills_path && <span css={metaBadgeCss} title={session.skills_path}>skills</span>}
         {session.custom_tools_path && <span css={metaBadgeCss} title={session.custom_tools_path}>tools</span>}
       </div>

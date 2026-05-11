@@ -73,7 +73,6 @@ def _make_session_data() -> dict:
     return {
         "memory": memory,
         "initial_cwd": cwd,
-        "__pinned_project__": cwd,
         "_cleanup": _cleanup_redis,
     }
 

@@ -9,11 +9,7 @@ For complex coding tasks, add each area or file group you need to understand as 
 - **`find_files_by_name`** — Search for files by name pattern (glob or regex) across the tree. Use this to locate files when you know part of the name but not the path. Complements `list_working_tree` and `list_dir` for exploration. Prefer this over `host_shell` with `find` — on some systems (e.g. Git Bash on Windows) the `find` command is not available.
 - **`search_filesystem_by_regex`** — Search file *contents* by regex. Use to find where a function, class, variable, or string is defined or used.
 
-As you explore, write your findings to `project_memory` — the purpose of key files and directories,
-the overall project structure, and anything else that would save time in a future session.
-Use the `pwd` argument to scope notes to the specific directory you are working in (e.g., a
-subproject or nested module). At the start of any task, check `project_memory` with the relevant
-`pwd` to surface prior findings for that location before re-exploring from scratch.
+As you explore, write your key findings to session memory so you can reference them throughout the task.
 
 ### Reading and Editing Files
 
@@ -87,20 +83,15 @@ Do NOT use host_shell with cat, sed, awk, or echo redirects for file writing.
 ### Match Project Style and Environment
 
 Always explore the repo thoroughly before starting a new coding task — add exploration steps to the
-todo list up front so nothing gets skipped.
-Use the `project_memory` tool to take notes on the purpose of each file and other important details.
-Use `pwd` to scope reads and writes to the relevant subdirectory.
-Check existing items in project memory (with the appropriate `pwd`) for any prior notes as well.
+todo list up front so nothing gets skipped. Use session memory to record notes on key files and details.
 
 Before writing code, use `get_environment_info` when OS, shell, or working-directory details
 matter to the task. This is especially important before running shell commands, debugging
 environment-specific issues, or interpreting relative paths.
 
 Before writing code, scan the environment for AGENTS.md, CLAUDE.md, AGENTS.txt, and CLAUDE.txt.
-Read those to get an idea of the coding style and environment. After reading them, write your key
-takeaways to `project_memory` — coding conventions, build/lint/typecheck commands, framework
-choices, and any constraints the project enforces. This ensures future sessions start with full
-context rather than re-discovering the same files.
+Read those to get an idea of the coding style and environment. Write key takeaways to session memory
+— coding conventions, build/lint/typecheck commands, framework choices, and constraints.
 
 When writing new code, LOOK FOR EXAMPLE FILES that show how different functions,
 components, classes, and data is used.
@@ -179,9 +170,8 @@ Always use a dedicated tool instead of **`host_shell`** if one is available. hos
 well-suited for environment-specific tasks that have no dedicated equivalent: building, linting,
 typechecking, running tests, package installs, and git operations.
 
-Before running any of these, check `project_memory` for notes from your code exploration —
-particularly anything about project structure, style, and AGENTS.md. That is where you will find
-the correct build, lint, and typecheck commands for the active project.
+Before running any of these, check session memory for any notes from your code exploration —
+particularly anything about project structure, style, and AGENTS.md.
 
 Do NOT use host_shell for file writing (cat/sed/awk/echo redirects) — use `text_editor` or `write_text_file` instead.
 After a build or test run, check the todo list — close verification steps only when they actually pass.

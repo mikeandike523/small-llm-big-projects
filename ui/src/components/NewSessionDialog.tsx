@@ -7,7 +7,6 @@ import { useEffect, useState } from 'react'
 // ---------------------------------------------------------------------------
 
 export interface SessionDefaults {
-  pin_project_memory: boolean
   interim_response_as_thinking: boolean
   record_traces: boolean
   load_skills: boolean
@@ -196,12 +195,6 @@ interface CheckOption {
 
 const OPTIONS: CheckOption[] = [
   {
-    key: 'pin_project_memory',
-    label: 'Pin project memory',
-    flag: '--pin-project-memory',
-    desc: 'Scope project memory to this session\'s working directory.',
-  },
-  {
     key: 'record_traces',
     label: 'Enable trace recording',
     flag: '--etr',
@@ -282,7 +275,6 @@ export default function NewSessionDialog({ sessionDefaults, onCreated, onClose }
 
     const payload: Record<string, unknown> = {
       initial_cwd: cwd,
-      pin_project_memory: flags.pin_project_memory,
       interim_response_as_thinking: sessionDefaults.interim_response_as_thinking,
       record_traces: flags.record_traces,
     }

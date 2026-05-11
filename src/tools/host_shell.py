@@ -39,7 +39,7 @@ DEFINITION = {
             "Commands must be non-interactive; interactive prompts will hang indefinitely (ToolHangError). "
             "use_known_autoresponse=true (default) handles common prompts automatically. "
             "Result is returned inline (target='return_value', default) "
-            "or stored in a memory key (target='session_memory' or 'project_memory')."
+            "or stored in a session memory key (target='session_memory')."
         ),
         "parameters": {
             "type": "object",
@@ -62,17 +62,16 @@ DEFINITION = {
                 },
                 "target": {
                     "type": "string",
-                    "enum": ["return_value", "session_memory", "project_memory"],
+                    "enum": ["return_value", "session_memory"],
                     "description": (
                         "'return_value' (default): return output inline. "
-                        "'session_memory': write output to a session memory key. "
-                        "'project_memory': write output to a project memory key."
+                        "'session_memory': write output to a session memory key."
                     ),
                 },
                 "memory_key": {
                     "type": "string",
                     "description": (
-                        "Required when target is 'session_memory' or 'project_memory'. "
+                        "Required when target is 'session_memory'. "
                         "The key to write the command output to."
                     ),
                 },
@@ -136,7 +135,7 @@ def execute(args: dict, session_data: dict | None = None, special_resources: dic
     validate_timeout("host_shell", timeout, DEFAULT_TIMEOUT, MAX_TIMEOUT)
     validate_timeout("host_shell hang_timeout", hang_timeout, DEFAULT_HANG_TIMEOUT, MAX_HANG_TIMEOUT)
 
-    if target in ("session_memory", "project_memory") and not memory_key:
+    if target == "session_memory" and not memory_key:
         return f"Error: target={target!r} requires 'memory_key'."
 
     sr = special_resources or {}
@@ -204,15 +203,5 @@ def execute(args: dict, session_data: dict | None = None, special_resources: dic
             session_data["memory"] = memory
         memory[memory_key] = output
         return f"Command output written to session memory key {memory_key!r}."
-
-    if target == "project_memory":
-        from src.data import get_pool
-        from src.utils.sql.kv_manager import KVManager
-        project = os.getcwd()
-        pool = get_pool()
-        with pool.get_connection() as conn:
-            KVManager(conn, project).set_value(memory_key, output)
-            conn.commit()
-        return f"Command output written to project memory key {memory_key!r}."
 
     return output
