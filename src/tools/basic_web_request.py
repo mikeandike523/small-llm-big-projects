@@ -11,6 +11,7 @@ from src.utils.http.helpers import (
     load_latest_service_tokens_from_db,
     validate_string_list,
 )
+from src.utils.text_truncation import truncate_long_lines as _truncate_long_lines
 
 
 DEFAULT_TIMEOUT = 30  # informational; actual value comes from args
@@ -111,6 +112,17 @@ DEFINITION: dict = {
                         "Required when target is 'session_memory'."
                     ),
                 },
+                "max_line_length": {
+                    "type": "integer",
+                    "description": (
+                        "Truncate lines in the response longer than this many characters, "
+                        "appending '[... N more bytes]'. "
+                        "0 disables the limit. Range: 0-256. Default: 0 (disabled). "
+                        "JSON responses are already pretty-printed (indent=2) so their lines "
+                        "are naturally short; enable this for text or HTML responses that may "
+                        "contain minified content."
+                    ),
+                },
             },
             "required": ["url", "method", "timeout"],
             "additionalProperties": False,
@@ -141,6 +153,7 @@ def execute(args, session_data):
         else:
             return "Error: 'body' is an object but content_type is not JSON-like. Pass a string body or use a JSON content type."
     debug_show_bad_json: bool = bool(args.get("debug_show_bad_json", False))
+    max_line_length: int = max(0, min(256, args.get("max_line_length", 0)))
 
     target = args.get("target", "return_value")
 
@@ -234,6 +247,8 @@ def execute(args, session_data):
             accept=accept,
             json_error=f"Request failed: {type(e).__name__}: {e}",
         )
+
+    result = _truncate_long_lines(result, max_line_length)
 
     if target == "return_value":
         return result

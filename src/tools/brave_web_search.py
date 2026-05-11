@@ -25,8 +25,6 @@ _USER_AGENT = (
 )
 
 
-NO_STUB = True
-
 DEFAULT_TIMEOUT = 30
 TIMEOUT_HINT = None
 

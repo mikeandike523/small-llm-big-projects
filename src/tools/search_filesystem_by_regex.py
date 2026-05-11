@@ -15,8 +15,11 @@ from __future__ import annotations
 
 import os
 import re
+import time
+from pathlib import Path
 
 from python_ripgrep import search as _rg_search
+from src.utils.text_truncation import truncate_long_lines as _truncate_long_lines
 
 DEFINITION: dict = {
     "type": "function",
@@ -50,7 +53,27 @@ DEFINITION: dict = {
                     "description": (
                         "File or directory to search. Accepts relative (resolved from cwd) "
                         "or absolute paths. If a directory, all files are searched "
-                        "recursively (respecting .gitignore). Default: current working directory."
+                        "recursively. Default: current working directory."
+                    ),
+                },
+                "use_gitignore": {
+                    "type": "boolean",
+                    "description": (
+                        "If true, respect .gitignore rules during search. "
+                        "Inside a git repository, ripgrep handles this natively. "
+                        "Outside a git repository, files are pre-filtered using "
+                        "gitignore_parser so .gitignore rules still apply. "
+                        "The .git directory is always excluded when enabled. "
+                        "Default: true."
+                    ),
+                },
+                "max_line_length": {
+                    "type": "integer",
+                    "description": (
+                        "Truncate matched lines longer than this many characters, "
+                        "appending '[... N more bytes]' to indicate the omission. "
+                        "Protects against minified files with very long lines. "
+                        "0 disables the limit. Range: 0-256. Default: 160."
                     ),
                 },
             },
@@ -68,6 +91,47 @@ def needs_approval(args: dict) -> bool:
 _BOLD = "\033[1m"
 _RESET = "\033[0m"
 
+_ENUMERATE_TIMEOUT = 30  # seconds for the pre-enumeration pass (non-git-repo case)
+
+
+def _in_git_repo(path: str) -> bool:
+    from src.tools.list_dir import _find_gitignore_root
+    root = _find_gitignore_root(path)
+    return (root / ".git").exists()
+
+
+def _enumerate_gitignored_files(root: str) -> list[str]:
+    """Return absolute paths of all non-gitignored files under root."""
+    from src.tools.list_dir import (
+        _traverse,
+        _find_gitignore_root,
+        _get_ancestor_matchers,
+        _get_effective_matchers,
+        _collect_flat,
+    )
+
+    gitignore_root = _find_gitignore_root(root)
+    ancestor_matchers = _get_ancestor_matchers(gitignore_root, root)
+    effective_matchers = _get_effective_matchers(root, ancestor_matchers, True)
+
+    start = time.monotonic()
+    children = _traverse(
+        dir_path=root,
+        recursive=True,
+        follow_folder_symlinks=False,
+        follow_file_symlinks=False,
+        depth=None,
+        visited_dirs={os.path.realpath(root)},
+        matchers=effective_matchers,
+        use_gitignore=True,
+        start_time=start,
+        timeout=_ENUMERATE_TIMEOUT,
+    )
+
+    flat: list = []
+    _collect_flat(children, "", "files", flat)
+    return [os.path.normpath(os.path.join(root, rel)) for rel, _ in flat]
+
 
 def _apply_bold(line: str, pattern: str) -> str:
     """Wrap every occurrence of pattern in the line with ANSI bold codes."""
@@ -78,6 +142,12 @@ def _apply_bold(line: str, pattern: str) -> str:
 def execute(args: dict, _session_data: dict | None = None) -> str:
     pattern: str = args.get("pattern", "")
     raw_path: str = args.get("path", "")
+    use_gitignore: bool = args.get("use_gitignore", True)
+    max_line_length: int = args.get("max_line_length", 160)
+
+    # Clamp max_line_length to valid range; 0 means disabled
+    max_line_length = max(0, min(256, max_line_length))
+
     display_path: str = raw_path if raw_path else "."
     path: str = raw_path or os.getcwd()
 
@@ -88,10 +158,28 @@ def execute(args: dict, _session_data: dict | None = None) -> str:
     if not os.path.exists(path):
         return f"Error: path does not exist: {path!r}"
 
+    is_single_file = os.path.isfile(path)
+
+    # Determine which paths to pass to ripgrep
+    if is_single_file or not use_gitignore:
+        paths_to_search = [path]
+    elif _in_git_repo(path):
+        # rg handles .gitignore natively inside a git repo
+        paths_to_search = [path]
+    else:
+        # Outside a git repo: pre-enumerate so .gitignore rules still apply
+        try:
+            paths_to_search = _enumerate_gitignored_files(path)
+        except Exception:
+            # Fall back to searching everything if enumeration fails
+            paths_to_search = [path]
+        if not paths_to_search:
+            return f"Search path: {display_path}\n\nNo matches found."
+
     try:
         raw_results: list[str] = _rg_search(
             patterns=[pattern],
-            paths=[path],
+            paths=paths_to_search,
             line_number=True,
             heading=True,
         )
@@ -102,10 +190,7 @@ def execute(args: dict, _session_data: dict | None = None) -> str:
         return f"Search path: {display_path}\n\nNo matches found."
 
     # When searching a single file, python_ripgrep omits the file-path heading
-    # even with heading=True. Only directory searches include it.
-    is_single_file = os.path.isfile(path)
-
-    # For relative path computation: use the directory as root for single files
+    # even with heading=True. Only directory/multi-file searches include it.
     search_root: str = path
 
     output_blocks: list[str] = []
@@ -116,23 +201,24 @@ def execute(args: dict, _session_data: dict | None = None) -> str:
             continue
 
         if is_single_file:
-            # All lines are match lines; file is the search root so rel path is "."
             rel_file_path = "."
             match_lines = lines
         else:
-            # First line is the absolute file path heading from ripgrep
             abs_file_path = lines[0]
             rel_file_path = os.path.relpath(abs_file_path, search_root).replace("\\", "/")
             match_lines = lines[1:]
 
         rendered_matches: list[str] = []
         for raw_line in match_lines:
-            # Each line is "lineno:content"
             colon_pos = raw_line.find(":")
             if colon_pos == -1:
                 continue
             lineno = raw_line[:colon_pos]
             content = raw_line[colon_pos + 1:]
+
+            # Truncate long lines before highlighting (mirrors rg --max-columns-preview)
+            content = _truncate_long_lines(content, max_line_length)
+
             try:
                 highlighted = _apply_bold(content, pattern)
             except re.error:

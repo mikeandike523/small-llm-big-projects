@@ -1,8 +1,6 @@
 from __future__ import annotations
 import json
 
-NO_STUB = True
-
 DEFINITION = {
     "type": "function",
     "function": {

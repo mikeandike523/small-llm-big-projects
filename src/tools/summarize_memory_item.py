@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from src.tools._memory import ensure_session_memory
 
-NO_STUB = True
-
 DEFINITION: dict = {
     "type": "function",
     "function": {

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import random
+
 import time
 from typing import Literal
 from urllib.parse import urlparse
@@ -10,6 +11,7 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 from src.utils.http.helpers import ensure_session_memory
+from src.utils.text_truncation import truncate_long_lines as _truncate_long_lines
 
 
 DEFAULT_TIMEOUT = 20       # seconds per request
@@ -125,6 +127,15 @@ DEFINITION: dict = {
                     "description": (
                         "The memory key to write results to. "
                         "Required when target is 'session_memory'."
+                    ),
+                },
+                "max_line_length": {
+                    "type": "integer",
+                    "description": (
+                        "Truncate lines in the returned content longer than this many characters, "
+                        "appending '[... N more bytes]'. "
+                        "Protects against minified HTML/CSS/JS with very long lines. "
+                        "0 disables the limit. Range: 0-256. Default: 160."
                     ),
                 },
             },
@@ -291,6 +302,7 @@ def execute(args: dict, session_data: dict | None = None) -> str:
     output_format: Literal["xml", "markdown", "text", "raw"] = args.get("format", "xml")
     target: str = args.get("target", "return_value")
     memory_key: str | None = args.get("memory_key")
+    max_line_length: int = max(0, min(256, args.get("max_line_length", 160)))
 
     if target == "session_memory" and not memory_key:
         return "Error: 'memory_key' is required when target is 'session_memory'."
@@ -349,7 +361,7 @@ def execute(args: dict, session_data: dict | None = None) -> str:
     header_line = f"HTTP {resp.status_code} | {content_type}"
     body_text = resp.content.decode("utf-8", errors="replace")
     rendered = _render_content(body_text, output_format)
-    result = f"{header_line}\n\n{rendered}"
+    result = _truncate_long_lines(f"{header_line}\n\n{rendered}", max_line_length)
 
     # --- deliver ---
     if target == "return_value":

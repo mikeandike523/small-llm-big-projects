@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from src.utils.text_truncation import truncate_long_lines as _truncate_long_lines
+
 DEFINITION = {
     "type": "function",
     "function": {
@@ -43,6 +45,16 @@ DEFINITION = {
                     "type": "number",
                     "description": "Number of lines for head/tail mode. Ignored for screen and all.",
                 },
+                "max_line_length": {
+                    "type": "integer",
+                    "description": (
+                        "Truncate lines longer than this many characters in the returned output, "
+                        "appending '[... N more bytes]'. "
+                        "Only applies to head and tail modes — screen and all are rendered by the "
+                        "VT100 emulator which already wraps at the terminal column width. "
+                        "0 disables the limit. Range: 0-256. Default: 160."
+                    ),
+                },
             },
             "required": ["terminal_id", "mode"],
             "additionalProperties": False,
@@ -60,6 +72,7 @@ def execute(args: dict, session_data: dict | None = None, special_resources: dic
     terminal_id = args.get("terminal_id", "")
     mode = args["mode"]
     num_lines = args.get("num_lines")
+    max_line_length: int = max(0, min(256, args.get("max_line_length", 160)))
     if num_lines is not None:
         num_lines = int(num_lines)
 
@@ -73,4 +86,7 @@ def execute(args: dict, session_data: dict | None = None, special_resources: dic
     if get_output is None:
         return "Error: read_open_terminal is not available in this context (no terminal backend attached)."
 
-    return get_output(terminal_id, mode, num_lines)
+    result = get_output(terminal_id, mode, num_lines)
+    if mode in ("head", "tail"):
+        result = _truncate_long_lines(result, max_line_length)
+    return result
