@@ -11,6 +11,8 @@ import { DebugPanel } from './DebugPanel'
 import { TerminalPanel } from './TerminalPanel'
 import Ansi from 'ansi-to-react'
 import type { Turn, Subturn, ToolCallEntry, TodoItem, ApprovalItem } from '../types'
+import FormattedCostWithColor from './FormattedCostWithColor'
+import ElapsedTimer from './ElapsedTimer'
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -18,31 +20,7 @@ import type { Turn, Subturn, ToolCallEntry, TodoItem, ApprovalItem } from '../ty
 
 const MAX_TOOL_CHARS = 80
 const MAX_LOGS = 100
-const JSON_VALUE_MAX_LINES = 10
-
-
-function formatCostWithColor(usd: number): React.ReactNode {
-  const costStr = usd.toFixed(4)
-  const parts = costStr.split('.')
-
-  if (parts.length !== 2) {
-    throw new Error(`Unexpected cost format: ${costStr}`) // should never happen with the current formatCost implementation
-  }
-  
-  const dollars = parts[0].padStart(2, '0')
-  const cents = parts[1].slice(0, 2)
-  const partialCents = parts[1].slice(2)
-
-  return <>
-    <span style={{color:"#FFF"}}>{dollars}</span>
-    <span style={{color:"#FFF"}}>.</span>
-    <span style={{color:"#FFF"}}>{cents}</span>
-    <span style={{color:"#888"}}>{partialCents}</span>
-  </>
-  
-  
-}
-// ---------------------------------------------------------------------------
+const JSON_VALUE_MAX_LINES = 10// ---------------------------------------------------------------------------
 // Shared scrollbar styles
 // ---------------------------------------------------------------------------
 
@@ -1209,13 +1187,7 @@ const streamingDotCss = css`
   animation: ${_streamPulse} 1s ease-in-out infinite;
 `
 
-const elapsedTimeCss = css`
-  font-size: 11px;
-  color: #7060a0;
-  font-family: 'Consolas', monospace;
-  flex-shrink: 0;
-  margin-left: 6px;
-`
+
 
 const streamingResultCss = css`
   background: #050e05;
@@ -1315,19 +1287,7 @@ const modalBodyCss = css`
 // ElapsedTimer
 // ---------------------------------------------------------------------------
 
-function ElapsedTimer({ startedAt, finishedAt }: { startedAt?: number; finishedAt?: number }) {
-  const [now, setNow] = useState(() => Date.now())
 
-  useEffect(() => {
-    if (!startedAt || finishedAt) return
-    const id = setInterval(() => setNow(Date.now()), 100)
-    return () => clearInterval(id)
-  }, [startedAt, finishedAt])
-
-  if (!startedAt) return null
-  const elapsed = ((finishedAt ?? now) - startedAt) / 1000
-  return <span css={elapsedTimeCss}>{elapsed.toFixed(1)}s</span>
-}
 
 // ---------------------------------------------------------------------------
 // JsonArgsViewer
@@ -2640,7 +2600,7 @@ export default function Chat() {
           <div css={headerSideCss}>
             {sessionCost !== null && (
               <span css={sessionCostCss} title="Accumulated session cost (provider-reported)">
-                <span style={{ color: '#fff' }}>$</span>{formatCostWithColor(sessionCost)}
+                <span style={{ color: '#fff' }}>$</span>{FormattedCostWithColor(sessionCost)}
               </span>
             )}          </div>
         </div>
