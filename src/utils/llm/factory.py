@@ -7,6 +7,7 @@ from src.utils.sql.kv_manager import KVManager
 from src.utils.llm.streaming import StreamingLLM
 from src.utils.llm.dialect import detect_dialect, get_adapter
 from src.utils.profile_utils import get_active_profile, _kv_prefix
+from src.utils.param_registry import ALLOWED_PARAMS as _ALLOWED_PARAMS, EXCLUDE_FROM_REQUEST as _EXCLUDE_FROM_REQUEST
 
 logger = logging.getLogger(__name__)
 
@@ -72,26 +73,28 @@ def load_llm_config() -> dict | None:
         full_model_prefix = prefix + "params.model."
         full_system_prefix = prefix + "params.system."
         param_keys = kv.list_keys(prefix=full_params_prefix)
+        # Only include params that are allowed and not reserved for internal use.
+        # EXCLUDE_FROM_REQUEST params are read separately into system_params below.
         model_params = {
             k[len(full_model_prefix):]: kv.get_value(k)
-            for k in param_keys if k.startswith(full_model_prefix)
+            for k in param_keys
+            if k.startswith(full_model_prefix)
+            and f"model.{k[len(full_model_prefix):]}" in _ALLOWED_PARAMS
+            and f"model.{k[len(full_model_prefix):]}" not in _EXCLUDE_FROM_REQUEST
         }
-        extra = model_params.pop("request_extra_params", None)
+        extra_key = prefix + "params.model.request_extra_params"
+        extra = kv.get_value(extra_key) if extra_key in param_keys else None
         if extra:
             model_params.update(extra)
-        # These model.* params control internal call budgets, not the LLM API itself.
-        # Pop them from model_params (so they don't leak into API request payloads)
-        # and surface them via system_params where callers can read them.
-        watchdog_max_tokens = model_params.pop("watchdog_max_tokens", None)
-        title_summary_max_tokens = model_params.pop("title_summary_max_tokens", None)
         system_params = {
             k[len(full_system_prefix):]: kv.get_value(k)
             for k in param_keys if k.startswith(full_system_prefix)
         }
-        if watchdog_max_tokens is not None:
-            system_params["watchdog_max_tokens"] = watchdog_max_tokens
-        if title_summary_max_tokens is not None:
-            system_params["title_summary_max_tokens"] = title_summary_max_tokens
+        for param_name in _EXCLUDE_FROM_REQUEST:
+            suffix = param_name[len("model."):]
+            full_key = full_model_prefix + suffix
+            if full_key in param_keys:
+                system_params[suffix] = kv.get_value(full_key)
 
     if not token_value or not endpoint_url:
         return None

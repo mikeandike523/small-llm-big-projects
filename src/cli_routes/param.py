@@ -7,18 +7,7 @@ from src.data import get_pool
 from src.cli_obj import cli
 from src.utils.sql.kv_manager import KVManager
 from src.utils.profile_utils import get_active_profile, _kv_prefix
-
-_ALLOWED_PARAMS = {
-    "model.temperature",
-    "model.top_p",
-    "model.top_k",
-    "model.max_tokens",
-    "model.watchdog_max_tokens",
-    "model.title_summary_max_tokens",
-    "model.request_extra_params",
-    "model.irat",
-    "system.return_value_max_chars",
-}
+from src.utils.param_registry import ALLOWED_PARAMS as _ALLOWED_PARAMS
 
 _PARAM_DOCS = {
     "model.temperature": {
