@@ -9,7 +9,7 @@ import { useState, useCallback } from 'react'
  *   // Call reset() or reset(finalContent) when the stream ends.
  *   <TextPresenter content={content} streaming={isStreaming} maxHeight={480} />
  */
-export function useAccumulatingContent(initial = '') {
+export default function useAccumulatingContent(initial = '') {
   const [content, setContent] = useState(initial)
 
   const append = useCallback((token: string) => {
