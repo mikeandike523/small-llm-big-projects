@@ -1,4 +1,15 @@
-import { sessionToolbarCss, sessionKeyCountCss, refreshButtonCss, refreshSpinnerCss, placeholderCss, memKeyListCss, memKeyRowCss, memKeyNameCss, dirtyAsteriskCss, viewButtonCss } from "../../css/DebugPanel";
+import {
+  sessionToolbarCss,
+  sessionKeyCountCss,
+  refreshButtonCss,
+  refreshSpinnerCss,
+  placeholderCss,
+  memKeyListCss,
+  memKeyRowCss,
+  memKeyNameCss,
+  dirtyAsteriskCss,
+  viewButtonCss,
+} from "../../css/DebugPanel";
 
 export default function SessionMemTab({
   keys,

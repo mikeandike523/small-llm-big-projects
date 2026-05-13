@@ -4,7 +4,8 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "db-first-time-setup": "bash scripts/db-first-time-setup.sh"
+    "db-first-time-setup": "bash scripts/db-first-time-setup.sh",
+    "ui:typecheck":"cd ui && node_modules/.bin/tsc --noEmit"
   },
   "keywords": [],
   "author": "",

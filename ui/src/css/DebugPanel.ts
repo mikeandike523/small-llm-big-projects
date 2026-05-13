@@ -138,28 +138,6 @@ export const rowCss = css`
   margin-bottom: 10px;
 `
 
-export const rowLabelCss = css`
-  font-family: 'Consolas', monospace;
-  font-size: 9px;
-  text-transform: uppercase;
-  letter-spacing: 0.07em;
-  color: #444;
-`
-
-export const rowValueCss = css`
-  font-family: 'Consolas', monospace;
-  font-size: 11px;
-  color: #888;
-  word-break: break-all;
-`
-
-export const placeholderCss = css`
-  font-family: 'Consolas', monospace;
-  font-size: 11px;
-  color: #333;
-  font-style: italic;
-  padding: 4px 0;
-`
 
 export const skillsCardCss = css`
   border: 1px solid #1e1e1e;
@@ -230,31 +208,13 @@ export const toolsCardDividerCss = css`
   margin: 4px 0;
 `
 
-export const logsPanelCss = (visible: boolean) => css`
-  position: absolute;
-  inset: 0;
-  overflow-y: auto;
-  opacity: ${visible ? 1 : 0};
-  pointer-events: ${visible ? 'auto' : 'none'};
-  transition: opacity 0.18s ease;
-  padding: 6px;
-  display: flex;
-  flex-direction: column;
-  ${scrollbarCss}
-`
-
-export const logLineCss = css`
+export const placeholderCss = css`
   font-family: 'Consolas', monospace;
-  font-size: 10px;
-  line-height: 1.5;
-  white-space: pre-wrap;
-  word-break: break-all;
-  padding: 1px 2px;
+  font-size: 11px;
+  color: #333;
+  font-style: italic;
+  padding: 4px 0;
 `
-
-// ---------------------------------------------------------------------------
-// Session/Project Memory tab styles
-// ---------------------------------------------------------------------------
 
 export const sessionToolbarCss = css`
   display: flex;
@@ -341,7 +301,6 @@ export const viewButtonCss = css`
   &:hover { color: #aaa; border-color: #444; }
 `
 
-// Memory tab layout: flex column with scrollable content + fixed footer
 export const memTabContainerCss = (visible: boolean) => css`
   position: absolute;
   inset: 0;
@@ -370,23 +329,6 @@ export const memTabFooterCss = css`
   background: #0a0a0a;
 `
 
-export const memEventLabelCss = (type: string) => css`
-  font-family: 'Consolas', monospace;
-  font-size: 9px;
-  color: ${type === 'deleted' ? '#8a3535' : '#8a6a20'};
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 100%;
-`
-
-export const memEventEmptyCss = css`
-  font-family: 'Consolas', monospace;
-  font-size: 9px;
-  color: #252525;
-  font-style: italic;
-`
-
 export const dirtyAsteriskCss = css`
   color: #c07828;
   font-size: 11px;
@@ -394,24 +336,9 @@ export const dirtyAsteriskCss = css`
   flex-shrink: 0;
 `
 
-export const dirtySectionLabelCss = css`
-  font-family: 'Consolas', monospace;
-  font-size: 9px;
-  text-transform: uppercase;
-  letter-spacing: 0.07em;
-  color: #555;
-  margin-bottom: 4px;
-  margin-top: 8px;
-  &:first-of-type { margin-top: 0; }
-`
 
-export const dirtyItemCss = css`
-  font-family: 'Consolas', monospace;
-  font-size: 10px;
-  color: #c07828;
-  word-break: break-all;
-  padding: 2px 4px;
-`
+
+
 
 export const saveTracesBtnCss = css`
   background: transparent;
@@ -439,10 +366,6 @@ export const saveTracesStatusCss = (ok: boolean) => css`
   margin-top: 4px;
   word-break: break-all;
 `
-
-// ---------------------------------------------------------------------------
-// Modal styles
-// ---------------------------------------------------------------------------
 
 export const modalOverlayCss = css`
   position: fixed;

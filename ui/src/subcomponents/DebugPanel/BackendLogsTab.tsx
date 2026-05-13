@@ -1,7 +1,32 @@
 import { useStickToBottom } from "use-stick-to-bottom";
 import { BackendLogEntry } from "../../types/DebugPanel";
-import { logLineCss, logsPanelCss, placeholderCss } from "../../css/DebugPanel";
+import { placeholderCss } from "../../css/DebugPanel";
 import Ansi from "ansi-to-react";
+import { css } from "@emotion/react";
+import scrollbarCss from "../../css/scrollBarCss";
+
+export const logLineCss = css`
+  font-family: 'Consolas', monospace;
+  font-size: 10px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-all;
+  padding: 1px 2px;
+`
+
+export const logsPanelCss = (visible: boolean) => css`
+  position: absolute;
+  inset: 0;
+  overflow-y: auto;
+  opacity: ${visible ? 1 : 0};
+  pointer-events: ${visible ? 'auto' : 'none'};
+  transition: opacity 0.18s ease;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  ${scrollbarCss}
+`
+
 
 export default function BackendLogsTab({
   logs,
