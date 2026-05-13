@@ -1,22 +1,10 @@
 /** @jsxImportSource @emotion/react */
-import Ansi from "ansi-to-react";
 import { useEffect, useState } from "react";
-import { useStickToBottom } from "use-stick-to-bottom";
 import {
   collapsedLabelCss,
   collapsedStripCss,
-  dirtyAsteriskCss,
-  dirtyItemCss,
-  dirtySectionLabelCss,
   headerCss,
   headerTitleCss,
-  logLineCss,
-  logsPanelCss,
-  memEventEmptyCss,
-  memEventLabelCss,
-  memKeyListCss,
-  memKeyNameCss,
-  memKeyRowCss,
   memTabContainerCss,
   memTabFooterCss,
   memTabScrollCss,
@@ -34,36 +22,25 @@ import {
   panelCss,
   placeholderCss,
   promptPanelCss,
-  refreshButtonCss,
   refreshSpinnerCss,
   rowCss,
   saveTracesBtnCss,
   saveTracesStatusCss,
-  sessionKeyCountCss,
-  sessionToolbarCss,
   tabBarCss,
   tabButtonCss,
   tabContentAreaCss,
   tabPanelCss,
-  toggleButtonCss,
-  viewButtonCss,
+  toggleButtonCss
 } from "../css/DebugPanel";
-import InfoRow from "../subcomponents/DebugPanel/InfoRow";
-import SkillsCard from "../subcomponents/DebugPanel/SkillsCard";
-import ToolsCard from "../subcomponents/DebugPanel/ToolsCard";
-import {
-  BackendLogEntry,
-  EnvInfo,
-  MemKeyEvent,
-  Props,
-  SkillsInfo,
-  ToolsInfo,
-} from "../types/DebugPanel";
-import SystemTab from "../subcomponents/DebugPanel/SystemTab";
-import SessionMemTab from "../subcomponents/DebugPanel/SessionMemTab";
 import BackendLogsTab from "../subcomponents/DebugPanel/BackendLogsTab";
 import DirtyTab from "../subcomponents/DebugPanel/DirtyTab";
 import MemTabFooter from "../subcomponents/DebugPanel/MemTabFooter";
+import SessionMemTab from "../subcomponents/DebugPanel/SessionMemTab";
+import SystemTab from "../subcomponents/DebugPanel/SystemTab";
+import {
+  MemKeyEvent,
+  Props
+} from "../types/DebugPanel";
 
 // ---------------------------------------------------------------------------
 // Types
