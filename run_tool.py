@@ -57,9 +57,11 @@ def _make_session_data() -> dict:
 
         from src.utils.redis_dict import RedisDict
 
+        from src.utils.docker_compose import get_service_port as _gsp
+        _default_port = int(os.environ.get("REDIS_PORT", 0)) or _gsp("redis", 6379)
         r = redis.Redis(
             host=os.environ.get("REDIS_HOST", "localhost"),
-            port=int(os.environ.get("REDIS_PORT", 6379)),
+            port=_default_port,
             decode_responses=True,
         )
         r.ping()  # fail fast if Redis is not running

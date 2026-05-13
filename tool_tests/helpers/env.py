@@ -3,11 +3,19 @@ from __future__ import annotations
 import shutil
 import tempfile
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import redis
 
+from src.utils.docker_compose import get_service_port
 from src.utils.redis_dict import RedisDict
+
+
+def _redis_port() -> int:
+    try:
+        return get_service_port("redis", 6379)
+    except Exception:
+        return 6379
 
 
 @dataclass
@@ -35,7 +43,7 @@ def make_env(suffix: str) -> TestEnv:
     unique = uuid.uuid4().hex[:8]
     hash_key = f"tool_test:session:{suffix}:{unique}"
 
-    r = redis.Redis(host="localhost", port=6379, decode_responses=True)
+    r = redis.Redis(host="localhost", port=_redis_port(), decode_responses=True)
     memory = RedisDict(r, hash_key)
 
     tmp_dir = tempfile.mkdtemp(prefix=f"tooltest_{suffix}_")
