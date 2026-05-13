@@ -4,11 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "db-first-time-setup": "bash scripts/db-first-time-setup.sh",
-    "code-operations:extract-ts-symbol": "./node_modules/.bin/tsx --tsconfig tsconfig.json code-operations/extract-ts-symbol.ts",
-    "co:ets":"./node_modules/.bin/tsx --tsconfig tsconfig.json code-operations/extract-ts-symbol.ts",
-    "code-analysis:line_count_report":"bash python_in_env.sh code-analysis/line_count_report.py",
-    "ca:lcr":"bash python_in_env.sh code-analysis/line_count_report.py"
+    "db-first-time-setup": "bash scripts/db-first-time-setup.sh"
   },
   "keywords": [],
   "author": "",
