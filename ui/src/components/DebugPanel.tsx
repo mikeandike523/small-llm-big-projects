@@ -1,947 +1,297 @@
 /** @jsxImportSource @emotion/react */
-import { css, keyframes } from '@emotion/react'
-import { useState, useEffect } from 'react'
-import { type Socket } from 'socket.io-client'
-import Ansi from 'ansi-to-react'
-import { useStickToBottom } from 'use-stick-to-bottom'
+import Ansi from "ansi-to-react";
+import { useEffect, useState } from "react";
+import { useStickToBottom } from "use-stick-to-bottom";
+import {
+  collapsedLabelCss,
+  collapsedStripCss,
+  dirtyAsteriskCss,
+  dirtyItemCss,
+  dirtySectionLabelCss,
+  headerCss,
+  headerTitleCss,
+  logLineCss,
+  logsPanelCss,
+  memEventEmptyCss,
+  memEventLabelCss,
+  memKeyListCss,
+  memKeyNameCss,
+  memKeyRowCss,
+  memTabContainerCss,
+  memTabFooterCss,
+  memTabScrollCss,
+  modalBodyCss,
+  modalCardCss,
+  modalCloseButtonCss,
+  modalFooterCss,
+  modalFooterDeletedCss,
+  modalFooterModifiedCss,
+  modalHeaderCss,
+  modalLoadingWrapCss,
+  modalOverlayCss,
+  modalSpinnerCss,
+  modalTitleCss,
+  panelCss,
+  placeholderCss,
+  promptPanelCss,
+  refreshButtonCss,
+  refreshSpinnerCss,
+  rowCss,
+  saveTracesBtnCss,
+  saveTracesStatusCss,
+  sessionKeyCountCss,
+  sessionToolbarCss,
+  tabBarCss,
+  tabButtonCss,
+  tabContentAreaCss,
+  tabPanelCss,
+  toggleButtonCss,
+  viewButtonCss,
+} from "../css/DebugPanel";
+import InfoRow from "../subcomponents/DebugPanel/InfoRow";
+import SkillsCard from "../subcomponents/DebugPanel/SkillsCard";
+import ToolsCard from "../subcomponents/DebugPanel/ToolsCard";
+import {
+  BackendLogEntry,
+  EnvInfo,
+  MemKeyEvent,
+  Props,
+  SkillsInfo,
+  ToolsInfo,
+} from "../types/DebugPanel";
+import SystemTab from "../subcomponents/DebugPanel/SystemTab";
+import SessionMemTab from "../subcomponents/DebugPanel/SessionMemTab";
+import BackendLogsTab from "../subcomponents/DebugPanel/BackendLogsTab";
+import DirtyTab from "../subcomponents/DebugPanel/DirtyTab";
+import MemTabFooter from "../subcomponents/DebugPanel/MemTabFooter";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-interface SkillsInfo {
-  enabled: boolean
-  count: number
-  path: string | null
-  files: string[]
-}
-
-interface EnvInfo {
-  os: string
-  shell: string
-  initialCwd: string
-}
-
-interface ToolsInfo {
-  totalCount: number
-  builtinCount: number
-  builtinPath: string
-  names: string[]
-  customPlugins: { name: string; count: number; path: string }[] | null
-}
-
-interface BackendLogEntry {
-  id: number
-  text: string
-}
-
-interface MemKeyEvent {
-  key: string
-  type: 'modified' | 'deleted'
-}
-
-interface Props {
-  open: boolean
-  onToggle: () => void
-  pwd: string
-  sessionId: string
-  envInfo: EnvInfo | null
-  skillsInfo: SkillsInfo | null
-  toolsInfo: ToolsInfo | null
-  systemPrompt: string | null
-  backendLogs: BackendLogEntry[]
-  socket: Socket
-}
-
 // ---------------------------------------------------------------------------
 // Tab system
 // ---------------------------------------------------------------------------
 
-type TabId = 'system' | 'session' | 'prompt' | 'logs' | 'dirty'
+type TabId = "system" | "session" | "prompt" | "logs" | "dirty";
 
 const TABS: { id: TabId; label: string }[] = [
-  { id: 'system',  label: 'System Info' },
-  { id: 'session', label: 'Session Mem' },
-  { id: 'prompt',  label: 'Sys Prompt' },
-  { id: 'logs',    label: 'Backend Logs' },
-  { id: 'dirty',   label: 'Dirty' },
-]
+  { id: "system", label: "System Info" },
+  { id: "session", label: "Session Mem" },
+  { id: "prompt", label: "Sys Prompt" },
+  { id: "logs", label: "Backend Logs" },
+  { id: "dirty", label: "Dirty" },
+];
 
-// ---------------------------------------------------------------------------
-// Spinner animation
-// ---------------------------------------------------------------------------
-
-const _spin = keyframes`
-  to { transform: rotate(360deg); }
-`
-
-// ---------------------------------------------------------------------------
-// Styles
-// ---------------------------------------------------------------------------
-
-const scrollbarCss = css`
-  &::-webkit-scrollbar { width: 4px; }
-  &::-webkit-scrollbar-track { background: #0a0a0a; }
-  &::-webkit-scrollbar-thumb { background: #3a3a3a; border-radius: 2px; }
-  &::-webkit-scrollbar-thumb:hover { background: #555; }
-`
-
-const panelCss = css`
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  background: #0d0d0d;
-  border-right: 1px solid #1e1e1e;
-  overflow: hidden;
-  flex-shrink: 0;
-`
-
-const headerCss = css`
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 6px 10px;
-  border-bottom: 1px solid #1e1e1e;
-  background: #111;
-  flex-shrink: 0;
-  min-height: 32px;
-`
-
-const headerTitleCss = css`
-  font-family: 'Consolas', monospace;
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: #555;
-`
-
-const toggleButtonCss = css`
-  background: transparent;
-  border: none;
-  color: #555;
-  cursor: pointer;
-  font-size: 13px;
-  padding: 0 2px;
-  line-height: 1;
-  &:hover { color: #aaa; }
-`
-
-const collapsedStripCss = css`
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  height: 100%;
-  background: #0d0d0d;
-  border-right: 1px solid #1e1e1e;
-`
-
-const collapsedLabelCss = css`
-  writing-mode: vertical-rl;
-  transform: rotate(180deg);
-  font-family: 'Consolas', monospace;
-  font-size: 10px;
-  letter-spacing: 0.12em;
-  color: #484848;
-  text-transform: uppercase;
-`
-
-const tabBarCss = css`
-  display: flex;
-  flex-direction: row;
-  height: 30px;
-  border-bottom: 1px solid #1e1e1e;
-  background: #0d0d0d;
-  flex-shrink: 0;
-  overflow: hidden;
-`
-
-const tabButtonCss = (active: boolean) => css`
-  flex: 1;
-  height: 100%;
-  background: ${active ? '#161616' : 'transparent'};
-  border: none;
-  border-bottom: 2px solid ${active ? '#2563eb' : 'transparent'};
-  color: ${active ? '#b0b0b0' : '#484848'};
-  padding: 0 4px;
-  font-family: 'Consolas', monospace;
-  font-size: 9px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  text-align: center;
-  cursor: pointer;
-  transition: color 0.15s, background 0.15s;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  &:hover {
-    color: ${active ? '#c0c0c0' : '#707070'};
-    background: #141414;
-  }
-`
-
-const tabContentAreaCss = css`
-  position: relative;
-  flex: 1;
-  overflow: hidden;
-`
-
-const tabPanelCss = (visible: boolean) => css`
-  position: absolute;
-  inset: 0;
-  overflow-y: auto;
-  opacity: ${visible ? 1 : 0};
-  pointer-events: ${visible ? 'auto' : 'none'};
-  transition: opacity 0.18s ease;
-  padding: 10px;
-  ${scrollbarCss}
-`
-
-const promptPanelCss = (visible: boolean) => css`
-  position: absolute;
-  inset: 0;
-  overflow-y: auto;
-  opacity: ${visible ? 1 : 0};
-  pointer-events: ${visible ? 'auto' : 'none'};
-  transition: opacity 0.18s ease;
-  padding: 10px;
-  font-family: 'Consolas', monospace;
-  font-size: 10px;
-  color: #777;
-  white-space: pre-wrap;
-  word-break: break-word;
-  line-height: 1.6;
-  ${scrollbarCss}
-`
-
-const rowCss = css`
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  margin-bottom: 10px;
-`
-
-const rowLabelCss = css`
-  font-family: 'Consolas', monospace;
-  font-size: 9px;
-  text-transform: uppercase;
-  letter-spacing: 0.07em;
-  color: #444;
-`
-
-const rowValueCss = css`
-  font-family: 'Consolas', monospace;
-  font-size: 11px;
-  color: #888;
-  word-break: break-all;
-`
-
-const placeholderCss = css`
-  font-family: 'Consolas', monospace;
-  font-size: 11px;
-  color: #333;
-  font-style: italic;
-  padding: 4px 0;
-`
-
-const skillsCardCss = css`
-  border: 1px solid #1e1e1e;
-  border-radius: 6px;
-  overflow: hidden;
-  margin-bottom: 10px;
-`
-
-const skillsCardHeaderCss = css`
-  font-family: 'Consolas', monospace;
-  font-size: 9px;
-  text-transform: uppercase;
-  letter-spacing: 0.07em;
-  color: #555;
-  padding: 4px 8px;
-  background: #111;
-  border-bottom: 1px solid #1e1e1e;
-`
-
-const skillsCardBodyCss = css`
-  ${scrollbarCss}
-  max-height: 100px;
-  overflow-y: auto;
-  padding: 6px 8px;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-`
-
-const skillsCardPathCss = css`
-  font-family: 'Consolas', monospace;
-  font-size: 9px;
-  color: #4a4a4a;
-  word-break: break-all;
-  margin-bottom: 3px;
-`
-
-const skillsCardFileCss = css`
-  font-family: 'Consolas', monospace;
-  font-size: 10px;
-  color: #777;
-`
-
-const toolsCardPluginNameCss = css`
-  font-family: 'Consolas', monospace;
-  font-size: 10px;
-  color: #668;
-  margin-top: 3px;
-`
-
-const toolsCardPluginPathCss = css`
-  font-family: 'Consolas', monospace;
-  font-size: 9px;
-  color: #3a3a4a;
-  word-break: break-all;
-  margin-bottom: 2px;
-`
-
-const toolsCardNameCss = css`
-  font-family: 'Consolas', monospace;
-  font-size: 10px;
-  color: #777;
-`
-
-const toolsCardDividerCss = css`
-  border: none;
-  border-top: 1px solid #1e1e1e;
-  margin: 4px 0;
-`
-
-const logsPanelCss = (visible: boolean) => css`
-  position: absolute;
-  inset: 0;
-  overflow-y: auto;
-  opacity: ${visible ? 1 : 0};
-  pointer-events: ${visible ? 'auto' : 'none'};
-  transition: opacity 0.18s ease;
-  padding: 6px;
-  display: flex;
-  flex-direction: column;
-  ${scrollbarCss}
-`
-
-const logLineCss = css`
-  font-family: 'Consolas', monospace;
-  font-size: 10px;
-  line-height: 1.5;
-  white-space: pre-wrap;
-  word-break: break-all;
-  padding: 1px 2px;
-`
-
-// ---------------------------------------------------------------------------
-// Session/Project Memory tab styles
-// ---------------------------------------------------------------------------
-
-const sessionToolbarCss = css`
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 8px;
-`
-
-const sessionKeyCountCss = css`
-  font-family: 'Consolas', monospace;
-  font-size: 9px;
-  text-transform: uppercase;
-  letter-spacing: 0.07em;
-  color: #444;
-`
-
-const refreshButtonCss = css`
-  background: transparent;
-  border: 1px solid #2a2a2a;
-  color: #555;
-  cursor: pointer;
-  font-family: 'Consolas', monospace;
-  font-size: 9px;
-  padding: 2px 8px;
-  border-radius: 3px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  min-width: 52px;
-  text-align: center;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  &:hover { color: #aaa; border-color: #444; }
-  &:disabled { opacity: 0.55; cursor: not-allowed; }
-  &:disabled:hover { color: #555; border-color: #2a2a2a; }
-`
-
-const refreshSpinnerCss = css`
-  display: inline-block;
-  width: 9px;
-  height: 9px;
-  border: 1.5px solid rgba(85, 85, 85, 0.4);
-  border-top-color: #888;
-  border-radius: 50%;
-  animation: ${_spin} 0.7s linear infinite;
-`
-
-const memKeyListCss = css`
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-`
-
-const memKeyRowCss = css`
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 3px 6px;
-  border: 1px solid #1a1a1a;
-  border-radius: 3px;
-  &:hover { border-color: #2a2a2a; background: #111; }
-`
-
-const memKeyNameCss = css`
-  font-family: 'Consolas', monospace;
-  font-size: 10px;
-  color: #888;
-  word-break: break-all;
-  flex: 1;
-  min-width: 0;
-`
-
-const viewButtonCss = css`
-  background: transparent;
-  border: 1px solid #2a2a2a;
-  color: #555;
-  cursor: pointer;
-  font-family: 'Consolas', monospace;
-  font-size: 9px;
-  padding: 1px 6px;
-  border-radius: 3px;
-  flex-shrink: 0;
-  margin-left: 6px;
-  &:hover { color: #aaa; border-color: #444; }
-`
-
-// Memory tab layout: flex column with scrollable content + fixed footer
-const memTabContainerCss = (visible: boolean) => css`
-  position: absolute;
-  inset: 0;
-  opacity: ${visible ? 1 : 0};
-  pointer-events: ${visible ? 'auto' : 'none'};
-  transition: opacity 0.18s ease;
-  display: flex;
-  flex-direction: column;
-`
-
-const memTabScrollCss = css`
-  flex: 1;
-  overflow-y: auto;
-  padding: 10px;
-  ${scrollbarCss}
-`
-
-const memTabFooterCss = css`
-  flex-shrink: 0;
-  border-top: 1px solid #1a1a1a;
-  padding: 0 10px;
-  height: 20px;
-  display: flex;
-  align-items: center;
-  overflow: hidden;
-  background: #0a0a0a;
-`
-
-const memEventLabelCss = (type: string) => css`
-  font-family: 'Consolas', monospace;
-  font-size: 9px;
-  color: ${type === 'deleted' ? '#8a3535' : '#8a6a20'};
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 100%;
-`
-
-const memEventEmptyCss = css`
-  font-family: 'Consolas', monospace;
-  font-size: 9px;
-  color: #252525;
-  font-style: italic;
-`
-
-const dirtyAsteriskCss = css`
-  color: #c07828;
-  font-size: 11px;
-  margin-left: 4px;
-  flex-shrink: 0;
-`
-
-const dirtySectionLabelCss = css`
-  font-family: 'Consolas', monospace;
-  font-size: 9px;
-  text-transform: uppercase;
-  letter-spacing: 0.07em;
-  color: #555;
-  margin-bottom: 4px;
-  margin-top: 8px;
-  &:first-of-type { margin-top: 0; }
-`
-
-const dirtyItemCss = css`
-  font-family: 'Consolas', monospace;
-  font-size: 10px;
-  color: #c07828;
-  word-break: break-all;
-  padding: 2px 4px;
-`
-
-const saveTracesBtnCss = css`
-  background: transparent;
-  border: 1px solid #2a2a2a;
-  color: #555;
-  cursor: pointer;
-  font-family: 'Consolas', monospace;
-  font-size: 9px;
-  padding: 3px 10px;
-  border-radius: 3px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  &:hover { color: #aaa; border-color: #444; }
-  &:disabled { opacity: 0.5; cursor: not-allowed; }
-  &:disabled:hover { color: #555; border-color: #2a2a2a; }
-`
-
-const saveTracesStatusCss = (ok: boolean) => css`
-  font-family: 'Consolas', monospace;
-  font-size: 9px;
-  color: ${ok ? '#5a8a5a' : '#8a3535'};
-  margin-top: 4px;
-  word-break: break-all;
-`
-
-// ---------------------------------------------------------------------------
-// Modal styles
-// ---------------------------------------------------------------------------
-
-const modalOverlayCss = css`
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.75);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-`
-
-const modalCardCss = css`
-  background: #111;
-  border: 1px solid #2a2a2a;
-  border-radius: 6px;
-  display: flex;
-  flex-direction: column;
-  width: 600px;
-  max-width: 90vw;
-  max-height: 80vh;
-  overflow: hidden;
-`
-
-const modalHeaderCss = css`
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 8px 12px;
-  border-bottom: 1px solid #1e1e1e;
-  flex-shrink: 0;
-  gap: 8px;
-`
-
-const modalTitleCss = css`
-  font-family: 'Consolas', monospace;
-  font-size: 11px;
-  color: #888;
-  word-break: break-all;
-  flex: 1;
-  min-width: 0;
-`
-
-const modalCloseButtonCss = css`
-  background: transparent;
-  border: none;
-  color: #555;
-  cursor: pointer;
-  font-size: 16px;
-  padding: 0 2px;
-  line-height: 1;
-  flex-shrink: 0;
-  &:hover { color: #aaa; }
-`
-
-const modalBodyCss = css`
-  flex: 1;
-  overflow-y: auto;
-  padding: 10px 12px;
-  font-family: 'Consolas', monospace;
-  font-size: 11px;
-  color: #888;
-  white-space: pre-wrap;
-  word-break: break-word;
-  line-height: 1.5;
-  ${scrollbarCss}
-`
-
-const modalLoadingWrapCss = css`
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 28px 0;
-`
-
-const modalSpinnerCss = css`
-  width: 18px;
-  height: 18px;
-  border: 2px solid rgba(136, 136, 136, 0.2);
-  border-top-color: #777;
-  border-radius: 50%;
-  animation: ${_spin} 0.7s linear infinite;
-`
-
-const modalFooterCss = css`
-  flex-shrink: 0;
-  border-top: 1px solid #1e1e1e;
-  padding: 5px 12px;
-  font-family: 'Consolas', monospace;
-  font-size: 10px;
-`
-
-const modalFooterModifiedCss = css`
-  color: #9a6020;
-  cursor: pointer;
-  &:hover { color: #c07828; }
-`
-
-const modalFooterDeletedCss = css`
-  color: #7a3030;
-`
-
-// ---------------------------------------------------------------------------
-// Sub-components
-// ---------------------------------------------------------------------------
-
-function InfoRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div css={rowCss}>
-      <span css={rowLabelCss}>{label}</span>
-      <span css={rowValueCss}>{value}</span>
-    </div>
-  )
-}
-
-function SkillsCard({ skillsInfo }: { skillsInfo: SkillsInfo }) {
-  if (!skillsInfo.enabled) {
-    return <InfoRow label="Skills" value="Disabled" />
-  }
-  return (
-    <div css={skillsCardCss}>
-      <div css={skillsCardHeaderCss}>
-        {skillsInfo.count} skill{skillsInfo.count !== 1 ? 's' : ''} loaded
-      </div>
-      <div css={skillsCardBodyCss}>
-        {skillsInfo.path && <div css={skillsCardPathCss}>{skillsInfo.path}</div>}
-        {skillsInfo.files.length > 0
-          ? skillsInfo.files.map(f => <div key={f} css={skillsCardFileCss}>· {f}</div>)
-          : <div css={placeholderCss}>No skill files found.</div>
-        }
-      </div>
-    </div>
-  )
-}
-
-function ToolsCard({ toolsInfo }: { toolsInfo: ToolsInfo }) {
-  return (
-    <div css={skillsCardCss}>
-      <div css={skillsCardHeaderCss}>
-        {toolsInfo.totalCount} tool{toolsInfo.totalCount !== 1 ? 's' : ''} loaded
-      </div>
-      <div css={skillsCardBodyCss}>
-        <div css={skillsCardPathCss}>{toolsInfo.builtinPath} ({toolsInfo.builtinCount} built-in)</div>
-        {toolsInfo.customPlugins && toolsInfo.customPlugins.length > 0 && (
-          <>
-            {toolsInfo.customPlugins.map(p => (
-              <div key={p.name}>
-                <div css={toolsCardPluginNameCss}>· {p.name}/ ({p.count} tools)</div>
-                <div css={toolsCardPluginPathCss}>{p.path}</div>
-              </div>
-            ))}
-          </>
-        )}
-        {toolsInfo.names.length > 0 && (
-          <>
-            <hr css={toolsCardDividerCss} />
-            {toolsInfo.names.map(name => (
-              <div key={name} css={toolsCardNameCss}>· {name}</div>
-            ))}
-          </>
-        )}
-      </div>
-    </div>
-  )
-}
-
-function SystemTab({ pwd, sessionId, envInfo, skillsInfo, toolsInfo }: { pwd: string; sessionId: string; envInfo: EnvInfo | null; skillsInfo: SkillsInfo | null; toolsInfo: ToolsInfo | null }) {
-  return (
-    <>
-      {sessionId && <InfoRow label="Session ID" value={sessionId} />}
-      {envInfo && (
-        <>
-          <InfoRow label="OS" value={envInfo.os} />
-          <InfoRow label="Shell" value={envInfo.shell} />
-          <InfoRow label="Initial CWD" value={envInfo.initialCwd} />
-        </>
-      )}
-      {pwd && <InfoRow label="Working Directory" value={pwd} />}
-      {skillsInfo && <SkillsCard skillsInfo={skillsInfo} />}
-      {toolsInfo && <ToolsCard toolsInfo={toolsInfo} />}
-      {!sessionId && !envInfo && !pwd && !skillsInfo && !toolsInfo && (
-        <div css={placeholderCss}>No system info available.</div>
-      )}
-    </>
-  )
-}
-
-function SessionMemTab({
-  keys,
-  dirtyMemKeys,
-  onRefresh,
-  onView,
-  loading,
-}: {
-  keys: string[]
-  dirtyMemKeys: Set<string>
-  onRefresh: () => void
-  onView: (key: string) => void
-  loading: boolean
-}) {
-  return (
-    <>
-      <div css={sessionToolbarCss}>
-        <span css={sessionKeyCountCss}>
-          {keys.length} key{keys.length !== 1 ? 's' : ''}
-        </span>
-        <button css={refreshButtonCss} onClick={onRefresh} disabled={loading}>
-          {loading ? <span css={refreshSpinnerCss} /> : 'Refresh'}
-        </button>
-      </div>
-      {keys.length === 0
-        ? <div css={placeholderCss}>No memory keys.</div>
-        : (
-          <div css={memKeyListCss}>
-            {keys.map(key => (
-              <div key={key} css={memKeyRowCss}>
-                <span css={memKeyNameCss}>
-                  {key}
-                  {dirtyMemKeys.has(key) && <span css={dirtyAsteriskCss} title="Modified since last read">*</span>}
-                </span>
-                <button css={viewButtonCss} onClick={() => onView(key)}>View</button>
-              </div>
-            ))}
-          </div>
-        )
-      }
-    </>
-  )
-}
-
-function DirtyTab({ files, memKeys }: { files: string[]; memKeys: string[] }) {
-  const empty = files.length === 0 && memKeys.length === 0
-  return (
-    <>
-      {empty && <div css={placeholderCss}>No dirty resources.</div>}
-      {files.length > 0 && (
-        <>
-          <div css={dirtySectionLabelCss}>Dirty files</div>
-          {files.map(f => <div key={f} css={dirtyItemCss}>{f}</div>)}
-        </>
-      )}
-      {memKeys.length > 0 && (
-        <>
-          <div css={dirtySectionLabelCss}>Dirty session memory keys</div>
-          {memKeys.map(k => <div key={k} css={dirtyItemCss}>{k}</div>)}
-        </>
-      )}
-    </>
-  )
-}
-
-function BackendLogsTab({ logs, visible }: { logs: BackendLogEntry[]; visible: boolean }) {
-  const { scrollRef, contentRef } = useStickToBottom()
-
-  return (
-    <div ref={scrollRef} css={logsPanelCss(visible)}>
-      <div ref={contentRef}>
-        {logs.length === 0
-          ? <div css={placeholderCss}>No logs yet.</div>
-          : logs.map(entry => (
-              <div key={entry.id} css={logLineCss}>
-                <Ansi>{entry.text}</Ansi>
-              </div>
-            ))
-        }
-      </div>
-    </div>
-  )
-}
-
-function MemTabFooter({ event }: { event: MemKeyEvent | null }) {
-  if (!event) {
-    return <span css={memEventEmptyCss}>no events</span>
-  }
-  const label = event.type === 'deleted' ? 'deleted' : 'set'
-  return (
-    <span css={memEventLabelCss(event.type)} title={`${label}: "${event.key}"`}>
-      {label}: &quot;{event.key}&quot;
-    </span>
-  )
-}
 
 // ---------------------------------------------------------------------------
 // DebugPanel
 // ---------------------------------------------------------------------------
 
 interface MemModal {
-  key: string
-  value: string
-  loading: boolean
-  notification: 'modified' | 'deleted' | null
+  key: string;
+  value: string;
+  loading: boolean;
+  notification: "modified" | "deleted" | null;
 }
 
-export function DebugPanel({ open, onToggle, pwd, sessionId, envInfo, skillsInfo, toolsInfo, systemPrompt, backendLogs, socket }: Props) {
-  const [activeTab, setActiveTab] = useState<TabId>('system')
-  const [sessionMemKeys, setSessionMemKeys] = useState<string[]>([])
-  const [sessionMemLoading, setSessionMemLoading] = useState(false)
-  const [lastSessionMemEvent, setLastSessionMemEvent] = useState<MemKeyEvent | null>(null)
-  const [memModal, setMemModal] = useState<MemModal | null>(null)
-  const [savingTraces, setSavingTraces] = useState(false)
-  const [traceSaveStatus, setTraceSaveStatus] = useState<{ ok: boolean; message: string } | null>(null)
-  const [dirtyFiles, setDirtyFiles] = useState<string[]>([])
-  const [dirtyMemKeys, setDirtyMemKeys] = useState<string[]>([])
+export function DebugPanel({
+  open,
+  onToggle,
+  pwd,
+  sessionId,
+  envInfo,
+  skillsInfo,
+  toolsInfo,
+  systemPrompt,
+  backendLogs,
+  socket,
+}: Props) {
+  const [activeTab, setActiveTab] = useState<TabId>("system");
+  const [sessionMemKeys, setSessionMemKeys] = useState<string[]>([]);
+  const [sessionMemLoading, setSessionMemLoading] = useState(false);
+  const [lastSessionMemEvent, setLastSessionMemEvent] =
+    useState<MemKeyEvent | null>(null);
+  const [memModal, setMemModal] = useState<MemModal | null>(null);
+  const [savingTraces, setSavingTraces] = useState(false);
+  const [traceSaveStatus, setTraceSaveStatus] = useState<{
+    ok: boolean;
+    message: string;
+  } | null>(null);
+  const [dirtyFiles, setDirtyFiles] = useState<string[]>([]);
+  const [dirtyMemKeys, setDirtyMemKeys] = useState<string[]>([]);
 
   // Listen for session and project memory socket events
   useEffect(() => {
     function onSessionMemoryKeys({ keys }: { keys: string[] }) {
-      setSessionMemKeys(keys)
-      setSessionMemLoading(false)
+      setSessionMemKeys(keys);
+      setSessionMemLoading(false);
     }
-    function onSessionMemoryValue({ key, value, found }: { key: string; value: string; found: boolean }) {
-      setMemModal(prev => {
-        if (!prev || prev.key !== key) return prev
-        return { key, value: found ? value : '(key not found)', loading: false, notification: null }
-      })
+    function onSessionMemoryValue({
+      key,
+      value,
+      found,
+    }: {
+      key: string;
+      value: string;
+      found: boolean;
+    }) {
+      setMemModal((prev) => {
+        if (!prev || prev.key !== key) return prev;
+        return {
+          key,
+          value: found ? value : "(key not found)",
+          loading: false,
+          notification: null,
+        };
+      });
     }
-    function onSessionMemoryKeyEvent({ key, type }: { key: string; type: 'modified' | 'deleted' }) {
+    function onSessionMemoryKeyEvent({
+      key,
+      type,
+    }: {
+      key: string;
+      type: "modified" | "deleted";
+    }) {
       // Always update the last-event footer regardless of whether the modal is open
-      setLastSessionMemEvent({ key, type })
+      setLastSessionMemEvent({ key, type });
       // Also notify the modal if it's showing this key
-      setMemModal(prev => {
-        if (!prev || prev.key !== key) return prev
-        return { ...prev, notification: type }
-      })
+      setMemModal((prev) => {
+        if (!prev || prev.key !== key) return prev;
+        return { ...prev, notification: type };
+      });
     }
-    function onTracesSaved({ count, filename }: { count: number; filename: string | null }) {
-      setSavingTraces(false)
+    function onTracesSaved({
+      count,
+      filename,
+    }: {
+      count: number;
+      filename: string | null;
+    }) {
+      setSavingTraces(false);
       if (count === 0) {
-        setTraceSaveStatus({ ok: true, message: 'No buffered traces.' })
+        setTraceSaveStatus({ ok: true, message: "No buffered traces." });
       } else {
-        setTraceSaveStatus({ ok: true, message: `Saved ${count} trace${count !== 1 ? 's' : ''} → ${filename}` })
+        setTraceSaveStatus({
+          ok: true,
+          message: `Saved ${count} trace${count !== 1 ? "s" : ""} → ${filename}`,
+        });
       }
     }
     function onTracesSaveError({ message }: { message: string }) {
-      setSavingTraces(false)
-      setTraceSaveStatus({ ok: false, message: `Error: ${message}` })
+      setSavingTraces(false);
+      setTraceSaveStatus({ ok: false, message: `Error: ${message}` });
     }
-    function onDirtyCacheUpdate({ files, mem_keys }: { files: string[]; mem_keys: string[] }) {
-      setDirtyFiles(files)
-      setDirtyMemKeys(mem_keys)
+    function onDirtyCacheUpdate({
+      files,
+      mem_keys,
+    }: {
+      files: string[];
+      mem_keys: string[];
+    }) {
+      setDirtyFiles(files);
+      setDirtyMemKeys(mem_keys);
     }
 
-    socket.on('session_memory_keys_update', onSessionMemoryKeys)
-    socket.on('session_memory_value', onSessionMemoryValue)
-    socket.on('session_memory_key_event', onSessionMemoryKeyEvent)
-    socket.on('traces_saved', onTracesSaved)
-    socket.on('traces_save_error', onTracesSaveError)
-    socket.on('dirty_cache_update', onDirtyCacheUpdate)
-    socket.emit('get_dirty_cache')
+    socket.on("session_memory_keys_update", onSessionMemoryKeys);
+    socket.on("session_memory_value", onSessionMemoryValue);
+    socket.on("session_memory_key_event", onSessionMemoryKeyEvent);
+    socket.on("traces_saved", onTracesSaved);
+    socket.on("traces_save_error", onTracesSaveError);
+    socket.on("dirty_cache_update", onDirtyCacheUpdate);
+    socket.emit("get_dirty_cache");
     return () => {
-      socket.off('session_memory_keys_update', onSessionMemoryKeys)
-      socket.off('session_memory_value', onSessionMemoryValue)
-      socket.off('session_memory_key_event', onSessionMemoryKeyEvent)
-      socket.off('traces_saved', onTracesSaved)
-      socket.off('traces_save_error', onTracesSaveError)
-      socket.off('dirty_cache_update', onDirtyCacheUpdate)
-    }
-  }, [])
+      socket.off("session_memory_keys_update", onSessionMemoryKeys);
+      socket.off("session_memory_value", onSessionMemoryValue);
+      socket.off("session_memory_key_event", onSessionMemoryKeyEvent);
+      socket.off("traces_saved", onTracesSaved);
+      socket.off("traces_save_error", onTracesSaveError);
+      socket.off("dirty_cache_update", onDirtyCacheUpdate);
+    };
+  }, []);
 
   // Fetch keys (with loading state) when tabs become active
   useEffect(() => {
-    if (open && activeTab === 'session') {
-      setSessionMemLoading(true)
-      socket.emit('get_session_memory_keys')
+    if (open && activeTab === "session") {
+      setSessionMemLoading(true);
+      socket.emit("get_session_memory_keys");
     }
-  }, [open, activeTab])
+  }, [open, activeTab]);
 
   function refreshMemoryKeys() {
-    setSessionMemLoading(true)
-    socket.emit('get_session_memory_keys')
+    setSessionMemLoading(true);
+    socket.emit("get_session_memory_keys");
   }
 
   function viewMemoryValue(key: string) {
-    setMemModal({ key, value: '', loading: true, notification: null })
-    socket.emit('get_session_memory_value', { key })
+    setMemModal({ key, value: "", loading: true, notification: null });
+    socket.emit("get_session_memory_value", { key });
   }
 
   function saveTraces() {
-    setSavingTraces(true)
-    setTraceSaveStatus(null)
-    socket.emit('save_traces')
+    setSavingTraces(true);
+    setTraceSaveStatus(null);
+    socket.emit("save_traces");
   }
 
   if (!open) {
     return (
       <div css={collapsedStripCss}>
-        <button css={toggleButtonCss} onClick={onToggle} title="Open debug panel">»</button>
+        <button
+          css={toggleButtonCss}
+          onClick={onToggle}
+          title="Open debug panel"
+        >
+          »
+        </button>
         <span css={collapsedLabelCss}>Debug</span>
       </div>
-    )
+    );
   }
 
   return (
     <>
       {memModal && (
         <div css={modalOverlayCss} onClick={() => setMemModal(null)}>
-          <div css={modalCardCss} onClick={e => e.stopPropagation()}>
+          <div css={modalCardCss} onClick={(e) => e.stopPropagation()}>
             <div css={modalHeaderCss}>
               <span css={modalTitleCss}>[session] {memModal.key}</span>
-              <button css={modalCloseButtonCss} onClick={() => setMemModal(null)}>×</button>
+              <button
+                css={modalCloseButtonCss}
+                onClick={() => setMemModal(null)}
+              >
+                ×
+              </button>
             </div>
             <div css={modalBodyCss}>
-              {memModal.loading
-                ? <div css={modalLoadingWrapCss}><div css={modalSpinnerCss} /></div>
-                : memModal.value
-              }
+              {memModal.loading ? (
+                <div css={modalLoadingWrapCss}>
+                  <div css={modalSpinnerCss} />
+                </div>
+              ) : (
+                memModal.value
+              )}
             </div>
             {memModal.notification && (
               <div css={modalFooterCss}>
-                {memModal.notification === 'deleted' ? (
-                  <span css={modalFooterDeletedCss}>Memory item deleted since modal opened</span>
+                {memModal.notification === "deleted" ? (
+                  <span css={modalFooterDeletedCss}>
+                    Memory item deleted since modal opened
+                  </span>
                 ) : (
-                  <span css={modalFooterModifiedCss} onClick={() => {
-                    setMemModal(prev => prev ? { ...prev, loading: true, notification: null } : prev)
-                    socket.emit('get_session_memory_value', { key: memModal.key })
-                  }}>
+                  <span
+                    css={modalFooterModifiedCss}
+                    onClick={() => {
+                      setMemModal((prev) =>
+                        prev
+                          ? { ...prev, loading: true, notification: null }
+                          : prev,
+                      );
+                      socket.emit("get_session_memory_value", {
+                        key: memModal.key,
+                      });
+                    }}
+                  >
                     Memory item modified since modal opened — click to refetch
                   </span>
                 )}
@@ -954,11 +304,17 @@ export function DebugPanel({ open, onToggle, pwd, sessionId, envInfo, skillsInfo
       <div css={panelCss}>
         <div css={headerCss}>
           <span css={headerTitleCss}>Debug</span>
-          <button css={toggleButtonCss} onClick={onToggle} title="Close debug panel">«</button>
+          <button
+            css={toggleButtonCss}
+            onClick={onToggle}
+            title="Close debug panel"
+          >
+            «
+          </button>
         </div>
 
         <div css={tabBarCss}>
-          {TABS.map(tab => (
+          {TABS.map((tab) => (
             <button
               key={tab.id}
               css={tabButtonCss(activeTab === tab.id)}
@@ -970,21 +326,33 @@ export function DebugPanel({ open, onToggle, pwd, sessionId, envInfo, skillsInfo
         </div>
 
         <div css={tabContentAreaCss}>
-          <div css={tabPanelCss(activeTab === 'system')}>
-            <SystemTab pwd={pwd} sessionId={sessionId} envInfo={envInfo} skillsInfo={skillsInfo} toolsInfo={toolsInfo} />
+          <div css={tabPanelCss(activeTab === "system")}>
+            <SystemTab
+              pwd={pwd}
+              sessionId={sessionId}
+              envInfo={envInfo}
+              skillsInfo={skillsInfo}
+              toolsInfo={toolsInfo}
+            />
             <div css={rowCss}>
-              <button css={saveTracesBtnCss} onClick={saveTraces} disabled={savingTraces}>
+              <button
+                css={saveTracesBtnCss}
+                onClick={saveTraces}
+                disabled={savingTraces}
+              >
                 {savingTraces && <span css={refreshSpinnerCss} />}
                 Save Fine-Tuning Traces
               </button>
               {traceSaveStatus && (
-                <span css={saveTracesStatusCss(traceSaveStatus.ok)}>{traceSaveStatus.message}</span>
+                <span css={saveTracesStatusCss(traceSaveStatus.ok)}>
+                  {traceSaveStatus.message}
+                </span>
               )}
             </div>
           </div>
 
           {/* Session memory tab: flex column with scrollable content + fixed footer */}
-          <div css={memTabContainerCss(activeTab === 'session')}>
+          <div css={memTabContainerCss(activeTab === "session")}>
             <div css={memTabScrollCss}>
               <SessionMemTab
                 keys={sessionMemKeys}
@@ -999,19 +367,20 @@ export function DebugPanel({ open, onToggle, pwd, sessionId, envInfo, skillsInfo
             </div>
           </div>
 
-          <div css={promptPanelCss(activeTab === 'prompt')}>
-            {systemPrompt !== null
-              ? systemPrompt
-              : <span css={placeholderCss}>Not yet received.</span>
-            }
+          <div css={promptPanelCss(activeTab === "prompt")}>
+            {systemPrompt !== null ? (
+              systemPrompt
+            ) : (
+              <span css={placeholderCss}>Not yet received.</span>
+            )}
           </div>
-          <BackendLogsTab logs={backendLogs} visible={activeTab === 'logs'} />
+          <BackendLogsTab logs={backendLogs} visible={activeTab === "logs"} />
 
-          <div css={tabPanelCss(activeTab === 'dirty')}>
+          <div css={tabPanelCss(activeTab === "dirty")}>
             <DirtyTab files={dirtyFiles} memKeys={dirtyMemKeys} />
           </div>
         </div>
       </div>
     </>
-  )
+  );
 }

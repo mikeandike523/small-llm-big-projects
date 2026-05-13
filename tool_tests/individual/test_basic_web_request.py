@@ -9,7 +9,7 @@ def run(env: TestEnv, server: MicroServer | None = None):
     cl = CheckList("basic_web_request")
     try:
         if server is None:
-            cl.check("server available", "No MicroServer provided, skipping all checks", True, "server=None, skipping")
+            cl.skip("No MicroServer provided — skipping all HTTP checks")
             return cl.result()
 
         # GET /hello -> 200, body contains "hello world"

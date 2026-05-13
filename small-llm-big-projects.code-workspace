@@ -7,6 +7,15 @@
 	"settings": {
 		"files.eol":"\n",
 		"terminal.integrated.defaultProfile.windows": "Git Bash",
-		"python.analysis.extraPaths": ["$workspaceFolder"]
+		"python.analysis.extraPaths": ["$workspaceFolder"],
+		"[typescript]": {
+			"editor.defaultFormatter": "esbenp.prettier-vscode"
+		},
+		"[typescriptreact]": {
+			"editor.defaultFormatter": "esbenp.prettier-vscode"
+		},
+		"[python]": {
+			"editor.defaultFormatter": "ms-python.black-formatter"
+		}
 	}
 }

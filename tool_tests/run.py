@@ -12,7 +12,7 @@ if _REPO_ROOT not in sys.path:
 
 from tool_tests.helpers.env import make_env
 from tool_tests.helpers.http_server import MicroServer, start_server, stop_server
-from tool_tests.helpers.result import TestResult
+from tool_tests.helpers.result import CheckList, TestResult
 
 # ---------------------------------------------------------------------------
 # Colour helpers (termcolor is optional; fall back to plain text if absent)
@@ -33,44 +33,63 @@ def _bold(text: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Lazy imports of test modules — done at run time to avoid import errors
-# stopping all tests when one module fails to import.
+# Test discovery
 # ---------------------------------------------------------------------------
 
-_TEST_MODULES = [
-    # Session memory tools
-    "tool_tests.individual.test_session_memory",
-    "tool_tests.individual.test_session_memory_text_editor",
-    # Filesystem tools
-    "tool_tests.individual.test_get_pwd",
-    "tool_tests.individual.test_change_pwd",
-    "tool_tests.individual.test_list_dir",
-    "tool_tests.individual.test_list_working_tree",
-    "tool_tests.individual.test_create_dir",
-    "tool_tests.individual.test_create_text_file",
-    "tool_tests.individual.test_delete_file",
-    "tool_tests.individual.test_remove_dir",
-    "tool_tests.individual.test_read_text_file_to_session_memory",
-    "tool_tests.individual.test_write_text_file_from_session_memory",
-    "tool_tests.individual.test_search_filesystem_by_regex",
-    # Network tools
-    "tool_tests.individual.test_basic_web_request",
-    "tool_tests.individual.test_brave_web_search",
-    # Other tools
-    "tool_tests.individual.test_code_interpreter",
-    "tool_tests.individual.test_scrape_web_page",
-    "tool_tests.individual.test_wikipedia",
-    "tool_tests.individual.test_report_impossible",
-    "tool_tests.individual.test_todo_list",
-]
+def _discover_tests() -> list[dict]:
+    """
+    Scan tool_tests/individual/ and return test entries sorted by tool_name.
 
+    Each entry is one of:
+      {"type": "file", "tool_name": str, "module_path": str}
+      {"type": "dir",  "tool_name": str, "checks_modules": list[str]}
 
-def _tool_name_from_module(module_path: str) -> str:
-    """Extract tool name from module path like 'tool_tests.individual.test_foo' -> 'foo'."""
-    stem = module_path.rsplit(".", 1)[-1]
-    if stem.startswith("test_"):
-        return stem[5:]
-    return stem
+    If both test_<name>.py and <name>/ exist, the file takes precedence.
+    """
+    individual_dir = os.path.join(os.path.dirname(__file__), "individual")
+    entries: list[dict] = []
+    all_names = sorted(os.listdir(individual_dir))
+
+    # Collect explicit test_*.py files first so we know which names are covered.
+    file_tool_names: set[str] = set()
+    for name in all_names:
+        if not (name.startswith("test_") and name.endswith(".py")):
+            continue
+        if not os.path.isfile(os.path.join(individual_dir, name)):
+            continue
+        tool_name = name[5:-3]  # strip "test_" and ".py"
+        file_tool_names.add(tool_name)
+        entries.append({
+            "type": "file",
+            "tool_name": tool_name,
+            "module_path": f"tool_tests.individual.{name[:-3]}",
+        })
+
+    # Collect directories containing checks_*.py files.
+    for name in all_names:
+        if name.startswith(("_", ".")):
+            continue
+        if not os.path.isdir(os.path.join(individual_dir, name)):
+            continue
+        if name in file_tool_names:
+            continue  # explicit test file takes precedence
+        checks_files = sorted(
+            f for f in os.listdir(os.path.join(individual_dir, name))
+            if f.startswith("checks_") and f.endswith(".py")
+        )
+        if not checks_files:
+            continue
+        entries.append({
+            "type": "dir",
+            "tool_name": name,
+            "checks_modules": [
+                f"tool_tests.individual.{name}.{f[:-3]}"
+                for f in checks_files
+            ],
+        })
+
+    entries.sort(key=lambda e: e["tool_name"])
+    return entries
 
 
 # Apply test exclusions declared in src/tools/_exclude_builtin_tools.py.
@@ -83,12 +102,6 @@ _testing_excluded: set[str] = {
     name for name, flags in _test_exclusions.items()
     if flags.get("testing") is True
 }
-
-if _testing_excluded:
-    _TEST_MODULES = [
-        m for m in _TEST_MODULES
-        if _tool_name_from_module(m) not in _testing_excluded
-    ]
 
 
 def _print_result(result: TestResult) -> None:
@@ -149,6 +162,8 @@ def _write_report(results: list[TestResult], results_dir: str) -> None:
 
 
 def main() -> int:
+    import importlib
+
     log_dir = os.path.join(os.path.dirname(__file__), "log")
     results_dir = os.path.join(_REPO_ROOT, "test_results")
     os.makedirs(log_dir, exist_ok=True)
@@ -164,38 +179,46 @@ def main() -> int:
         print(f"{_c('  WARNING: Could not start HTTP test server:', 'yellow')} {e}")
         server = None
 
+    test_entries = _discover_tests()
+    if _testing_excluded:
+        test_entries = [e for e in test_entries if e["tool_name"] not in _testing_excluded]
+
     results: list[TestResult] = []
     failed_tools: list[str] = []
     skipped_tools: list[str] = []
 
-    import importlib
-
-    for module_path in _TEST_MODULES:
-        tool_name = _tool_name_from_module(module_path)
-        env = make_env(tool_name[:20])  # truncate to keep Redis key manageable
+    for entry in test_entries:
+        tool_name = entry["tool_name"]
+        env = make_env(tool_name[:20])
+        result: TestResult | None = None
 
         try:
-            mod = importlib.import_module(module_path)
-        except ImportError as e:
-            from tool_tests.helpers.result import TestResult as TR
-            r = TR(tool_name=tool_name, error=f"ImportError: {e}")
-            results.append(r)
-            _print_result(r)
-            failed_tools.append(tool_name)
-            env.cleanup()
-            continue
+            if entry["type"] == "file":
+                try:
+                    mod = importlib.import_module(entry["module_path"])
+                except ImportError as e:
+                    result = TestResult(tool_name=tool_name, error=f"ImportError: {e}")
+                else:
+                    try:
+                        result = mod.run(env, server=server)
+                    except Exception as e:
+                        import traceback as _tb
+                        result = TestResult(
+                            tool_name=tool_name,
+                            error=f"{type(e).__name__}: {e}",
+                            traceback=_tb.format_exc(),
+                        )
 
-        result = None
-        try:
-            result = mod.run(env, server=server)
-        except Exception as e:
-            import traceback as _tb
-            from tool_tests.helpers.result import TestResult as TR
-            result = TR(
-                tool_name=tool_name,
-                error=f"{type(e).__name__}: {e}",
-                traceback=_tb.format_exc(),
-            )
+            else:  # "dir" — fuse all checks_*.py modules into one CheckList
+                cl = CheckList(tool_name)
+                try:
+                    for mod_path in entry["checks_modules"]:
+                        mod = importlib.import_module(mod_path)
+                        mod.add_checks(cl, env)
+                except Exception as e:
+                    cl.record_exception(e)
+                result = cl.result()
+
         finally:
             env.cleanup()
 

@@ -10,7 +10,7 @@ def run(env: TestEnv, server: MicroServer | None = None):
     try:
         api_key = os.environ.get("BRAVE_API_KEY")
         if not api_key:
-            cl.check("api key present", "BRAVE_API_KEY not set, skipping", True, "BRAVE_API_KEY not set, skipping")
+            cl.skip("BRAVE_API_KEY not set — skipping live search test")
             return cl.result()
 
         # API key is set: run a basic query and check the result is a non-empty string

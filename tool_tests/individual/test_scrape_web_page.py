@@ -40,20 +40,20 @@ def run(env: TestEnv, server: MicroServer | None = None):
             "min_delay_seconds": 0,
         }, env.session_data)
         cl.check(
-            "default markdown format status",
+            "default xml format status",
             "Default scrape result includes HTTP status line",
             r.startswith("HTTP 200"),
             f"got: {r!r}",
         )
         cl.check(
-            "default markdown format readable",
+            "default xml format readable",
             "Default format extracts readable article content",
             "Example Article" in r and "exercise readable extraction" in r,
             f"got: {r!r}",
         )
         cl.check(
-            "default markdown format strips raw html",
-            "Default markdown format should not return raw HTML tags",
+            "default xml format strips raw html",
+            "Default xml format should not return raw HTML tags like <main> or <html>",
             "<main>" not in r and "<html>" not in r,
             f"got: {r!r}",
         )
