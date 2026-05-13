@@ -464,19 +464,11 @@ def _do_search_by_regex(args: dict, key: str, value: str) -> str:
         return f"{key!r} is empty -- no matches."
 
     width = len(str(total))
-    _BOLD = "\033[1m"
-    _RESET = "\033[0m"
-
-    def _highlight(line: str) -> str:
-        try:
-            return re.sub(pattern, lambda m: f"{_BOLD}{m.group(0)}{_RESET}", line)
-        except re.error:
-            return line
 
     matches: list[str] = []
     for i, line in enumerate(content_lines, start=1):
         if compiled.search(line):
-            matches.append(f"{str(i).rjust(width)} | {_highlight(line)}")
+            matches.append(f"{str(i).rjust(width)} | {line}")
 
     if not matches:
         return f"No matches found in {key!r}."

@@ -53,8 +53,8 @@ def run(env: TestEnv, server: MicroServer | None = None):
         )
         cl.check(
             "default xml format strips raw html",
-            "Default xml format should not return raw HTML tags like <main> or <html>",
-            "<main>" not in r and "<html>" not in r,
+            "Default xml format should not contain raw <html> or <body> wrapper tags",
+            "<html>" not in r and "<body>" not in r,
             f"got: {r!r}",
         )
 

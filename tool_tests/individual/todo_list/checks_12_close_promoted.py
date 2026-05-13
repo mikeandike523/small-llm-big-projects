@@ -13,7 +13,7 @@ def _j(r: str) -> dict:
 
 
 def add_checks(cl: CheckList, env: TestEnv) -> None:
-    r = execute_tool("todo_list", {"action": "close_item", "item_path": "1"}, ps)
+    r = execute_tool("todo_list", {"action": "close_item", "item_path": "1"}, env.session_data)
     d = _j(r)
     cl.check("close_item promoted error", "close_item on promoted item returns error",
              "error" in d, f"got: {r!r}")
@@ -21,7 +21,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
              "children" in d.get("error", "").lower() or "sub-list" in d.get("error", "").lower(),
              f"got: {d.get('error')!r}")
 
-    r = execute_tool("todo_list", {"action": "reopen_item", "item_path": "1"}, ps)
+    r = execute_tool("todo_list", {"action": "reopen_item", "item_path": "1"}, env.session_data)
     d = _j(r)
     cl.check("reopen_item promoted error", "reopen_item on promoted item returns error",
              "error" in d, f"got: {r!r}")

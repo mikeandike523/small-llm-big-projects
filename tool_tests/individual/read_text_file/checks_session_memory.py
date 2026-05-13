@@ -8,8 +8,8 @@ from src.tools import execute_tool
 def add_checks(cl: CheckList, env: TestEnv) -> None:
     path = os.path.join(env.tmp_dir, "sample.txt")
     content = "hello\nworld"
-    with open(path, "w", encoding="utf-8") as f:
-        f.write(content)
+    with open(path, "wb") as f:
+        f.write(content.encode("utf-8"))
 
     r = execute_tool("read_text_file", {"path": path, "session_memory_key": "loaded"}, env.session_data)
     cl.check("result message", "Result mentions the key and session memory",

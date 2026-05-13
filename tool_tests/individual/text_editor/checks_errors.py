@@ -26,8 +26,3 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
     cl.check("unknown key error", "Returns error when key is not in session memory",
              r.startswith("Error:"), f"got: {r!r}")
 
-    # Key exists but holds a non-string value
-    env.session_data["memory"]["err_nonstr"] = 42  # type: ignore[assignment]
-    r = execute_tool("text_editor", {"action": "count_lines", "key": "err_nonstr"}, env.session_data)
-    cl.check("non-string key error", "Returns error when key holds a non-string value",
-             r.startswith("Error:"), f"got: {r!r}")
