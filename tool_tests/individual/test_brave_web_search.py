@@ -1,21 +1,57 @@
 from __future__ import annotations
-import os
+import json as _json
+
 from tool_tests.helpers import CheckList
 from tool_tests.helpers.env import TestEnv
 from tool_tests.helpers.http_server import MicroServer
 from src.tools import execute_tool
+from src.utils.http.helpers import load_latest_service_tokens_from_db
+
 
 def run(env: TestEnv, server: MicroServer | None = None):
     cl = CheckList("brave_web_search")
     try:
-        api_key = os.environ.get("BRAVE_API_KEY")
-        if not api_key:
-            cl.skip("BRAVE_API_KEY not set — skipping live search test")
+        # Load the brave token from the DB exactly as the tool does.
+        try:
+            tokens, missing = load_latest_service_tokens_from_db(["brave"])
+        except Exception as e:
+            cl.skip(f"Could not reach DB to check brave token: {type(e).__name__}: {e}")
             return cl.result()
 
-        # API key is set: run a basic query and check the result is a non-empty string
-        r = execute_tool("brave_web_search", {"query": "python programming language"}, env.session_data)
-        cl.check("result is non-empty string", "Search returns a non-empty string result", isinstance(r, str) and len(r) > 0, f"got: {r!r}")
+        if missing:
+            cl.skip("brave service token not set in DB — skipping live search test")
+            return cl.result()
+
+        # Token is present: run a basic query and verify a successful response.
+        r = execute_tool("brave_web_search", {"q": "python programming language"}, env.session_data)
+
+        cl.check(
+            "no error",
+            "Tool does not return an error string",
+            not r.startswith("Error:"),
+            f"got: {r[:200]!r}",
+        )
+
+        parsed = None
+        try:
+            parsed = _json.loads(r)
+        except Exception:
+            pass
+
+        cl.check(
+            "response is json",
+            "Result is parseable JSON",
+            parsed is not None,
+            f"got: {r[:200]!r}",
+        )
+
+        cl.check(
+            "response is non-empty",
+            "Parsed JSON is a non-empty object or array",
+            parsed is not None and bool(parsed),
+            f"got: {r[:200]!r}",
+        )
+
     except Exception as e:
         cl.record_exception(e)
     return cl.result()
