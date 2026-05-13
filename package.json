@@ -5,7 +5,8 @@
   "main": "index.js",
   "scripts": {
     "db-first-time-setup": "bash scripts/db-first-time-setup.sh",
-    "ui:typecheck":"cd ui && node_modules/.bin/tsc --noEmit"
+    "ui:type-check":"cd ui && node_modules/.bin/tsc --noEmit",
+    "src:syntax-and-import-check": "bash python_in_env.sh scripts/check_py.py"
   },
   "keywords": [],
   "author": "",
