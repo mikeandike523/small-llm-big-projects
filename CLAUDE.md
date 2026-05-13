@@ -41,9 +41,21 @@ This lists all Git-tracked files exceeding 500 lines. Additional subcommands: `t
 
 When refactoring requires moving large blocks of code between files (e.g., extracting helpers to a new module):
 
-1. **Write a temporary Python script** (e.g., `_extract_<description>.py` at repo root) that reads the source file by line number, writes the extracted lines to the destination file, and rewrites the source file with those lines removed — all in one run.
-2. **Run the script, then delete it.**
-3. **Use the Edit tool for finishing touches only** — adding the new import, fixing a reference, etc. Small, targeted changes where writing a few tokens from context is low-risk.
+1. **Use `sourcehelper range-ops extract-ranges`** to move exact line ranges from a source file into a destination file in one atomic operation.
+2. **Use the Edit tool for finishing touches only** — adding the new import, fixing a reference, etc. Small, targeted changes where writing a few tokens from context is low-risk.
+3. **Clean up leftover blank lines** with a short Python one-liner rather than context-based edits, e.g. `re.sub(r'\n{3,}', '\n\n', text)` applied to the affected files.
 
-**Why:** The Python script reads bytes directly from disk with no quoting or encoding ambiguity. The Edit tool is like working memory — reliable for small surgical edits, but not for reconstructing large blocks from memory (which introduces drift). Never use the Write tool to recreate extracted code from memory.
+**`extract-ranges` syntax:**
+
+```
+sourcehelper range-ops extract-ranges SRC_FILE DST_FILE DST_INSERT_BEFORE_LINE RANGES...
+```
+
+- `RANGES` are `START:END` pairs (1-indexed, inclusive), e.g. `10:25 40:60`
+- Multiple ranges are extracted in one pass and inserted together at the destination line
+- Always run with `--dry` first to confirm the captured lines before committing
+
+**Why:** `extract-ranges` reads and writes bytes directly from disk with no quoting or encoding ambiguity, and removes the extracted lines from the source automatically. The Edit tool is like working memory — reliable for small surgical edits, but not for reconstructing large blocks from memory (which introduces drift). Never use the Write tool to recreate extracted code from memory.
+
+**Explore `sourcehelper` before tackling a hard refactor:** `sourcehelper` is an ever-growing tool with new subcommands added over time. Before starting a difficult refactoring task, run `sourcehelper --help` to see what operations are currently available — there may be a purpose-built command that saves significant manual effort.
 
