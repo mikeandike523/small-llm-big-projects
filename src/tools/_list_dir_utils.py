@@ -243,6 +243,7 @@ def _traverse(
                             use_gitignore=use_gitignore,
                             start_time=start_time,
                             timeout=timeout,
+                            timeout_hint=timeout_hint
                         )
                     entries.append(
                         {
@@ -276,6 +277,7 @@ def _traverse(
                         use_gitignore=use_gitignore,
                         start_time=start_time,
                         timeout=timeout,
+                        timeout_hint=timeout_hint
                     )
                 entries.append(
                     {
