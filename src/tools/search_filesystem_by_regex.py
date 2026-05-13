@@ -20,6 +20,13 @@ from pathlib import Path
 
 from python_ripgrep import search as _rg_search
 from src.utils.text_truncation import truncate_long_lines as _truncate_long_lines
+from src.tools._list_dir_utils import (
+        _traverse,
+        _find_gitignore_root,
+        _get_ancestor_matchers,
+        _get_effective_matchers,
+        _collect_flat,
+    )
 
 DEFINITION: dict = {
     "type": "function",
@@ -95,20 +102,14 @@ _ENUMERATE_TIMEOUT = 30  # seconds for the pre-enumeration pass (non-git-repo ca
 
 
 def _in_git_repo(path: str) -> bool:
-    from src.tools.list_dir import _find_gitignore_root
+
     root = _find_gitignore_root(path)
     return (root / ".git").exists()
 
 
 def _enumerate_gitignored_files(root: str) -> list[str]:
     """Return absolute paths of all non-gitignored files under root."""
-    from src.tools.list_dir import (
-        _traverse,
-        _find_gitignore_root,
-        _get_ancestor_matchers,
-        _get_effective_matchers,
-        _collect_flat,
-    )
+
 
     gitignore_root = _find_gitignore_root(root)
     ancestor_matchers = _get_ancestor_matchers(gitignore_root, root)

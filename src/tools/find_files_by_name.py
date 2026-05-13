@@ -17,7 +17,17 @@ import time
 from src.tools._subprocess import run_command
 from src.utils.exceptions import ToolTimeoutError
 
+from src.tools._list_dir_utils import (
+    _traverse,
+    _find_gitignore_root,
+    _get_ancestor_matchers,
+    _get_effective_matchers,
+    _collect_flat,
+)
+
 DEFAULT_TIMEOUT = 15  # seconds
+TIMEOUT_HINT = "find_files_by_name timed out in call to _traverse function."
+
 
 DEFINITION: dict = {
     "type": "function",
@@ -149,13 +159,7 @@ def _collect_files_traverse(root: str, use_gitignore: bool) -> list[str]:
     Return absolute paths of all files under root using list_dir._traverse.
     Reuses list_dir's gitignore machinery when use_gitignore=True.
     """
-    from src.tools.list_dir import (
-        _traverse,
-        _find_gitignore_root,
-        _get_ancestor_matchers,
-        _get_effective_matchers,
-        _collect_flat,
-    )
+
 
     ancestor_matchers: list = []
     if use_gitignore:
