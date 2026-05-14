@@ -8,7 +8,9 @@
     "ui:type-check":"cd ui && node_modules/.bin/tsc --noEmit",
     "src:syntax-and-import-check": "bash python_in_env.sh scripts/check_py.py",
     "line-counts-over-500":"sourcehelper line-count-report over 500",
-    "format":"bash scripts/format.sh"
+    "format":"bash scripts/format.sh",
+    "python:remove-unused-imports":"ruff check . --select=F401 --fix",
+    "python:check-unused-imports":"ruff check . --select=F401"
   },
   "keywords": [],
   "author": "",

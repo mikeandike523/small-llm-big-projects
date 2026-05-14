@@ -224,13 +224,6 @@ def needs_approval(args: dict) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Internal buffer key used in filepath mode
-# ---------------------------------------------------------------------------
-
-_FILE_BUF_KEY = "__filepath_buf__"
-
-
-# ---------------------------------------------------------------------------
 # Line-splitting helpers
 # ---------------------------------------------------------------------------
 
@@ -381,11 +374,11 @@ def _apply_edits(
 
 
 # ---------------------------------------------------------------------------
-# action implementations
+# Read-only action implementations — return str
 # ---------------------------------------------------------------------------
 
 
-def _do_read_lines(args: dict, key: str, value: str) -> str:
+def _do_read_lines(args: dict, value: str, label: str) -> str:
     start_line = args.get("start_line")
     end_line = args.get("end_line")
     number_lines = bool(args.get("number_lines"))
@@ -421,7 +414,7 @@ def _read_lines_range(text: str, start_line: int | None, end_line: int | None) -
     return "".join(selected)
 
 
-def _do_search_by_regex(args: dict, key: str, value: str) -> str:
+def _do_search_by_regex(args: dict, value: str, label: str) -> str:
     pattern = args.get("pattern")
     if not pattern:
         return "Error: 'pattern' is required for action 'search_by_regex'."
@@ -437,7 +430,7 @@ def _do_search_by_regex(args: dict, key: str, value: str) -> str:
 
     total = len(content_lines)
     if total == 0:
-        return f"{key!r} is empty -- no matches."
+        return f"{label!r} is empty -- no matches."
 
     width = len(str(total))
 
@@ -447,50 +440,53 @@ def _do_search_by_regex(args: dict, key: str, value: str) -> str:
             matches.append(f"{str(i).rjust(width)} | {line}")
 
     if not matches:
-        return f"No matches found in {key!r}."
-    return f"{len(matches)} match(es) in {key!r}:\n" + "\n".join(matches)
+        return f"No matches found in {label!r}."
+    return f"{len(matches)} match(es) in {label!r}:\n" + "\n".join(matches)
 
 
-def _do_count_lines(args: dict, key: str, value: str) -> str:
+def _do_count_lines(args: dict, value: str, label: str) -> str:
     return str(_count_lines(value))
 
 
-def _do_check_eol(args: dict, key: str, value: str) -> str:
+def _do_check_eol(args: dict, value: str, label: str) -> str:
     return check_eol(value)
 
 
-def _do_normalize_eol(args: dict, key: str, value: str, memory: dict) -> str:
-    eol = args.get("eol")
-    if not eol:
-        return "Error: 'eol' is required for action 'normalize_eol'."
-    result = normalize_eol(value, eol)
-    memory[key] = result
-    return f"Line endings normalized to {eol.upper()} for {key!r}.\n\n{_make_diff(value, result)}"
-
-
-def _do_check_indentation(args: dict, key: str, value: str) -> str:
+def _do_check_indentation(args: dict, value: str, label: str) -> str:
     return check_indentation(value)
 
 
-def _do_convert_indentation(args: dict, key: str, value: str, memory: dict) -> str:
+# ---------------------------------------------------------------------------
+# Write action implementations — return (message, new_value)
+# ---------------------------------------------------------------------------
+
+
+def _do_normalize_eol(args: dict, value: str, label: str) -> tuple[str, str]:
+    eol = args.get("eol")
+    if not eol:
+        return "Error: 'eol' is required for action 'normalize_eol'.", value
+    result = normalize_eol(value, eol)
+    return f"Line endings normalized to {eol.upper()} for {label!r}.\n\n{_make_diff(value, result)}", result
+
+
+def _do_convert_indentation(args: dict, value: str, label: str) -> tuple[str, str]:
     to = args.get("to")
     if not to:
-        return "Error: 'to' is required for action 'convert_indentation'."
+        return "Error: 'to' is required for action 'convert_indentation'.", value
     spaces_per_tab = int(args.get("spaces_per_tab", DEFAULT_SPACES_PER_TAB))
     result = convert_indentation(value, to, spaces_per_tab)
-    memory[key] = result
-    return f"Indentation converted to {to} (spaces_per_tab={spaces_per_tab}) for {key!r}.\n\n{_make_diff(value, result)}"
+    return f"Indentation converted to {to} (spaces_per_tab={spaces_per_tab}) for {label!r}.\n\n{_make_diff(value, result)}", result
 
 
-def _do_apply_patch(args: dict, key: str, value: str, memory: dict) -> str:
+def _do_apply_patch(args: dict, value: str, label: str) -> tuple[str, str]:
     edits = args.get("edits")
     disable_auto_eol = bool(args.get("disable_auto_eol", False))
     trailing_newline = args.get("trailing_newline")  # bool | None
 
     if not edits:
-        return "Error: 'edits' is required for action 'apply_patch'."
+        return "Error: 'edits' is required for action 'apply_patch'.", value
     if not isinstance(edits, list) or not all(isinstance(e, dict) for e in edits):
-        return "Error: 'edits' must be an array of objects."
+        return "Error: 'edits' must be an array of objects.", value
 
     try:
         result = _apply_edits(
@@ -500,22 +496,20 @@ def _do_apply_patch(args: dict, key: str, value: str, memory: dict) -> str:
             trailing_newline=trailing_newline,
         )
     except (ValueError, RuntimeError) as exc:
-        return f"Error: {exc}"
+        return f"Error: {exc}", value
     except Exception as exc:
-        return f"Error applying patch: {exc}"
-
-    memory[key] = result
+        return f"Error applying patch: {exc}", value
 
     original_lines = _count_lines(value)
     new_lines = _count_lines(result)
     delta = new_lines - original_lines
     sign = "+" if delta >= 0 else ""
-    summary = f"Patch applied to {key!r}. Lines: {original_lines} -> {new_lines} ({sign}{delta})."
-    return f"{summary}\n\n{_make_diff(value, result)}"
+    summary = f"Patch applied to {label!r}. Lines: {original_lines} -> {new_lines} ({sign}{delta})."
+    return f"{summary}\n\n{_make_diff(value, result)}", result
 
 
 # ---------------------------------------------------------------------------
-# dispatch tables
+# Dispatch tables
 # ---------------------------------------------------------------------------
 
 _READ_ONLY_ACTIONS = {
@@ -534,56 +528,7 @@ _WRITE_ACTIONS = {
 
 
 # ---------------------------------------------------------------------------
-# execute helpers
-# ---------------------------------------------------------------------------
-
-
-def _execute_memory(action: str, args: dict, key: str, session_data: dict) -> str:
-    memory = ensure_session_memory(session_data)
-    value = memory.get(key)
-    if not isinstance(value, str):
-        return f"Error: key {key!r} does not hold a text value."
-    if action in _READ_ONLY_ACTIONS:
-        return _READ_ONLY_ACTIONS[action](args, key, value)
-    elif action in _WRITE_ACTIONS:
-        return _WRITE_ACTIONS[action](args, key, value, memory)
-    else:
-        return f"Error: unknown action {action!r}."
-
-
-def _execute_filepath(action: str, args: dict, filepath: str) -> str:
-    try:
-        with open(filepath, "r", encoding="utf-8", newline="") as fh:
-            content = fh.read()
-    except FileNotFoundError:
-        return f"Error: file not found: {filepath}"
-    except OSError as e:
-        return f"Error reading file: {e}"
-
-    buf_key = _FILE_BUF_KEY
-    buf = {buf_key: content}
-    effective_args = dict(args)
-    effective_args["key"] = buf_key
-
-    if action in _READ_ONLY_ACTIONS:
-        result = _READ_ONLY_ACTIONS[action](effective_args, buf_key, content)
-    elif action in _WRITE_ACTIONS:
-        result = _WRITE_ACTIONS[action](effective_args, buf_key, content, buf)
-        if not result.startswith("Error"):
-            new_content = buf.get(buf_key, content)
-            try:
-                with open(filepath, "w", encoding="utf-8", newline="") as fh:
-                    fh.write(new_content)
-            except OSError as e:
-                return f"Error writing file: {e}"
-    else:
-        return f"Error: unknown action {action!r}."
-
-    return result.replace(repr(buf_key), repr(filepath))
-
-
-# ---------------------------------------------------------------------------
-# main entry point
+# Main entry point
 # ---------------------------------------------------------------------------
 
 
@@ -600,7 +545,37 @@ def execute(args: dict, session_data: dict | None = None) -> str:
     if not key and not filepath:
         return "Error: one of 'key' or 'filepath' is required."
 
+    # Load content and set label for display messages.
     if filepath:
-        return _execute_filepath(action, args, filepath)
+        label = filepath
+        try:
+            with open(filepath, "r", encoding="utf-8", newline="") as fh:
+                value = fh.read()
+        except FileNotFoundError:
+            return f"Error: file not found: {filepath}"
+        except OSError as e:
+            return f"Error reading file: {e}"
     else:
-        return _execute_memory(action, args, key, session_data)
+        label = key
+        memory = ensure_session_memory(session_data)
+        value = memory.get(key)
+        if not isinstance(value, str):
+            return f"Error: key {key!r} does not hold a text value."
+
+    if action in _READ_ONLY_ACTIONS:
+        return _READ_ONLY_ACTIONS[action](args, value, label)
+
+    if action in _WRITE_ACTIONS:
+        message, new_value = _WRITE_ACTIONS[action](args, value, label)
+        if not message.startswith("Error"):
+            if filepath:
+                try:
+                    with open(filepath, "w", encoding="utf-8", newline="") as fh:
+                        fh.write(new_value)
+                except OSError as e:
+                    return f"Error writing file: {e}"
+            else:
+                memory[key] = new_value
+        return message
+
+    return f"Error: unknown action {action!r}."
