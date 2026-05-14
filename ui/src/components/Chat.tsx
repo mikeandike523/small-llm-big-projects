@@ -3,7 +3,27 @@ import React, { useCallback, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { type Socket } from "socket.io-client";
 import { useStickToBottom } from "use-stick-to-bottom";
-import { appLayoutCss, dashboardButtonCss, debugPanelWrapperCss, followupFooterCss, followupLabelCss, followupOptionCss, headerBarCss, headerSideCss, inputBarCss, mainAreaCss, sendButtonCss, sessionCostCss, sessionIdCss, spinnerCss, statusCss, stopButtonCss, terminalPanelWrapperCss, textareaCss, threadCss } from "../css/Chat";
+import {
+  appLayoutCss,
+  dashboardButtonCss,
+  debugPanelWrapperCss,
+  followupFooterCss,
+  followupLabelCss,
+  followupOptionCss,
+  headerBarCss,
+  headerSideCss,
+  inputBarCss,
+  mainAreaCss,
+  sendButtonCss,
+  sessionCostCss,
+  sessionIdCss,
+  spinnerCss,
+  statusCss,
+  stopButtonCss,
+  terminalPanelWrapperCss,
+  textareaCss,
+  threadCss,
+} from "../css/Chat";
 import useSocketWiring from "../hooks/useSocketWiring";
 import { createSocket } from "../socket";
 import LoadingBackdrop from "../subcomponents/Chat/LoadingBackdrop";
@@ -13,8 +33,6 @@ import FormattedCostWithColor from "./FormattedCostWithColor";
 import StartupToolCallsCard from "./StartupToolsCard";
 import { TerminalPanel } from "./TerminalPanel";
 import TurnContainer from "./TurnContainer";
-
-
 
 export default function Chat() {
   const navigate = useNavigate();

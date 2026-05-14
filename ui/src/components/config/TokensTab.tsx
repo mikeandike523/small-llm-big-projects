@@ -3,7 +3,26 @@ import { css } from "@emotion/react";
 import { useEffect, useState } from "react";
 import { RotateDialog } from "./RotateDialog";
 import { AddTokenDialog } from "./AddTokenDialog";
-import { containerCss, topBarCss, addBtnCss, errorBannerCss, tableWrapCss, tableCss, thCss, tdCss, activeTrCss, inputCss, activeLabelCss, rotateBtnCss, actionsCss, iconBtnCss, confirmDeleteCss, yesDeleteBtnCss, noBtnCss, deleteBtnCss } from "../../css/config/TokensTab";
+import {
+  containerCss,
+  topBarCss,
+  addBtnCss,
+  errorBannerCss,
+  tableWrapCss,
+  tableCss,
+  thCss,
+  tdCss,
+  activeTrCss,
+  inputCss,
+  activeLabelCss,
+  rotateBtnCss,
+  actionsCss,
+  iconBtnCss,
+  confirmDeleteCss,
+  yesDeleteBtnCss,
+  noBtnCss,
+  deleteBtnCss,
+} from "../../css/config/TokensTab";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -19,8 +38,6 @@ type TokenRow = {
 
 type ActiveToken = { provider: string; name: string; profile: string };
 type Draft = { provider: string; name: string; endpoint_url: string };
-
-
 
 // ---------------------------------------------------------------------------
 // Component
