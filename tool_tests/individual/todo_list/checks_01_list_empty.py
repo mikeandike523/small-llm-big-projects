@@ -14,10 +14,17 @@ def _j(r: str) -> dict:
 
 def add_checks(cl: CheckList, env: TestEnv) -> None:
     r = execute_tool("todo_list", {"action": "list"}, env.session_data)
-    cl.check("list empty", "Empty list returns items=[]",
-             _j(r).get("items") == [], f"got: {r!r}")
+    cl.check(
+        "list empty",
+        "Empty list returns items=[]",
+        _j(r).get("items") == [],
+        f"got: {r!r}",
+    )
 
     r = execute_tool("todo_list", {"action": "list_formatted"}, env.session_data)
-    cl.check("list_formatted empty", "Empty list returns '(empty todo list)'",
-             r == "(empty todo list)", f"got: {r!r}")
-
+    cl.check(
+        "list_formatted empty",
+        "Empty list returns '(empty todo list)'",
+        r == "(empty todo list)",
+        f"got: {r!r}",
+    )

@@ -34,6 +34,7 @@ DEFINITION: dict = {
     },
 }
 
+
 def needs_approval(args: dict) -> bool:
     # If no path arg, always operates on cwd — auto-approved.
     # If path is provided, only gate if it resolves outside cwd.
@@ -41,6 +42,7 @@ def needs_approval(args: dict) -> bool:
     if not raw:
         return False
     from src.tools._approval import _resolve, _is_under_cwd
+
     return not _is_under_cwd(_resolve(raw))
 
 
@@ -54,11 +56,13 @@ def execute(args: dict, _session_data={}) -> str:
         result = run_command(cmd, timeout=DEFAULT_TIMEOUT)
     except subprocess.TimeoutExpired:
         from src.utils.exceptions import ToolTimeoutError
+
         raise ToolTimeoutError("list_working_tree", DEFAULT_TIMEOUT)
     if not result.success:
         stderr_lower = result.stderr.lower()
         if "not a git repository" in stderr_lower or result.returncode == 128:
             from src.tools import list_dir as _list_dir
+
             fallback_args: dict = {"use_gitignore": True, "recursive": True}
             if path is not None:
                 fallback_args["path"] = path

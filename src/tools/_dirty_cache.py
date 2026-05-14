@@ -1,8 +1,8 @@
 from __future__ import annotations
 import os
 
-_dirty_files: dict[str, set[str]] = {}   # session_id -> set[normalized abs path]
-_dirty_mem: dict[str, set[str]] = {}     # session_id -> set[mem key]
+_dirty_files: dict[str, set[str]] = {}  # session_id -> set[normalized abs path]
+_dirty_mem: dict[str, set[str]] = {}  # session_id -> set[mem key]
 
 
 def _norm(path: str) -> str:
@@ -56,12 +56,12 @@ def snapshot(session_id: str) -> dict:
 def check_requires_clean(session_id: str, effects: dict, tool_name: str) -> str | None:
     """Return an error string if any required-clean resource is dirty, else None."""
     blocked_files = [
-        _norm(p) for p in effects.get("requires_clean_files", [])
+        _norm(p)
+        for p in effects.get("requires_clean_files", [])
         if is_file_dirty(session_id, p)
     ]
     blocked_mem = [
-        k for k in effects.get("requires_clean_mem", [])
-        if is_mem_dirty(session_id, k)
+        k for k in effects.get("requires_clean_mem", []) if is_mem_dirty(session_id, k)
     ]
     if not blocked_files and not blocked_mem:
         return None

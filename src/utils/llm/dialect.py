@@ -8,6 +8,7 @@ injection; factory.py detects and creates the right one.
 
 Currently supported dialects: "openai" (default), "anthropic".
 """
+
 from __future__ import annotations
 
 import json
@@ -27,6 +28,7 @@ _ANTHROPIC_VERSION = "2023-06-01"
 # ---------------------------------------------------------------------------
 # Detection
 # ---------------------------------------------------------------------------
+
 
 def detect_dialect(
     provider: str | None = None,
@@ -56,6 +58,7 @@ def detect_dialect(
 # ---------------------------------------------------------------------------
 # OpenAI dialect
 # ---------------------------------------------------------------------------
+
 
 class OpenAIDialect(DialectAdapter):
 
@@ -87,19 +90,23 @@ class OpenAIDialect(DialectAdapter):
         tc_deltas = delta.get("tool_calls")
         if tc_deltas:
             for tc in tc_deltas:
-                events.append({
-                    "type": "tool_delta",
-                    "index": tc.get("index", 0),
-                    "id": tc.get("id") or "",
-                    "name": (tc.get("function") or {}).get("name") or "",
-                    "arguments": (tc.get("function") or {}).get("arguments") or "",
-                })
+                events.append(
+                    {
+                        "type": "tool_delta",
+                        "index": tc.get("index", 0),
+                        "id": tc.get("id") or "",
+                        "name": (tc.get("function") or {}).get("name") or "",
+                        "arguments": (tc.get("function") or {}).get("arguments") or "",
+                    }
+                )
             return events
 
         content = delta.get("content")
         reasoning = delta.get("reasoning")
         if content is not None or reasoning is not None:
-            events.append({"type": "on_data", "content": content, "reasoning": reasoning})
+            events.append(
+                {"type": "on_data", "content": content, "reasoning": reasoning}
+            )
 
         return events
 
@@ -115,11 +122,13 @@ class OpenAIDialect(DialectAdapter):
                 arguments = json.loads(raw_args)
             except json.JSONDecodeError:
                 arguments = {}
-            tool_calls.append(ToolCall(
-                id=tc.get("id", ""),
-                name=func.get("name", ""),
-                arguments=arguments,
-            ))
+            tool_calls.append(
+                ToolCall(
+                    id=tc.get("id", ""),
+                    name=func.get("name", ""),
+                    arguments=arguments,
+                )
+            )
         return content, reasoning, tool_calls
 
     def normalize_usage(self, raw: dict | None) -> dict | None:
@@ -132,13 +141,16 @@ class OpenAIDialect(DialectAdapter):
         if "completion_tokens" in result:
             result.setdefault("output_tokens", result.pop("completion_tokens"))
         if "total_tokens" not in result:
-            result["total_tokens"] = result.get("input_tokens", 0) + result.get("output_tokens", 0)
+            result["total_tokens"] = result.get("input_tokens", 0) + result.get(
+                "output_tokens", 0
+            )
         return result
 
 
 # ---------------------------------------------------------------------------
 # Anthropic dialect
 # ---------------------------------------------------------------------------
+
 
 class AnthropicDialect(DialectAdapter):
 
@@ -168,9 +180,13 @@ class AnthropicDialect(DialectAdapter):
             if msg.get("role") == "system":
                 content = msg.get("content") or ""
                 if isinstance(content, list):
-                    system_parts.append(" ".join(
-                        b.get("text", "") for b in content if b.get("type") == "text"
-                    ))
+                    system_parts.append(
+                        " ".join(
+                            b.get("text", "")
+                            for b in content
+                            if b.get("type") == "text"
+                        )
+                    )
                 else:
                     system_parts.append(str(content))
             else:
@@ -189,8 +205,8 @@ class AnthropicDialect(DialectAdapter):
 
     def new_stream_state(self) -> dict:
         return {
-            "block_types": {},   # index -> "text" | "tool_use" | "thinking"
-            "tool_info": {},     # index -> {"id": str, "name": str}
+            "block_types": {},  # index -> "text" | "tool_use" | "thinking"
+            "tool_info": {},  # index -> {"id": str, "name": str}
         }
 
     def parse_data(self, obj: dict, state: dict) -> list[dict]:
@@ -220,20 +236,30 @@ class AnthropicDialect(DialectAdapter):
             btype = state["block_types"].get(idx, "text")
 
             if dtype == "text_delta" and btype == "text":
-                events.append({"type": "on_data", "content": delta.get("text"), "reasoning": None})
+                events.append(
+                    {"type": "on_data", "content": delta.get("text"), "reasoning": None}
+                )
 
             elif dtype == "thinking_delta" and btype == "thinking":
-                events.append({"type": "on_data", "content": None, "reasoning": delta.get("thinking")})
+                events.append(
+                    {
+                        "type": "on_data",
+                        "content": None,
+                        "reasoning": delta.get("thinking"),
+                    }
+                )
 
             elif dtype == "input_json_delta" and btype == "tool_use":
                 info = state["tool_info"].get(idx, {})
-                events.append({
-                    "type": "tool_delta",
-                    "index": idx,
-                    "id": info.get("id", ""),
-                    "name": info.get("name", ""),
-                    "arguments": delta.get("partial_json", ""),
-                })
+                events.append(
+                    {
+                        "type": "tool_delta",
+                        "index": idx,
+                        "id": info.get("id", ""),
+                        "name": info.get("name", ""),
+                        "arguments": delta.get("partial_json", ""),
+                    }
+                )
 
         elif etype == "message_delta":
             usage = obj.get("usage")
@@ -254,11 +280,13 @@ class AnthropicDialect(DialectAdapter):
             elif btype == "thinking":
                 reasoning_text += block.get("thinking", "")
             elif btype == "tool_use":
-                tool_calls.append(ToolCall(
-                    id=block.get("id", ""),
-                    name=block.get("name", ""),
-                    arguments=block.get("input") or {},
-                ))
+                tool_calls.append(
+                    ToolCall(
+                        id=block.get("id", ""),
+                        name=block.get("name", ""),
+                        arguments=block.get("input") or {},
+                    )
+                )
         return content_text, reasoning_text, tool_calls
 
     def normalize_usage(self, raw: dict | None) -> dict | None:
@@ -267,13 +295,16 @@ class AnthropicDialect(DialectAdapter):
         result = {k: v for k, v in raw.items()}
         # Anthropic already uses input_tokens / output_tokens
         if "total_tokens" not in result:
-            result["total_tokens"] = result.get("input_tokens", 0) + result.get("output_tokens", 0)
+            result["total_tokens"] = result.get("input_tokens", 0) + result.get(
+                "output_tokens", 0
+            )
         return result
 
 
 # ---------------------------------------------------------------------------
 # Message and tool conversion helpers (OpenAI → Anthropic)
 # ---------------------------------------------------------------------------
+
 
 def _convert_messages(messages: list[dict]) -> list[dict]:
     """
@@ -300,12 +331,14 @@ def _convert_messages(messages: list[dict]) -> list[dict]:
                         input_data = json.loads(raw_args)
                     except json.JSONDecodeError:
                         input_data = {}
-                    blocks.append({
-                        "type": "tool_use",
-                        "id": tc.get("id", ""),
-                        "name": func.get("name", ""),
-                        "input": input_data,
-                    })
+                    blocks.append(
+                        {
+                            "type": "tool_use",
+                            "id": tc.get("id", ""),
+                            "name": func.get("name", ""),
+                            "input": input_data,
+                        }
+                    )
                 out.append({"role": "assistant", "content": blocks})
             else:
                 out.append({"role": "assistant", "content": msg.get("content") or ""})
@@ -316,11 +349,13 @@ def _convert_messages(messages: list[dict]) -> list[dict]:
             results: list[dict] = []
             while i < len(messages) and messages[i].get("role") == "tool":
                 tr = messages[i]
-                results.append({
-                    "type": "tool_result",
-                    "tool_use_id": tr.get("tool_call_id", ""),
-                    "content": tr.get("content", ""),
-                })
+                results.append(
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": tr.get("tool_call_id", ""),
+                        "content": tr.get("content", ""),
+                    }
+                )
                 i += 1
             out.append({"role": "user", "content": results})
 
@@ -340,11 +375,14 @@ def _convert_tools(tools: list[dict]) -> list[dict]:
     result = []
     for tool in tools:
         fn = tool.get("function") or {}
-        result.append({
-            "name": fn.get("name", ""),
-            "description": fn.get("description", ""),
-            "input_schema": fn.get("parameters") or {"type": "object", "properties": {}},
-        })
+        result.append(
+            {
+                "name": fn.get("name", ""),
+                "description": fn.get("description", ""),
+                "input_schema": fn.get("parameters")
+                or {"type": "object", "properties": {}},
+            }
+        )
     return result
 
 

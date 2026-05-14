@@ -16,7 +16,7 @@ class ToolCallRecord:
     args: dict
     result: str | None = None
     was_stubbed: bool = False
-    started_at: int | None = None   # ms timestamp, set just before execute_tool
+    started_at: int | None = None  # ms timestamp, set just before execute_tool
     finished_at: int | None = None  # ms timestamp, set just after execute_tool
 
 
@@ -33,25 +33,32 @@ class LLMExchange:
         msgs: list[dict] = []
         if self.tool_calls:
             # Interim assistant message with tool calls
-            msgs.append({
-                "role": "assistant",
-                "content": self.assistant_content or None,
-                "tool_calls": [
-                    {
-                        "id": tc.id,
-                        "type": "function",
-                        "function": {"name": tc.name, "arguments": json.dumps(tc.args)},
-                    }
-                    for tc in self.tool_calls
-                ],
-            })
+            msgs.append(
+                {
+                    "role": "assistant",
+                    "content": self.assistant_content or None,
+                    "tool_calls": [
+                        {
+                            "id": tc.id,
+                            "type": "function",
+                            "function": {
+                                "name": tc.name,
+                                "arguments": json.dumps(tc.args),
+                            },
+                        }
+                        for tc in self.tool_calls
+                    ],
+                }
+            )
             # Tool result messages
             for tc in self.tool_calls:
-                msgs.append({
-                    "role": "tool",
-                    "tool_call_id": tc.id,
-                    "content": tc.result or "",
-                })
+                msgs.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": tc.id,
+                        "content": tc.result or "",
+                    }
+                )
         else:
             # Interim or final assistant message without tool calls
             msgs.append({"role": "assistant", "content": self.assistant_content})
@@ -68,7 +75,9 @@ class Subturn:
     user_text_with_context: str
     exchanges: list[LLMExchange] = field(default_factory=list)
     is_continuation: bool = False
-    detailed_summary: str | None = None  # compaction string; None when no tool calls were made
+    detailed_summary: str | None = (
+        None  # compaction string; None when no tool calls were made
+    )
 
     def count_tool_calls(self) -> int:
         return sum(len(ex.tool_calls) for ex in self.exchanges)
@@ -79,14 +88,16 @@ class Turn:
     id: str
     subturns: list[Subturn]
     todo_snapshot: list = field(default_factory=list)
-    was_impossible: bool = False   # vestigial — kept for serialization compat
+    was_impossible: bool = False  # vestigial — kept for serialization compat
     impossible_reason: str | None = None  # vestigial
     was_cancelled: bool = False
     completed: bool = False
     condensed_user: str = ""
     condensed_assistant: str = ""
     task_title: str | None = None  # Short LLM-generated title, fetched at turn start
-    selected_skill_ids: list[str] = field(default_factory=list)  # Skills selected for first subturn; borrowed by continuations
+    selected_skill_ids: list[str] = field(
+        default_factory=list
+    )  # Skills selected for first subturn; borrowed by continuations
 
     def to_messages(self) -> list[dict]:
         """Rebuild OpenAI-format messages list from all subturns in order."""
@@ -103,7 +114,9 @@ class Turn:
     def count_exchanges(self) -> int:
         return sum(len(st.exchanges) for st in self.subturns)
 
-    def finalize(self, session_data: dict, final_content: str, had_todo_items: bool = False) -> None:
+    def finalize(
+        self, session_data: dict, final_content: str, had_todo_items: bool = False
+    ) -> None:
         """Build condensed user/assistant strings for use as context in future turns."""
         had_tool_calls = self.count_tool_calls() > 0
         first_user_text = self.subturns[0].user_text if self.subturns else ""
@@ -169,6 +182,7 @@ class Session:
 # ---------------------------------------------------------------------------
 # Serialization helpers
 # ---------------------------------------------------------------------------
+
 
 def tool_call_record_to_dict(tc: ToolCallRecord) -> dict:
     return {
@@ -257,13 +271,15 @@ def turn_from_dict(d: dict) -> Turn:
         subturns = [subturn_from_dict(st) for st in d["subturns"]]
     else:
         # Legacy migration (schema v3): wrap flat user_text + exchanges into a single Subturn
-        subturns = [Subturn(
-            id=str(_uuid_module.uuid4()),
-            user_text=d.get("user_text", ""),
-            user_text_with_context=d.get("user_text_with_context", ""),
-            exchanges=[llm_exchange_from_dict(ex) for ex in d.get("exchanges", [])],
-            is_continuation=False,
-        )]
+        subturns = [
+            Subturn(
+                id=str(_uuid_module.uuid4()),
+                user_text=d.get("user_text", ""),
+                user_text_with_context=d.get("user_text_with_context", ""),
+                exchanges=[llm_exchange_from_dict(ex) for ex in d.get("exchanges", [])],
+                is_continuation=False,
+            )
+        ]
     return Turn(
         id=d["id"],
         subturns=subturns,
@@ -290,7 +306,9 @@ def session_to_dict(session: Session) -> dict:
         "session_id": session.session_id,
         "startup_done": session.startup_done,
         "completed_turns": [turn_to_dict(t) for t in session.completed_turns],
-        "current_turn": turn_to_dict(session.current_turn) if session.current_turn else None,
+        "current_turn": (
+            turn_to_dict(session.current_turn) if session.current_turn else None
+        ),
         "session_data": session_data_clean,
         "initial_cwd": session.initial_cwd,
         "skills_path": session.skills_path,
@@ -308,7 +326,9 @@ def session_from_dict(d: dict) -> Session:
         schema_version=d.get("schema_version", CURRENT_SCHEMA_VERSION),
         startup_done=d.get("startup_done", False),
         completed_turns=[turn_from_dict(t) for t in d.get("completed_turns", [])],
-        current_turn=turn_from_dict(d["current_turn"]) if d.get("current_turn") else None,
+        current_turn=(
+            turn_from_dict(d["current_turn"]) if d.get("current_turn") else None
+        ),
         session_data=d.get("session_data", {}),
         initial_cwd=d.get("initial_cwd", ""),
         skills_path=d.get("skills_path"),

@@ -5,6 +5,7 @@ from tool_tests.helpers.env import TestEnv
 from tool_tests.helpers.http_server import MicroServer
 from src.tools import execute_tool
 
+
 def run(env: TestEnv, server: MicroServer | None = None):
     cl = CheckList("search_filesystem_by_regex")
     try:
@@ -19,7 +20,12 @@ def run(env: TestEnv, server: MicroServer | None = None):
             {"pattern": "banana", "path": env.tmp_dir},
             env.session_data,
         )
-        cl.check("match found", "Result contains the matched word", "banana" in r, f"got: {r!r}")
+        cl.check(
+            "match found",
+            "Result contains the matched word",
+            "banana" in r,
+            f"got: {r!r}",
+        )
 
         # non-matching pattern
         r2 = execute_tool(
@@ -27,7 +33,12 @@ def run(env: TestEnv, server: MicroServer | None = None):
             {"pattern": "mango_xyz_not_here", "path": env.tmp_dir},
             env.session_data,
         )
-        cl.check("no matches message", "Result indicates no matches for unmatched pattern", "No matches" in r2 or "no matches" in r2.lower(), f"got: {r2!r}")
+        cl.check(
+            "no matches message",
+            "Result indicates no matches for unmatched pattern",
+            "No matches" in r2 or "no matches" in r2.lower(),
+            f"got: {r2!r}",
+        )
     except Exception as e:
         cl.record_exception(e)
     return cl.result()

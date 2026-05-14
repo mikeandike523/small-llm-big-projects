@@ -11,8 +11,8 @@ from src.cli_routes._token_helpers import _mask_token, _resolve_token
 
 
 @cli.group()
-def token():
-    ...
+def token(): ...
+
 
 @token.command(name="list")
 def sub_cmd_list():
@@ -29,7 +29,9 @@ def sub_cmd_list():
 
     with pool.get_connection() as conn:
         with conn.cursor() as cursor:
-            cursor.execute("SELECT provider, token_name, endpoint_url, token_value FROM tokens")
+            cursor.execute(
+                "SELECT provider, token_name, endpoint_url, token_value FROM tokens"
+            )
             rows = cursor.fetchall()
             print(f"{'Provider':<20} {'Name':<20} {'Endpoint URL':<40} {'Token Value'}")
             print("-" * 100)
@@ -42,11 +44,19 @@ def sub_cmd_list():
 
 @token.command(name="set")
 @click.option(
-    "--name", "-n", type=str, required=False, default="",
-    help="Optional name of the token to store"
+    "--name",
+    "-n",
+    type=str,
+    required=False,
+    default="",
+    help="Optional name of the token to store",
 )
 @click.option(
-    "--endpoint", "-e", type=str, required=False, default=None,
+    "--endpoint",
+    "-e",
+    type=str,
+    required=False,
+    default=None,
     help="""\
 Set the endpoint URL for this token. Stored directly on the token row.
 If the provider is not yet in known_providers, it is added there as a
@@ -54,16 +64,11 @@ convenience default (never overwrites an existing known_providers entry).
 Omit this flag to leave the per-token endpoint unchanged (or NULL for new
 tokens), in which case the endpoint is resolved from known_providers at
 connect time.
-"""
+""",
 )
 @click.argument("provider", required=True, type=str, nargs=1)
 @click.argument("token", required=True, type=str, nargs=1)
-def sub_cmd_set(
-    name: str,
-    endpoint: Optional[str],
-    provider: str,
-    token: str
-):
+def sub_cmd_set(name: str, endpoint: Optional[str], provider: str, token: str):
     """
     Usage: slbp token set [OPTIONS] PROVIDER TOKEN
 
@@ -107,8 +112,12 @@ def sub_cmd_set(
             # ── Rotation path ──────────────────────────────────────────────
             token_id, existing_endpoint, existing_value = existing_token
 
-            if existing_value == token and (endpoint is None or endpoint == existing_endpoint):
-                click.echo("Token already exists with the same value and endpoint. No changes made.")
+            if existing_value == token and (
+                endpoint is None or endpoint == existing_endpoint
+            ):
+                click.echo(
+                    "Token already exists with the same value and endpoint. No changes made."
+                )
                 return
 
             replace = click.confirm(
@@ -128,7 +137,7 @@ def sub_cmd_set(
                     )
                 click.echo(
                     f'Token for provider "{provider}" name {name_display} rotated to new value '
-                    f"with endpoint set to \"{endpoint}\"."
+                    f'with endpoint set to "{endpoint}".'
                 )
                 # Add to known_providers if not present (never overwrite).
                 with conn.cursor() as cursor:
@@ -225,13 +234,17 @@ def sub_cmd_set(
         conn.commit()
         click.echo(
             "Note: token is not yet active. To use it, run:\n"
-            f"  slbp token use {provider}"
-            + (f" {token_name}" if token_name else "")
+            f"  slbp token use {provider}" + (f" {token_name}" if token_name else "")
         )
 
 
 @token.command(name="use")
-@click.option("-y", "--yes", is_flag=True, help="Auto-accept single-token suggestion without prompting")
+@click.option(
+    "-y",
+    "--yes",
+    is_flag=True,
+    help="Auto-accept single-token suggestion without prompting",
+)
 @click.argument("provider", type=str, required=True, nargs=1)
 @click.argument("name", type=str, required=False, nargs=1, default="")
 def sub_cmd_use(yes: bool, provider: str, name: str):
@@ -267,18 +280,28 @@ def sub_cmd_use(yes: bool, provider: str, name: str):
         if resolved_name is None:
             return
 
-        kv.set_value(prefix + "active_token", {
-            "provider": provider,
-            "name": resolved_name,
-        })
+        kv.set_value(
+            prefix + "active_token",
+            {
+                "provider": provider,
+                "name": resolved_name,
+            },
+        )
         conn.commit()
 
     display = f'"{resolved_name}"' if resolved_name else "(no name)"
-    click.echo(f'Active token set to provider="{provider}" name={display}.  (profile: {profile})')
+    click.echo(
+        f'Active token set to provider="{provider}" name={display}.  (profile: {profile})'
+    )
 
 
 @token.command(name="remove")
-@click.option("-y", "--yes", is_flag=True, help="Auto-accept single-token suggestion without prompting")
+@click.option(
+    "-y",
+    "--yes",
+    is_flag=True,
+    help="Auto-accept single-token suggestion without prompting",
+)
 @click.argument("provider", type=str, required=True, nargs=1)
 @click.argument("name", type=str, required=False, nargs=1, default="")
 def sub_cmd_remove(yes: bool, provider: str, name: str):
@@ -314,7 +337,9 @@ def sub_cmd_remove(yes: bool, provider: str, name: str):
             click.echo(
                 f'Warning: token {display} for provider "{provider}" is currently active.'
             )
-            if not click.confirm("Clear the active token and proceed with removal?", default=False):
+            if not click.confirm(
+                "Clear the active token and proceed with removal?", default=False
+            ):
                 click.echo("Aborted. No changes made.")
                 return
             kv.delete_value("active_token")
@@ -423,7 +448,9 @@ def sub_cmd_rename(provider: str, old_name: str, new_name: str):
 
     old_display = f'"{old_name}"' if old_name else "(no name)"
     new_display = f'"{new_name}"' if new_name else "(no name)"
-    click.echo(f'Token {old_display} for provider "{provider}" renamed to {new_display}.')
+    click.echo(
+        f'Token {old_display} for provider "{provider}" renamed to {new_display}.'
+    )
 
 
 @token.command(name="show")

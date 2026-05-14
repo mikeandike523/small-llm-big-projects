@@ -78,7 +78,7 @@ _PARAM_DOCS = {
             "Extra parameters merged directly into every LLM API request payload. "
             "Must be a valid JSON object (curly-brace delimited). "
             "Useful for non-standard provider params such as "
-            "{\"reasoning\":{\"effort\":\"low\"}} or {\"provider\":{\"order\":[\"Fireworks\"]}}. "
+            '{"reasoning":{"effort":"low"}} or {"provider":{"order":["Fireworks"]}}. '
             "Keys in this object take precedence over other model params."
         ),
     },
@@ -104,19 +104,23 @@ def _parse_and_validate(name: str, raw_value: str):
     try:
         if name == "model.irat":
             if raw_value.lower() not in ("true", "false"):
-                raise click.BadParameter("model.irat must be 'true' or 'false'", param_hint="value")
+                raise click.BadParameter(
+                    "model.irat must be 'true' or 'false'", param_hint="value"
+                )
             return raw_value.lower() == "true"
         elif name == "model.request_extra_params":
             try:
                 value = json.loads(raw_value)
             except json.JSONDecodeError as exc:
                 raise click.BadParameter(
-                    f"model.request_extra_params must be valid JSON: {exc}", param_hint="value"
+                    f"model.request_extra_params must be valid JSON: {exc}",
+                    param_hint="value",
                 )
             if not isinstance(value, dict):
                 raise click.BadParameter(
                     "model.request_extra_params must be a JSON object (got "
-                    + type(value).__name__ + ")",
+                    + type(value).__name__
+                    + ")",
                     param_hint="value",
                 )
             return value
@@ -128,42 +132,67 @@ def _parse_and_validate(name: str, raw_value: str):
         elif name == "model.max_tokens":
             value = int(raw_value)
             if value <= 0:
-                raise click.BadParameter("model.max_tokens must be > 0", param_hint="value")
+                raise click.BadParameter(
+                    "model.max_tokens must be > 0", param_hint="value"
+                )
             return value
         elif name == "model.watchdog_max_tokens":
             value = int(raw_value)
             if value <= 0:
-                raise click.BadParameter("model.watchdog_max_tokens must be > 0", param_hint="value")
+                raise click.BadParameter(
+                    "model.watchdog_max_tokens must be > 0", param_hint="value"
+                )
             return value
         elif name == "model.title_summary_max_tokens":
             value = int(raw_value)
             if value <= 0:
-                raise click.BadParameter("model.title_summary_max_tokens must be > 0", param_hint="value")
+                raise click.BadParameter(
+                    "model.title_summary_max_tokens must be > 0", param_hint="value"
+                )
             return value
         elif name == "system.return_value_max_chars":
             value = int(raw_value)
             if value <= 0:
-                raise click.BadParameter("system.return_value_max_chars must be > 0", param_hint="value")
+                raise click.BadParameter(
+                    "system.return_value_max_chars must be > 0", param_hint="value"
+                )
             return value
         else:
             value = float(raw_value)
             if name == "model.temperature" and not (0.0 <= value <= 2.0):
-                raise click.BadParameter("model.temperature must be between 0.0 and 2.0", param_hint="value")
+                raise click.BadParameter(
+                    "model.temperature must be between 0.0 and 2.0", param_hint="value"
+                )
             if name == "model.top_p" and not (0.0 <= value <= 1.0):
-                raise click.BadParameter("model.top_p must be between 0.0 and 1.0", param_hint="value")
+                raise click.BadParameter(
+                    "model.top_p must be between 0.0 and 1.0", param_hint="value"
+                )
             return value
     except ValueError:
-        int_params = {"model.top_k", "model.max_tokens", "model.watchdog_max_tokens", "model.title_summary_max_tokens", "system.return_value_max_chars"}
+        int_params = {
+            "model.top_k",
+            "model.max_tokens",
+            "model.watchdog_max_tokens",
+            "model.title_summary_max_tokens",
+            "system.return_value_max_chars",
+        }
         type_hint = "integer" if name in int_params else "float"
-        raise click.BadParameter(f"value for '{name}' must be a {type_hint}", param_hint="value")
+        raise click.BadParameter(
+            f"value for '{name}' must be a {type_hint}", param_hint="value"
+        )
 
 
 @cli.group()
-def param():
-    ...
+def param(): ...
+
 
 @param.command("list")
-@click.option("--available", is_flag=True, default=False, help="List all available params with their types and descriptions.")
+@click.option(
+    "--available",
+    is_flag=True,
+    default=False,
+    help="List all available params with their types and descriptions.",
+)
 def sub_cmd_list(available):
     if available:
         entries = sorted(_PARAM_DOCS.items())
@@ -175,27 +204,32 @@ def sub_cmd_list(available):
                 click.echo(f"  {line}")
         return
 
-    click.echo('')
+    click.echo("")
     pool = get_pool()
     with pool.get_connection() as conn:
         kv = KVManager(conn)
         profile = get_active_profile(kv)
         prefix = _kv_prefix(profile)
         params_prefix = prefix + "params."
-        keys = [k for k in kv.list_keys(prefix=params_prefix) if k[len(params_prefix):] in _ALLOWED_PARAMS]
+        keys = [
+            k
+            for k in kv.list_keys(prefix=params_prefix)
+            if k[len(params_prefix) :] in _ALLOWED_PARAMS
+        ]
         if not keys:
             click.echo(f"No params set.  (profile: {profile})")
         else:
             click.echo(f"(profile: {profile})")
         for i, key in enumerate(keys):
             is_last = i == len(keys) - 1
-            display_key = key[len(params_prefix):]
+            display_key = key[len(params_prefix) :]
             val = kv.get_value(key)
             print(f"""
 {colored(display_key,'blue')}:
 
 {json.dumps(val, indent=2)}
 """.strip() + ("\n\n" if not is_last else ""))
+
 
 @param.command(name="set")
 @click.argument("name", type=str)
@@ -226,12 +260,16 @@ def sub_cmd_show():
         profile = get_active_profile(kv)
         prefix = _kv_prefix(profile)
         params_prefix = prefix + "params."
-        keys = [k for k in kv.list_keys(prefix=params_prefix) if k[len(params_prefix):] in _ALLOWED_PARAMS]
+        keys = [
+            k
+            for k in kv.list_keys(prefix=params_prefix)
+            if k[len(params_prefix) :] in _ALLOWED_PARAMS
+        ]
         if not keys:
             click.echo(f"No params set.  (profile: {profile})")
             return
         for key in keys:
-            param_name = key[len(params_prefix):]
+            param_name = key[len(params_prefix) :]
             val = kv.get_value(key)
             click.echo(f"{param_name} = {val}")
     click.echo(f"(profile: {profile})")

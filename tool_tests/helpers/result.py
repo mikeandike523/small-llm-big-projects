@@ -41,9 +41,8 @@ class TestResult:
             return True
         # Legacy pattern: check name or description contains "skip" and the check passed
         return (
-            ("skip" in s.name.lower() or "skip" in s.description.lower())
-            and s.passed
-        )
+            "skip" in s.name.lower() or "skip" in s.description.lower()
+        ) and s.passed
 
     @property
     def checks_skipped(self) -> int:
@@ -110,7 +109,8 @@ class CheckList:
 
     def skip(self, reason: str) -> None:
         """Record a graceful skip — use when the test cannot run (missing credentials,
-        external service unavailable, etc.) and real assertions are intentionally omitted."""
+        external service unavailable, etc.) and real assertions are intentionally omitted.
+        """
         number = len(self._sub_tests) + 1
         self._sub_tests.append(
             SubTestResult(

@@ -20,3 +20,6 @@ ptyprocess; sys_platform != "win32"
 pyte
 pytest-timeout
 tqdm
+
+# Dev dependencies
+black

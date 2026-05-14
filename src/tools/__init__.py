@@ -114,20 +114,22 @@ except ImportError:
     _load_exclusions = {}
 
 _load_excluded: set[str] = {
-    name for name, flags in _load_exclusions.items()
-    if flags.get("loading") is True
+    name for name, flags in _load_exclusions.items() if flags.get("loading") is True
 }
 
 if _load_excluded:
     ALL_TOOL_DEFINITIONS = [
-        d for d in ALL_TOOL_DEFINITIONS
+        d
+        for d in ALL_TOOL_DEFINITIONS
         if d.get("function", {}).get("name") not in _load_excluded
     ]
     for _excl_name in _load_excluded:
         _TOOL_MAP.pop(_excl_name, None)
 
 
-def check_needs_approval(name: str, args: dict, tool_map: dict | None = None, session_cwd: str | None = None) -> bool:
+def check_needs_approval(
+    name: str, args: dict, tool_map: dict | None = None, session_cwd: str | None = None
+) -> bool:
     """Return True if this tool call requires user approval before executing."""
     module = (tool_map if tool_map is not None else _TOOL_MAP).get(name)
     if module is None:
@@ -136,6 +138,7 @@ def check_needs_approval(name: str, args: dict, tool_map: dict | None = None, se
     if fn is None:
         return False
     from src.tools._approval import set_approval_cwd
+
     set_approval_cwd(session_cwd or None)
     try:
         return bool(fn(args))
@@ -218,6 +221,7 @@ _custom_tool_plugins: list[dict] = []
 # Custom tool loading — called at session-creation time, not server start
 # ---------------------------------------------------------------------------
 
+
 def load_custom_tools(
     tools_dir: str,
     workspace_root: str | None = None,
@@ -244,13 +248,12 @@ def load_custom_tools(
 
     try:
         plugin_candidates = sorted(
-            entry for entry in os.listdir(tools_dir)
+            entry
+            for entry in os.listdir(tools_dir)
             if os.path.isdir(os.path.join(tools_dir, entry))
         )
     except (FileNotFoundError, OSError) as e:
-        raise RuntimeError(
-            f"Cannot list tools/ directory at {tools_dir!r}: {e}"
-        ) from e
+        raise RuntimeError(f"Cannot list tools/ directory at {tools_dir!r}: {e}") from e
 
     for plugin_name in plugin_candidates:
         plugin_dir = os.path.join(tools_dir, plugin_name)
@@ -261,7 +264,9 @@ def load_custom_tools(
 
         init_module_name = f"_slbp_{session_prefix}_plugin_init_{plugin_name}"
         try:
-            init_spec = importlib.util.spec_from_file_location(init_module_name, plugin_init)
+            init_spec = importlib.util.spec_from_file_location(
+                init_module_name, plugin_init
+            )
             init_module = importlib.util.module_from_spec(init_spec)
             init_spec.loader.exec_module(init_module)
         except Exception as e:
@@ -278,7 +283,8 @@ def load_custom_tools(
 
         try:
             plugin_files = sorted(
-                f for f in os.listdir(plugin_dir)
+                f
+                for f in os.listdir(plugin_dir)
                 if f.lower().endswith(".py") and f != "__init__.py"
             )
         except (FileNotFoundError, OSError) as e:
@@ -342,10 +348,12 @@ def load_custom_tools(
             extra_map[tool_name] = module
             plugin_tool_count += 1
 
-        plugins.append({
-            "name": plugin_name,
-            "count": plugin_tool_count,
-            "path": plugin_dir.replace("\\", "/"),
-        })
+        plugins.append(
+            {
+                "name": plugin_name,
+                "count": plugin_tool_count,
+                "path": plugin_dir.replace("\\", "/"),
+            }
+        )
 
     return extra_defs, extra_map, plugins

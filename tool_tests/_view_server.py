@@ -1,4 +1,5 @@
 """Serve test_results/ with caching disabled and open in the default browser."""
+
 from __future__ import annotations
 
 import os

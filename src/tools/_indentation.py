@@ -68,7 +68,9 @@ def check_indentation(text: str) -> str:
     return "\n".join(lines_out)
 
 
-def convert_indentation(text: str, to: str, spaces_per_tab: int = DEFAULT_SPACES_PER_TAB) -> str:
+def convert_indentation(
+    text: str, to: str, spaces_per_tab: int = DEFAULT_SPACES_PER_TAB
+) -> str:
     """Rewrite only the leading whitespace on each line to use *to* style.
 
     Args:

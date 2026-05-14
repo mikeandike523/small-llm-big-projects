@@ -20,6 +20,7 @@ Example:
 Environment is loaded from .env at the repo root (credentials, service tokens, etc.)
 Session memory uses Redis if available, falls back to a plain dict.
 """
+
 from __future__ import annotations
 
 import json
@@ -45,6 +46,7 @@ except ImportError:
 # Session data
 # ---------------------------------------------------------------------------
 
+
 def _make_session_data() -> dict:
     """Build a minimal session_data dict that mirrors the real agentic loop."""
     cwd = str(_repo_root)
@@ -58,6 +60,7 @@ def _make_session_data() -> dict:
         from src.utils.redis_dict import RedisDict
 
         from src.utils.docker_compose import get_service_port as _gsp
+
         _default_port = int(os.environ.get("REDIS_PORT", 0)) or _gsp("redis", 6379)
         r = redis.Redis(
             host=os.environ.get("REDIS_HOST", "localhost"),
@@ -135,16 +138,26 @@ def _coerce_scalar_value(raw: str, schema: Mapping[str, Any], *, key: str) -> An
         stripped = raw.strip()
         for option in schema.get("anyOf", []):
             option_type = option.get("type")
-            if option_type == "object" and stripped.startswith("{") and stripped.endswith("}"):
+            if (
+                option_type == "object"
+                and stripped.startswith("{")
+                and stripped.endswith("}")
+            ):
                 return _parse_json_value(raw, key=key, expected="object")
-            if option_type == "array" and stripped.startswith("[") and stripped.endswith("]"):
+            if (
+                option_type == "array"
+                and stripped.startswith("[")
+                and stripped.endswith("]")
+            ):
                 return _parse_json_value(raw, key=key, expected="array")
         for option in schema.get("anyOf", []):
             try:
                 return _coerce_scalar_value(raw, option, key=key)
             except ValueError:
                 continue
-        raise ValueError(f"could not parse --{key} according to any supported schema option")
+        raise ValueError(
+            f"could not parse --{key} according to any supported schema option"
+        )
 
     expected_type = schema.get("type")
     if expected_type == "string" or expected_type is None:
@@ -169,7 +182,9 @@ def _coerce_scalar_value(raw: str, schema: Mapping[str, Any], *, key: str) -> An
     return raw
 
 
-def _coerce_object_values(raw_values: list[str], schema: Mapping[str, Any], *, key: str) -> dict[str, Any]:
+def _coerce_object_values(
+    raw_values: list[str], schema: Mapping[str, Any], *, key: str
+) -> dict[str, Any]:
     properties = schema.get("properties")
     additional = schema.get("additionalProperties")
 
@@ -220,7 +235,11 @@ def _coerce_values_for_schema(
             if raw is None:
                 raise ValueError(f"--{key} requires a value for each array item")
             stripped = raw.strip()
-            if len(raw_values) == 1 and stripped.startswith("[") and stripped.endswith("]"):
+            if (
+                len(raw_values) == 1
+                and stripped.startswith("[")
+                and stripped.endswith("]")
+            ):
                 parsed = _parse_json_value(raw, key=key, expected="array")
                 if not isinstance(parsed, list):
                     raise ValueError(f"invalid array for --{key}: expected JSON array")
@@ -279,7 +298,9 @@ def parse_tool_cli_args(tool_name: str, tokens: list[str]) -> dict[str, Any]:
 
     provided = list(raw_args.keys())
     missing = [key for key in required if key not in raw_args]
-    extra = [] if additional_allowed else [key for key in provided if key not in properties]
+    extra = (
+        [] if additional_allowed else [key for key in provided if key not in properties]
+    )
     if missing or extra:
         parts: list[str] = []
         if missing:
@@ -308,6 +329,7 @@ def parse_tool_cli_args(tool_name: str, tokens: list[str]) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
+
 
 def main() -> None:
     import argparse

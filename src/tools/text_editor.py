@@ -42,10 +42,13 @@ DEFINITION: dict = {
                 "action": {
                     "type": "string",
                     "enum": [
-                        "read_lines", "search_by_regex",
+                        "read_lines",
+                        "search_by_regex",
                         "count_lines",
-                        "check_eol", "normalize_eol",
-                        "check_indentation", "convert_indentation",
+                        "check_eol",
+                        "normalize_eol",
+                        "check_indentation",
+                        "convert_indentation",
                         "apply_patch",
                     ],
                     "description": (
@@ -190,7 +193,9 @@ DEFINITION: dict = {
 
 
 _WRITE_ACTIONS_SET = {
-    "normalize_eol", "convert_indentation", "apply_patch",
+    "normalize_eol",
+    "convert_indentation",
+    "apply_patch",
 }
 
 
@@ -213,6 +218,7 @@ def needs_approval(args: dict) -> bool:
     filepath = args.get("filepath")
     if filepath is not None:
         from src.tools._approval import needs_path_approval
+
         return needs_path_approval(filepath)
     return False
 
@@ -228,6 +234,7 @@ _FILE_BUF_KEY = "__filepath_buf__"
 # Line-splitting helpers
 # ---------------------------------------------------------------------------
 
+
 def _split_lines_preserve(text: str) -> Tuple[List[str], bool]:
     """Split *text* into content lines (without terminators).
 
@@ -237,10 +244,10 @@ def _split_lines_preserve(text: str) -> Tuple[List[str], bool]:
     if text == "":
         return [], False
     had_trailing_newline = text.endswith("\n")
-    parts = text.split('\n')
-    if parts and parts[-1] == '':
+    parts = text.split("\n")
+    if parts and parts[-1] == "":
         parts = parts[:-1]
-    lines = [p[:-1] if p.endswith('\r') else p for p in parts]
+    lines = [p[:-1] if p.endswith("\r") else p for p in parts]
     return lines, had_trailing_newline
 
 
@@ -248,15 +255,16 @@ def _split_lines_preserve(text: str) -> Tuple[List[str], bool]:
 # EOL style helpers
 # ---------------------------------------------------------------------------
 
+
 def _detect_newline_style(text: str) -> str:
     """Return \\r\\n if the text contains any CRLF, else \\n."""
     return "\r\n" if "\r\n" in text else "\n"
 
 
-
 # ---------------------------------------------------------------------------
 # Line counting
 # ---------------------------------------------------------------------------
+
 
 def _count_lines(text: str) -> int:
     """Count logical lines, treating \\n as the sole line boundary."""
@@ -272,17 +280,23 @@ def _count_lines(text: str) -> int:
 # diff helper
 # ---------------------------------------------------------------------------
 
+
 def _make_diff(before: str, after: str) -> str:
     """Return a unified diff string comparing before to after (no trailing newline)."""
     before_lines = before.splitlines()
     after_lines = after.splitlines()
-    diff_lines = list(difflib.unified_diff(before_lines, after_lines, fromfile="before", tofile="after", lineterm=""))
+    diff_lines = list(
+        difflib.unified_diff(
+            before_lines, after_lines, fromfile="before", tofile="after", lineterm=""
+        )
+    )
     return "\n".join(diff_lines) if diff_lines else "(no visible changes)"
 
 
 # ---------------------------------------------------------------------------
 # simple edit helpers
 # ---------------------------------------------------------------------------
+
 
 def _parse_simple_edit(edit_text: str) -> tuple[list[str], list[str]]:
     """Parse a simple edit block into (before_lines, after_lines).
@@ -295,12 +309,12 @@ def _parse_simple_edit(edit_text: str) -> tuple[list[str], list[str]]:
     before: list[str] = []
     after: list[str] = []
     for raw in edit_text.splitlines():
-        if raw.startswith('+'):
+        if raw.startswith("+"):
             after.append(raw[1:])
-        elif raw.startswith('-'):
+        elif raw.startswith("-"):
             before.append(raw[1:])
         else:
-            content = raw[1:] if raw.startswith(' ') else raw
+            content = raw[1:] if raw.startswith(" ") else raw
             before.append(content)
             after.append(content)
     return before, after
@@ -337,13 +351,19 @@ def _apply_edits(
         else:
             before_keys = [s.rstrip() for s in before]
             hits = [
-                i for i in range(len(lines))
-                if (i + len(before_keys) <= len(lines) and
-                    [s.rstrip() for s in lines[i: i + len(before_keys)]] == before_keys)
+                i
+                for i in range(len(lines))
+                if (
+                    i + len(before_keys) <= len(lines)
+                    and [s.rstrip() for s in lines[i : i + len(before_keys)]]
+                    == before_keys
+                )
             ]
 
             if not hits:
-                raise ValueError(f"Edit {n}: context did not match anywhere in the target.")
+                raise ValueError(
+                    f"Edit {n}: context did not match anywhere in the target."
+                )
             if len(hits) > 1:
                 raise ValueError(
                     f"Edit {n}: context matches multiple locations "
@@ -351,7 +371,7 @@ def _apply_edits(
                 )
 
             apply_at = hits[0]
-            lines = lines[:apply_at] + after + lines[apply_at + len(before):]
+            lines = lines[:apply_at] + after + lines[apply_at + len(before) :]
 
     ends_with_nl = had_trailing_nl if trailing_newline is None else trailing_newline
     result = newline.join(lines)
@@ -363,6 +383,7 @@ def _apply_edits(
 # ---------------------------------------------------------------------------
 # action implementations
 # ---------------------------------------------------------------------------
+
 
 def _do_read_lines(args: dict, key: str, value: str) -> str:
     start_line = args.get("start_line")
@@ -380,7 +401,9 @@ def _do_read_lines(args: dict, key: str, value: str) -> str:
     contents = _read_lines_range(value, start_line, end_line)
     if number_lines:
         effective_start = start_line if start_line is not None else 1
-        return add_line_numbers(contents, start_line=effective_start, delimiter=delimiter)
+        return add_line_numbers(
+            contents, start_line=effective_start, delimiter=delimiter
+        )
     return contents
 
 
@@ -471,7 +494,8 @@ def _do_apply_patch(args: dict, key: str, value: str, memory: dict) -> str:
 
     try:
         result = _apply_edits(
-            value, edits,
+            value,
+            edits,
             auto_eol=not disable_auto_eol,
             trailing_newline=trailing_newline,
         )
@@ -512,6 +536,7 @@ _WRITE_ACTIONS = {
 # ---------------------------------------------------------------------------
 # execute helpers
 # ---------------------------------------------------------------------------
+
 
 def _execute_memory(action: str, args: dict, key: str, session_data: dict) -> str:
     memory = ensure_session_memory(session_data)
@@ -560,6 +585,7 @@ def _execute_filepath(action: str, args: dict, filepath: str) -> str:
 # ---------------------------------------------------------------------------
 # main entry point
 # ---------------------------------------------------------------------------
+
 
 def execute(args: dict, session_data: dict | None = None) -> str:
     if session_data is None:

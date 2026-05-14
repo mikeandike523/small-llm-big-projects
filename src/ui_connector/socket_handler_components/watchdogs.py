@@ -7,7 +7,10 @@ from typing import Any
 
 import src.ui_connector.socket_handler_components.state as _state
 from src.ui_connector.socket_handler_components.emit import _emit_and_log
-from src.ui_connector.socket_handler_components.llm import _build_llm_payload, _subturn_final_response
+from src.ui_connector.socket_handler_components.llm import (
+    _build_llm_payload,
+    _subturn_final_response,
+)
 from src.logic.system_prompt import get_selector_candidate_entries
 from src.utils.llm.streaming import StreamingLLM
 from src.utils.session_model import Session, Turn, Subturn
@@ -18,6 +21,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Todo list helpers
 # ---------------------------------------------------------------------------
+
 
 def _get_closed_items(todo_list: list) -> list[str]:
     return [it["text"] for it in todo_list if it.get("status") == "closed"]
@@ -37,6 +41,7 @@ def _get_open_items(todo_list: list) -> list[str]:
 # ---------------------------------------------------------------------------
 # Task title helpers
 # ---------------------------------------------------------------------------
+
 
 def _truncate_watchdog_text(text: Any, max_chars: int) -> str:
     if text is None:
@@ -76,7 +81,7 @@ async def _fetch_task_title(
         if not title:
             return None
         if len(title) > _state.TITLE_MAX_CHARS:
-            title = title[:_state.TITLE_MAX_CHARS - 1] + "…"
+            title = title[: _state.TITLE_MAX_CHARS - 1] + "…"
         return title
     except Exception as exc:
         logger.warning("Task title LLM call failed: %s", exc)
@@ -86,6 +91,7 @@ async def _fetch_task_title(
 # ---------------------------------------------------------------------------
 # Final-answer watchdog
 # ---------------------------------------------------------------------------
+
 
 def _messages_to_watchdog_transcript(messages: list[dict]) -> str:
     """Render stripped messages into plain text for the final-answer watchdog."""
@@ -101,7 +107,9 @@ def _messages_to_watchdog_transcript(messages: list[dict]) -> str:
         if role == "assistant":
             for tc in msg.get("tool_calls") or []:
                 name = tc.get("function", {}).get("name", "")
-                args = _truncate_watchdog_text(tc.get("function", {}).get("arguments", "") or "", 400)
+                args = _truncate_watchdog_text(
+                    tc.get("function", {}).get("arguments", "") or "", 400
+                )
                 lines.append(f"Tool Call: {name}")
                 if args:
                     lines.append(f"Args: {args}")
@@ -169,7 +177,9 @@ async def _is_sufficient_final_answer(
         },
     ]
     try:
-        result = await asyncio.to_thread(streaming_llm.fetch, messages, watchdog_max_tokens)
+        result = await asyncio.to_thread(
+            streaming_llm.fetch, messages, watchdog_max_tokens
+        )
         decision = (result.content or "").strip().upper()
         return decision == "YES"
     except Exception as exc:
@@ -180,6 +190,7 @@ async def _is_sufficient_final_answer(
 # ---------------------------------------------------------------------------
 # Compaction helpers
 # ---------------------------------------------------------------------------
+
 
 def _format_tool_calls_for_compaction(subturn: Subturn) -> str:
     """Format all tool calls in a subturn into a readable string for the compaction prompt."""
@@ -258,16 +269,21 @@ async def _generate_and_store_compaction(
         _compute_subturn_compaction, streaming_llm, current_subturn, final_content
     )
     current_subturn.detailed_summary = compaction
-    _emit_and_log(session_id, "subturn_compaction", {
-        "turn_id": turn_id,
-        "subturn_id": current_subturn.id,
-        "compaction": compaction,
-    })
+    _emit_and_log(
+        session_id,
+        "subturn_compaction",
+        {
+            "turn_id": turn_id,
+            "subturn_id": current_subturn.id,
+            "compaction": compaction,
+        },
+    )
 
 
 # ---------------------------------------------------------------------------
 # Continuation watchdog
 # ---------------------------------------------------------------------------
+
 
 async def _is_continuation(
     streaming_llm: StreamingLLM,
@@ -305,7 +321,9 @@ async def _is_continuation(
         },
     ]
     try:
-        result = await asyncio.to_thread(streaming_llm.fetch, messages, watchdog_max_tokens)
+        result = await asyncio.to_thread(
+            streaming_llm.fetch, messages, watchdog_max_tokens
+        )
         decision = (result.content or "").strip().upper()
         return decision != "YES"
     except Exception as exc:
@@ -317,6 +335,7 @@ async def _is_continuation(
 # Skill selector watchdog
 # ---------------------------------------------------------------------------
 
+
 def _build_skill_selector_transcript(session: Session) -> str:
     """Format completed turns into a short context transcript for the skill selector."""
     if not session.completed_turns:
@@ -326,9 +345,9 @@ def _build_skill_selector_transcript(session: Session) -> str:
         user = (turn.condensed_user or "").strip()
         assistant = (turn.condensed_assistant or "").strip()
         if len(user) > _state._SKILL_SELECTOR_TURN_CHARS:
-            user = user[:_state._SKILL_SELECTOR_TURN_CHARS] + "..."
+            user = user[: _state._SKILL_SELECTOR_TURN_CHARS] + "..."
         if len(assistant) > _state._SKILL_SELECTOR_TURN_CHARS:
-            assistant = assistant[:_state._SKILL_SELECTOR_TURN_CHARS] + "..."
+            assistant = assistant[: _state._SKILL_SELECTOR_TURN_CHARS] + "..."
         lines.append(f"[Turn {i}]")
         lines.append(f"User: {user}")
         lines.append(f"Assistant: {assistant}")
@@ -378,7 +397,9 @@ async def _select_skills_for_turn(
     ]
 
     try:
-        result = await asyncio.to_thread(streaming_llm.fetch, messages, watchdog_max_tokens)
+        result = await asyncio.to_thread(
+            streaming_llm.fetch, messages, watchdog_max_tokens
+        )
         response = (result.content or "").strip().lower()
         if not response or response == "none":
             return []

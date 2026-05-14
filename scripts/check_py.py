@@ -16,7 +16,7 @@ SRC_DIR = REPO_ROOT / "src"
 
 @dataclass
 class IgnoreRule:
-    module: str          # top-level package name to suppress (e.g. "ptyprocess")
+    module: str  # top-level package name to suppress (e.g. "ptyprocess")
     reason: str
     platforms: list[str] = field(default_factory=list)  # empty = all platforms
 
@@ -86,9 +86,13 @@ def _check_import(module_name: str, src_file: Path) -> None:
     try:
         spec = importlib.util.find_spec(top)
         if spec is None:
-            errors.append(f"{src_file}: unresolved import '{module_name}' ('{top}' not found)")
+            errors.append(
+                f"{src_file}: unresolved import '{module_name}' ('{top}' not found)"
+            )
     except (ModuleNotFoundError, ValueError):
-        errors.append(f"{src_file}: unresolved import '{module_name}' ('{top}' not found)")
+        errors.append(
+            f"{src_file}: unresolved import '{module_name}' ('{top}' not found)"
+        )
 
 
 files = sorted(SRC_DIR.rglob("*.py"))

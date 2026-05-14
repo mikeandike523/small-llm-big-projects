@@ -76,7 +76,8 @@ def _list_markdown_files(directory: str) -> list[str]:
 def _list_subdirs(directory: str) -> list[str]:
     try:
         return sorted(
-            name for name in os.listdir(directory)
+            name
+            for name in os.listdir(directory)
             if os.path.isdir(os.path.join(directory, name))
         )
     except OSError:
@@ -88,9 +89,13 @@ def _load_manifest_entries(manifest_path: str) -> dict[str, dict]:
         with open(manifest_path, encoding="utf-8") as fh:
             raw = json.load(fh)
     except OSError as exc:
-        raise SkillManifestError(f"Could not read skills manifest at {manifest_path}: {exc}") from exc
+        raise SkillManifestError(
+            f"Could not read skills manifest at {manifest_path}: {exc}"
+        ) from exc
     except json.JSONDecodeError as exc:
-        raise SkillManifestError(f"Invalid JSON in skills manifest at {manifest_path}: {exc}") from exc
+        raise SkillManifestError(
+            f"Invalid JSON in skills manifest at {manifest_path}: {exc}"
+        ) from exc
 
     if isinstance(raw, dict) and "skills" in raw:
         raw = raw["skills"]
@@ -103,14 +108,18 @@ def _load_manifest_entries(manifest_path: str) -> dict[str, dict]:
     entries: dict[str, dict] = {}
     for skill_id, meta in raw.items():
         if not isinstance(skill_id, str) or not skill_id.strip():
-            raise SkillManifestError(f"skills.json at {manifest_path} contains an invalid skill id key.")
+            raise SkillManifestError(
+                f"skills.json at {manifest_path} contains an invalid skill id key."
+            )
         if not isinstance(meta, dict):
             raise SkillManifestError(
                 f"skills.json at {manifest_path} entry {skill_id!r} must be an object."
             )
 
         dependencies = meta.get("dependencies", [])
-        if not isinstance(dependencies, list) or any(not isinstance(dep, str) for dep in dependencies):
+        if not isinstance(dependencies, list) or any(
+            not isinstance(dep, str) for dep in dependencies
+        ):
             raise SkillManifestError(
                 f"skills.json at {manifest_path} entry {skill_id!r} has invalid dependencies."
             )
@@ -142,7 +151,9 @@ def _load_manifest_entries(manifest_path: str) -> dict[str, dict]:
     return entries
 
 
-def _load_skill_entries_from_directory(directory: str, source: str, id_prefix: str = "") -> list[dict]:
+def _load_skill_entries_from_directory(
+    directory: str, source: str, id_prefix: str = ""
+) -> list[dict]:
     markdown_files = _list_markdown_files(directory)
     manifest_path = os.path.join(directory, "skills.json")
     has_manifest = os.path.isfile(manifest_path)
@@ -150,7 +161,9 @@ def _load_skill_entries_from_directory(directory: str, source: str, id_prefix: s
     if not markdown_files and not has_manifest:
         return []
 
-    expected_ids = {f"{id_prefix}{os.path.splitext(filename)[0]}" for filename in markdown_files}
+    expected_ids = {
+        f"{id_prefix}{os.path.splitext(filename)[0]}" for filename in markdown_files
+    }
 
     if has_manifest:
         manifest_entries = _load_manifest_entries(manifest_path)
@@ -174,22 +187,26 @@ def _load_skill_entries_from_directory(directory: str, source: str, id_prefix: s
         try:
             content = _read_skill_content(path)
         except OSError as exc:
-            raise SkillManifestError(f"Could not read skill file at {path}: {exc}") from exc
+            raise SkillManifestError(
+                f"Could not read skill file at {path}: {exc}"
+            ) from exc
 
         inferred_name = parse_skill_title(content)
         inferred_blurb = parse_skill_blurb(content)
         meta = manifest_entries.get(skill_id, {})
-        entries.append({
-            "id": skill_id,
-            "name": meta.get("name") or inferred_name,
-            "title": meta.get("name") or inferred_name,
-            "blurb": meta.get("blurb") or inferred_blurb,
-            "filename": filename,
-            "path": path,
-            "source": source,
-            "dependencies": list(meta.get("dependencies", [])),
-            "autoload": bool(meta.get("autoload", False)),
-        })
+        entries.append(
+            {
+                "id": skill_id,
+                "name": meta.get("name") or inferred_name,
+                "title": meta.get("name") or inferred_name,
+                "blurb": meta.get("blurb") or inferred_blurb,
+                "filename": filename,
+                "path": path,
+                "source": source,
+                "dependencies": list(meta.get("dependencies", [])),
+                "autoload": bool(meta.get("autoload", False)),
+            }
+        )
     return entries
 
 
@@ -199,7 +216,9 @@ def _load_skill_tree(
     recursive_subdirs: bool,
     id_prefix: str = "",
 ) -> list[dict]:
-    entries = _load_skill_entries_from_directory(directory, source=source, id_prefix=id_prefix)
+    entries = _load_skill_entries_from_directory(
+        directory, source=source, id_prefix=id_prefix
+    )
     if not recursive_subdirs:
         return entries
 
@@ -228,7 +247,9 @@ def _validate_registry_entries(registry: list[dict]) -> None:
         entries_by_id[skill_id] = entry
 
     for entry in registry:
-        missing = [dep for dep in entry.get("dependencies", []) if dep not in entries_by_id]
+        missing = [
+            dep for dep in entry.get("dependencies", []) if dep not in entries_by_id
+        ]
         if missing:
             raise SkillManifestError(
                 f"Skill {entry['id']!r} references unknown dependencies: {', '.join(missing)}."
@@ -237,13 +258,19 @@ def _validate_registry_entries(registry: list[dict]) -> None:
 
 def build_skill_registry(custom_skills_path: str | None = None) -> list[dict]:
     """Return the manifest-backed built-in/custom skill registry."""
-    builtin_registry = _load_skill_tree(_BUILT_IN_SKILLS_DIR, source="builtin", recursive_subdirs=False)
+    builtin_registry = _load_skill_tree(
+        _BUILT_IN_SKILLS_DIR, source="builtin", recursive_subdirs=False
+    )
     custom_registry: list[dict] = []
     if custom_skills_path:
-        custom_registry = _load_skill_tree(custom_skills_path, source="custom", recursive_subdirs=True)
+        custom_registry = _load_skill_tree(
+            custom_skills_path, source="custom", recursive_subdirs=True
+        )
 
         builtin_ids = {entry["id"] for entry in builtin_registry}
-        overridden = sorted(entry["id"] for entry in custom_registry if entry["id"] in builtin_ids)
+        overridden = sorted(
+            entry["id"] for entry in custom_registry if entry["id"] in builtin_ids
+        )
         if overridden:
             raise SkillManifestError(
                 "Custom skills may not override built-in skills. "
@@ -266,7 +293,9 @@ def get_selector_candidate_entries(skill_registry: list[dict]) -> list[dict]:
     return [entry for entry in skill_registry if not entry.get("autoload")]
 
 
-def resolve_skill_dependency_closure(skill_registry: list[dict], staged_skill_ids: list[str]) -> list[dict]:
+def resolve_skill_dependency_closure(
+    skill_registry: list[dict], staged_skill_ids: list[str]
+) -> list[dict]:
     entries_by_id = {entry["id"]: entry for entry in skill_registry}
     resolved: list[dict] = []
     seen: set[str] = set()
@@ -276,7 +305,9 @@ def resolve_skill_dependency_closure(skill_registry: list[dict], staged_skill_id
             return
         entry = entries_by_id.get(skill_id)
         if entry is None:
-            raise SkillManifestError(f"Unknown skill id during dependency resolution: {skill_id!r}.")
+            raise SkillManifestError(
+                f"Unknown skill id during dependency resolution: {skill_id!r}."
+            )
         seen.add(skill_id)
         for dep in entry.get("dependencies", []):
             visit(dep)

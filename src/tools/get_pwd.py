@@ -57,5 +57,6 @@ def execute(args: dict, session_data: dict | None = None) -> str:
             session_data = {}
         memory = ensure_session_memory(session_data)
         memory[memory_key] = cwd
-        return f"Current working directory written to session memory item {memory_key!r}"
-
+        return (
+            f"Current working directory written to session memory item {memory_key!r}"
+        )

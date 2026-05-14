@@ -28,13 +28,17 @@ def _resolve_terminal_sentinel(session_id: str, terminal_id: str) -> tuple:
         return terminal_id, None
     resolved = _get_terminal_meta(session_id).get(terminal_id)
     if not resolved:
-        return None, f"Error: sentinel '{terminal_id}' has no terminal associated yet in this session."
+        return (
+            None,
+            f"Error: sentinel '{terminal_id}' has no terminal associated yet in this session.",
+        )
     return resolved, None
 
 
 def _new_terminal_id() -> str:
     """Return an unused random 6-hex terminal ID, reserving it atomically."""
     import secrets
+
     with _state._terminal_id_lock:
         while True:
             tid = secrets.token_hex(3)
@@ -55,7 +59,7 @@ def _format_cmd_display(cmd: list[str]) -> str:
     return " ".join([name] + cmd[1:])
 
 
-_HUMAN_TERMINAL_RE = re.compile(r'^Terminal (\d+)$', re.IGNORECASE)
+_HUMAN_TERMINAL_RE = re.compile(r"^Terminal (\d+)$", re.IGNORECASE)
 
 
 def _next_human_terminal_name(session_id: str) -> str:
@@ -79,7 +83,9 @@ def _build_starting_environment_info(session: Session) -> str:
     )
 
 
-def _terminal_output_pump(session_id: str, terminal_session: TerminalSession, proc: PtyProcess) -> None:
+def _terminal_output_pump(
+    session_id: str, terminal_session: TerminalSession, proc: PtyProcess
+) -> None:
     terminal_id = terminal_session.id
     while proc.is_alive():
         data = proc.read(timeout=0.05)
@@ -87,7 +93,10 @@ def _terminal_output_pump(session_id: str, terminal_session: TerminalSession, pr
             terminal_session.append_output(data)
             socketio.emit(
                 "terminal_output",
-                {"terminal_id": terminal_id, "data": data.decode("utf-8", errors="replace")},
+                {
+                    "terminal_id": terminal_id,
+                    "data": data.decode("utf-8", errors="replace"),
+                },
                 room=session_id,
             )
 
@@ -101,10 +110,15 @@ def _terminal_output_pump(session_id: str, terminal_session: TerminalSession, pr
 
 
 def _terminal_belongs_to_session(session_id: str, terminal_id: str) -> bool:
-    return bool(terminal_id) and _state._terminal_session_rooms.get(terminal_id) == session_id
+    return (
+        bool(terminal_id)
+        and _state._terminal_session_rooms.get(terminal_id) == session_id
+    )
 
 
-def _read_terminal_output(session_id: str, terminal_id: str, mode: str, num_lines: int | None) -> str:
+def _read_terminal_output(
+    session_id: str, terminal_id: str, mode: str, num_lines: int | None
+) -> str:
     terminal_id, err = _resolve_terminal_sentinel(session_id, terminal_id)
     if err:
         return err
@@ -125,7 +139,9 @@ def _launch_terminal_for_session(session_id: str, cmd: list[str], name: str) -> 
     cwd = _state._session_current_cwd.get(session_id) or os.getcwd() or None
     terminal_id = _new_terminal_id()
     try:
-        session = _state._terminal_manager.create(name=name, cwd=cwd, rows=24, cols=80, cmd=cmd, terminal_id=terminal_id)
+        session = _state._terminal_manager.create(
+            name=name, cwd=cwd, rows=24, cols=80, cmd=cmd, terminal_id=terminal_id
+        )
         _state._terminal_session_rooms[session.id] = session_id
     except Exception:
         _state._terminal_session_rooms.pop(terminal_id, None)
@@ -140,11 +156,15 @@ def _launch_terminal_for_session(session_id: str, cmd: list[str], name: str) -> 
     )
     _state._terminal_output_threads[session.id] = t
     socketio.emit("terminal_open_panel", {}, room=session_id)
-    socketio.emit("terminal_created", {
-        "terminal_id": session.id,
-        "name": name,
-        "cmd_display": _format_cmd_display(session.cmd),
-    }, room=session_id)
+    socketio.emit(
+        "terminal_created",
+        {
+            "terminal_id": session.id,
+            "name": name,
+            "cmd_display": _format_cmd_display(session.cmd),
+        },
+        room=session_id,
+    )
     t.start()
     return session.id
 

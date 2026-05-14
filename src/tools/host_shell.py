@@ -12,7 +12,6 @@ from src.utils.exceptions import ToolTimeoutError, ToolHangError
 from src.utils.text_truncation import truncate_long_lines as _truncate_long_lines
 from src.terminal.shell_resolver import resolve_cmd as _resolve_cmd
 
-
 STREAMS_RESULT = True
 
 MAX_TIMEOUT = 300
@@ -27,7 +26,6 @@ DEFAULT_HANG_TIMEOUT = 30
 # Agent may request up to this many seconds of idle tolerance via the hang_timeout
 # argument. The overall command timeout is still the hard cap on total runtime.
 MAX_HANG_TIMEOUT = 120
-
 
 
 DEFINITION = {
@@ -132,9 +130,9 @@ def get_active_output(session_id: str) -> str | None:
         return "".join(parts) if parts is not None else None
 
 
-
-
-def execute(args: dict, session_data: dict | None = None, special_resources: dict | None = None) -> str:
+def execute(
+    args: dict, session_data: dict | None = None, special_resources: dict | None = None
+) -> str:
     if session_data is None:
         session_data = {}
 
@@ -148,7 +146,9 @@ def execute(args: dict, session_data: dict | None = None, special_resources: dic
     hang_timeout = args.get("hang_timeout", DEFAULT_HANG_TIMEOUT)
 
     validate_timeout("host_shell", timeout, DEFAULT_TIMEOUT, MAX_TIMEOUT)
-    validate_timeout("host_shell hang_timeout", hang_timeout, DEFAULT_HANG_TIMEOUT, MAX_HANG_TIMEOUT)
+    validate_timeout(
+        "host_shell hang_timeout", hang_timeout, DEFAULT_HANG_TIMEOUT, MAX_HANG_TIMEOUT
+    )
 
     if target == "session_memory" and not memory_key:
         return f"Error: target={target!r} requires 'memory_key'."
@@ -164,7 +164,9 @@ def execute(args: dict, session_data: dict | None = None, special_resources: dic
         if isinstance(cmd, str):
             return cmd  # error message from shell resolution
         if on_chunk is not None:
-            autoresponses = get_applicable_rules(cmd) if use_known_autoresponse else None
+            autoresponses = (
+                get_applicable_rules(cmd) if use_known_autoresponse else None
+            )
 
             # Wrap on_chunk to track accumulated output for resume snapshots.
             if session_id:
@@ -186,7 +188,9 @@ def execute(args: dict, session_data: dict | None = None, special_resources: dic
 
             try:
                 result = run_command_streaming(
-                    cmd, timeout, tracked_on_chunk,
+                    cmd,
+                    timeout,
+                    tracked_on_chunk,
                     autoresponses=autoresponses,
                     hang_timeout=hang_timeout,
                     on_log=on_log,

@@ -23,7 +23,9 @@ def run(env: TestEnv, server: MicroServer | None = None):
             return cl.result()
 
         # Token is present: run a basic query and verify a successful response.
-        r = execute_tool("brave_web_search", {"q": "python programming language"}, env.session_data)
+        r = execute_tool(
+            "brave_web_search", {"q": "python programming language"}, env.session_data
+        )
 
         cl.check(
             "no error",

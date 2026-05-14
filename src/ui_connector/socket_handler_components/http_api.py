@@ -19,7 +19,9 @@ from src.ui_connector.socket_handler_components.session_store import (
     _init_session_caches,
     _get_session_skill_registry,
 )
-from src.ui_connector.socket_handler_components.terminal import _build_starting_environment_info
+from src.ui_connector.socket_handler_components.terminal import (
+    _build_starting_environment_info,
+)
 from src.data import get_pool
 from src.tools import ALL_TOOL_DEFINITIONS, _TOOL_MAP, load_custom_tools
 from src.logic.system_prompt import (
@@ -65,9 +67,19 @@ def api_create_session():
             with open(startup_tool_calls_path, "r", encoding="utf-8") as fh:
                 startup_tool_calls = json.load(fh)
         except FileNotFoundError:
-            return jsonify({"error": f"startup_tool_calls.json not found at {startup_tool_calls_path!r}"}), 400
+            return (
+                jsonify(
+                    {
+                        "error": f"startup_tool_calls.json not found at {startup_tool_calls_path!r}"
+                    }
+                ),
+                400,
+            )
         except Exception as exc:
-            return jsonify({"error": f"Failed to load startup_tool_calls.json: {exc}"}), 400
+            return (
+                jsonify({"error": f"Failed to load startup_tool_calls.json: {exc}"}),
+                400,
+            )
 
     session = Session(
         session_id=session_id,
@@ -146,25 +158,27 @@ def api_list_sessions():
         completed_turns = d.get("completed_turns") or []
         current_turn = d.get("current_turn")
         turn_count = len(completed_turns) + (1 if current_turn else 0)
-        task_titles = [
-            t["task_title"] for t in completed_turns
-            if t.get("task_title")
-        ]
+        task_titles = [t["task_title"] for t in completed_turns if t.get("task_title")]
         if current_turn and current_turn.get("task_title"):
             task_titles.append(current_turn["task_title"])
-        results.append({
-            "session_id": session_id,
-            "initial_cwd": d.get("initial_cwd", ""),
-            "current_cwd": _state._session_current_cwd.get(session_id) or d.get("initial_cwd", ""),
-            "created_at": d.get("created_at", 0.0),
-            "turn_count": turn_count,
-            "active_turn": session_id in _state._session_active_turns,
-            "task_titles": task_titles,
-            "interim_response_as_thinking": d.get("interim_response_as_thinking", False),
-            "record_traces": d.get("record_traces", False),
-            "skills_path": d.get("skills_path") or None,
-            "custom_tools_path": d.get("custom_tools_path") or None,
-        })
+        results.append(
+            {
+                "session_id": session_id,
+                "initial_cwd": d.get("initial_cwd", ""),
+                "current_cwd": _state._session_current_cwd.get(session_id)
+                or d.get("initial_cwd", ""),
+                "created_at": d.get("created_at", 0.0),
+                "turn_count": turn_count,
+                "active_turn": session_id in _state._session_active_turns,
+                "task_titles": task_titles,
+                "interim_response_as_thinking": d.get(
+                    "interim_response_as_thinking", False
+                ),
+                "record_traces": d.get("record_traces", False),
+                "skills_path": d.get("skills_path") or None,
+                "custom_tools_path": d.get("custom_tools_path") or None,
+            }
+        )
     results.sort(key=lambda s: s["created_at"], reverse=True)
     return jsonify(results)
 
@@ -194,17 +208,22 @@ def api_session_defaults():
                 if val is not None:
                     defaults[defaults_key] = val
     except Exception as exc:
-        return jsonify({"error": f"Failed to load session defaults from database: {exc}"}), 500
+        return (
+            jsonify({"error": f"Failed to load session defaults from database: {exc}"}),
+            500,
+        )
     return jsonify(defaults)
 
 
 @app.route("/api/system-info", methods=["GET"])
 def api_system_info():
     """Return basic system information useful for the dashboard."""
-    return jsonify({
-        "home_dir": str(pathlib.Path.home()).replace("\\", "/"),
-        "workspace_dir": get_default_workspace_dir(),
-    })
+    return jsonify(
+        {
+            "home_dir": str(pathlib.Path.home()).replace("\\", "/"),
+            "workspace_dir": get_default_workspace_dir(),
+        }
+    )
 
 
 @app.route("/api/folder-pick", methods=["POST"])

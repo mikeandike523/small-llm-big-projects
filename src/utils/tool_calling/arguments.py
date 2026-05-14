@@ -3,10 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
 
-
 # -------------------------
 # Errors
 # -------------------------
+
 
 class ToolValidationError(Exception):
     """Base class for tool arg validation errors."""
@@ -76,7 +76,9 @@ class InvalidTypeError(ToolValidationError):
         super().__init__(str(self))
 
     def __str__(self) -> str:
-        return f"{self.tool_name}: {self.path}: expected {self.expected}, got {self.got}"
+        return (
+            f"{self.tool_name}: {self.path}: expected {self.expected}, got {self.got}"
+        )
 
 
 class StringConstraintError(ToolValidationError):
@@ -133,7 +135,9 @@ class AggregateToolValidationError(ToolValidationError):
         super().__init__(str(self))
 
     def __str__(self) -> str:
-        lines = [f"{self.tool_name}: validation failed with {len(self.issues)} issue(s):"]
+        lines = [
+            f"{self.tool_name}: validation failed with {len(self.issues)} issue(s):"
+        ]
         lines += [f"  - {i.path}: {i.message}" for i in self.issues]
         return "\n".join(lines)
 
@@ -199,7 +203,9 @@ def validate_tool_args(tool_def: Mapping[str, Any], args: Mapping[str, Any]) -> 
     # JSON Schema semantics:
     #   additionalProperties: false  => no keys outside `properties`.
     #   if missing or omitted => defaults to true.
-    additional_fields_permitted: bool = params.get("additionalProperties", True) is not False
+    additional_fields_permitted: bool = (
+        params.get("additionalProperties", True) is not False
+    )
 
     provided_keys = list(args.keys())
     err = MissingOrExtraArgumentsError(
@@ -247,13 +253,17 @@ def _validate_value(
         if expected_type == "integer":
             if not (isinstance(value, int) and not isinstance(value, bool)):
                 issues.append(
-                    ValidationIssue(path, f"expected integer, got {type(value).__name__}")
+                    ValidationIssue(
+                        path, f"expected integer, got {type(value).__name__}"
+                    )
                 )
                 return
         elif expected_type == "number":
             if isinstance(value, bool) or not isinstance(value, (int, float)):
                 issues.append(
-                    ValidationIssue(path, f"expected number, got {type(value).__name__}")
+                    ValidationIssue(
+                        path, f"expected number, got {type(value).__name__}"
+                    )
                 )
                 return
         else:
@@ -269,7 +279,9 @@ def _validate_value(
     if "enum" in schema:
         allowed = schema["enum"]
         if value not in allowed:
-            issues.append(ValidationIssue(path, f"value must be one of {list(allowed)!r}"))
+            issues.append(
+                ValidationIssue(path, f"value must be one of {list(allowed)!r}")
+            )
             return
 
     # string constraints
@@ -288,7 +300,9 @@ def _validate_value(
                 import re
 
                 if re.search(pat, s) is None:
-                    issues.append(ValidationIssue(path, f"pattern {pat!r} did not match"))
+                    issues.append(
+                        ValidationIssue(path, f"pattern {pat!r} did not match")
+                    )
             except Exception:
                 # If regex is invalid, treat as schema bug; ignore or record.
                 issues.append(ValidationIssue(path, "invalid schema regex pattern"))
@@ -310,7 +324,9 @@ def _validate_value(
         if isinstance(sub_props, dict) and isinstance(value, Mapping):
             sub_required = list(schema.get("required", []) or [])
             sub_allowed = list(sub_props.keys())
-            sub_additional_permitted = schema.get("additionalProperties", True) is not False
+            sub_additional_permitted = (
+                schema.get("additionalProperties", True) is not False
+            )
 
             err = MissingOrExtraArgumentsError(
                 tool_name=tool_name,

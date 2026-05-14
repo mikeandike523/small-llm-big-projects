@@ -24,11 +24,23 @@ def _request_approval(
     chose "Deny & Redirect" and typed a reason/suggestion.
     """
     ev = threading.Event()
-    _state._pending_approvals[sid] = {"event": ev, "approved": None, "redirect_message": None, "turn_id": turn_id}
-    _emit_and_log(session_id, "approval_request", {
-        "id": tool_id, "tool_name": tool_name, "args": args,
-        "turn_id": turn_id, "subturn_id": subturn_id,
-    })
+    _state._pending_approvals[sid] = {
+        "event": ev,
+        "approved": None,
+        "redirect_message": None,
+        "turn_id": turn_id,
+    }
+    _emit_and_log(
+        session_id,
+        "approval_request",
+        {
+            "id": tool_id,
+            "tool_name": tool_name,
+            "args": args,
+            "turn_id": turn_id,
+            "subturn_id": subturn_id,
+        },
+    )
 
     while True:
         if ev.wait(timeout=0.5):

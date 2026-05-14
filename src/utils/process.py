@@ -2,6 +2,7 @@
 Helpers for running multiple long-lived subprocesses concurrently, forwarding
 their stdout/stderr to the current terminal in real time.
 """
+
 from __future__ import annotations
 
 import os
@@ -50,7 +51,7 @@ def run_processes(processes: list[ManagedProcess]) -> None:
             cwd=mp.cwd,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,  # merge stderr into stdout
-            bufsize=0,                 # unbuffered — get lines as they arrive
+            bufsize=0,  # unbuffered — get lines as they arrive
             env=proc_env,
         )
         procs.append(proc)

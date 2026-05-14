@@ -3,7 +3,6 @@ from mysql.connector import pooling
 
 from src.utils.docker_compose import get_service_port
 
-
 _pool = None
 
 

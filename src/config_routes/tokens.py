@@ -59,20 +59,22 @@ def api_tokens_active():
         active_token = kv.get_value(prefix + "active_token")
     if not active_token:
         return jsonify(None)
-    return jsonify({
-        "provider": active_token.get("provider", ""),
-        "name": active_token.get("name", ""),
-        "profile": profile,
-    })
+    return jsonify(
+        {
+            "provider": active_token.get("provider", ""),
+            "name": active_token.get("name", ""),
+            "profile": profile,
+        }
+    )
 
 
 @app.route("/api/tokens", methods=["POST"])
 def api_tokens_add():
     data = request.get_json(force=True, silent=True) or {}
     provider = (data.get("provider") or "").strip()
-    name     = (data.get("name")     or "").strip()
+    name = (data.get("name") or "").strip()
     endpoint = (data.get("endpoint") or "").strip() or None
-    value    = (data.get("value")    or "").strip()
+    value = (data.get("value") or "").strip()
     if not provider:
         return jsonify({"error": "provider is required"}), 400
     if not value:
@@ -86,10 +88,15 @@ def api_tokens_add():
                 (provider, name),
             )
             if cursor.fetchone():
-                return jsonify({
-                    "error": f"Token ({provider!r}, {name!r}) already exists."
-                              " Use the Rotate button to update its value."
-                }), 409
+                return (
+                    jsonify(
+                        {
+                            "error": f"Token ({provider!r}, {name!r}) already exists."
+                            " Use the Rotate button to update its value."
+                        }
+                    ),
+                    409,
+                )
             cursor.execute(
                 "INSERT INTO tokens (provider, endpoint_url, token_name, token_value)"
                 " VALUES (%s,%s,%s,%s)",
@@ -117,10 +124,13 @@ def api_tokens_patch(token_id: int):
         old_provider, old_name, old_endpoint = row
 
         new_provider = (data.get("provider") or old_provider).strip()
-        new_name     = (data["name"] if "name" in data else old_name or "").strip()
+        new_name = (data["name"] if "name" in data else old_name or "").strip()
         endpoint_in_payload = "endpoint_url" in data
-        new_endpoint = ((data.get("endpoint_url") or "").strip() or None) \
-                        if endpoint_in_payload else old_endpoint
+        new_endpoint = (
+            ((data.get("endpoint_url") or "").strip() or None)
+            if endpoint_in_payload
+            else old_endpoint
+        )
 
         if (new_provider, new_name) != (old_provider, old_name):
             with conn.cursor() as cursor:
@@ -130,7 +140,12 @@ def api_tokens_patch(token_id: int):
                     (new_provider, new_name, token_id),
                 )
                 if cursor.fetchone():
-                    return jsonify({"error": "That provider+name combination is already taken"}), 409
+                    return (
+                        jsonify(
+                            {"error": "That provider+name combination is already taken"}
+                        ),
+                        409,
+                    )
 
         with conn.cursor() as cursor:
             cursor.execute(
@@ -145,7 +160,7 @@ def api_tokens_patch(token_id: int):
 
 @app.route("/api/tokens/<int:token_id>/rotate", methods=["POST"])
 def api_tokens_rotate(token_id: int):
-    data  = request.get_json(force=True, silent=True) or {}
+    data = request.get_json(force=True, silent=True) or {}
     value = (data.get("value") or "").strip()
     if not value:
         return jsonify({"error": "value is required"}), 400
@@ -174,12 +189,14 @@ def api_tokens_get_value(token_id: int):
             row = cursor.fetchone()
     if not row:
         return jsonify({"error": "Token not found"}), 404
-    return jsonify({
-        "provider": row[0],
-        "name": row[1] or "",
-        "endpoint": row[2] or "",
-        "value": row[3] or "",
-    })
+    return jsonify(
+        {
+            "provider": row[0],
+            "name": row[1] or "",
+            "endpoint": row[2] or "",
+            "value": row[3] or "",
+        }
+    )
 
 
 @app.route("/api/tokens/<int:token_id>", methods=["DELETE"])

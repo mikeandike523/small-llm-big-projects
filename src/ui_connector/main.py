@@ -13,7 +13,7 @@ load_dotenv(Path(__file__).resolve().parent.parent.parent / ".env")
 
 import sys
 
-sys.path.insert(0,os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 
 from src.ui_connector.app import app, socketio  # noqa: E402
 from src.ui_connector.socket_handlers import clear_all_sessions_on_startup  # noqa: E402

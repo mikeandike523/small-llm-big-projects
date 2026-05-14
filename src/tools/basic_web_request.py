@@ -13,7 +13,6 @@ from src.utils.http.helpers import (
 )
 from src.utils.text_truncation import truncate_long_lines as _truncate_long_lines
 
-
 DEFAULT_TIMEOUT = 30  # informational; actual value comes from args
 TIMEOUT_HINT = None
 
@@ -226,7 +225,9 @@ def execute(args, session_data):
                 response_content_type=resp_ct,
                 accept=accept,
                 json_value=resp_json,
-                text_value=resp_text if (resp_json is None and debug_show_bad_json) else None,
+                text_value=(
+                    resp_text if (resp_json is None and debug_show_bad_json) else None
+                ),
                 json_error=json_error,
             )
         else:
@@ -239,6 +240,7 @@ def execute(args, session_data):
 
     except httpx.TimeoutException:
         from src.utils.exceptions import ToolTimeoutError
+
         raise ToolTimeoutError("basic_web_request", timeout)
     except Exception as e:
         result = format_response(

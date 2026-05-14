@@ -29,14 +29,22 @@ def _emit_and_log(session_id: str, event_type: str, data: dict) -> None:
 
 
 def _emit_content_snapshot(
-    session_id: str, turn_id: str, subturn_id: str, exchange_idx: int,
-    assistant_content: str, reasoning: str,
+    session_id: str,
+    turn_id: str,
+    subturn_id: str,
+    exchange_idx: int,
+    assistant_content: str,
+    reasoning: str,
 ) -> None:
     """Emit a replay_content_snapshot event (logged to Redis Streams for replay)."""
-    _emit_and_log(session_id, "replay_content_snapshot", {
-        "turn_id": turn_id,
-        "subturn_id": subturn_id,
-        "exchange_idx": exchange_idx,
-        "assistant_content": assistant_content,
-        "reasoning": reasoning,
-    })
+    _emit_and_log(
+        session_id,
+        "replay_content_snapshot",
+        {
+            "turn_id": turn_id,
+            "subturn_id": subturn_id,
+            "exchange_idx": exchange_idx,
+            "assistant_content": assistant_content,
+            "reasoning": reasoning,
+        },
+    )

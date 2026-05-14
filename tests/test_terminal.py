@@ -8,6 +8,7 @@ pytest-timeout so a hung PTY can never block the suite indefinitely.
 Run:
     pytest tests/test_terminal.py -v
 """
+
 from __future__ import annotations
 
 import os
@@ -28,8 +29,8 @@ from src.terminal import (
 # Helpers
 # ---------------------------------------------------------------------------
 
-_INIT_WAIT = 1.5   # seconds to let the shell write its prompt before we drain
-_CMD_WAIT  = 8.0   # seconds to poll for command output
+_INIT_WAIT = 1.5  # seconds to let the shell write its prompt before we drain
+_CMD_WAIT = 8.0  # seconds to poll for command output
 
 
 def _read_until(proc: PtyProcess, marker: bytes, timeout: float = _CMD_WAIT) -> bytes:
@@ -47,6 +48,7 @@ def _read_until(proc: PtyProcess, marker: bytes, timeout: float = _CMD_WAIT) -> 
 # ---------------------------------------------------------------------------
 # Shell resolver
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.timeout(10)
 def test_shell_resolver_returns_nonempty_argv():
@@ -69,16 +71,19 @@ def test_correct_shell_for_platform():
     if sys.platform == "win32":
         assert "bash" in exe, f"Expected Git Bash on Windows, got: {exe!r}"
     elif sys.platform == "darwin":
-        assert "zsh" in exe or "bash" in exe, f"Expected zsh/bash on macOS, got: {exe!r}"
+        assert (
+            "zsh" in exe or "bash" in exe
+        ), f"Expected zsh/bash on macOS, got: {exe!r}"
     else:
-        assert any(sh in exe for sh in ("bash", "zsh", "sh", "fish", "dash")), (
-            f"Expected a known shell on Linux, got: {exe!r}"
-        )
+        assert any(
+            sh in exe for sh in ("bash", "zsh", "sh", "fish", "dash")
+        ), f"Expected a known shell on Linux, got: {exe!r}"
 
 
 # ---------------------------------------------------------------------------
 # PtyProcess lifecycle
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.timeout(15)
 def test_pty_spawns_and_is_alive():
@@ -101,9 +106,7 @@ def test_pty_echo():
         proc.write(b"echo " + marker + b"\r\n")
         output = _read_until(proc, marker)
 
-        assert marker in output, (
-            f"Marker not found in PTY output.\nOutput: {output!r}"
-        )
+        assert marker in output, f"Marker not found in PTY output.\nOutput: {output!r}"
     finally:
         proc.terminate()
 
@@ -113,8 +116,8 @@ def test_pty_resize_no_crash():
     proc = PtyProcess(resolve_shell(), rows=24, cols=80)
     try:
         time.sleep(0.5)
-        proc.resize(40, 120)   # should not raise
-        proc.resize(24, 80)    # restore
+        proc.resize(40, 120)  # should not raise
+        proc.resize(24, 80)  # restore
     finally:
         proc.terminate()
 
@@ -149,6 +152,7 @@ def test_pty_exit_code_available_after_exit():
 # ---------------------------------------------------------------------------
 # TerminalSessionManager
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.timeout(20)
 def test_session_manager_create_and_list():

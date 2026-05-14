@@ -36,10 +36,14 @@ def run(env: TestEnv, server: MicroServer | None = None):
         )
 
         # Both raw_code and code_session_memory_key provided
-        r = execute_tool("code_interpreter", {
-            "raw_code": "print('hi')",
-            "code_session_memory_key": "some_key",
-        }, env.session_data)
+        r = execute_tool(
+            "code_interpreter",
+            {
+                "raw_code": "print('hi')",
+                "code_session_memory_key": "some_key",
+            },
+            env.session_data,
+        )
         cl.check(
             "both code sources",
             "Returns error when both raw_code and code_session_memory_key are given",
@@ -48,9 +52,13 @@ def run(env: TestEnv, server: MicroServer | None = None):
         )
 
         # code_session_memory_key references a non-existent session memory key
-        r = execute_tool("code_interpreter", {
-            "code_session_memory_key": "nonexistent_key_xyz",
-        }, env.session_data)
+        r = execute_tool(
+            "code_interpreter",
+            {
+                "code_session_memory_key": "nonexistent_key_xyz",
+            },
+            env.session_data,
+        )
         cl.check(
             "missing code key",
             "Returns error when the session key holding code does not exist",
@@ -62,10 +70,14 @@ def run(env: TestEnv, server: MicroServer | None = None):
         mem["dummy_code"] = "print('ok')"
 
         # timeout is a bool — explicitly rejected by the schema validator
-        r = execute_tool("code_interpreter", {
-            "code_session_memory_key": "dummy_code",
-            "timeout": True,
-        }, env.session_data)
+        r = execute_tool(
+            "code_interpreter",
+            {
+                "code_session_memory_key": "dummy_code",
+                "timeout": True,
+            },
+            env.session_data,
+        )
         cl.check(
             "timeout bool rejected",
             "Response mentions 'bool' when timeout is a bool value",
@@ -74,10 +86,14 @@ def run(env: TestEnv, server: MicroServer | None = None):
         )
 
         # timeout below minimum (schema: minimum=1)
-        r = execute_tool("code_interpreter", {
-            "code_session_memory_key": "dummy_code",
-            "timeout": 0,
-        }, env.session_data)
+        r = execute_tool(
+            "code_interpreter",
+            {
+                "code_session_memory_key": "dummy_code",
+                "timeout": 0,
+            },
+            env.session_data,
+        )
         cl.check(
             "timeout too low",
             "Response mentions 'timeout' or 'minimum' when timeout is 0",
@@ -86,10 +102,14 @@ def run(env: TestEnv, server: MicroServer | None = None):
         )
 
         # timeout above maximum (schema: maximum=120)
-        r = execute_tool("code_interpreter", {
-            "code_session_memory_key": "dummy_code",
-            "timeout": 121,
-        }, env.session_data)
+        r = execute_tool(
+            "code_interpreter",
+            {
+                "code_session_memory_key": "dummy_code",
+                "timeout": 121,
+            },
+            env.session_data,
+        )
         cl.check(
             "timeout too high",
             "Response mentions 'timeout' or 'maximum' when timeout exceeds 120",
@@ -98,10 +118,14 @@ def run(env: TestEnv, server: MicroServer | None = None):
         )
 
         # session_memory_arg_keys references a missing session memory key
-        r = execute_tool("code_interpreter", {
-            "code_session_memory_key": "dummy_code",
-            "session_memory_arg_keys": ["no_such_arg_key"],
-        }, env.session_data)
+        r = execute_tool(
+            "code_interpreter",
+            {
+                "code_session_memory_key": "dummy_code",
+                "session_memory_arg_keys": ["no_such_arg_key"],
+            },
+            env.session_data,
+        )
         cl.check(
             "arg missing session key",
             "Returns error when a session_memory_arg_keys entry references a non-existent key",
@@ -111,43 +135,70 @@ def run(env: TestEnv, server: MicroServer | None = None):
 
         # --- Execution tests (Piston required) ---
         if not _piston_available():
-            cl.skip("Piston not reachable — execution tests skipped (run docker compose up piston)")
+            cl.skip(
+                "Piston not reachable — execution tests skipped (run docker compose up piston)"
+            )
             return cl.result()
 
         # Basic: raw_code, no args, stdout returned directly
-        r = execute_tool("code_interpreter", {
-            "raw_code": "print('hello world')",
-        }, env.session_data)
-        cl.check("basic raw_code", "raw_code executes and returns stdout", "hello world" in r, f"got: {r!r}")
+        r = execute_tool(
+            "code_interpreter",
+            {
+                "raw_code": "print('hello world')",
+            },
+            env.session_data,
+        )
+        cl.check(
+            "basic raw_code",
+            "raw_code executes and returns stdout",
+            "hello world" in r,
+            f"got: {r!r}",
+        )
 
         # code from session memory key
         mem["code_hello"] = "print('from memory')\n"
-        r = execute_tool("code_interpreter", {
-            "code_session_memory_key": "code_hello",
-        }, env.session_data)
-        cl.check("code from session key", "code_session_memory_key executes code from memory", "from memory" in r, f"got: {r!r}")
+        r = execute_tool(
+            "code_interpreter",
+            {
+                "code_session_memory_key": "code_hello",
+            },
+            env.session_data,
+        )
+        cl.check(
+            "code from session key",
+            "code_session_memory_key executes code from memory",
+            "from memory" in r,
+            f"got: {r!r}",
+        )
 
         # sys_argv passed to the script
-        mem["code_argv"] = (
-            "import sys\n"
-            "print(sys.argv[1])\n"
+        mem["code_argv"] = "import sys\n" "print(sys.argv[1])\n"
+        r = execute_tool(
+            "code_interpreter",
+            {
+                "code_session_memory_key": "code_argv",
+                "sys_argv": ["argval"],
+            },
+            env.session_data,
         )
-        r = execute_tool("code_interpreter", {
-            "code_session_memory_key": "code_argv",
-            "sys_argv": ["argval"],
-        }, env.session_data)
-        cl.check("sys_argv", "sys_argv value appears in script output", "argval" in r, f"got: {r!r}")
+        cl.check(
+            "sys_argv",
+            "sys_argv value appears in script output",
+            "argval" in r,
+            f"got: {r!r}",
+        )
 
         # session_memory_arg_keys: key holds a string appended to argv
         mem["the_word"] = "piston"
-        mem["code_reverse"] = (
-            "import sys\n"
-            "print(sys.argv[1][::-1])\n"
+        mem["code_reverse"] = "import sys\n" "print(sys.argv[1][::-1])\n"
+        r = execute_tool(
+            "code_interpreter",
+            {
+                "code_session_memory_key": "code_reverse",
+                "session_memory_arg_keys": ["the_word"],
+            },
+            env.session_data,
         )
-        r = execute_tool("code_interpreter", {
-            "code_session_memory_key": "code_reverse",
-            "session_memory_arg_keys": ["the_word"],
-        }, env.session_data)
         cl.check(
             "session_memory_arg_keys",
             "session_memory_arg_keys passes string from session memory as argv; 'piston' reversed is 'notsip'",
@@ -157,10 +208,14 @@ def run(env: TestEnv, server: MicroServer | None = None):
 
         # output_session_memory_key: stdout written to memory instead of returned
         mem["code_greeting"] = "print('greetings')\n"
-        r = execute_tool("code_interpreter", {
-            "code_session_memory_key": "code_greeting",
-            "output_session_memory_key": "greeting_result",
-        }, env.session_data)
+        r = execute_tool(
+            "code_interpreter",
+            {
+                "code_session_memory_key": "code_greeting",
+                "output_session_memory_key": "greeting_result",
+            },
+            env.session_data,
+        )
         stored = mem.get("greeting_result")
         cl.check(
             "output_session_memory_key message",
@@ -177,9 +232,13 @@ def run(env: TestEnv, server: MicroServer | None = None):
 
         # Runtime error: non-zero exit code
         mem["code_crash"] = "raise ValueError('intentional')\n"
-        r = execute_tool("code_interpreter", {
-            "code_session_memory_key": "code_crash",
-        }, env.session_data)
+        r = execute_tool(
+            "code_interpreter",
+            {
+                "code_session_memory_key": "code_crash",
+            },
+            env.session_data,
+        )
         cl.check(
             "runtime error",
             "A code exception produces an inline error response referencing exit code",
@@ -188,10 +247,14 @@ def run(env: TestEnv, server: MicroServer | None = None):
         )
 
         # enable_tracebacks=True: full traceback present
-        r = execute_tool("code_interpreter", {
-            "code_session_memory_key": "code_crash",
-            "enable_tracebacks": True,
-        }, env.session_data)
+        r = execute_tool(
+            "code_interpreter",
+            {
+                "code_session_memory_key": "code_crash",
+                "enable_tracebacks": True,
+            },
+            env.session_data,
+        )
         cl.check(
             "enable_tracebacks shows Traceback header",
             "With enable_tracebacks=True the output contains 'Traceback (most recent call last):'",
@@ -200,10 +263,14 @@ def run(env: TestEnv, server: MicroServer | None = None):
         )
 
         # enable_tracebacks=False: traceback stripped, exception summary kept
-        r_no_tb = execute_tool("code_interpreter", {
-            "code_session_memory_key": "code_crash",
-            "enable_tracebacks": False,
-        }, env.session_data)
+        r_no_tb = execute_tool(
+            "code_interpreter",
+            {
+                "code_session_memory_key": "code_crash",
+                "enable_tracebacks": False,
+            },
+            env.session_data,
+        )
         cl.check(
             "enable_tracebacks=False strips traceback",
             "With enable_tracebacks=False the output does NOT contain 'Traceback (most recent call last):'",

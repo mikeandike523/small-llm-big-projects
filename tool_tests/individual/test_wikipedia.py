@@ -9,9 +9,12 @@ from src.tools import execute_tool
 def _network_available() -> bool:
     """Quick reachability check for en.wikipedia.org."""
     import httpx
+
     try:
         with httpx.Client(timeout=5) as client:
-            resp = client.get("https://en.wikipedia.org/w/api.php?action=query&format=json&titles=Main_Page")
+            resp = client.get(
+                "https://en.wikipedia.org/w/api.php?action=query&format=json&titles=Main_Page"
+            )
             return resp.status_code == 200
     except Exception:
         return False
@@ -23,10 +26,14 @@ def run(env: TestEnv, server: MicroServer | None = None):
         # --- Validation (no network needed) ---
 
         # memory_key required when target=session_memory
-        r = execute_tool("wikipedia", {
-            "url_or_title": "Python (programming language)",
-            "target": "session_memory",
-        }, env.session_data)
+        r = execute_tool(
+            "wikipedia",
+            {
+                "url_or_title": "Python (programming language)",
+                "target": "session_memory",
+            },
+            env.session_data,
+        )
         cl.check(
             "memory_key required",
             "Returns error when target=session_memory but memory_key is absent",
@@ -37,7 +44,9 @@ def run(env: TestEnv, server: MicroServer | None = None):
         # --- URL parsing (no network needed — tests internal helper) ---
         from src.tools.wikipedia import _parse_url
 
-        parsed = _parse_url("https://en.wikipedia.org/wiki/Python_(programming_language)")
+        parsed = _parse_url(
+            "https://en.wikipedia.org/wiki/Python_(programming_language)"
+        )
         cl.check(
             "url parse: standard desktop",
             "Parses lang and title from a standard desktop Wikipedia URL",
@@ -45,15 +54,21 @@ def run(env: TestEnv, server: MicroServer | None = None):
             f"got: {parsed!r}",
         )
 
-        parsed_m = _parse_url("https://en.m.wikipedia.org/wiki/Python_(programming_language)")
+        parsed_m = _parse_url(
+            "https://en.m.wikipedia.org/wiki/Python_(programming_language)"
+        )
         cl.check(
             "url parse: mobile",
             "Parses lang and title from a mobile (m.) Wikipedia URL",
-            parsed_m is not None and parsed_m[0] == "en" and parsed_m[1] == "Python_(programming_language)",
+            parsed_m is not None
+            and parsed_m[0] == "en"
+            and parsed_m[1] == "Python_(programming_language)",
             f"got: {parsed_m!r}",
         )
 
-        parsed_de = _parse_url("https://de.wikipedia.org/wiki/Python_(Programmiersprache)")
+        parsed_de = _parse_url(
+            "https://de.wikipedia.org/wiki/Python_(Programmiersprache)"
+        )
         cl.check(
             "url parse: non-english",
             "Parses lang='de' from a German Wikipedia URL",
@@ -83,10 +98,14 @@ def run(env: TestEnv, server: MicroServer | None = None):
             return cl.result()
 
         # intro mode via URL
-        r = execute_tool("wikipedia", {
-            "url_or_title": "https://en.wikipedia.org/wiki/Python_(programming_language)",
-            "mode": "intro",
-        }, env.session_data)
+        r = execute_tool(
+            "wikipedia",
+            {
+                "url_or_title": "https://en.wikipedia.org/wiki/Python_(programming_language)",
+                "mode": "intro",
+            },
+            env.session_data,
+        )
         cl.check(
             "intro via url: no error",
             "Fetching intro via Wikipedia URL returns non-error string",
@@ -107,11 +126,15 @@ def run(env: TestEnv, server: MicroServer | None = None):
         )
 
         # intro mode via bare title
-        r2 = execute_tool("wikipedia", {
-            "url_or_title": "Python (programming language)",
-            "mode": "intro",
-            "language": "en",
-        }, env.session_data)
+        r2 = execute_tool(
+            "wikipedia",
+            {
+                "url_or_title": "Python (programming language)",
+                "mode": "intro",
+                "language": "en",
+            },
+            env.session_data,
+        )
         cl.check(
             "intro via title: no error",
             "Fetching intro via bare title returns non-error string",
@@ -120,12 +143,16 @@ def run(env: TestEnv, server: MicroServer | None = None):
         )
 
         # target=session_memory
-        r3 = execute_tool("wikipedia", {
-            "url_or_title": "Python (programming language)",
-            "mode": "intro",
-            "target": "session_memory",
-            "memory_key": "wiki_test",
-        }, env.session_data)
+        r3 = execute_tool(
+            "wikipedia",
+            {
+                "url_or_title": "Python (programming language)",
+                "mode": "intro",
+                "target": "session_memory",
+                "memory_key": "wiki_test",
+            },
+            env.session_data,
+        )
         stored = env.session_data.get("memory", {}).get("wiki_test")
         cl.check(
             "target session_memory: confirmation",
@@ -141,9 +168,13 @@ def run(env: TestEnv, server: MicroServer | None = None):
         )
 
         # Missing article
-        r4 = execute_tool("wikipedia", {
-            "url_or_title": "Xyzzy_NoSuchArticle_slbp_test_12345",
-        }, env.session_data)
+        r4 = execute_tool(
+            "wikipedia",
+            {
+                "url_or_title": "Xyzzy_NoSuchArticle_slbp_test_12345",
+            },
+            env.session_data,
+        )
         cl.check(
             "missing article",
             "Returns error for a non-existent article title",

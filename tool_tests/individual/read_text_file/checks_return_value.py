@@ -12,10 +12,25 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
         f.write(content)
 
     r = execute_tool("read_text_file", {"path": path}, env.session_data)
-    cl.check("returns content", "Direct read returns the file contents", r == content, f"got: {r!r}")
+    cl.check(
+        "returns content",
+        "Direct read returns the file contents",
+        r == content,
+        f"got: {r!r}",
+    )
 
     r = execute_tool("read_text_file", {"path": path + ".missing"}, env.session_data)
-    cl.check("file not found", "Returns an error string for a missing file", r.startswith("Error:"), f"got: {r!r}")
+    cl.check(
+        "file not found",
+        "Returns an error string for a missing file",
+        r.startswith("Error:"),
+        f"got: {r!r}",
+    )
 
     r = execute_tool("read_text_file", {"path": env.tmp_dir}, env.session_data)
-    cl.check("directory error", "Returns an error string when path is a directory", r.startswith("Error:"), f"got: {r!r}")
+    cl.check(
+        "directory error",
+        "Returns an error string when path is a directory",
+        r.startswith("Error:"),
+        f"got: {r!r}",
+    )

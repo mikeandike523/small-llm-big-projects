@@ -13,15 +13,21 @@ from src.utils.llm.types import DialectAdapter, ToolCall
 
 logger = logging.getLogger(__name__)
 
+
 @dataclass
 class TraceEntry:
     """Captured input/output of a single LLM completion. Only populated when record=True."""
-    request_payload: dict  # full JSON body sent to the endpoint (model, messages, tools, etc.)
+
+    request_payload: (
+        dict  # full JSON body sent to the endpoint (model, messages, tools, etc.)
+    )
     content: str
     reasoning: str
     tool_calls: list[ToolCall]
     usage: dict | None = None
-    captured_at: float = field(default_factory=time.time)  # unix timestamp, set when stream() completes
+    captured_at: float = field(
+        default_factory=time.time
+    )  # unix timestamp, set when stream() completes
     # Set by the caller (socket_handlers) after stream() returns:
     turn_id: str = ""
     exchange_idx: int = 0
@@ -77,9 +83,12 @@ class StreamingLLM:
             self._adapter = adapter
         else:
             from src.utils.llm.dialect import OpenAIDialect
+
             self._adapter = OpenAIDialect()
 
-    def _build_base_payload(self, messages, max_tokens, parameters, tools, streaming: bool) -> dict:
+    def _build_base_payload(
+        self, messages, max_tokens, parameters, tools, streaming: bool
+    ) -> dict:
         """Assemble the OpenAI-normalized payload before dialect adaptation."""
         payload: dict = {}
         if streaming:
@@ -110,7 +119,9 @@ class StreamingLLM:
     ) -> StreamResult:
         """Async streaming LLM call. Cancellable via asyncio task cancellation."""
         payload = self._adapter.adapt_payload(
-            self._build_base_payload(messages, max_tokens, parameters, tools, streaming=True)
+            self._build_base_payload(
+                messages, max_tokens, parameters, tools, streaming=True
+            )
         )
         headers = self._adapter.headers(self._token)
         url = self._adapter.endpoint_url(self._endpoint)
@@ -118,10 +129,13 @@ class StreamingLLM:
 
         _pending_tool_calls: dict[int, dict] = {}
         _last_usage: dict | None = None
-        _trace_acc: dict[str, str] | None = {"content": "", "reasoning": ""} if record else None
+        _trace_acc: dict[str, str] | None = (
+            {"content": "", "reasoning": ""} if record else None
+        )
 
         if _trace_acc is not None:
             _original_on_data = on_data
+
             def on_data(chunk: dict) -> None:
                 if chunk.get("content"):
                     _trace_acc["content"] += chunk["content"]
@@ -146,7 +160,7 @@ class StreamingLLM:
                     if not line or not line.startswith("data: "):
                         continue
 
-                    raw = line[len("data: "):].strip()
+                    raw = line[len("data: ") :].strip()
                     if raw == "[DONE]":
                         break
 
@@ -159,19 +173,28 @@ class StreamingLLM:
                         etype = event["type"]
 
                         if etype == "on_data":
-                            chunk = {"content": event.get("content"), "reasoning": event.get("reasoning")}
+                            chunk = {
+                                "content": event.get("content"),
+                                "reasoning": event.get("reasoning"),
+                            }
                             on_data(chunk)
 
                         elif etype == "tool_delta":
                             idx = event["index"]
                             if idx not in _pending_tool_calls:
-                                _pending_tool_calls[idx] = {"id": "", "name": "", "arguments": ""}
+                                _pending_tool_calls[idx] = {
+                                    "id": "",
+                                    "name": "",
+                                    "arguments": "",
+                                }
                             if event.get("id"):
                                 _pending_tool_calls[idx]["id"] = event["id"]
                             if event.get("name"):
                                 _pending_tool_calls[idx]["name"] = event["name"]
                             if event.get("arguments"):
-                                _pending_tool_calls[idx]["arguments"] += event["arguments"]
+                                _pending_tool_calls[idx]["arguments"] += event[
+                                    "arguments"
+                                ]
 
                         elif etype == "usage":
                             _last_usage = event["usage"]
@@ -182,7 +205,9 @@ class StreamingLLM:
                 arguments = json.loads(entry["arguments"]) if entry["arguments"] else {}
             except json.JSONDecodeError:
                 arguments = {}
-            tool_calls.append(ToolCall(id=entry["id"], name=entry["name"], arguments=arguments))
+            tool_calls.append(
+                ToolCall(id=entry["id"], name=entry["name"], arguments=arguments)
+            )
 
         trace: TraceEntry | None = None
         if _trace_acc is not None:
@@ -205,7 +230,9 @@ class StreamingLLM:
     ) -> FetchResult:
         """Synchronous (non-streaming) request — used for out-of-band calls (e.g. hang triage)."""
         payload = self._adapter.adapt_payload(
-            self._build_base_payload(messages, max_tokens, parameters, tools, streaming=False)
+            self._build_base_payload(
+                messages, max_tokens, parameters, tools, streaming=False
+            )
         )
         headers = self._adapter.headers(self._token)
         url = self._adapter.endpoint_url(self._endpoint)

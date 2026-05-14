@@ -5,13 +5,19 @@ import click
 from src.cli_obj import cli
 from src.data import get_pool
 
+
 @cli.group(name="service-token")
-def service_token():
-    ...
+def service_token(): ...
+
 
 @service_token.command(name="set")
-@click.option("-n","--name", required=False, type=str, default='',
-              help="""
+@click.option(
+    "-n",
+    "--name",
+    required=False,
+    type=str,
+    default="",
+    help="""
               
 Optional token name.
 
@@ -30,12 +36,13 @@ google.answers
 
 etc.
 
-              """.strip())
+              """.strip(),
+)
 @click.argument("provider", type=str, required=True, nargs=1)
 @click.argument("value", type=str, required=True, nargs=1)
-def sub_cmd_set(name:str, provider:str, value:str):
+def sub_cmd_set(name: str, provider: str, value: str):
 
-    pool=get_pool()
+    pool = get_pool()
 
     sql = """
     INSERT INTO service_tokens (provider, name, value)

@@ -116,6 +116,7 @@ def dirty_effects(args: dict, session_data: dict | None = None) -> dict:
 def needs_approval(args: dict) -> bool:
     if args.get("path"):
         from src.tools._approval import needs_path_approval
+
         return needs_path_approval(args["path"])
     return False
 
@@ -126,7 +127,10 @@ def _load_text(args: dict, session_data: dict) -> tuple[str, str | None]:
     key = args.get("session_memory_key")
 
     if path and key:
-        return "", "Error: provide exactly one of 'path' or 'session_memory_key', not both."
+        return (
+            "",
+            "Error: provide exactly one of 'path' or 'session_memory_key', not both.",
+        )
     if not path and not key:
         return "", "Error: one of 'path' or 'session_memory_key' is required."
 
@@ -196,7 +200,9 @@ def execute(args: dict, session_data: dict) -> str:
         contents = _read_lines_range(text, start_line, end_line)
         if number_lines:
             effective_start = start_line if start_line is not None else 1
-            return add_line_numbers(contents, start_line=effective_start, delimiter=delimiter)
+            return add_line_numbers(
+                contents, start_line=effective_start, delimiter=delimiter
+            )
         return contents
 
     return f"Error: unknown action {action!r}."

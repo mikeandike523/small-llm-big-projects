@@ -13,8 +13,6 @@ from src.tools._managed_process_llm_triage import _llm_triage
 from src.utils.exceptions import ToolHangError, ToolTimeoutError
 from src.tools._managed_process_shared_defs import logger, HANG_DECISION_TIMEOUT
 
-
-
 # ---------------------------------------------------------------------------
 # I/O polling constants
 # ---------------------------------------------------------------------------
@@ -29,7 +27,6 @@ READ_INTERVAL = 0.05  # seconds
 # Must be >= READ_INTERVAL. Give the process enough time to finish printing
 # its full prompt before we fire a response.
 WAIT_UNTIL_RESPONSE = 0.3  # seconds
-
 
 
 def run_command_streaming(
@@ -245,8 +242,13 @@ def run_command_streaming(
             if hang_timeout is not None and idle >= hang_timeout:
                 if proc.poll() is None:  # only triage if process hasn't already exited
                     if not _llm_triage(
-                        proc, auto_buffer, last_data_time, hung_flag,
-                        lock, on_log, triage_count,
+                        proc,
+                        auto_buffer,
+                        last_data_time,
+                        hung_flag,
+                        lock,
+                        on_log,
+                        triage_count,
                         hang_timeout=hang_timeout,
                         start_time=start_time,
                     ):

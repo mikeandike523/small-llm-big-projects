@@ -1,4 +1,5 @@
 """Tiny HTTP server used as subprocess target for basic_web_request tests."""
+
 from __future__ import annotations
 
 import json
@@ -47,7 +48,9 @@ class _Handler(BaseHTTPRequestHandler):
         if self.path == "/echo":
             length = int(self.headers.get("Content-Length", 0))
             body = self.rfile.read(length).decode("utf-8")
-            self._send(200, "application/json", json.dumps({"method": "POST", "body": body}))
+            self._send(
+                200, "application/json", json.dumps({"method": "POST", "body": body})
+            )
         else:
             self._send(404, "text/plain", "not found")
 

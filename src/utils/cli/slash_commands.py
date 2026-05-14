@@ -43,7 +43,9 @@ def _coerce_session_value(raw_value: str) -> object:
         return raw_value
 
 
-def _handle_memory_command(scope: str, action: str, args: list[str], session_data: dict) -> str:
+def _handle_memory_command(
+    scope: str, action: str, args: list[str], session_data: dict
+) -> str:
     scope_key = scope.replace("-", "_")
     if action == "list-items":
         if args:
@@ -56,7 +58,9 @@ def _handle_memory_command(scope: str, action: str, args: list[str], session_dat
             return f"Missing arguments for /{scope} set-item.\n{_usage(scope)}"
         key = args[0]
         raw_value = " ".join(args[1:])
-        value = _coerce_session_value(raw_value) if scope == "session-memory" else raw_value
+        value = (
+            _coerce_session_value(raw_value) if scope == "session-memory" else raw_value
+        )
         tool_result = execute_tool(
             f"{scope_key}_set_variable",
             {"key": key, "value": value},
@@ -85,7 +89,9 @@ def try_handle_slash_command(user_input: str, session_data: dict) -> SlashComman
     try:
         parts = shlex.split(stripped)
     except ValueError as exc:
-        return SlashCommandResult(handled=True, output=f"Could not parse command: {exc}")
+        return SlashCommandResult(
+            handled=True, output=f"Could not parse command: {exc}"
+        )
 
     if not parts:
         return SlashCommandResult(handled=True, output="Empty slash command.")

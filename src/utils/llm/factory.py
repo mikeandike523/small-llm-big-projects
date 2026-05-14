@@ -7,7 +7,10 @@ from src.utils.sql.kv_manager import KVManager
 from src.utils.llm.streaming import StreamingLLM
 from src.utils.llm.dialect import detect_dialect, get_adapter
 from src.utils.profile_utils import get_active_profile, _kv_prefix
-from src.utils.param_registry import ALLOWED_PARAMS as _ALLOWED_PARAMS, EXCLUDE_FROM_REQUEST as _EXCLUDE_FROM_REQUEST
+from src.utils.param_registry import (
+    ALLOWED_PARAMS as _ALLOWED_PARAMS,
+    EXCLUDE_FROM_REQUEST as _EXCLUDE_FROM_REQUEST,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -76,7 +79,7 @@ def load_llm_config() -> dict | None:
         # Only include params that are allowed and not reserved for internal use.
         # EXCLUDE_FROM_REQUEST params are read separately into system_params below.
         model_params = {
-            k[len(full_model_prefix):]: kv.get_value(k)
+            k[len(full_model_prefix) :]: kv.get_value(k)
             for k in param_keys
             if k.startswith(full_model_prefix)
             and f"model.{k[len(full_model_prefix):]}" in _ALLOWED_PARAMS
@@ -87,11 +90,12 @@ def load_llm_config() -> dict | None:
         if extra:
             model_params.update(extra)
         system_params = {
-            k[len(full_system_prefix):]: kv.get_value(k)
-            for k in param_keys if k.startswith(full_system_prefix)
+            k[len(full_system_prefix) :]: kv.get_value(k)
+            for k in param_keys
+            if k.startswith(full_system_prefix)
         }
         for param_name in _EXCLUDE_FROM_REQUEST:
-            suffix = param_name[len("model."):]
+            suffix = param_name[len("model.") :]
             full_key = full_model_prefix + suffix
             if full_key in param_keys:
                 system_params[suffix] = kv.get_value(full_key)

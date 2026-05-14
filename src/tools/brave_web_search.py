@@ -17,12 +17,9 @@ from src.utils.http.helpers import (
     load_latest_service_tokens_from_db,
 )
 
-
 _BRAVE_LLM_CONTEXT_URL = "https://api.search.brave.com/res/v1/llm/context"
 _ACCEPT = "application/json"
-_USER_AGENT = (
-    "Mozilla/5.0 (compatible; slbp-agent/1.0; +https://github.com/mikeandike523/small-llm-big-projects)"
-)
+_USER_AGENT = "Mozilla/5.0 (compatible; slbp-agent/1.0; +https://github.com/mikeandike523/small-llm-big-projects)"
 
 
 DEFAULT_TIMEOUT = 30
@@ -157,7 +154,9 @@ def needs_approval(args: dict) -> bool:
     return False
 
 
-def execute(args: dict, session_data: dict | None = None, special_resources: dict | None = None) -> str:
+def execute(
+    args: dict, session_data: dict | None = None, special_resources: dict | None = None
+) -> str:
     if session_data is None:
         session_data = {}
 
@@ -187,10 +186,18 @@ def execute(args: dict, session_data: dict | None = None, special_resources: dic
         "search_lang": args.get("search_lang", DEFAULT_SEARCH_LANG),
         "count": args.get("count", DEFAULT_COUNT),
         "spellcheck": True,
-        "maximum_number_of_urls": args.get("maximum_number_of_urls", DEFAULT_MAXIMUM_NUMBER_OF_URLS),
-        "maximum_number_of_tokens": args.get("maximum_number_of_tokens", DEFAULT_MAXIMUM_NUMBER_OF_TOKENS),
-        "maximum_number_of_snippets": args.get("maximum_number_of_snippets", DEFAULT_MAXIMUM_NUMBER_OF_SNIPPETS),
-        "context_threshold_mode": args.get("context_threshold_mode", DEFAULT_CONTEXT_THRESHOLD_MODE),
+        "maximum_number_of_urls": args.get(
+            "maximum_number_of_urls", DEFAULT_MAXIMUM_NUMBER_OF_URLS
+        ),
+        "maximum_number_of_tokens": args.get(
+            "maximum_number_of_tokens", DEFAULT_MAXIMUM_NUMBER_OF_TOKENS
+        ),
+        "maximum_number_of_snippets": args.get(
+            "maximum_number_of_snippets", DEFAULT_MAXIMUM_NUMBER_OF_SNIPPETS
+        ),
+        "context_threshold_mode": args.get(
+            "context_threshold_mode", DEFAULT_CONTEXT_THRESHOLD_MODE
+        ),
         "maximum_number_of_tokens_per_url": args.get(
             "maximum_number_of_tokens_per_url",
             DEFAULT_MAXIMUM_NUMBER_OF_TOKENS_PER_URL,
@@ -239,6 +246,7 @@ def execute(args: dict, session_data: dict | None = None, special_resources: dic
 
     except httpx.TimeoutException:
         from src.utils.exceptions import ToolTimeoutError
+
         raise ToolTimeoutError("brave_web_search", DEFAULT_TIMEOUT)
     except Exception as e:
         return format_response(
@@ -265,6 +273,8 @@ def execute(args: dict, session_data: dict | None = None, special_resources: dic
     if target == "session_memory":
         memory = ensure_session_memory(session_data)
         memory[memory_key] = result
-        return f"Brave LLM context results written to session memory item {memory_key!r}"
+        return (
+            f"Brave LLM context results written to session memory item {memory_key!r}"
+        )
 
     return result

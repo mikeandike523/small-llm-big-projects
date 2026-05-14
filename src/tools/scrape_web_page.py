@@ -13,15 +13,12 @@ from urllib3.util.retry import Retry
 from src.utils.http.helpers import ensure_session_memory
 from src.utils.text_truncation import truncate_long_lines as _truncate_long_lines
 
+DEFAULT_TIMEOUT = 20  # seconds per request
+DEFAULT_MAX_RETRIES = 3  # transient-failure retries
+DEFAULT_MIN_DELAY = 1.0  # politeness delay before fetching
+_JITTER = (0.05, 0.35)  # random seconds added on top of min_delay
 
-DEFAULT_TIMEOUT = 20       # seconds per request
-DEFAULT_MAX_RETRIES = 3    # transient-failure retries
-DEFAULT_MIN_DELAY = 1.0    # politeness delay before fetching
-_JITTER = (0.05, 0.35)     # random seconds added on top of min_delay
-
-_USER_AGENT = (
-    "Mozilla/5.0 (compatible; slbp-agent/1.0; +https://github.com/mikeandike523/small-llm-big-projects)"
-)
+_USER_AGENT = "Mozilla/5.0 (compatible; slbp-agent/1.0; +https://github.com/mikeandike523/small-llm-big-projects)"
 _HEADERS = {
     "User-Agent": _USER_AGENT,
     "Accept": "*/*",
@@ -30,7 +27,7 @@ _HEADERS = {
 }
 
 # Module-level caches (live for the process lifetime — appropriate for a server tool).
-_robots_cache: dict[str, tuple] = {}   # origin -> (Protego | None, timestamp)
+_robots_cache: dict[str, tuple] = {}  # origin -> (Protego | None, timestamp)
 _last_request_time: dict[str, float] = {}
 _ROBOTS_TTL = 3600  # re-fetch robots.txt after 1 hour
 
@@ -154,6 +151,7 @@ def needs_approval(args: dict) -> bool:
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _origin(url: str) -> str | None:
     try:
         u = urlparse(url)
@@ -199,7 +197,9 @@ def _polite_delay(host: str, min_delay: float) -> None:
     _last_request_time[host] = time.monotonic()
 
 
-def _check_robots(url: str, session: requests.Session, timeout: int) -> tuple[bool, str | None]:
+def _check_robots(
+    url: str, session: requests.Session, timeout: int
+) -> tuple[bool, str | None]:
     """
     Return (allowed, note).
 
@@ -232,7 +232,7 @@ def _check_robots(url: str, session: requests.Session, timeout: int) -> tuple[bo
                     # Parse failure -> fail-open (rp stays None)
                     pass
             elif r.status_code == 404:
-                rp = Protego.parse("")   # no robots.txt -> allow all
+                rp = Protego.parse("")  # no robots.txt -> allow all
             # Any other status -> fail-open (rp stays None)
         except Exception:
             pass  # Network failure -> fail-open
@@ -252,7 +252,9 @@ def _check_robots(url: str, session: requests.Session, timeout: int) -> tuple[bo
     return True, None
 
 
-def _render_content(body_text: str, fmt: Literal["xml", "markdown", "text", "raw"]) -> str:
+def _render_content(
+    body_text: str, fmt: Literal["xml", "markdown", "text", "raw"]
+) -> str:
     if fmt == "raw":
         return body_text
 
@@ -287,6 +289,7 @@ def _render_content(body_text: str, fmt: Literal["xml", "markdown", "text", "raw
 # ---------------------------------------------------------------------------
 # execute
 # ---------------------------------------------------------------------------
+
 
 def execute(args: dict, session_data: dict | None = None) -> str:
     if session_data is None:

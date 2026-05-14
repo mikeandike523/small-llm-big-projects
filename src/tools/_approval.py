@@ -44,7 +44,15 @@ def _git_file_is_included(resolved: str) -> bool:
     """True if the file is tracked or untracked+non-ignored (auto-approve)."""
     try:
         r = run_command(
-            ["git", "ls-files", "--cached", "--others", "--exclude-standard", "--", resolved],
+            [
+                "git",
+                "ls-files",
+                "--cached",
+                "--others",
+                "--exclude-standard",
+                "--",
+                resolved,
+            ],
             timeout=_APPROVAL_CMD_TIMEOUT,
         )
     except subprocess.TimeoutExpired:
@@ -55,7 +63,9 @@ def _git_file_is_included(resolved: str) -> bool:
 def _git_dir_is_ignored(resolved: str) -> bool:
     """True if git considers this directory ignored."""
     try:
-        r = run_command(["git", "check-ignore", "-q", "--", resolved], timeout=_APPROVAL_CMD_TIMEOUT)
+        r = run_command(
+            ["git", "check-ignore", "-q", "--", resolved], timeout=_APPROVAL_CMD_TIMEOUT
+        )
     except subprocess.TimeoutExpired:
         return True  # deny approval on timeout (safer than hanging)
     return r.returncode == 0

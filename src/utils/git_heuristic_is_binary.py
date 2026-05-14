@@ -36,15 +36,17 @@ def git_heuristic_is_binary(path: Union[str, os.PathLike]) -> bool:
         empty_path = tmp.name
 
     try:
-        proc = _run_git([
-            "diff",
-            "--no-index",
-            "--numstat",
-            "--no-ext-diff",
-            "--",
-            empty_path,
-            str(p),
-        ])
+        proc = _run_git(
+            [
+                "diff",
+                "--no-index",
+                "--numstat",
+                "--no-ext-diff",
+                "--",
+                empty_path,
+                str(p),
+            ]
+        )
 
         out = proc.stdout.strip()
 

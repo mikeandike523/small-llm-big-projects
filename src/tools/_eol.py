@@ -59,7 +59,9 @@ def normalize_eol(text: str, eol: str) -> str:
     """
     target = _EOL_MAP.get(eol)
     if target is None:
-        raise ValueError(f"Unknown EOL type: {eol!r}. Choose from: {', '.join(EOL_CHOICES)}")
+        raise ValueError(
+            f"Unknown EOL type: {eol!r}. Choose from: {', '.join(EOL_CHOICES)}"
+        )
 
     # Collapse CRLF to plain LF, then convert LF to the target style.
     # Bare \r is intentionally NOT touched -- it is a character, not a terminator.

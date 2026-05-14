@@ -7,7 +7,9 @@ from collections import deque
 
 import src.ui_connector.socket_handler_components.state as _state
 from src.ui_connector.app import socketio
-from src.ui_connector.socket_handler_components.terminal import _build_starting_environment_info
+from src.ui_connector.socket_handler_components.terminal import (
+    _build_starting_environment_info,
+)
 from src.tools import ALL_TOOL_DEFINITIONS, _TOOL_MAP, load_custom_tools
 from src.logic.system_prompt import (
     build_skill_registry,
@@ -29,16 +31,23 @@ logger = logging.getLogger(__name__)
 # Session cache accessors
 # ---------------------------------------------------------------------------
 
+
 def _get_session_tool_defs(session_id: str) -> list[dict]:
-    return _state._session_tool_sets.get(session_id, (ALL_TOOL_DEFINITIONS, _TOOL_MAP, []))[0]
+    return _state._session_tool_sets.get(
+        session_id, (ALL_TOOL_DEFINITIONS, _TOOL_MAP, [])
+    )[0]
 
 
 def _get_session_tool_map(session_id: str) -> dict:
-    return _state._session_tool_sets.get(session_id, (ALL_TOOL_DEFINITIONS, _TOOL_MAP, []))[1]
+    return _state._session_tool_sets.get(
+        session_id, (ALL_TOOL_DEFINITIONS, _TOOL_MAP, [])
+    )[1]
 
 
 def _get_session_plugins(session_id: str) -> list[dict]:
-    return _state._session_tool_sets.get(session_id, (ALL_TOOL_DEFINITIONS, _TOOL_MAP, []))[2]
+    return _state._session_tool_sets.get(
+        session_id, (ALL_TOOL_DEFINITIONS, _TOOL_MAP, [])
+    )[2]
 
 
 def _get_session_system_prompt(session_id: str) -> str:
@@ -66,7 +75,9 @@ def _init_session_caches(session: Session, session_id: str) -> None:
                 tool_defs = list(ALL_TOOL_DEFINITIONS) + extra_defs
                 tool_map = {**_TOOL_MAP, **extra_map}
             except RuntimeError as exc:
-                logger.error("Custom tool loading failed for session %s: %s", session_id, exc)
+                logger.error(
+                    "Custom tool loading failed for session %s: %s", session_id, exc
+                )
                 tool_defs = list(ALL_TOOL_DEFINITIONS)
                 tool_map = dict(_TOOL_MAP)
                 plugins = []
@@ -109,6 +120,7 @@ def _init_session_caches(session: Session, session_id: str) -> None:
 # Redis helpers
 # ---------------------------------------------------------------------------
 
+
 def _load_session(session_id: str) -> Session:
     r = _state._get_redis()
     raw = r.get(f"session:{session_id}")
@@ -130,11 +142,22 @@ def _load_session(session_id: str) -> Session:
         try:
             keys = r.hkeys(mem_hash_key)
             socketio.emit("session_memory_keys_update", {"keys": keys}, room=session_id)
-            socketio.emit("session_memory_key_event", {"key": key, "type": event_type}, room=session_id)
+            socketio.emit(
+                "session_memory_key_event",
+                {"key": key, "type": event_type},
+                room=session_id,
+            )
         except Exception as exc:
-            logger.warning("_on_memory_change error (key=%r, session_id=%r): %s", key, session_id, exc)
+            logger.warning(
+                "_on_memory_change error (key=%r, session_id=%r): %s",
+                key,
+                session_id,
+                exc,
+            )
 
-    session.session_data["memory"] = RedisDict(r, mem_hash_key, on_change=_on_memory_change)
+    session.session_data["memory"] = RedisDict(
+        r, mem_hash_key, on_change=_on_memory_change
+    )
     _init_session_caches(session, session_id)
     return session
 

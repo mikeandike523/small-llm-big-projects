@@ -7,7 +7,6 @@ import httpx
 from src.utils.http.helpers import ensure_session_memory
 from src.utils.exceptions import ToolTimeoutError
 
-
 DEFAULT_TIMEOUT = 15  # seconds
 
 # Wikipedia asks for a descriptive User-Agent identifying the tool.
@@ -18,7 +17,7 @@ _MODE_PARAMS = {
     # Short plain-text intro paragraph(s) only
     "intro": {"prop": "extracts", "exintro": "true", "explaintext": "true"},
     # Full plain-text article
-    "full":  {"prop": "extracts", "explaintext": "true"},
+    "full": {"prop": "extracts", "explaintext": "true"},
 }
 
 DEFINITION: dict = {
@@ -99,6 +98,7 @@ def needs_approval(args: dict) -> bool:
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _parse_url(raw: str) -> tuple[str, str] | None:
     """
     Parse a Wikipedia URL and return (lang, title) or None if not a Wikipedia URL.
@@ -114,10 +114,12 @@ def _parse_url(raw: str) -> tuple[str, str] | None:
         # Match <lang>.wikipedia.org or <lang>.m.wikipedia.org
         parts = host.split(".")
         if len(parts) >= 3 and parts[-2] == "wikipedia" and parts[-1] == "org":
-            lang = parts[0] if parts[0] != "m" else parts[1]  # handle m.wikipedia.org edge case
+            lang = (
+                parts[0] if parts[0] != "m" else parts[1]
+            )  # handle m.wikipedia.org edge case
             path = u.path  # e.g. /wiki/Python_(programming_language)
             if path.startswith("/wiki/"):
-                title = unquote(path[len("/wiki/"):])
+                title = unquote(path[len("/wiki/") :])
                 if title:
                     return lang, title
     except Exception:
@@ -196,6 +198,7 @@ def _fetch_article(
 # ---------------------------------------------------------------------------
 # execute
 # ---------------------------------------------------------------------------
+
 
 def execute(args: dict, session_data: dict | None = None) -> str:
     if session_data is None:

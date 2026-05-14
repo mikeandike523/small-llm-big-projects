@@ -59,7 +59,9 @@ def validate_string_list(value: Any, field_name: str) -> list[str] | None:
     return value
 
 
-def load_latest_service_tokens_from_db(providers: list[str]) -> tuple[dict[str, str], list[str]]:
+def load_latest_service_tokens_from_db(
+    providers: list[str],
+) -> tuple[dict[str, str], list[str]]:
     """
     Load the most recently created token for each provider.
 
@@ -72,7 +74,9 @@ def load_latest_service_tokens_from_db(providers: list[str]) -> tuple[dict[str, 
     if not providers:
         return {}, []
 
-    providers_unique = list(dict.fromkeys([p.strip() for p in providers if p and p.strip()]))
+    providers_unique = list(
+        dict.fromkeys([p.strip() for p in providers if p and p.strip()])
+    )
     if not providers_unique:
         return {}, []
 

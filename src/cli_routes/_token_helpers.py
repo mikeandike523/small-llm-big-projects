@@ -1,6 +1,7 @@
 from typing import Optional
 import click
 
+
 def _mask_token(token_value: str) -> str:
     if not token_value:
         return "(empty)"

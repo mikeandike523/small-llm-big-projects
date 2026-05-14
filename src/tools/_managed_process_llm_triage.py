@@ -5,7 +5,12 @@ from typing import Callable
 
 from termcolor import colored
 
-from src.tools._managed_process_shared_defs import MAX_EXTENSION_WAIT, MIN_EXTENSION_WAIT, logger, HANG_DECISION_TIMEOUT
+from src.tools._managed_process_shared_defs import (
+    MAX_EXTENSION_WAIT,
+    MIN_EXTENSION_WAIT,
+    logger,
+    HANG_DECISION_TIMEOUT,
+)
 
 
 def _llm_triage(
@@ -34,6 +39,7 @@ def _llm_triage(
     Returns True  -> extended the hang timer (caller should keep watching).
     Returns False -> decided to kill (hung_flag set, proc killed, caller breaks).
     """
+
     def _log(msg: str) -> None:
         logger.info("[hang-triage] %s", msg)
         if on_log:
@@ -63,17 +69,22 @@ def _llm_triage(
     with lock:
         buffer_snapshot = auto_buffer[0]
 
-    _log(colored(
-        f"Hang triage extension #{extension_num} — total watched: {elapsed:.0f}s",
-        "yellow",
-    ))
+    _log(
+        colored(
+            f"Hang triage extension #{extension_num} — total watched: {elapsed:.0f}s",
+            "yellow",
+        )
+    )
 
     from src.utils.llm.factory import make_llm, load_llm_config
+
     llm = make_llm(timeout_s=HANG_DECISION_TIMEOUT)
     if llm is None:
         return _kill(colored("No LLM available — killing process", "red"))
     _llm_cfg = load_llm_config() or {}
-    _watchdog_max_tokens: int | None = (_llm_cfg.get("system_params") or {}).get("watchdog_max_tokens")
+    _watchdog_max_tokens: int | None = (_llm_cfg.get("system_params") or {}).get(
+        "watchdog_max_tokens"
+    )
 
     # ------------------------------------------------------------------
     # Stage 1 — still processing (WAITING) or waiting for a key (INPUT)?
@@ -90,10 +101,13 @@ def _llm_triage(
         "Reply with exactly one word: WAITING or INPUT."
     )
     try:
-        r1 = llm.fetch([
-            {"role": "system", "content": stage1_system},
-            {"role": "user", "content": buffer_snapshot or "(no output yet)"},
-        ], max_tokens=_watchdog_max_tokens)
+        r1 = llm.fetch(
+            [
+                {"role": "system", "content": stage1_system},
+                {"role": "user", "content": buffer_snapshot or "(no output yet)"},
+            ],
+            max_tokens=_watchdog_max_tokens,
+        )
         decision1 = r1.content.strip().upper()
     except Exception as exc:
         return _kill(colored(f"LLM error in stage 1: {exc} — killing process", "red"))
@@ -114,30 +128,39 @@ def _llm_triage(
         )
         chosen_wait = hang_timeout  # fallback if call fails or answer is invalid
         try:
-            r1b = llm.fetch([
-                {"role": "system", "content": stage1b_system},
-                {"role": "user", "content": buffer_snapshot or "(no output yet)"},
-            ], max_tokens=_watchdog_max_tokens)
+            r1b = llm.fetch(
+                [
+                    {"role": "system", "content": stage1b_system},
+                    {"role": "user", "content": buffer_snapshot or "(no output yet)"},
+                ],
+                max_tokens=_watchdog_max_tokens,
+            )
             raw = r1b.content.strip()
             parsed = float(raw)
             if MIN_EXTENSION_WAIT <= parsed <= MAX_EXTENSION_WAIT:
                 chosen_wait = parsed
-                _log(colored(
-                    f"Stage 1b: next check in {chosen_wait:.0f}s (LLM estimate)",
-                    "cyan",
-                ))
+                _log(
+                    colored(
+                        f"Stage 1b: next check in {chosen_wait:.0f}s (LLM estimate)",
+                        "cyan",
+                    )
+                )
             else:
-                _log(colored(
-                    f"Stage 1b: LLM returned {parsed:.0f}s which is outside "
-                    f"[{MIN_EXTENSION_WAIT}, {MAX_EXTENSION_WAIT}] "
-                    f"— falling back to {hang_timeout:.0f}s",
-                    "yellow",
-                ))
+                _log(
+                    colored(
+                        f"Stage 1b: LLM returned {parsed:.0f}s which is outside "
+                        f"[{MIN_EXTENSION_WAIT}, {MAX_EXTENSION_WAIT}] "
+                        f"— falling back to {hang_timeout:.0f}s",
+                        "yellow",
+                    )
+                )
         except Exception as exc:
-            _log(colored(
-                f"Stage 1b: LLM error ({exc}) — falling back to {hang_timeout:.0f}s",
-                "yellow",
-            ))
+            _log(
+                colored(
+                    f"Stage 1b: LLM error ({exc}) — falling back to {hang_timeout:.0f}s",
+                    "yellow",
+                )
+            )
 
         # Advance last_data_time so the next triage fires in chosen_wait seconds.
         # The watchdog triggers when (now - last_data_time) >= hang_timeout, so:
@@ -166,22 +189,29 @@ def _llm_triage(
         "Reply with either SIMPLE:<chars> or EXOTIC."
     )
     try:
-        r2 = llm.fetch([
-            {"role": "system", "content": stage2_system},
-            {"role": "user", "content": buffer_snapshot or "(no output yet)"},
-        ], max_tokens=_watchdog_max_tokens)
+        r2 = llm.fetch(
+            [
+                {"role": "system", "content": stage2_system},
+                {"role": "user", "content": buffer_snapshot or "(no output yet)"},
+            ],
+            max_tokens=_watchdog_max_tokens,
+        )
         decision2 = r2.content.strip()
     except Exception as exc:
         return _kill(colored(f"LLM error in stage 2: {exc} — killing process", "red"))
 
     if decision2.upper().startswith("SIMPLE:"):
-        keys_raw = decision2[len("SIMPLE:"):].strip()
+        keys_raw = decision2[len("SIMPLE:") :].strip()
         # Unescape \n so the LLM can express Enter literally.
         keys = keys_raw.replace("\\n", "\n")
-        _log(colored(f"Stage 2: SIMPLE keys={keys!r} — injecting and extending timer", "cyan"))
+        _log(
+            colored(
+                f"Stage 2: SIMPLE keys={keys!r} — injecting and extending timer", "cyan"
+            )
+        )
         try:
             proc.stdin.write(keys.encode())  # type: ignore[union-attr]
-            proc.stdin.flush()              # type: ignore[union-attr]
+            proc.stdin.flush()  # type: ignore[union-attr]
         except Exception as exc:
             return _kill(colored(f"stdin write failed: {exc} — killing process", "red"))
         with lock:

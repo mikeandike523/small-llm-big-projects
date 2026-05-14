@@ -1,4 +1,5 @@
 """Orchestrator for all tool tests."""
+
 from __future__ import annotations
 
 import json
@@ -24,6 +25,7 @@ try:
         return colored(str(text), *args, **kwargs)
 
 except ImportError:
+
     def _c(text: str, color=None, on_color=None, attrs=None, **kwargs) -> str:
         return str(text)
 
@@ -35,6 +37,7 @@ def _bold(text: str) -> str:
 # ---------------------------------------------------------------------------
 # Test discovery
 # ---------------------------------------------------------------------------
+
 
 def _discover_tests() -> list[dict]:
     """
@@ -59,11 +62,13 @@ def _discover_tests() -> list[dict]:
             continue
         tool_name = name[5:-3]  # strip "test_" and ".py"
         file_tool_names.add(tool_name)
-        entries.append({
-            "type": "file",
-            "tool_name": tool_name,
-            "module_path": f"tool_tests.individual.{name[:-3]}",
-        })
+        entries.append(
+            {
+                "type": "file",
+                "tool_name": tool_name,
+                "module_path": f"tool_tests.individual.{name[:-3]}",
+            }
+        )
 
     # Collect directories containing checks_*.py files.
     for name in all_names:
@@ -74,19 +79,21 @@ def _discover_tests() -> list[dict]:
         if name in file_tool_names:
             continue  # explicit test file takes precedence
         checks_files = sorted(
-            f for f in os.listdir(os.path.join(individual_dir, name))
+            f
+            for f in os.listdir(os.path.join(individual_dir, name))
             if f.startswith("checks_") and f.endswith(".py")
         )
         if not checks_files:
             continue
-        entries.append({
-            "type": "dir",
-            "tool_name": name,
-            "checks_modules": [
-                f"tool_tests.individual.{name}.{f[:-3]}"
-                for f in checks_files
-            ],
-        })
+        entries.append(
+            {
+                "type": "dir",
+                "tool_name": name,
+                "checks_modules": [
+                    f"tool_tests.individual.{name}.{f[:-3]}" for f in checks_files
+                ],
+            }
+        )
 
     entries.sort(key=lambda e: e["tool_name"])
     return entries
@@ -99,8 +106,7 @@ except ImportError:
     _test_exclusions = {}
 
 _testing_excluded: set[str] = {
-    name for name, flags in _test_exclusions.items()
-    if flags.get("testing") is True
+    name for name, flags in _test_exclusions.items() if flags.get("testing") is True
 }
 
 
@@ -181,7 +187,9 @@ def main() -> int:
 
     test_entries = _discover_tests()
     if _testing_excluded:
-        test_entries = [e for e in test_entries if e["tool_name"] not in _testing_excluded]
+        test_entries = [
+            e for e in test_entries if e["tool_name"] not in _testing_excluded
+        ]
 
     results: list[TestResult] = []
     failed_tools: list[str] = []
@@ -203,6 +211,7 @@ def main() -> int:
                         result = mod.run(env, server=server)
                     except Exception as e:
                         import traceback as _tb
+
                         result = TestResult(
                             tool_name=tool_name,
                             error=f"{type(e).__name__}: {e}",
@@ -246,8 +255,10 @@ def main() -> int:
     # Write static report
     try:
         _write_report(results, results_dir)
-        print(f"\n  {_c('Report written to', 'cyan')} {_c('test_results/', 'white')}  "
-              f"{_c('(run ./tool_tests/view.sh to open)', 'dark_grey')}")
+        print(
+            f"\n  {_c('Report written to', 'cyan')} {_c('test_results/', 'white')}  "
+            f"{_c('(run ./tool_tests/view.sh to open)', 'dark_grey')}"
+        )
     except Exception as e:
         print(f"  {_c('WARNING: could not write report: ' + str(e), 'yellow')}")
 
@@ -269,7 +280,9 @@ def main() -> int:
 
     if skipped_tools:
         print(f"  Graceful skips: {_c(', '.join(skipped_tools), 'yellow')}")
-        print(f"  {_c('(skips may indicate missing mocking — consider adding stubs)', 'dark_grey')}")
+        print(
+            f"  {_c('(skips may indicate missing mocking — consider adding stubs)', 'dark_grey')}"
+        )
 
     return 1 if failed_tools else 0
 

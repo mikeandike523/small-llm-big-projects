@@ -67,7 +67,9 @@ def needs_approval(args: dict) -> bool:
     return False
 
 
-def execute(args: dict, session_data: dict | None = None, special_resources: dict | None = None) -> str:
+def execute(
+    args: dict, session_data: dict | None = None, special_resources: dict | None = None
+) -> str:
     sr = special_resources or {}
     terminal_id = args.get("terminal_id", "")
     mode = args["mode"]

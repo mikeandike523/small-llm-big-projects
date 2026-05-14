@@ -21,12 +21,12 @@ from pathlib import Path
 from python_ripgrep import search as _rg_search
 from src.utils.text_truncation import truncate_long_lines as _truncate_long_lines
 from src.tools._list_dir_utils import (
-        _traverse,
-        _find_gitignore_root,
-        _get_ancestor_matchers,
-        _get_effective_matchers,
-        _collect_flat,
-    )
+    _traverse,
+    _find_gitignore_root,
+    _get_ancestor_matchers,
+    _get_effective_matchers,
+    _collect_flat,
+)
 
 DEFINITION: dict = {
     "type": "function",
@@ -90,8 +90,10 @@ DEFINITION: dict = {
     },
 }
 
+
 def needs_approval(args: dict) -> bool:
     from src.tools._approval import needs_path_approval
+
     return needs_path_approval(args.get("path"))
 
 
@@ -109,7 +111,6 @@ def _in_git_repo(path: str) -> bool:
 
 def _enumerate_gitignored_files(root: str) -> list[str]:
     """Return absolute paths of all non-gitignored files under root."""
-
 
     gitignore_root = _find_gitignore_root(root)
     ancestor_matchers = _get_ancestor_matchers(gitignore_root, root)
@@ -206,7 +207,9 @@ def execute(args: dict, _session_data: dict | None = None) -> str:
             match_lines = lines
         else:
             abs_file_path = lines[0]
-            rel_file_path = os.path.relpath(abs_file_path, search_root).replace("\\", "/")
+            rel_file_path = os.path.relpath(abs_file_path, search_root).replace(
+                "\\", "/"
+            )
             match_lines = lines[1:]
 
         rendered_matches: list[str] = []
@@ -215,7 +218,7 @@ def execute(args: dict, _session_data: dict | None = None) -> str:
             if colon_pos == -1:
                 continue
             lineno = raw_line[:colon_pos]
-            content = raw_line[colon_pos + 1:]
+            content = raw_line[colon_pos + 1 :]
 
             # Truncate long lines before highlighting (mirrors rg --max-columns-preview)
             content = _truncate_long_lines(content, max_line_length)

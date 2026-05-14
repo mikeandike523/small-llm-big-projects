@@ -5,7 +5,7 @@ from typing import Optional
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit.key_binding import KeyBindings
-from prompt_toolkit.keys  import Keys
+from prompt_toolkit.keys import Keys
 from termcolor import colored
 
 
@@ -16,6 +16,7 @@ class PromptOutcome:
     submitted=False -> user aborted via Ctrl+C
     text            -> captured buffer contents
     """
+
     submitted: bool
     aborted: bool
     text: str
@@ -65,7 +66,6 @@ def multiline_prompt(
         "Controls: "
         "Enter → newline  •  "
         "Ctrl+J or Alt+Enter → submit  •  "
-
         "Ctrl+C → abort"
     )
     controls_blue = colored(controls_text, "blue")

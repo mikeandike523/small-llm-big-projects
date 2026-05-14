@@ -34,7 +34,9 @@ def test_implicit_manifest_and_subdir_prefixing(tmp_path: Path) -> None:
     )
 
     registry = build_skill_registry(str(tmp_path))
-    custom_entries = {entry["id"]: entry for entry in registry if entry["source"] == "custom"}
+    custom_entries = {
+        entry["id"]: entry for entry in registry if entry["source"] == "custom"
+    }
 
     assert "local_notes" in custom_entries
     assert custom_entries["local_notes"]["autoload"] is False

@@ -49,7 +49,10 @@ def _run_preflight_checks() -> None:
     try:
         r = subprocess.run(["docker", "info"], capture_output=True, timeout=10)
         if r.returncode != 0:
-            _fail("docker daemon running", "docker info returned non-zero — is Docker Desktop running?")
+            _fail(
+                "docker daemon running",
+                "docker info returned non-zero — is Docker Desktop running?",
+            )
         _ok("docker daemon running")
     except FileNotFoundError:
         _fail("docker daemon running", "docker not found in PATH")
@@ -73,11 +76,15 @@ def server():
 
 @server.command(name="run")
 @click.option(
-    "--tool-tracebacks", is_flag=True, default=False,
+    "--tool-tracebacks",
+    is_flag=True,
+    default=False,
     help="When a tool raises an exception, return the full traceback instead of just the error message.",
 )
 @click.option(
-    "--hotfix-gpt-oss-20b-bad-parser", is_flag=True, default=False,
+    "--hotfix-gpt-oss-20b-bad-parser",
+    is_flag=True,
+    default=False,
     help=(
         "Hotfix for OpenRouter models that emit spurious <|channel|> tokens inside tool names. "
         "Strips <|channel|> and everything after it from the tool name; if the remainder is a "
@@ -85,7 +92,9 @@ def server():
     ),
 )
 @click.option(
-    "--hotfix-gpt-oss-20b-bad-void-call", is_flag=True, default=False,
+    "--hotfix-gpt-oss-20b-bad-void-call",
+    is_flag=True,
+    default=False,
     help=(
         "Hotfix for OpenRouter models that pass spurious arguments to void tools (tools with no "
         "defined parameters). If a tool has no properties in its DEFINITION, any LLM-provided "
@@ -93,14 +102,18 @@ def server():
     ),
 )
 @click.option(
-    "--hotfix-suite-gpt-oss-20b", is_flag=True, default=False,
+    "--hotfix-suite-gpt-oss-20b",
+    is_flag=True,
+    default=False,
     help=(
         "Enable all gpt-oss-20b hotfixes at once "
         "(equivalent to --hotfix-gpt-oss-20b-bad-parser and --hotfix-gpt-oss-20b-bad-void-call)."
     ),
 )
 @click.option(
-    "--trace-folder-max-gb", default=None, type=float,
+    "--trace-folder-max-gb",
+    default=None,
+    type=float,
     help=(
         "Maximum size in GB for the .slbp-traces folder. When saving traces would "
         "exceed this limit, oldest trace files are deleted until under the limit. "
@@ -108,11 +121,15 @@ def server():
     ),
 )
 @click.option(
-    "--dashboard-port", default=None, type=int,
+    "--dashboard-port",
+    default=None,
+    type=int,
     help="Port for the UI/dashboard server. Defaults to a random free port.",
 )
 @click.option(
-    "--proxy-port", default=None, type=int,
+    "--proxy-port",
+    default=None,
+    type=int,
     help=(
         "Port for the gateway proxy (single public entry point). Defaults to a random free port. "
         "Useful for VM/containerized deployments where a fixed entry point is required."
@@ -151,18 +168,22 @@ def server_run(
             active_token = kv.get_value(prefix + "active_token")
             model_val = kv.get_value(prefix + "model")
         if not active_token:
-            click.echo(click.style(
-                f"Error: No active token set for profile '{profile}'. "
-                "Use 'slbp token use <provider>' to set one.",
-                fg="red",
-            ))
+            click.echo(
+                click.style(
+                    f"Error: No active token set for profile '{profile}'. "
+                    "Use 'slbp token use <provider>' to set one.",
+                    fg="red",
+                )
+            )
             raise SystemExit(1)
         if not model_val:
-            click.echo(click.style(
-                "Warning: No model set. The platform may automatically choose a model. "
-                "This is not recommended.",
-                fg="yellow",
-            ))
+            click.echo(
+                click.style(
+                    "Warning: No model set. The platform may automatically choose a model. "
+                    "This is not recommended.",
+                    fg="yellow",
+                )
+            )
     except SystemExit:
         raise
     except Exception as exc:
@@ -177,7 +198,9 @@ def server_run(
     gw_port = proxy_port if proxy_port is not None else find_free_port()
 
     write_state(flask_port=flask_port, ui_port=ui_port, proxy_port=gw_port)
-    click.echo(f"[slbp] Allocated ports - proxy:{gw_port}  flask:{flask_port}  ui:{ui_port}")
+    click.echo(
+        f"[slbp] Allocated ports - proxy:{gw_port}  flask:{flask_port}  ui:{ui_port}"
+    )
     click.echo(f"[slbp] Workspace: {workspace_dir}")
 
     server_cwd = os.getcwd()
@@ -222,7 +245,9 @@ def server_run(
 
     click.echo("[slbp] Starting server processes. Press Ctrl+C to stop.")
     click.echo(f"[slbp] Gateway: http://localhost:{gw_port}/")
-    click.echo("[slbp] Run `slbp session new` to open a new session, or `slbp dashboard` to open the dashboard.")
+    click.echo(
+        "[slbp] Run `slbp session new` to open a new session, or `slbp dashboard` to open the dashboard."
+    )
 
     try:
         run_processes(processes)

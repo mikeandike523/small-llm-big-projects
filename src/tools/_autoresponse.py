@@ -35,7 +35,9 @@ class AutoResponse:
 
     # Compiled patterns cached after first use
     _compiled_output: re.Pattern | None = field(default=None, init=False, repr=False)
-    _compiled_commands: list[re.Pattern] = field(default_factory=list, init=False, repr=False)
+    _compiled_commands: list[re.Pattern] = field(
+        default_factory=list, init=False, repr=False
+    )
 
     def __post_init__(self) -> None:
         self._compiled_output = re.compile(self.output_pattern, re.IGNORECASE)
@@ -50,10 +52,7 @@ class AutoResponse:
         """
         if len(self._compiled_commands) > len(argv):
             return False
-        return all(
-            pat.search(arg)
-            for pat, arg in zip(self._compiled_commands, argv)
-        )
+        return all(pat.search(arg) for pat, arg in zip(self._compiled_commands, argv))
 
     def matches_output(self, text: str) -> bool:
         assert self._compiled_output is not None
@@ -80,23 +79,19 @@ KNOWN_AUTORESPONSES: list[AutoResponse] = [
         output_pattern=r"Ok to proceed",
         response="y\n",
     ),
-
     # Add more rules here as needed. Uncomment and adapt these examples:
-
     # AutoResponse(
     #     description="npm init: 'Is this OK?' -> y + Enter",
     #     command_patterns=[r"^npm$", r"^init$"],
     #     output_pattern=r"Is this OK\?",
     #     response="y\n",
     # ),
-
     # AutoResponse(
     #     description="pip install: 'Proceed? [y/N]' -> y + Enter",
     #     command_patterns=[r"^pip\d*$", r"^install$"],
     #     output_pattern=r"Proceed\?\s*\[y/N\]",
     #     response="y\n",
     # ),
-
     # AutoResponse(
     #     description="Any prompt ending with '(y)' or '[y/n]' -> Enter (accept default)",
     #     command_patterns=[],   # empty = matches any command

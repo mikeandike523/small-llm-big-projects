@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from src.terminal.shell_resolver import resolve_cmd
 
-
 DEFINITION = {
     "type": "function",
     "function": {
@@ -52,7 +51,9 @@ def needs_approval(args: dict) -> bool:
     return True
 
 
-def execute(args: dict, session_data: dict | None = None, special_resources: dict | None = None) -> str:
+def execute(
+    args: dict, session_data: dict | None = None, special_resources: dict | None = None
+) -> str:
     sr = special_resources or {}
     command = args["command"]
     command_args = args.get("command_args", [])

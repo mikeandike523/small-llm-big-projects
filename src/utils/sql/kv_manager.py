@@ -14,7 +14,6 @@ from typing import (
 
 from mysql.connector.cursor import MySQLCursor, MySQLCursorDict
 
-
 # ---- JSON typing ----
 JSONScalar: TypeAlias = str | int | float | bool | None
 JSONValue: TypeAlias = JSONScalar | list["JSONValue"] | dict[str, "JSONValue"]
@@ -32,6 +31,7 @@ class ConnLike(Protocol):
 # ---------------------------------------------------------------------------
 # Directory hashing utilities — kept for future knowledge-base scoping
 # ---------------------------------------------------------------------------
+
 
 def canonical_project_path(project: str) -> str:
     """Canonicalize a directory path for stable identity across platforms."""
@@ -53,6 +53,7 @@ def project_path_hash(project: str) -> tuple[str, bytes]:
 # ---------------------------------------------------------------------------
 # KVManager — global kv_store (system config, params, profiles)
 # ---------------------------------------------------------------------------
+
 
 class KVManager:
     """Thin, stateless wrapper over the global kv_store table.

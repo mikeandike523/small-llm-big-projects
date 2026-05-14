@@ -68,7 +68,9 @@ def run_docker_compose(
     return subprocess.run(cmd, cwd=effective_cwd, **subprocess_kwargs)
 
 
-def get_service_port(service: str, container_port: int, cwd: Path | str | None = None) -> int:
+def get_service_port(
+    service: str, container_port: int, cwd: Path | str | None = None
+) -> int:
     """Return the host port mapped to container_port for the given service.
 
     Uses `docker compose port <service> <container_port>` to discover the

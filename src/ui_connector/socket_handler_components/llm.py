@@ -10,8 +10,13 @@ import httpx
 
 import src.ui_connector.socket_handler_components.state as _state
 from src.ui_connector.app import socketio
-from src.ui_connector.socket_handler_components.emit import _emit_and_log, _emit_content_snapshot
-from src.ui_connector.socket_handler_components.session_store import _get_session_system_prompt
+from src.ui_connector.socket_handler_components.emit import (
+    _emit_and_log,
+    _emit_content_snapshot,
+)
+from src.ui_connector.socket_handler_components.session_store import (
+    _get_session_system_prompt,
+)
 from src.tools import ALL_TOOL_DEFINITIONS
 from src.utils.llm.streaming import StreamingLLM
 from src.utils.session_model import Session, Turn, Subturn
@@ -22,6 +27,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Message sanitization
 # ---------------------------------------------------------------------------
+
 
 def sanitize_messages_for_llm(messages: list[dict]) -> list[dict]:
     """Return a new list with all non-OpenAI-spec keys removed from every message."""
@@ -34,6 +40,7 @@ def sanitize_messages_for_llm(messages: list[dict]) -> list[dict]:
 # ---------------------------------------------------------------------------
 # Payload construction
 # ---------------------------------------------------------------------------
+
 
 def _subturn_final_response(subturn: Subturn) -> str:
     """Extract the final response text from a subturn's exchanges."""
@@ -76,17 +83,23 @@ def _build_llm_payload(
     for turn in session.completed_turns:
         for subturn in turn.subturns:
             messages.append({"role": "user", "content": subturn.user_text_with_context})
-            messages.append({"role": "assistant", "content": _subturn_assistant_context(subturn)})
+            messages.append(
+                {"role": "assistant", "content": _subturn_assistant_context(subturn)}
+            )
 
     prior_subturns = current_turn.subturns[:-1]
     live_subturn = current_turn.subturns[-1] if current_turn.subturns else None
 
     for subturn in prior_subturns:
         messages.append({"role": "user", "content": subturn.user_text_with_context})
-        messages.append({"role": "assistant", "content": _subturn_assistant_context(subturn)})
+        messages.append(
+            {"role": "assistant", "content": _subturn_assistant_context(subturn)}
+        )
 
     if live_subturn:
-        messages.append({"role": "user", "content": live_subturn.user_text_with_context})
+        messages.append(
+            {"role": "user", "content": live_subturn.user_text_with_context}
+        )
         for exchange in live_subturn.exchanges:
             messages.extend(exchange.to_messages())
 
@@ -96,6 +109,7 @@ def _build_llm_payload(
 # ---------------------------------------------------------------------------
 # Context-limit detection helpers
 # ---------------------------------------------------------------------------
+
 
 def _is_context_limit_error(exc: Exception) -> bool:
     try:
@@ -115,6 +129,7 @@ def _is_context_limit_error(exc: Exception) -> bool:
 # ---------------------------------------------------------------------------
 # Async LLM call abstraction
 # ---------------------------------------------------------------------------
+
 
 async def _async_run_llm_call(
     streaming_llm: StreamingLLM,
@@ -138,27 +153,47 @@ async def _async_run_llm_call(
         nonlocal token_count
         if chunk.get("reasoning"):
             acc["reasoning"] += chunk["reasoning"]
-            socketio.emit("token", {
-                "type": "reasoning", "text": chunk["reasoning"],
-                "turn_id": turn_id,
-            }, room=session_id)
+            socketio.emit(
+                "token",
+                {
+                    "type": "reasoning",
+                    "text": chunk["reasoning"],
+                    "turn_id": turn_id,
+                },
+                room=session_id,
+            )
         if chunk.get("content"):
             acc["content"] += chunk["content"]
             if not suppress_content_streaming:
-                socketio.emit("token", {
-                    "type": "content", "text": chunk["content"],
-                    "turn_id": turn_id,
-                }, room=session_id)
+                socketio.emit(
+                    "token",
+                    {
+                        "type": "content",
+                        "text": chunk["content"],
+                        "turn_id": turn_id,
+                    },
+                    room=session_id,
+                )
             token_count += 1
             if token_count % 50 == 0:
-                _emit_content_snapshot(session_id, turn_id, subturn_id, exchange_idx, acc["content"], acc["reasoning"])
+                _emit_content_snapshot(
+                    session_id,
+                    turn_id,
+                    subturn_id,
+                    exchange_idx,
+                    acc["content"],
+                    acc["reasoning"],
+                )
 
     result = await streaming_llm.stream(
-        sanitize_messages_for_llm(payload), on_data,
+        sanitize_messages_for_llm(payload),
+        on_data,
         tools=(tool_defs if tool_defs is not None else ALL_TOOL_DEFINITIONS),
         record=record,
     )
-    _emit_content_snapshot(session_id, turn_id, subturn_id, exchange_idx, acc["content"], acc["reasoning"])
+    _emit_content_snapshot(
+        session_id, turn_id, subturn_id, exchange_idx, acc["content"], acc["reasoning"]
+    )
 
     if result.trace is not None:
         result.trace.turn_id = turn_id
@@ -183,7 +218,17 @@ async def _async_run_llm_call_with_retry(
 ) -> tuple[object, str, str]:
     """Run an async LLM call; surfaces a user-friendly error on context-limit."""
     try:
-        return await _async_run_llm_call(streaming_llm, payload, session_id, turn_id, subturn_id, exchange_idx, tool_defs, suppress_content_streaming, record=record)
+        return await _async_run_llm_call(
+            streaming_llm,
+            payload,
+            session_id,
+            turn_id,
+            subturn_id,
+            exchange_idx,
+            tool_defs,
+            suppress_content_streaming,
+            record=record,
+        )
     except Exception as exc:
         if _is_context_limit_error(exc):
             raise RuntimeError(
@@ -196,6 +241,7 @@ async def _async_run_llm_call_with_retry(
 # ---------------------------------------------------------------------------
 # Trace save helpers
 # ---------------------------------------------------------------------------
+
 
 def _build_traces_xml(session_id: str, entries: list) -> str:
     """Serialize a list of TraceEntry objects to an XML string."""
@@ -224,13 +270,19 @@ def _build_traces_xml(session_id: str, entries: list) -> str:
             tc_el = ET.SubElement(tcs_el, "tool_call")
             tc_el.set("id", tc.id)
             tc_el.set("name", tc.name)
-            ET.SubElement(tc_el, "arguments").text = json.dumps(tc.arguments, ensure_ascii=False)
+            ET.SubElement(tc_el, "arguments").text = json.dumps(
+                tc.arguments, ensure_ascii=False
+            )
 
         if entry.usage is not None:
-            ET.SubElement(resp_el, "usage").text = json.dumps(entry.usage, ensure_ascii=False)
+            ET.SubElement(resp_el, "usage").text = json.dumps(
+                entry.usage, ensure_ascii=False
+            )
 
     ET.indent(root, space="  ")
-    return '<?xml version="1.0" encoding="utf-8"?>\n' + ET.tostring(root, encoding="unicode")
+    return '<?xml version="1.0" encoding="utf-8"?>\n' + ET.tostring(
+        root, encoding="unicode"
+    )
 
 
 def _rotate_traces_folder() -> None:
@@ -238,6 +290,7 @@ def _rotate_traces_folder() -> None:
     if _state._trace_folder_max_bytes is None:
         return
     from pathlib import Path
+
     files = sorted(
         Path(_state._traces_dir).glob("*.xml"),
         key=lambda p: p.stat().st_mtime,

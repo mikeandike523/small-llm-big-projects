@@ -4,7 +4,11 @@ from src.cli_obj import cli
 from src.cli_routes.param import _ALLOWED_PARAMS
 from src.data import get_pool
 from src.utils.sql.kv_manager import KVManager
-from src.utils.profile_utils import get_active_profile, _kv_prefix, validate_profile_name
+from src.utils.profile_utils import (
+    get_active_profile,
+    _kv_prefix,
+    validate_profile_name,
+)
 
 
 def _mask_token(token_value: str) -> str:
@@ -38,7 +42,9 @@ def _profile_verbose_lines(conn, kv, name: str) -> list[str]:
             )
             row = cursor.fetchone()
         if row:
-            lines.append(f"  token : {provider} / {token_display} ({_mask_token(row[0])})")
+            lines.append(
+                f"  token : {provider} / {token_display} ({_mask_token(row[0])})"
+            )
         else:
             lines.append(f"  token : {provider} / {token_display} (not found in DB)")
     else:
@@ -46,12 +52,14 @@ def _profile_verbose_lines(conn, kv, name: str) -> list[str]:
 
     lines.append(f"  model : {model_name or '(none)'}")
 
-    visible_param_keys = [k for k in param_keys if k[len(prefix + "params."):] in _ALLOWED_PARAMS]
+    visible_param_keys = [
+        k for k in param_keys if k[len(prefix + "params.") :] in _ALLOWED_PARAMS
+    ]
     if visible_param_keys:
         params_prefix = prefix + "params."
         parts = []
         for key in visible_param_keys:
-            param_name = key[len(params_prefix):]
+            param_name = key[len(params_prefix) :]
             val = kv.get_value(key)
             parts.append(f"{param_name}={val}")
         lines.append(f"  params: {' '.join(parts)}")
@@ -139,7 +147,9 @@ def sub_cmd_use(name: str):
                 click.echo(f"Error: {err}")
                 raise SystemExit(1)
             with conn.cursor() as cursor:
-                cursor.execute("SELECT 1 FROM profiles WHERE name = %s LIMIT 1", (name,))
+                cursor.execute(
+                    "SELECT 1 FROM profiles WHERE name = %s LIMIT 1", (name,)
+                )
                 if cursor.fetchone() is None:
                     click.echo(f"Error: Profile '{name}' does not exist.")
                     raise SystemExit(1)
@@ -149,7 +159,13 @@ def sub_cmd_use(name: str):
 
 
 @profile.command(name="show")
-@click.option("--verbose", "-v", is_flag=True, default=False, help="Show token, model, and params.")
+@click.option(
+    "--verbose",
+    "-v",
+    is_flag=True,
+    default=False,
+    help="Show token, model, and params.",
+)
 def sub_cmd_show(verbose: bool):
     """Show the active profile."""
     pool = get_pool()
@@ -167,7 +183,13 @@ def sub_cmd_show(verbose: bool):
 
 
 @profile.command(name="list")
-@click.option("--verbose", "-v", is_flag=True, default=False, help="Show token, model, and params for each profile.")
+@click.option(
+    "--verbose",
+    "-v",
+    is_flag=True,
+    default=False,
+    help="Show token, model, and params for each profile.",
+)
 def sub_cmd_list(verbose: bool):
     """List all profiles."""
     pool = get_pool()
@@ -233,11 +255,13 @@ def sub_cmd_migrate(name: str):
             for src_key in src_keys:
                 val = kv.get_value(src_key)
                 if val is not None:
-                    kv.set_value(dst_prefix + src_key[len(src_prefix):], val)
+                    kv.set_value(dst_prefix + src_key[len(src_prefix) :], val)
 
         with conn.cursor() as cursor:
             cursor.execute("INSERT INTO profiles (name) VALUES (%s)", (name,))
         kv.set_value("active_profile", name)
         conn.commit()
 
-    click.echo(f"Migrated '{active_profile}' configuration to profile '{name}'. Now active.")
+    click.echo(
+        f"Migrated '{active_profile}' configuration to profile '{name}'. Now active."
+    )

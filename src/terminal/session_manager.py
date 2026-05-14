@@ -14,9 +14,7 @@ _SCROLLBACK = 10_000
 def _render_line(line, columns: int) -> str:
     # History lines are plain dict copies (not defaultdict), so unwritten
     # columns are absent — fall back to a space for missing cells.
-    return "".join(
-        getattr(line.get(x), "data", " ") for x in range(columns)
-    ).rstrip()
+    return "".join(getattr(line.get(x), "data", " ") for x in range(columns)).rstrip()
 
 
 @dataclass
@@ -46,10 +44,7 @@ class TerminalSession:
     def read_lines(self, mode: str, num_lines: int | None = None) -> str:
         with self._pyte_lock:
             cols = self._screen.columns
-            history = [
-                _render_line(line, cols)
-                for line in self._screen.history.top
-            ]
+            history = [_render_line(line, cols) for line in self._screen.history.top]
             visible = [line.rstrip() for line in self._screen.display]
 
         if mode == "screen":
@@ -61,7 +56,7 @@ class TerminalSession:
             result = all_lines[: num_lines or 50]
         elif mode == "tail":
             all_lines = history + visible
-            result = all_lines[-(num_lines or 50):]
+            result = all_lines[-(num_lines or 50) :]
         else:
             return f"Error: Unknown mode {mode!r}. Use head, tail, screen, or all."
 
@@ -114,6 +109,7 @@ class TerminalSessionManager:
         """
         import os
         import uuid
+
         shell_cmd = cmd if cmd is not None else resolve_shell()
         # Always declare the terminal type explicitly. Without TERM, ncurses
         # programs (clear, vim, etc.) refuse to run. We use xterm-256color
@@ -154,9 +150,7 @@ class TerminalSessionManager:
         """Remove sessions whose process has already exited. Returns count removed."""
         with self._lock:
             dead = [
-                sid
-                for sid, s in self._sessions.items()
-                if not s.process.is_alive()
+                sid for sid, s in self._sessions.items() if not s.process.is_alive()
             ]
             for sid in dead:
                 del self._sessions[sid]

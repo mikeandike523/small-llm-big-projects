@@ -5,9 +5,10 @@ from src.cli_obj import cli
 from src.utils.sql.kv_manager import KVManager
 from src.utils.profile_utils import get_active_profile, _kv_prefix
 
+
 @cli.group()
-def model():
-    ...
+def model(): ...
+
 
 @model.command(name="use")
 @click.argument("model_name", type=str, required=False)
@@ -23,7 +24,10 @@ def sub_cmd_use(model_name):
         prefix = _kv_prefix(profile)
         kv.set_value(prefix + "model", model_name)
         conn.commit()
-    click.echo(f"Set current model to: {model_name or '(not set)'}  (profile: {profile})")
+    click.echo(
+        f"Set current model to: {model_name or '(not set)'}  (profile: {profile})"
+    )
+
 
 @model.command(name="show")
 def sub_cmd_show():
@@ -37,6 +41,3 @@ def sub_cmd_show():
         prefix = _kv_prefix(profile)
         model_name = kv.get_value(prefix + "model") or None
     click.echo(f"Current model name: {model_name or '(not set)'}  (profile: {profile})")
-
-
-        

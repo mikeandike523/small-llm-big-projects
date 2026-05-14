@@ -21,8 +21,15 @@ DEFINITION: dict = {
                 "action": {
                     "type": "string",
                     "enum": [
-                        "get", "set", "delete", "list",
-                        "append", "concat", "copy", "rename", "extract_json",
+                        "get",
+                        "set",
+                        "delete",
+                        "list",
+                        "append",
+                        "concat",
+                        "copy",
+                        "rename",
+                        "extract_json",
                         "search_by_regex",
                     ],
                     "description": (
@@ -172,6 +179,7 @@ def needs_approval(args: dict) -> bool:
 
 # ---- helpers -----------------------------------------------------------------
 
+
 def _value_to_str(value, interpret: bool) -> str:
     if interpret and isinstance(value, str):
         return value
@@ -211,6 +219,7 @@ def _traverse(value, steps: list[str]):
 
 
 # ---- action implementations --------------------------------------------------
+
 
 def _do_get(args: dict, memory: dict) -> str:
     key = args.get("key")
@@ -284,7 +293,9 @@ def _do_concat(args: dict, memory: dict) -> str:
     key_b = args.get("key_b")
     dest_key = args.get("dest_key")
     if not key_a or not key_b or not dest_key:
-        return "Error: 'key_a', 'key_b', and 'dest_key' are required for action 'concat'."
+        return (
+            "Error: 'key_a', 'key_b', and 'dest_key' are required for action 'concat'."
+        )
     value_a = memory.get(key_a)
     value_b = memory.get(key_b)
     if value_a is not None and not isinstance(value_a, str):

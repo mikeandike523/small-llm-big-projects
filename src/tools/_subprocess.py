@@ -18,10 +18,10 @@ class SubprocessResult:
         parts = [
             "SUCCESS" if self.success else "ERROR",
             f"EXIT CODE: {self.returncode}" if not self.success else None,
-            "STDOUT:\n\n"+self.stdout if self.stdout else None,
-            "STDERR:\n\n"+self.stderr if self.stderr else None
-              ]
-        return "\n\n".join(filter(lambda x: (x or '').strip(), parts)).strip()
+            "STDOUT:\n\n" + self.stdout if self.stdout else None,
+            "STDERR:\n\n" + self.stderr if self.stderr else None,
+        ]
+        return "\n\n".join(filter(lambda x: (x or "").strip(), parts)).strip()
 
 
 def run_command(

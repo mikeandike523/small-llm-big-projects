@@ -15,9 +15,11 @@ from typing import TYPE_CHECKING
 
 if sys.platform == "win32":
     import winpty as _backend  # pywinpty
+
     _BackendClass = _backend.PtyProcess
 else:
     import ptyprocess as _backend  # ptyprocess
+
     _BackendClass = _backend.PtyProcess  # bytes I/O
 
 

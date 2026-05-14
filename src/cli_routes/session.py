@@ -21,30 +21,42 @@ def session():
 
 @session.command(name="new")
 @click.option(
-    '--load-skills', is_flag=True, default=False,
-    help='Load custom skills from a skills/ directory in the working directory of this session.',
+    "--load-skills",
+    is_flag=True,
+    default=False,
+    help="Load custom skills from a skills/ directory in the working directory of this session.",
 )
 @click.option(
-    '--load-tools', is_flag=True, default=False,
-    help='Load custom tools from a tools/ directory in the working directory of this session.',
+    "--load-tools",
+    is_flag=True,
+    default=False,
+    help="Load custom tools from a tools/ directory in the working directory of this session.",
 )
 @click.option(
-    '--load-startup-tool-calls', is_flag=True, default=False,
-    help='Execute tool calls from startup_tool_calls.json in the working directory on session start.',
+    "--load-startup-tool-calls",
+    is_flag=True,
+    default=False,
+    help="Execute tool calls from startup_tool_calls.json in the working directory on session start.",
 )
 @click.option(
-    '--cwd', default=None,
-    help='Working directory for this session. Defaults to the current directory.',
+    "--cwd",
+    default=None,
+    help="Working directory for this session. Defaults to the current directory.",
 )
 @click.option(
-    '--enable-trace-recording', '--etr', is_flag=True, default=False,
+    "--enable-trace-recording",
+    "--etr",
+    is_flag=True,
+    default=False,
     help=(
-        'Record every LLM completion (full request payload + response) in memory '
+        "Record every LLM completion (full request payload + response) in memory "
         'for this session. Use the "Save fine-tuning traces" button in the UI to '
-        'flush the buffer to disk as an XML file.'
+        "flush the buffer to disk as an XML file."
     ),
 )
-def session_new(load_skills, load_tools, load_startup_tool_calls, cwd, enable_trace_recording):
+def session_new(
+    load_skills, load_tools, load_startup_tool_calls, cwd, enable_trace_recording
+):
     """
     Create a new agentic session and open it in the default web browser.
 
@@ -63,7 +75,9 @@ def session_new(load_skills, load_tools, load_startup_tool_calls, cwd, enable_tr
             val = kv.get_value(f"{prefix}params.model.irat")
         interim_response_as_thinking = val if val is not None else False
     except Exception as exc:
-        raise click.ClickException(f"Failed to load session defaults from database: {exc}")
+        raise click.ClickException(
+            f"Failed to load session defaults from database: {exc}"
+        )
 
     state = read_state()
     if state is None:
@@ -89,7 +103,9 @@ def session_new(load_skills, load_tools, load_startup_tool_calls, cwd, enable_tr
     if load_tools:
         payload["custom_tools_path"] = os.path.join(session_cwd, "tools")
     if load_startup_tool_calls:
-        payload["startup_tool_calls_path"] = os.path.join(session_cwd, "startup_tool_calls.json")
+        payload["startup_tool_calls_path"] = os.path.join(
+            session_cwd, "startup_tool_calls.json"
+        )
 
     try:
         response = httpx.post(

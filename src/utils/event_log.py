@@ -57,9 +57,11 @@ def get_events_since(r: redis.Redis, session_id: str, last_id: str) -> list[dict
             data = json.loads(fields.get("data", "{}"))
         except (json.JSONDecodeError, TypeError):
             data = {}
-        result.append({
-            "id": entry_id,
-            "type": fields.get("type", ""),
-            "data": data,
-        })
+        result.append(
+            {
+                "id": entry_id,
+                "type": fields.get("type", ""),
+                "data": data,
+            }
+        )
     return result

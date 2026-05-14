@@ -1,6 +1,5 @@
 import logging
 
-
 logger = logging.getLogger(__name__)
 
 # Maximum seconds the LLM is given to respond during any single triage call.
@@ -19,5 +18,5 @@ HANG_DECISION_TIMEOUT = 30  # seconds
 # MAX_EXTENSION_WAIT: longest single extension the LLM may request. Prevents
 #   indefinite deferral — but note the overall command timeout is the true hard
 #   cap; extensions simply control how often we re-check.
-MIN_EXTENSION_WAIT = 15   # seconds
+MIN_EXTENSION_WAIT = 15  # seconds
 MAX_EXTENSION_WAIT = 180  # seconds

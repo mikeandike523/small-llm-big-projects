@@ -54,6 +54,7 @@ def dirty_effects(args: dict) -> dict:
 
 def needs_approval(args: dict) -> bool:
     from src.tools._approval import needs_path_approval
+
     return needs_path_approval(args.get("path"))
 
 
@@ -64,7 +65,9 @@ def execute(args: dict, session_data: dict) -> str:
     create_parents: bool = args.get("create_parents", False)
 
     if content is not None and session_memory_key is not None:
-        return "Error: provide exactly one of 'content' or 'session_memory_key', not both."
+        return (
+            "Error: provide exactly one of 'content' or 'session_memory_key', not both."
+        )
     if content is None and session_memory_key is None:
         return "Error: one of 'content' or 'session_memory_key' is required."
 

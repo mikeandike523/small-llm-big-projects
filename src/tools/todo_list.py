@@ -212,17 +212,23 @@ def _resolve_item(
         if seg < 1 or seg > count:
             path_str = ".".join(str(s) for s in segments[: i + 1])
             hint = _context_hint(segments[:i])
-            return None, None, (
-                f"Item '{path_str}' does not exist — "
-                f"the containing list has {count} {noun}. {hint}"
+            return (
+                None,
+                None,
+                (
+                    f"Item '{path_str}' does not exist — "
+                    f"the containing list has {count} {noun}. {hint}"
+                ),
             )
         item = current[seg - 1]
         sub = item.get("sub_list")
         if not sub:
             path_str = ".".join(str(s) for s in segments[: i + 1])
             hint = _context_hint(segments[:i])
-            return None, None, (
-                f"Item '{path_str}' has no children to navigate through. {hint}"
+            return (
+                None,
+                None,
+                (f"Item '{path_str}' has no children to navigate through. {hint}"),
             )
         current = sub
 
@@ -232,9 +238,13 @@ def _resolve_item(
     if last < 1 or last > count:
         path_str = ".".join(str(s) for s in segments)
         hint = _context_hint(segments[:-1])
-        return None, None, (
-            f"Item '{path_str}' does not exist — "
-            f"the containing list has {count} {noun}. {hint}"
+        return (
+            None,
+            None,
+            (
+                f"Item '{path_str}' does not exist — "
+                f"the containing list has {count} {noun}. {hint}"
+            ),
         )
 
     return current, last, None
@@ -315,9 +325,7 @@ def _compute_path(parent_segs: list[int], child_pos: int) -> str:
     return ".".join(str(s) for s in (parent_segs + [child_pos]))
 
 
-def _fmt_item(
-    items: list, idx: int, path_prefix: list[int] | None = None
-) -> dict:
+def _fmt_item(items: list, idx: int, path_prefix: list[int] | None = None) -> dict:
     """Return a serialisable item dict with full item_path, recursively including children."""
     item = items[idx]
     current_path = (path_prefix or []) + [idx + 1]
@@ -384,18 +392,20 @@ def execute(args: dict, session_data: dict | None = None) -> str:
             item = parent_list[last - 1]
             sub = item.get("sub_list")
             if not sub:
-                return json.dumps({
-                    "error": (
-                        f"Item '{item_path_str}' has no children. "
-                        "Use list() to see the full tree."
-                    )
-                })
-            return json.dumps({
-                "items": [_fmt_item(sub, j, segs) for j in range(len(sub))]
-            })
-        return json.dumps({
-            "items": [_fmt_item(root_items, i) for i in range(len(root_items))]
-        })
+                return json.dumps(
+                    {
+                        "error": (
+                            f"Item '{item_path_str}' has no children. "
+                            "Use list() to see the full tree."
+                        )
+                    }
+                )
+            return json.dumps(
+                {"items": [_fmt_item(sub, j, segs) for j in range(len(sub))]}
+            )
+        return json.dumps(
+            {"items": [_fmt_item(root_items, i) for i in range(len(root_items))]}
+        )
 
     # ---- list_formatted ----
     if action == "list_formatted":
@@ -409,12 +419,14 @@ def execute(args: dict, session_data: dict | None = None) -> str:
             item = parent_list[last - 1]
             sub = item.get("sub_list")
             if not sub:
-                return json.dumps({
-                    "error": (
-                        f"Item '{item_path_str}' has no children. "
-                        "Use list() to see the full tree."
-                    )
-                })
+                return json.dumps(
+                    {
+                        "error": (
+                            f"Item '{item_path_str}' has no children. "
+                            "Use list() to see the full tree."
+                        )
+                    }
+                )
             return "\n".join(_format_tree(sub, "", segs))
         if not root_items:
             return "(empty todo list)"
@@ -437,13 +449,17 @@ def execute(args: dict, session_data: dict | None = None) -> str:
         if action == "add_item" and not text:
             return json.dumps({"error": "add_item requires text."})
         if action == "add_many_items" and not texts:
-            return json.dumps({
-                "error": "add_many_items requires texts (a non-empty array of strings)."
-            })
+            return json.dumps(
+                {
+                    "error": "add_many_items requires texts (a non-empty array of strings)."
+                }
+            )
         if before is not None and after is not None:
-            return json.dumps({
-                "error": "before and after are mutually exclusive — provide one or neither."
-            })
+            return json.dumps(
+                {
+                    "error": "before and after are mutually exclusive — provide one or neither."
+                }
+            )
 
         parent_segs, err = _parse_path(parent_path_str)
         if err:
@@ -457,43 +473,55 @@ def execute(args: dict, session_data: dict | None = None) -> str:
 
         if before is not None:
             if n == 0:
-                return json.dumps({
-                    "error": (
-                        f"before={before} cannot be used — {where} is empty. "
-                        "Omit before/after to append the first item."
-                    )
-                })
+                return json.dumps(
+                    {
+                        "error": (
+                            f"before={before} cannot be used — {where} is empty. "
+                            "Omit before/after to append the first item."
+                        )
+                    }
+                )
             if before < 1 or before > n:
                 noun = "item" if n == 1 else "items"
-                return json.dumps({
-                    "error": f"before={before} is out of range — {where} has {n} {noun}."
-                })
+                return json.dumps(
+                    {
+                        "error": f"before={before} is out of range — {where} has {n} {noun}."
+                    }
+                )
             insert_idx = before - 1
         elif after is not None:
             if n == 0:
-                return json.dumps({
-                    "error": (
-                        f"after={after} cannot be used — {where} is empty. "
-                        "Omit before/after to append the first item."
-                    )
-                })
+                return json.dumps(
+                    {
+                        "error": (
+                            f"after={after} cannot be used — {where} is empty. "
+                            "Omit before/after to append the first item."
+                        )
+                    }
+                )
             if after < 1 or after > n:
                 noun = "item" if n == 1 else "items"
-                return json.dumps({
-                    "error": f"after={after} is out of range — {where} has {n} {noun}."
-                })
-            insert_idx = after  # insert after position `after` = at 0-based index `after`
+                return json.dumps(
+                    {
+                        "error": f"after={after} is out of range — {where} has {n} {noun}."
+                    }
+                )
+            insert_idx = (
+                after  # insert after position `after` = at 0-based index `after`
+            )
         else:
             insert_idx = n  # append
 
         if action == "add_item":
             target_list.insert(insert_idx, {"text": text, "status": "open"})
             path_str = _compute_path(parent_segs, insert_idx + 1)
-            return json.dumps({
-                "item_path": path_str,
-                "text": text,
-                "message": f"Added item '{path_str}': \"{text}\"",
-            })
+            return json.dumps(
+                {
+                    "item_path": path_str,
+                    "text": text,
+                    "message": f"Added item '{path_str}': \"{text}\"",
+                }
+            )
         else:  # add_many_items
             new_items = [{"text": t, "status": "open"} for t in texts]
             target_list[insert_idx:insert_idx] = new_items
@@ -501,10 +529,14 @@ def execute(args: dict, session_data: dict | None = None) -> str:
                 _compute_path(parent_segs, insert_idx + 1 + i)
                 for i in range(len(texts))
             ]
-            return json.dumps({
-                "items": [{"item_path": p, "text": t} for p, t in zip(paths, texts)],
-                "message": f"Added {len(texts)} item(s): {', '.join(paths)}",
-            })
+            return json.dumps(
+                {
+                    "items": [
+                        {"item_path": p, "text": t} for p, t in zip(paths, texts)
+                    ],
+                    "message": f"Added {len(texts)} item(s): {', '.join(paths)}",
+                }
+            )
 
     # ---- update_item ----
     if action == "update_item":
@@ -519,11 +551,13 @@ def execute(args: dict, session_data: dict | None = None) -> str:
         if err:
             return json.dumps({"error": err})
         parent_list[last - 1]["text"] = text
-        return json.dumps({
-            "item_path": item_path_str,
-            "text": text,
-            "message": f"Updated item '{item_path_str}': \"{text}\"",
-        })
+        return json.dumps(
+            {
+                "item_path": item_path_str,
+                "text": text,
+                "message": f"Updated item '{item_path_str}': \"{text}\"",
+            }
+        )
 
     # ---- delete_item ----
     if action == "delete_item":
@@ -537,12 +571,14 @@ def execute(args: dict, session_data: dict | None = None) -> str:
             return json.dumps({"error": err})
         item = parent_list[last - 1]
         if _is_promoted(item) and not cascade_delete:
-            return json.dumps({
-                "error": (
-                    f"Item '{item_path_str}' has children and cannot be deleted without cascade. "
-                    "Delete its children individually first, or retry with cascade_delete=true."
-                )
-            })
+            return json.dumps(
+                {
+                    "error": (
+                        f"Item '{item_path_str}' has children and cannot be deleted without cascade. "
+                        "Delete its children individually first, or retry with cascade_delete=true."
+                    )
+                }
+            )
 
         # Demotion: if this deletion empties a promoted parent, capture its derived
         # status now (before the child disappears) then demote it back to a leaf.
@@ -560,11 +596,13 @@ def execute(args: dict, session_data: dict | None = None) -> str:
             owner_item.pop("sub_list", None)
             owner_item["status"] = captured_status
 
-        return json.dumps({
-            "item_path": item_path_str,
-            "text": removed["text"],
-            "message": f"Deleted item '{item_path_str}': \"{removed['text']}\"",
-        })
+        return json.dumps(
+            {
+                "item_path": item_path_str,
+                "text": removed["text"],
+                "message": f"Deleted item '{item_path_str}': \"{removed['text']}\"",
+            }
+        )
 
     # ---- close_item ----
     if action == "close_item":
@@ -578,27 +616,35 @@ def execute(args: dict, session_data: dict | None = None) -> str:
             return json.dumps({"error": err})
         item = parent_list[last - 1]
         if _is_promoted(item):
-            return json.dumps({
-                "error": (
-                    f"Item '{item_path_str}' is a sub-list parent and cannot be closed directly. "
-                    "It closes automatically when all its children are closed. "
-                    f"Use list(item_path='{item_path_str}') to inspect its children."
-                )
-            })
+            return json.dumps(
+                {
+                    "error": (
+                        f"Item '{item_path_str}' is a sub-list parent and cannot be closed directly. "
+                        "It closes automatically when all its children are closed. "
+                        f"Use list(item_path='{item_path_str}') to inspect its children."
+                    )
+                }
+            )
         item["status"] = "closed"
         msg = f"Closed item '{item_path_str}': \"{item['text']}\""
         if root_items and _all_closed(root_items):
             msg += " -- all todo list items are now complete"
-        return json.dumps({
-            "item_path": item_path_str,
-            "status": "closed",
-            "message": msg,
-        })
+        return json.dumps(
+            {
+                "item_path": item_path_str,
+                "status": "closed",
+                "message": msg,
+            }
+        )
 
     # ---- close_many_items ----
     if action == "close_many_items":
         if not item_paths:
-            return json.dumps({"error": "close_many_items requires item_paths (a non-empty array of path strings)."})
+            return json.dumps(
+                {
+                    "error": "close_many_items requires item_paths (a non-empty array of path strings)."
+                }
+            )
         closed_list: list[dict] = []
         errors_list: list[dict] = []
         for path_str in item_paths:
@@ -612,13 +658,15 @@ def execute(args: dict, session_data: dict | None = None) -> str:
                 continue
             item = parent_list[last - 1]
             if _is_promoted(item):
-                errors_list.append({
-                    "item_path": path_str,
-                    "error": (
-                        f"Item '{path_str}' is a sub-list parent and cannot be closed directly. "
-                        "It closes automatically when all its children are closed."
-                    ),
-                })
+                errors_list.append(
+                    {
+                        "item_path": path_str,
+                        "error": (
+                            f"Item '{path_str}' is a sub-list parent and cannot be closed directly. "
+                            "It closes automatically when all its children are closed."
+                        ),
+                    }
+                )
                 continue
             item["status"] = "closed"
             msg = f"Closed item '{path_str}': \"{item['text']}\""
@@ -629,11 +677,13 @@ def execute(args: dict, session_data: dict | None = None) -> str:
         summary = f"Closed {len(closed_list)} item(s): {', '.join(d['item_path'] for d in closed_list)}"
         if errors_list:
             summary += f"; {len(errors_list)} error(s)"
-        return json.dumps({
-            "closed": closed_list,
-            "errors": errors_list,
-            "message": summary + all_done_note,
-        })
+        return json.dumps(
+            {
+                "closed": closed_list,
+                "errors": errors_list,
+                "message": summary + all_done_note,
+            }
+        )
 
     # ---- reopen_item ----
     if action == "reopen_item":
@@ -647,19 +697,23 @@ def execute(args: dict, session_data: dict | None = None) -> str:
             return json.dumps({"error": err})
         item = parent_list[last - 1]
         if _is_promoted(item):
-            return json.dumps({
-                "error": (
-                    f"Item '{item_path_str}' is a sub-list parent and has no direct open/closed state. "
-                    "To reopen it, reopen one of its children. "
-                    f"Use list(item_path='{item_path_str}') to inspect its children."
-                )
-            })
+            return json.dumps(
+                {
+                    "error": (
+                        f"Item '{item_path_str}' is a sub-list parent and has no direct open/closed state. "
+                        "To reopen it, reopen one of its children. "
+                        f"Use list(item_path='{item_path_str}') to inspect its children."
+                    )
+                }
+            )
         item["status"] = "open"
-        return json.dumps({
-            "item_path": item_path_str,
-            "status": "open",
-            "message": f"Reopened item '{item_path_str}': \"{item['text']}\"",
-        })
+        return json.dumps(
+            {
+                "item_path": item_path_str,
+                "status": "open",
+                "message": f"Reopened item '{item_path_str}': \"{item['text']}\"",
+            }
+        )
 
     # ---- clear ----
     if action == "clear":

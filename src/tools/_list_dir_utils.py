@@ -2,7 +2,10 @@ import os
 from pathlib import Path
 import time
 
-def _collect_flat(children: list, parent_path: str, filter_mode: str, results: list) -> None:
+
+def _collect_flat(
+    children: list, parent_path: str, filter_mode: str, results: list
+) -> None:
     """
     Recursively collect entries matching filter_mode into results as (rel_path, entry) tuples.
     parent_path uses forward slashes and is the path prefix for this level.
@@ -73,7 +76,9 @@ def _get_ancestor_matchers(gitignore_root: Path, path: str) -> list:
     return matchers
 
 
-def _get_effective_matchers(dir_path: str, parent_matchers: list, use_gitignore: bool) -> list:
+def _get_effective_matchers(
+    dir_path: str, parent_matchers: list, use_gitignore: bool
+) -> list:
     """
     Return parent_matchers plus a new matcher for dir_path/.gitignore if it exists.
     Returns parent_matchers unchanged when use_gitignore=False.
@@ -98,12 +103,14 @@ def _get_effective_matchers(dir_path: str, parent_matchers: list, use_gitignore:
 def _is_ignored(abs_path: str, matchers: list) -> bool:
     return any(m(abs_path) for m in matchers)
 
+
 def _read_link_safe(path: str) -> str:
     try:
         return os.readlink(path)
     except (OSError, ValueError):
         return ""
-    
+
+
 def _resolve_link_target(current: str, target: str) -> str:
     """Resolve a potentially-relative symlink target against current's directory."""
     if os.path.isabs(target):
@@ -111,7 +118,6 @@ def _resolve_link_target(current: str, target: str) -> str:
     return os.path.normpath(os.path.join(os.path.dirname(current), target))
 
 
-    
 def _follow_file_symlink(path: str):
     """
     Follow a file symlink chain until a real file or a loop is detected.
@@ -166,7 +172,7 @@ def _traverse(
     use_gitignore: bool,
     start_time: float,
     timeout: float,
-    timeout_hint: str
+    timeout_hint: str,
 ) -> list:
     """
     Scan dir_path and return a list of entry dicts.
@@ -181,6 +187,7 @@ def _traverse(
     """
     if time.monotonic() - start_time > timeout:
         from src.utils.exceptions import ToolTimeoutError
+
         raise ToolTimeoutError("list_dir", timeout, timeout_hint)
 
     entries: list = []
@@ -231,7 +238,9 @@ def _traverse(
                     children: list = []
                     if recursive and (depth is None or depth > 0):
                         new_depth = (depth - 1) if depth is not None else None
-                        child_matchers = _get_effective_matchers(entry.path, matchers, use_gitignore)
+                        child_matchers = _get_effective_matchers(
+                            entry.path, matchers, use_gitignore
+                        )
                         children = _traverse(
                             dir_path=entry.path,
                             recursive=recursive,
@@ -243,7 +252,7 @@ def _traverse(
                             use_gitignore=use_gitignore,
                             start_time=start_time,
                             timeout=timeout,
-                            timeout_hint=timeout_hint
+                            timeout_hint=timeout_hint,
                         )
                     entries.append(
                         {
@@ -265,7 +274,9 @@ def _traverse(
                 children = []
                 if recursive and (depth is None or depth > 0):
                     new_depth = (depth - 1) if depth is not None else None
-                    child_matchers = _get_effective_matchers(entry.path, matchers, use_gitignore)
+                    child_matchers = _get_effective_matchers(
+                        entry.path, matchers, use_gitignore
+                    )
                     children = _traverse(
                         dir_path=entry.path,
                         recursive=recursive,
@@ -277,7 +288,7 @@ def _traverse(
                         use_gitignore=use_gitignore,
                         start_time=start_time,
                         timeout=timeout,
-                        timeout_hint=timeout_hint
+                        timeout_hint=timeout_hint,
                     )
                 entries.append(
                     {
@@ -329,4 +340,3 @@ def _traverse(
                 )
 
     return entries
-

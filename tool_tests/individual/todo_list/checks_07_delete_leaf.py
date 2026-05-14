@@ -13,9 +13,14 @@ def _j(r: str) -> dict:
 
 
 def add_checks(cl: CheckList, env: TestEnv) -> None:
-    execute_tool("todo_list", {"action": "delete_item", "item_path": "3"}, env.session_data)
+    execute_tool(
+        "todo_list", {"action": "delete_item", "item_path": "3"}, env.session_data
+    )
     r = execute_tool("todo_list", {"action": "list"}, env.session_data)
     items = _j(r).get("items", [])
-    cl.check("delete_item leaf", "List has 2 items after deleting item 3",
-             len(items) == 2, f"got: {r!r}")
-
+    cl.check(
+        "delete_item leaf",
+        "List has 2 items after deleting item 3",
+        len(items) == 2,
+        f"got: {r!r}",
+    )

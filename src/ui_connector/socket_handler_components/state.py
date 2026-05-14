@@ -10,7 +10,11 @@ import redis
 from src.terminal import TerminalSessionManager
 from src.utils.env_info import get_os, get_shell
 from src.utils.docker_compose import get_service_port
-from src.logic.system_prompt import build_skill_registry, build_system_prompt, get_autoload_skill_entries
+from src.logic.system_prompt import (
+    build_skill_registry,
+    build_system_prompt,
+    get_autoload_skill_entries,
+)
 
 # ---------------------------------------------------------------------------
 # Base skill registry and system prompt (built once at server start)
@@ -30,7 +34,7 @@ _hotfix_void_call: bool = os.environ.get("SLBP_HOTFIX_GPT_OSS_20B_BAD_VOID_CALL"
 _server_cwd: str = os.environ.get("SLBP_SERVER_CWD", os.getcwd())
 _traces_dir: str = os.path.join(_server_cwd, ".slbp-traces")
 _trace_folder_max_bytes: int | None = (
-    int(float(os.environ["SLBP_TRACE_FOLDER_MAX_GB"]) * 1024 ** 3)
+    int(float(os.environ["SLBP_TRACE_FOLDER_MAX_GB"]) * 1024**3)
     if "SLBP_TRACE_FOLDER_MAX_GB" in os.environ
     else None
 )
@@ -119,10 +123,10 @@ def _get_redis() -> redis.Redis:
 
 _SESSION_DEFAULTS_HARDCODED: dict = {
     "interim_response_as_thinking": False,
-    "record_traces":                False,
-    "load_skills":                  False,
-    "load_tools":                   False,
-    "load_startup_tool_calls":      False,
+    "record_traces": False,
+    "load_skills": False,
+    "load_tools": False,
+    "load_startup_tool_calls": False,
 }
 
 # Maps DB param key (as stored in kv_store) -> session defaults key

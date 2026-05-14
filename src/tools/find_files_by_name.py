@@ -50,7 +50,7 @@ DEFINITION: dict = {
                         "One or more glob patterns (*, ?, [...]) to match against filenames. "
                         "A file is included if it matches ANY pattern (OR semantics). "
                         "Case-insensitive by default. "
-                        "Examples: [\"*auth*\"], [\"*.env\"], [\"*login*\", \"*signup*\"]."
+                        'Examples: ["*auth*"], ["*.env"], ["*login*", "*signup*"].'
                     ),
                 },
                 "path": {
@@ -122,12 +122,14 @@ def needs_approval(args: dict) -> bool:
     if not raw:
         return False
     from src.tools._approval import _resolve, _is_under_cwd
+
     return not _is_under_cwd(_resolve(raw))
 
 
 # ---------------------------------------------------------------------------
 # File collection helpers
 # ---------------------------------------------------------------------------
+
 
 def _collect_files_git(root: str) -> list[str] | None:
     """
@@ -160,7 +162,6 @@ def _collect_files_traverse(root: str, use_gitignore: bool) -> list[str]:
     Reuses list_dir's gitignore machinery when use_gitignore=True.
     """
 
-
     ancestor_matchers: list = []
     if use_gitignore:
         gitignore_root = _find_gitignore_root(root)
@@ -191,7 +192,10 @@ def _collect_files_traverse(root: str, use_gitignore: bool) -> list[str]:
 # Matching helpers
 # ---------------------------------------------------------------------------
 
-def _prepare_glob_patterns(patterns: list[str], partial_match: bool, case_sensitive: bool) -> list[str]:
+
+def _prepare_glob_patterns(
+    patterns: list[str], partial_match: bool, case_sensitive: bool
+) -> list[str]:
     """
     Apply partial_match wrapping and case normalisation for glob mode.
     Uses fnmatchcase internally — case-insensitivity is achieved by lowercasing
@@ -205,7 +209,9 @@ def _prepare_glob_patterns(patterns: list[str], partial_match: bool, case_sensit
     return result
 
 
-def _compile_regex_patterns(patterns: list[str], case_sensitive: bool, partial_match: bool) -> list[re.Pattern]:
+def _compile_regex_patterns(
+    patterns: list[str], case_sensitive: bool, partial_match: bool
+) -> list[re.Pattern]:
     """
     Compile raw regex strings into pattern objects.
     If partial_match=False, anchors each pattern with ^ and $ (unless already present)
@@ -227,7 +233,9 @@ def _compile_regex_patterns(patterns: list[str], case_sensitive: bool, partial_m
     return compiled
 
 
-def _segment_matches_glob(rel_path: str, patterns: list[str], case_sensitive: bool, match_any_dir: bool) -> bool:
+def _segment_matches_glob(
+    rel_path: str, patterns: list[str], case_sensitive: bool, match_any_dir: bool
+) -> bool:
     segments = rel_path.split("/")
     targets = segments if match_any_dir else [segments[-1]]
     for seg in targets:
@@ -237,7 +245,9 @@ def _segment_matches_glob(rel_path: str, patterns: list[str], case_sensitive: bo
     return False
 
 
-def _segment_matches_regex(rel_path: str, compiled: list[re.Pattern], match_any_dir: bool) -> bool:
+def _segment_matches_regex(
+    rel_path: str, compiled: list[re.Pattern], match_any_dir: bool
+) -> bool:
     segments = rel_path.split("/")
     targets = segments if match_any_dir else [segments[-1]]
     for seg in targets:
@@ -249,6 +259,7 @@ def _segment_matches_regex(rel_path: str, compiled: list[re.Pattern], match_any_
 # ---------------------------------------------------------------------------
 # Public entry point
 # ---------------------------------------------------------------------------
+
 
 def execute(args: dict, _session_data: dict = {}) -> str:
     raw_patterns: list[str] = args.get("patterns") or []
@@ -269,12 +280,16 @@ def execute(args: dict, _session_data: dict = {}) -> str:
     # Prepare patterns for the chosen mode
     if mode == "regex":
         try:
-            compiled_patterns = _compile_regex_patterns(raw_patterns, case_sensitive, partial_match)
+            compiled_patterns = _compile_regex_patterns(
+                raw_patterns, case_sensitive, partial_match
+            )
         except ValueError as exc:
             return f"Error: {exc}"
         glob_patterns = None
     else:
-        glob_patterns = _prepare_glob_patterns(raw_patterns, partial_match, case_sensitive)
+        glob_patterns = _prepare_glob_patterns(
+            raw_patterns, partial_match, case_sensitive
+        )
         compiled_patterns = None
 
     # Collect candidate file paths
@@ -292,7 +307,9 @@ def execute(args: dict, _session_data: dict = {}) -> str:
         if mode == "regex":
             hit = _segment_matches_regex(rel, compiled_patterns, match_any_dir)
         else:
-            hit = _segment_matches_glob(rel, glob_patterns, case_sensitive, match_any_dir)
+            hit = _segment_matches_glob(
+                rel, glob_patterns, case_sensitive, match_any_dir
+            )
         if hit:
             matches.append(rel)
 
