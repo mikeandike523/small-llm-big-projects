@@ -2,13 +2,13 @@ from typing import Optional
 import click
 
 
-def _mask_token(token_value: str) -> str:
+def mask_token(token_value: str) -> str:
     if not token_value:
         return "(empty)"
     return f"{token_value[:2]}...{token_value[-2:]}"
 
 
-def _resolve_token(cursor, provider: str, token_name: str, yes: bool) -> Optional[str]:
+def resolve_token(cursor, provider: str, token_name: str, yes: bool) -> Optional[str]:
     """
     Try to resolve a (provider, token_name) pair to a confirmed token_name.
 

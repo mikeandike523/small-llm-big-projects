@@ -1,6 +1,5 @@
 import importlib
 
-importlib.import_module("src.cli_routes.token")
 importlib.import_module("src.cli_routes.endpoint")
 importlib.import_module("src.cli_routes.model")
 importlib.import_module("src.cli_routes.param")
@@ -10,6 +9,10 @@ importlib.import_module("src.cli_routes.server")
 importlib.import_module("src.cli_routes.service_token")
 importlib.import_module("src.cli_routes.dashboard")
 importlib.import_module("src.cli_routes.profile")
+
+# Routes with separate subroutes
+importlib.import_module("src.cli_routes.token.subroutes")
+
 
 from src.cli_obj import cli
 
