@@ -1,21 +1,18 @@
-import { useState } from "react"
-import { ApprovalItem } from "../types"
-import { css } from "@emotion/react"
-import JsonArgsViewer from "./JsonArgsViewer"
+import { useState } from "react";
+import { ApprovalItem } from "../types";
+import { css } from "@emotion/react";
+import JsonArgsViewer from "./JsonArgsViewer";
 
 const approvalResolvedBubbleCss = (approved: boolean) => css`
-  font-family: 'Consolas', monospace;
+  font-family: "Consolas", monospace;
   font-size: 12px;
-  color: ${approved ? '#4ade80' : '#f87171'};
+  color: ${approved ? "#4ade80" : "#f87171"};
   padding: 4px 8px;
   border-radius: 4px;
-  background: ${approved ? '#0a1a0a' : '#1a0a0a'};
-  border: 1px solid ${approved ? '#1a4a1a' : '#4a1a1a'};
+  background: ${approved ? "#0a1a0a" : "#1a0a0a"};
+  border: 1px solid ${approved ? "#1a4a1a" : "#4a1a1a"};
   word-break: break-all;
-`
-
-
-
+`;
 
 const approvalPendingCardCss = css`
   background: #1a1200;
@@ -25,24 +22,24 @@ const approvalPendingCardCss = css`
   display: flex;
   flex-direction: column;
   gap: 8px;
-`
+`;
 
 const approvalToolNameCss = css`
-  font-family: 'Consolas', monospace;
+  font-family: "Consolas", monospace;
   font-size: 12px;
   color: #d4a030;
   font-weight: 600;
   word-break: break-all;
-`
+`;
 
 const approvalArgsCss = css`
   margin-bottom: 4px;
-`
+`;
 
 const approvalButtonRowCss = css`
   display: flex;
   gap: 6px;
-`
+`;
 
 const approveButtonCss = css`
   flex: 1;
@@ -53,10 +50,12 @@ const approveButtonCss = css`
   padding: 5px 0;
   font-size: 12px;
   cursor: pointer;
-  font-family: 'Consolas', monospace;
+  font-family: "Consolas", monospace;
   transition: background 0.15s;
-  &:hover { background: #166534; }
-`
+  &:hover {
+    background: #166534;
+  }
+`;
 
 const denyButtonCss = css`
   flex: 1;
@@ -67,10 +66,12 @@ const denyButtonCss = css`
   padding: 5px 0;
   font-size: 12px;
   cursor: pointer;
-  font-family: 'Consolas', monospace;
+  font-family: "Consolas", monospace;
   transition: background 0.15s;
-  &:hover { background: #7f1d1d; }
-`
+  &:hover {
+    background: #7f1d1d;
+  }
+`;
 
 const denyRedirectButtonCss = css`
   flex: 1;
@@ -81,10 +82,12 @@ const denyRedirectButtonCss = css`
   padding: 5px 0;
   font-size: 12px;
   cursor: pointer;
-  font-family: 'Consolas', monospace;
+  font-family: "Consolas", monospace;
   transition: background 0.15s;
-  &:hover { background: #92400e; }
-`
+  &:hover {
+    background: #92400e;
+  }
+`;
 
 const denyAndStopButtonCss = css`
   flex: 1;
@@ -95,17 +98,19 @@ const denyAndStopButtonCss = css`
   padding: 5px 0;
   font-size: 12px;
   cursor: pointer;
-  font-family: 'Consolas', monospace;
+  font-family: "Consolas", monospace;
   transition: background 0.15s;
-  &:hover { background: #7f1d1d; }
-`
+  &:hover {
+    background: #7f1d1d;
+  }
+`;
 
 const redirectInputAreaCss = css`
   display: flex;
   flex-direction: column;
   gap: 5px;
   margin-top: 6px;
-`
+`;
 
 const redirectTextareaCss = css`
   width: 100%;
@@ -116,16 +121,18 @@ const redirectTextareaCss = css`
   border-radius: 4px;
   padding: 5px 7px;
   font-size: 12px;
-  font-family: 'Consolas', monospace;
+  font-family: "Consolas", monospace;
   resize: vertical;
   outline: none;
-  &:focus { border-color: #d4a030; }
-`
+  &:focus {
+    border-color: #d4a030;
+  }
+`;
 
 const redirectActionRowCss = css`
   display: flex;
   gap: 5px;
-`
+`;
 
 const redirectSendButtonCss = css`
   flex: 1;
@@ -136,11 +143,16 @@ const redirectSendButtonCss = css`
   padding: 4px 0;
   font-size: 12px;
   cursor: pointer;
-  font-family: 'Consolas', monospace;
+  font-family: "Consolas", monospace;
   transition: background 0.15s;
-  &:hover { background: #166534; }
-  &:disabled { opacity: 0.4; cursor: default; }
-`
+  &:hover {
+    background: #166534;
+  }
+  &:disabled {
+    opacity: 0.4;
+    cursor: default;
+  }
+`;
 
 const redirectCancelButtonCss = css`
   flex: 1;
@@ -151,11 +163,12 @@ const redirectCancelButtonCss = css`
   padding: 4px 0;
   font-size: 12px;
   cursor: pointer;
-  font-family: 'Consolas', monospace;
+  font-family: "Consolas", monospace;
   transition: background 0.15s;
-  &:hover { background: #34435f; }
-`
-
+  &:hover {
+    background: #34435f;
+  }
+`;
 
 export default function ToolApprovalBubble({
   item,
@@ -164,33 +177,49 @@ export default function ToolApprovalBubble({
   onDenyWithRedirect,
   onDenyAndStop,
 }: {
-  item: ApprovalItem
-  onApprove: (id: string) => void
-  onDeny: (id: string) => void
-  onDenyWithRedirect: (id: string, message: string) => void
-  onDenyAndStop: (id: string) => void
+  item: ApprovalItem;
+  onApprove: (id: string) => void;
+  onDeny: (id: string) => void;
+  onDenyWithRedirect: (id: string, message: string) => void;
+  onDenyAndStop: (id: string) => void;
 }) {
-  const [showRedirect, setShowRedirect] = useState(false)
-  const [redirectText, setRedirectText] = useState('')
+  const [showRedirect, setShowRedirect] = useState(false);
+  const [redirectText, setRedirectText] = useState("");
 
   if (item.resolved) {
     return (
       <div css={approvalResolvedBubbleCss(item.resolved.approved)}>
-        {item.resolved.approved ? '✓' : '✗'} {item.tool_name}
+        {item.resolved.approved ? "✓" : "✗"} {item.tool_name}
       </div>
-    )
+    );
   }
   return (
     <div css={approvalPendingCardCss}>
       <div css={approvalToolNameCss}>{item.tool_name}</div>
       {Object.keys(item.args).length > 0 && (
-        <div css={approvalArgsCss}><JsonArgsViewer args={item.args} /></div>
+        <div css={approvalArgsCss}>
+          <JsonArgsViewer args={item.args} />
+        </div>
       )}
       <div css={approvalButtonRowCss}>
-        <button css={approveButtonCss} onClick={() => onApprove(item.id)}>Approve</button>
-        <button css={denyButtonCss} onClick={() => onDeny(item.id)}>Deny</button>
-        <button css={denyRedirectButtonCss} onClick={() => setShowRedirect(r => !r)}>Deny &amp; Redirect</button>
-        <button css={denyAndStopButtonCss} onClick={() => onDenyAndStop(item.id)}>Deny &amp; Stop</button>
+        <button css={approveButtonCss} onClick={() => onApprove(item.id)}>
+          Approve
+        </button>
+        <button css={denyButtonCss} onClick={() => onDeny(item.id)}>
+          Deny
+        </button>
+        <button
+          css={denyRedirectButtonCss}
+          onClick={() => setShowRedirect((r) => !r)}
+        >
+          Deny &amp; Redirect
+        </button>
+        <button
+          css={denyAndStopButtonCss}
+          onClick={() => onDenyAndStop(item.id)}
+        >
+          Deny &amp; Stop
+        </button>
       </div>
       {showRedirect && (
         <div css={redirectInputAreaCss}>
@@ -199,7 +228,7 @@ export default function ToolApprovalBubble({
             rows={3}
             placeholder="Explain why and suggest an alternative..."
             value={redirectText}
-            onChange={e => setRedirectText(e.target.value)}
+            onChange={(e) => setRedirectText(e.target.value)}
             autoFocus
           />
           <div css={redirectActionRowCss}>
@@ -212,7 +241,10 @@ export default function ToolApprovalBubble({
             </button>
             <button
               css={redirectCancelButtonCss}
-              onClick={() => { setShowRedirect(false); setRedirectText('') }}
+              onClick={() => {
+                setShowRedirect(false);
+                setRedirectText("");
+              }}
             >
               Cancel
             </button>
@@ -220,5 +252,5 @@ export default function ToolApprovalBubble({
         </div>
       )}
     </div>
-  )
+  );
 }

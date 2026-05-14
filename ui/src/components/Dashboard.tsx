@@ -1,25 +1,25 @@
 /** @jsxImportSource @emotion/react */
-import { css, keyframes } from '@emotion/react'
-import { useEffect, useState, useCallback } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
-import NewSessionDialog, { type SessionDefaults } from './NewSessionDialog'
+import { css, keyframes } from "@emotion/react";
+import { useEffect, useState, useCallback } from "react";
+import { useNavigate, Link } from "react-router-dom";
+import NewSessionDialog, { type SessionDefaults } from "./NewSessionDialog";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
 interface SessionSummary {
-  session_id: string
-  initial_cwd: string
-  current_cwd: string
-  created_at: number
-  turn_count: number
-  active_turn: boolean
-  interim_response_as_thinking: boolean
-  record_traces: boolean
-  task_titles: string[]
-  skills_path: string | null
-  custom_tools_path: string | null
+  session_id: string;
+  initial_cwd: string;
+  current_cwd: string;
+  created_at: number;
+  turn_count: number;
+  active_turn: boolean;
+  interim_response_as_thinking: boolean;
+  record_traces: boolean;
+  task_titles: string[];
+  skills_path: string | null;
+  custom_tools_path: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -27,17 +27,17 @@ interface SessionSummary {
 // ---------------------------------------------------------------------------
 
 function relativeTime(ts: number): string {
-  if (!ts) return 'unknown'
-  const diff = Math.floor(Date.now() / 1000 - ts)
-  if (diff < 60) return 'just now'
-  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`
-  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`
-  return `${Math.floor(diff / 86400)}d ago`
+  if (!ts) return "unknown";
+  const diff = Math.floor(Date.now() / 1000 - ts);
+  if (diff < 60) return "just now";
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  return `${Math.floor(diff / 86400)}d ago`;
 }
 
 function cwdBasename(cwd: string): string {
-  const norm = cwd.replace(/\\/g, '/')
-  return norm.split('/').filter(Boolean).pop() ?? cwd
+  const norm = cwd.replace(/\\/g, "/");
+  return norm.split("/").filter(Boolean).pop() ?? cwd;
 }
 
 // ---------------------------------------------------------------------------
@@ -47,18 +47,27 @@ function cwdBasename(cwd: string): string {
 const pulse = keyframes`
   0%, 100% { opacity: 1; transform: scale(1); }
   50%       { opacity: 0.5; transform: scale(1.3); }
-`
+`;
 
 // ---------------------------------------------------------------------------
 // Styles
 // ---------------------------------------------------------------------------
 
 const scrollbarCss = css`
-  &::-webkit-scrollbar { width: 6px; }
-  &::-webkit-scrollbar-track { background: #0a0a0a; }
-  &::-webkit-scrollbar-thumb { background: #2f4f86; border-radius: 3px; }
-  &::-webkit-scrollbar-thumb:hover { background: #4f73b3; }
-`
+  &::-webkit-scrollbar {
+    width: 6px;
+  }
+  &::-webkit-scrollbar-track {
+    background: #0a0a0a;
+  }
+  &::-webkit-scrollbar-thumb {
+    background: #2f4f86;
+    border-radius: 3px;
+  }
+  &::-webkit-scrollbar-thumb:hover {
+    background: #4f73b3;
+  }
+`;
 
 const containerCss = css`
   display: flex;
@@ -66,8 +75,8 @@ const containerCss = css`
   height: 100%;
   background: #0f0f0f;
   color: #e0e0e0;
-  font-family: 'Fira Code', 'Consolas', monospace;
-`
+  font-family: "Fira Code", "Consolas", monospace;
+`;
 
 const headerCss = css`
   display: flex;
@@ -76,7 +85,7 @@ const headerCss = css`
   padding: 18px 28px;
   border-bottom: 1px solid #1e1e1e;
   flex-shrink: 0;
-`
+`;
 
 const titleCss = css`
   font-size: 18px;
@@ -84,14 +93,14 @@ const titleCss = css`
   color: #f2f6ff;
   letter-spacing: 2px;
   text-transform: uppercase;
-`
+`;
 
 const subtitleCss = css`
   font-size: 11px;
   color: #dbe5ff;
   margin-top: 2px;
   letter-spacing: 1px;
-`
+`;
 
 const newSessionBtnCss = css`
   background: #1a1a2e;
@@ -102,7 +111,9 @@ const newSessionBtnCss = css`
   font-size: 13px;
   font-family: inherit;
   cursor: pointer;
-  transition: background 0.15s, border-color 0.15s;
+  transition:
+    background 0.15s,
+    border-color 0.15s;
   &:hover:not(:disabled) {
     background: #222244;
     border-color: #4a6aee;
@@ -111,20 +122,20 @@ const newSessionBtnCss = css`
     opacity: 0.4;
     cursor: not-allowed;
   }
-`
+`;
 
 const bodyScrollCss = css`
   ${scrollbarCss};
   flex: 1;
   overflow-y: auto;
   padding: 24px 28px;
-`
+`;
 
 const sessionGridCss = css`
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
   gap: 14px;
-`
+`;
 
 const sessionCardCss = css`
   background: #0d131e;
@@ -132,7 +143,9 @@ const sessionCardCss = css`
   border-radius: 8px;
   padding: 16px 18px;
   cursor: pointer;
-  transition: background 0.12s, border-color 0.12s;
+  transition:
+    background 0.12s,
+    border-color 0.12s;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -140,21 +153,21 @@ const sessionCardCss = css`
     background: #101a28;
     border-color: #3b5b92;
   }
-`
+`;
 
 const cardHeaderCss = css`
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-`
+`;
 
 const cwdLineCss = css`
   display: flex;
   align-items: baseline;
   gap: 6px;
   min-width: 0;
-`
+`;
 
 const cwdBaseCss = css`
   font-size: 14px;
@@ -163,7 +176,7 @@ const cwdBaseCss = css`
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-`
+`;
 
 const cwdPathCss = css`
   font-size: 11px;
@@ -173,7 +186,7 @@ const cwdPathCss = css`
   text-overflow: ellipsis;
   flex-shrink: 1;
   min-width: 0;
-`
+`;
 
 const activeDotCss = css`
   width: 8px;
@@ -182,7 +195,7 @@ const activeDotCss = css`
   background: #3ccc6c;
   flex-shrink: 0;
   animation: ${pulse} 1.4s ease-in-out infinite;
-`
+`;
 
 const idleDotCss = css`
   width: 8px;
@@ -191,7 +204,7 @@ const idleDotCss = css`
   background: #101722;
   border: 1px solid #30405f;
   flex-shrink: 0;
-`
+`;
 
 const cardMetaCss = css`
   display: flex;
@@ -199,7 +212,7 @@ const cardMetaCss = css`
   gap: 14px;
   font-size: 11px;
   color: #e6edff;
-`
+`;
 
 const metaBadgeCss = css`
   background: #101722;
@@ -208,7 +221,7 @@ const metaBadgeCss = css`
   padding: 1px 6px;
   font-size: 10px;
   color: #eef3ff;
-`
+`;
 
 const currentCwdLineCss = css`
   font-size: 10px;
@@ -216,14 +229,14 @@ const currentCwdLineCss = css`
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-`
+`;
 
 const taskTitlesCss = css`
   display: flex;
   flex-direction: column;
   gap: 2px;
   margin-top: 2px;
-`
+`;
 
 const taskTitleItemCss = css`
   font-size: 11px;
@@ -231,7 +244,7 @@ const taskTitleItemCss = css`
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-`
+`;
 
 const trashBtnCss = css`
   background: none;
@@ -243,13 +256,15 @@ const trashBtnCss = css`
   border-radius: 4px;
   line-height: 1;
   opacity: 0.7;
-  transition: opacity 0.12s, background 0.12s;
+  transition:
+    opacity 0.12s,
+    background 0.12s;
   flex-shrink: 0;
   &:hover {
     opacity: 1;
     background: #2a0a0a;
   }
-`
+`;
 
 const modalOverlayCss = css`
   position: fixed;
@@ -259,7 +274,7 @@ const modalOverlayCss = css`
   align-items: center;
   justify-content: center;
   z-index: 1000;
-`
+`;
 
 const modalBoxCss = css`
   background: #181818;
@@ -271,27 +286,27 @@ const modalBoxCss = css`
   display: flex;
   flex-direction: column;
   gap: 18px;
-  font-family: 'Fira Code', 'Consolas', monospace;
-`
+  font-family: "Fira Code", "Consolas", monospace;
+`;
 
 const modalTitleCss = css`
   font-size: 15px;
   font-weight: 700;
   color: #cc4444;
   letter-spacing: 1px;
-`
+`;
 
 const modalBodyCss = css`
   font-size: 12px;
   color: #eef3ff;
   line-height: 1.6;
-`
+`;
 
 const modalActionsCss = css`
   display: flex;
   justify-content: flex-end;
   gap: 10px;
-`
+`;
 
 const modalCancelBtnCss = css`
   background: none;
@@ -302,8 +317,11 @@ const modalCancelBtnCss = css`
   font-size: 12px;
   font-family: inherit;
   cursor: pointer;
-  &:hover { border-color: #8aa4d8; color: #fff; }
-`
+  &:hover {
+    border-color: #8aa4d8;
+    color: #fff;
+  }
+`;
 
 const modalDeleteBtnCss = css`
   background: #2a0a0a;
@@ -315,9 +333,15 @@ const modalDeleteBtnCss = css`
   font-family: inherit;
   cursor: pointer;
   font-weight: 600;
-  &:hover { background: #3a0a0a; border-color: #ff4444; }
-  &:disabled { opacity: 0.5; cursor: not-allowed; }
-`
+  &:hover {
+    background: #3a0a0a;
+    border-color: #ff4444;
+  }
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+`;
 
 const emptyStateCss = css`
   display: flex;
@@ -329,7 +353,7 @@ const emptyStateCss = css`
   color: #e6edff;
   font-size: 14px;
   text-align: center;
-`
+`;
 
 const errorBannerCss = css`
   background: #1a0a0a;
@@ -342,7 +366,7 @@ const errorBannerCss = css`
   align-items: center;
   justify-content: space-between;
   margin-bottom: 20px;
-`
+`;
 
 const retryBtnCss = css`
   background: none;
@@ -353,8 +377,10 @@ const retryBtnCss = css`
   cursor: pointer;
   font-size: 11px;
   font-family: inherit;
-  &:hover { border-color: #cc6666; }
-`
+  &:hover {
+    border-color: #cc6666;
+  }
+`;
 
 const configLinkCss = css`
   background: none;
@@ -365,86 +391,96 @@ const configLinkCss = css`
   font-family: inherit;
   padding: 7px 14px;
   text-decoration: none;
-  &:hover { border-color: #8aa4d8; color: #eef3ff; }
-`
+  &:hover {
+    border-color: #8aa4d8;
+    color: #eef3ff;
+  }
+`;
 
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
 export default function Dashboard() {
-  const navigate = useNavigate()
-  const [sessions, setSessions] = useState<SessionSummary[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [showNewSession, setShowNewSession] = useState(false)
-  const [deleteTarget, setDeleteTarget] = useState<SessionSummary | null>(null)
-  const [deleting, setDeleting] = useState(false)
-  const [sessionDefaults, setSessionDefaults] = useState<SessionDefaults | null>(null)
-  const [sessionDefaultsError, setSessionDefaultsError] = useState<string | null>(null)
+  const navigate = useNavigate();
+  const [sessions, setSessions] = useState<SessionSummary[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [showNewSession, setShowNewSession] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<SessionSummary | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [sessionDefaults, setSessionDefaults] =
+    useState<SessionDefaults | null>(null);
+  const [sessionDefaultsError, setSessionDefaultsError] = useState<
+    string | null
+  >(null);
 
   useEffect(() => {
-    fetch('/api/session-defaults')
-      .then(r => {
-        if (!r.ok) throw new Error(`Server returned ${r.status}`)
-        return r.json()
+    fetch("/api/session-defaults")
+      .then((r) => {
+        if (!r.ok) throw new Error(`Server returned ${r.status}`);
+        return r.json();
       })
       .then((d: SessionDefaults) => {
-        setSessionDefaults(d)
-        setSessionDefaultsError(null)
+        setSessionDefaults(d);
+        setSessionDefaultsError(null);
       })
       .catch((e: unknown) => {
-        const msg = e instanceof Error ? e.message : 'Unknown error'
-        console.error('[slbp] Failed to load session defaults:', msg)
-        setSessionDefaultsError(msg)
-      })
-  }, [])
+        const msg = e instanceof Error ? e.message : "Unknown error";
+        console.error("[slbp] Failed to load session defaults:", msg);
+        setSessionDefaultsError(msg);
+      });
+  }, []);
 
   const fetchSessions = useCallback(async () => {
     try {
-      const res = await fetch('/api/sessions')
-      if (!res.ok) throw new Error(`Server returned ${res.status}`)
-      const data: SessionSummary[] = await res.json()
-      setSessions(data)
-      setError(null)
+      const res = await fetch("/api/sessions");
+      if (!res.ok) throw new Error(`Server returned ${res.status}`);
+      const data: SessionSummary[] = await res.json();
+      setSessions(data);
+      setError(null);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not reach server')
+      setError(e instanceof Error ? e.message : "Could not reach server");
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }, [])
+  }, []);
 
   useEffect(() => {
-    fetchSessions()
-    const interval = setInterval(fetchSessions, 3000)
-    return () => clearInterval(interval)
-  }, [fetchSessions])
+    fetchSessions();
+    const interval = setInterval(fetchSessions, 3000);
+    return () => clearInterval(interval);
+  }, [fetchSessions]);
 
   function openSession(sessionId: string) {
-    navigate(`/session?sessionId=${sessionId}`)
+    navigate(`/session?sessionId=${sessionId}`);
   }
 
   function handleSessionCreated(sessionId: string) {
-    setShowNewSession(false)
-    navigate(`/session?sessionId=${sessionId}`)
+    setShowNewSession(false);
+    navigate(`/session?sessionId=${sessionId}`);
   }
 
   async function confirmDelete() {
-    if (!deleteTarget) return
-    setDeleting(true)
+    if (!deleteTarget) return;
+    setDeleting(true);
     try {
-      const res = await fetch(`/api/sessions/${deleteTarget.session_id}`, { method: 'DELETE' })
+      const res = await fetch(`/api/sessions/${deleteTarget.session_id}`, {
+        method: "DELETE",
+      });
       if (!res.ok) {
-        const body = await res.json().catch(() => ({}))
-        alert(body.error ?? `Delete failed (${res.status})`)
+        const body = await res.json().catch(() => ({}));
+        alert(body.error ?? `Delete failed (${res.status})`);
       } else {
-        setSessions(prev => prev.filter(s => s.session_id !== deleteTarget.session_id))
+        setSessions((prev) =>
+          prev.filter((s) => s.session_id !== deleteTarget.session_id),
+        );
       }
     } catch {
-      alert('Could not reach server')
+      alert("Could not reach server");
     } finally {
-      setDeleting(false)
-      setDeleteTarget(null)
+      setDeleting(false);
+      setDeleteTarget(null);
     }
   }
 
@@ -455,13 +491,19 @@ export default function Dashboard() {
           <div css={titleCss}>SLBP</div>
           <div css={subtitleCss}>small llm, big projects</div>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <Link css={configLinkCss} to="/config">Config</Link>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <Link css={configLinkCss} to="/config">
+            Config
+          </Link>
           <button
             css={newSessionBtnCss}
             onClick={() => setShowNewSession(true)}
             disabled={sessionDefaults === null}
-            title={sessionDefaults === null ? 'Loading session defaults...' : undefined}
+            title={
+              sessionDefaults === null
+                ? "Loading session defaults..."
+                : undefined
+            }
           >
             + New Session
           </button>
@@ -472,12 +514,17 @@ export default function Dashboard() {
         {error && (
           <div css={errorBannerCss}>
             <span>Server unreachable: {error}</span>
-            <button css={retryBtnCss} onClick={fetchSessions}>Retry</button>
+            <button css={retryBtnCss} onClick={fetchSessions}>
+              Retry
+            </button>
           </div>
         )}
         {sessionDefaultsError && (
           <div css={errorBannerCss}>
-            <span>Failed to load session defaults: {sessionDefaultsError} — New Session is disabled.</span>
+            <span>
+              Failed to load session defaults: {sessionDefaultsError} — New
+              Session is disabled.
+            </span>
           </div>
         )}
 
@@ -485,20 +532,24 @@ export default function Dashboard() {
           <div css={emptyStateCss}>
             <div style={{ fontSize: 32, opacity: 0.15 }}>◈</div>
             <div>No sessions yet.</div>
-            <div style={{ fontSize: 12, color: '#dbe5ff' }}>
-              Click <strong style={{ color: '#f2f6ff' }}>+ New Session</strong> to start one.
+            <div style={{ fontSize: 12, color: "#dbe5ff" }}>
+              Click <strong style={{ color: "#f2f6ff" }}>+ New Session</strong>{" "}
+              to start one.
             </div>
           </div>
         )}
 
         {sessions.length > 0 && (
           <div css={sessionGridCss}>
-            {sessions.map(s => (
+            {sessions.map((s) => (
               <SessionCard
                 key={s.session_id}
                 session={s}
                 onClick={() => openSession(s.session_id)}
-                onDelete={e => { e.stopPropagation(); setDeleteTarget(s) }}
+                onDelete={(e) => {
+                  e.stopPropagation();
+                  setDeleteTarget(s);
+                }}
               />
             ))}
           </div>
@@ -514,28 +565,41 @@ export default function Dashboard() {
       )}
 
       {deleteTarget && (
-        <div css={modalOverlayCss} onClick={() => !deleting && setDeleteTarget(null)}>
-          <div css={modalBoxCss} onClick={e => e.stopPropagation()}>
+        <div
+          css={modalOverlayCss}
+          onClick={() => !deleting && setDeleteTarget(null)}
+        >
+          <div css={modalBoxCss} onClick={(e) => e.stopPropagation()}>
             <div css={modalTitleCss}>Delete Session?</div>
             <div css={modalBodyCss}>
-              This will permanently delete all data for session{' '}
-              <strong style={{ color: '#ccc' }}>{deleteTarget.session_id.slice(0, 8)}</strong>
-              {' '}({cwdBasename(deleteTarget.initial_cwd)}), including all turns, memory, and cached state.
-              This cannot be undone.
+              This will permanently delete all data for session{" "}
+              <strong style={{ color: "#ccc" }}>
+                {deleteTarget.session_id.slice(0, 8)}
+              </strong>{" "}
+              ({cwdBasename(deleteTarget.initial_cwd)}), including all turns,
+              memory, and cached state. This cannot be undone.
             </div>
             <div css={modalActionsCss}>
-              <button css={modalCancelBtnCss} onClick={() => setDeleteTarget(null)} disabled={deleting}>
+              <button
+                css={modalCancelBtnCss}
+                onClick={() => setDeleteTarget(null)}
+                disabled={deleting}
+              >
                 Cancel
               </button>
-              <button css={modalDeleteBtnCss} onClick={confirmDelete} disabled={deleting}>
-                {deleting ? 'Deleting...' : 'Delete'}
+              <button
+                css={modalDeleteBtnCss}
+                onClick={confirmDelete}
+                disabled={deleting}
+              >
+                {deleting ? "Deleting..." : "Delete"}
               </button>
             </div>
           </div>
         </div>
       )}
     </div>
-  )
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -547,32 +611,42 @@ function SessionCard({
   onClick,
   onDelete,
 }: {
-  session: SessionSummary
-  onClick: () => void
-  onDelete: (e: React.MouseEvent) => void
+  session: SessionSummary;
+  onClick: () => void;
+  onDelete: (e: React.MouseEvent) => void;
 }) {
-  const base = cwdBasename(session.initial_cwd)
-  const fullPath = session.initial_cwd.replace(/\\/g, '/')
-  const currentPath = session.current_cwd?.replace(/\\/g, '/')
-  const cwdChanged = currentPath && currentPath !== fullPath
+  const base = cwdBasename(session.initial_cwd);
+  const fullPath = session.initial_cwd.replace(/\\/g, "/");
+  const currentPath = session.current_cwd?.replace(/\\/g, "/");
+  const cwdChanged = currentPath && currentPath !== fullPath;
 
-  const titles = session.task_titles ?? []
-  const MAX_TITLES = 4
+  const titles = session.task_titles ?? [];
+  const MAX_TITLES = 4;
 
   return (
     <div css={sessionCardCss} onClick={onClick}>
       <div css={cardHeaderCss}>
         <div css={cwdLineCss}>
-          <span css={cwdBaseCss} title={fullPath}>{base}</span>
-          <span css={cwdPathCss} title={fullPath}>{fullPath}</span>
+          <span css={cwdBaseCss} title={fullPath}>
+            {base}
+          </span>
+          <span css={cwdPathCss} title={fullPath}>
+            {fullPath}
+          </span>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-          <div css={session.active_turn ? activeDotCss : idleDotCss} title={session.active_turn ? 'Turn in progress' : 'Idle'} />
-          <button
-            css={trashBtnCss}
-            onClick={onDelete}
-            title="Delete session"
-          >
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            flexShrink: 0,
+          }}
+        >
+          <div
+            css={session.active_turn ? activeDotCss : idleDotCss}
+            title={session.active_turn ? "Turn in progress" : "Idle"}
+          />
+          <button css={trashBtnCss} onClick={onDelete} title="Delete session">
             🗑
           </button>
         </div>
@@ -587,10 +661,12 @@ function SessionCard({
       {titles.length > 0 && (
         <div css={taskTitlesCss}>
           {titles.slice(-MAX_TITLES).map((t, i) => (
-            <div key={i} css={taskTitleItemCss} title={t}>• {t}</div>
+            <div key={i} css={taskTitleItemCss} title={t}>
+              • {t}
+            </div>
           ))}
           {titles.length > MAX_TITLES && (
-            <div css={taskTitleItemCss} style={{ color: '#dbe5ff' }}>
+            <div css={taskTitleItemCss} style={{ color: "#dbe5ff" }}>
               + {titles.length - MAX_TITLES} more
             </div>
           )}
@@ -598,17 +674,29 @@ function SessionCard({
       )}
 
       <div css={cardMetaCss}>
-        <span>{session.turn_count} {session.turn_count === 1 ? 'turn' : 'turns'}</span>
+        <span>
+          {session.turn_count} {session.turn_count === 1 ? "turn" : "turns"}
+        </span>
         <span>{relativeTime(session.created_at)}</span>
-        {session.interim_response_as_thinking && <span css={metaBadgeCss}>irat</span>}
+        {session.interim_response_as_thinking && (
+          <span css={metaBadgeCss}>irat</span>
+        )}
         {session.record_traces && <span css={metaBadgeCss}>traces</span>}
-        {session.skills_path && <span css={metaBadgeCss} title={session.skills_path}>skills</span>}
-        {session.custom_tools_path && <span css={metaBadgeCss} title={session.custom_tools_path}>tools</span>}
+        {session.skills_path && (
+          <span css={metaBadgeCss} title={session.skills_path}>
+            skills
+          </span>
+        )}
+        {session.custom_tools_path && (
+          <span css={metaBadgeCss} title={session.custom_tools_path}>
+            tools
+          </span>
+        )}
       </div>
 
-      <div style={{ fontSize: 10, color: '#dbe5ff', fontFamily: 'monospace' }}>
+      <div style={{ fontSize: 10, color: "#dbe5ff", fontFamily: "monospace" }}>
         {session.session_id.slice(0, 8)}
       </div>
     </div>
-  )
+  );
 }

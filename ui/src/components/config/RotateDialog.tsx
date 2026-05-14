@@ -1,13 +1,13 @@
 /** @jsxImportSource @emotion/react */
-import { css } from '@emotion/react'
-import { useState } from 'react'
-import * as Dialog from '@radix-ui/react-dialog'
+import { css } from "@emotion/react";
+import { useState } from "react";
+import * as Dialog from "@radix-ui/react-dialog";
 
 interface Props {
-  tokenId: number
-  tokenLabel: string
-  onClose: () => void
-  onSuccess: () => void
+  tokenId: number;
+  tokenLabel: string;
+  onClose: () => void;
+  onSuccess: () => void;
 }
 
 const overlayCss = css`
@@ -15,7 +15,7 @@ const overlayCss = css`
   inset: 0;
   background: rgba(0, 0, 0, 0.7);
   z-index: 1000;
-`
+`;
 
 const contentCss = css`
   position: fixed;
@@ -30,23 +30,23 @@ const contentCss = css`
   max-width: 560px;
   width: 90%;
   z-index: 1001;
-  font-family: 'Fira Code', 'Consolas', monospace;
+  font-family: "Fira Code", "Consolas", monospace;
   display: flex;
   flex-direction: column;
   gap: 14px;
-`
+`;
 
 const titleCss = css`
   font-size: 15px;
   font-weight: 700;
   color: #f2f6ff;
   letter-spacing: 1px;
-`
+`;
 
 const descCss = css`
   font-size: 12px;
   color: #8a9ab8;
-`
+`;
 
 const textareaCss = css`
   width: 100%;
@@ -54,24 +54,26 @@ const textareaCss = css`
   border: 1px solid #333;
   border-radius: 5px;
   color: #e0e0e0;
-  font-family: 'Fira Code', 'Consolas', monospace;
+  font-family: "Fira Code", "Consolas", monospace;
   font-size: 12px;
   padding: 10px;
   resize: vertical;
   outline: none;
-  &:focus { border-color: #4a6aee; }
-`
+  &:focus {
+    border-color: #4a6aee;
+  }
+`;
 
 const errorCss = css`
   font-size: 12px;
   color: #cc6666;
-`
+`;
 
 const footerCss = css`
   display: flex;
   justify-content: flex-end;
   gap: 10px;
-`
+`;
 
 const cancelBtnCss = css`
   background: none;
@@ -82,8 +84,10 @@ const cancelBtnCss = css`
   font-size: 12px;
   font-family: inherit;
   cursor: pointer;
-  &:hover { border-color: #8aa4d8; }
-`
+  &:hover {
+    border-color: #8aa4d8;
+  }
+`;
 
 const okBtnCss = css`
   background: #1a1a2e;
@@ -95,8 +99,11 @@ const okBtnCss = css`
   font-family: inherit;
   cursor: pointer;
   font-weight: 600;
-  &:hover { background: #222244; border-color: #4a6aee; }
-`
+  &:hover {
+    background: #222244;
+    border-color: #4a6aee;
+  }
+`;
 
 const closeBtnCss = css`
   position: absolute;
@@ -108,40 +115,60 @@ const closeBtnCss = css`
   font-size: 14px;
   cursor: pointer;
   line-height: 1;
-  &:hover { color: #e0e0e0; }
-`
+  &:hover {
+    color: #e0e0e0;
+  }
+`;
 
-export function RotateDialog({ tokenId, tokenLabel, onClose, onSuccess }: Props) {
-  const [value, setValue] = useState('')
-  const [error, setError] = useState<string | null>(null)
-  const [loading, setLoading] = useState(false)
+export function RotateDialog({
+  tokenId,
+  tokenLabel,
+  onClose,
+  onSuccess,
+}: Props) {
+  const [value, setValue] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
 
   async function handleOk() {
-    const trimmed = value.trim()
-    if (!trimmed) { setError('Value cannot be empty'); return }
-    setLoading(true)
-    setError(null)
+    const trimmed = value.trim();
+    if (!trimmed) {
+      setError("Value cannot be empty");
+      return;
+    }
+    setLoading(true);
+    setError(null);
     const res = await fetch(`/api/tokens/${tokenId}/rotate`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ value: trimmed }),
-    })
-    setLoading(false)
-    if (!res.ok) { setError((await res.json()).error); return }
-    onSuccess()
+    });
+    setLoading(false);
+    if (!res.ok) {
+      setError((await res.json()).error);
+      return;
+    }
+    onSuccess();
   }
 
   return (
-    <Dialog.Root open onOpenChange={open => !open && onClose()}>
+    <Dialog.Root open onOpenChange={(open) => !open && onClose()}>
       <Dialog.Portal>
         <Dialog.Overlay css={overlayCss} />
-        <Dialog.Content css={[contentCss, css`position:relative;`]}>
+        <Dialog.Content
+          css={[
+            contentCss,
+            css`
+              position: relative;
+            `,
+          ]}
+        >
           <Dialog.Title css={titleCss}>Rotate Token Value</Dialog.Title>
           <Dialog.Description css={descCss}>{tokenLabel}</Dialog.Description>
           <textarea
             css={textareaCss}
             value={value}
-            onChange={e => setValue(e.target.value)}
+            onChange={(e) => setValue(e.target.value)}
             placeholder="Paste new token value..."
             rows={4}
             autoFocus
@@ -152,14 +179,16 @@ export function RotateDialog({ tokenId, tokenLabel, onClose, onSuccess }: Props)
               <button css={cancelBtnCss}>Cancel</button>
             </Dialog.Close>
             <button css={okBtnCss} onClick={handleOk} disabled={loading}>
-              {loading ? 'Saving...' : 'OK'}
+              {loading ? "Saving..." : "OK"}
             </button>
           </div>
           <Dialog.Close asChild>
-            <button css={closeBtnCss} aria-label="Close">✕</button>
+            <button css={closeBtnCss} aria-label="Close">
+              ✕
+            </button>
           </Dialog.Close>
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>
-  )
+  );
 }

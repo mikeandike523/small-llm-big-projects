@@ -6,22 +6,22 @@ export const sessionToolbarCss = css`
   align-items: center;
   justify-content: space-between;
   margin-bottom: 8px;
-`
+`;
 
 export const sessionKeyCountCss = css`
-  font-family: 'Consolas', monospace;
+  font-family: "Consolas", monospace;
   font-size: 9px;
   text-transform: uppercase;
   letter-spacing: 0.07em;
   color: #444;
-`
+`;
 
 export const refreshButtonCss = css`
   background: transparent;
   border: 1px solid #2a2a2a;
   color: #555;
   cursor: pointer;
-  font-family: 'Consolas', monospace;
+  font-family: "Consolas", monospace;
   font-size: 9px;
   padding: 2px 8px;
   border-radius: 3px;
@@ -32,16 +32,25 @@ export const refreshButtonCss = css`
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  &:hover { color: #aaa; border-color: #444; }
-  &:disabled { opacity: 0.55; cursor: not-allowed; }
-  &:disabled:hover { color: #555; border-color: #2a2a2a; }
-`
+  &:hover {
+    color: #aaa;
+    border-color: #444;
+  }
+  &:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+  &:disabled:hover {
+    color: #555;
+    border-color: #2a2a2a;
+  }
+`;
 
 export const memKeyListCss = css`
   display: flex;
   flex-direction: column;
   gap: 2px;
-`
+`;
 
 export const memKeyRowCss = css`
   display: flex;
@@ -50,38 +59,44 @@ export const memKeyRowCss = css`
   padding: 3px 6px;
   border: 1px solid #1a1a1a;
   border-radius: 3px;
-  &:hover { border-color: #2a2a2a; background: #111; }
-`
+  &:hover {
+    border-color: #2a2a2a;
+    background: #111;
+  }
+`;
 
 export const memKeyNameCss = css`
-  font-family: 'Consolas', monospace;
+  font-family: "Consolas", monospace;
   font-size: 10px;
   color: #888;
   word-break: break-all;
   flex: 1;
   min-width: 0;
-`
+`;
 
 export const viewButtonCss = css`
   background: transparent;
   border: 1px solid #2a2a2a;
   color: #555;
   cursor: pointer;
-  font-family: 'Consolas', monospace;
+  font-family: "Consolas", monospace;
   font-size: 9px;
   padding: 1px 6px;
   border-radius: 3px;
   flex-shrink: 0;
   margin-left: 6px;
-  &:hover { color: #aaa; border-color: #444; }
-`
+  &:hover {
+    color: #aaa;
+    border-color: #444;
+  }
+`;
 
 export const dirtyAsteriskCss = css`
   color: #c07828;
   font-size: 11px;
   margin-left: 4px;
   flex-shrink: 0;
-`
+`;
 
 export default function SessionMemTab({
   keys,

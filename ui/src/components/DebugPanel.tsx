@@ -30,17 +30,14 @@ import {
   tabButtonCss,
   tabContentAreaCss,
   tabPanelCss,
-  toggleButtonCss
+  toggleButtonCss,
 } from "../css/DebugPanel";
 import BackendLogsTab from "../subcomponents/DebugPanel/BackendLogsTab";
 import DirtyTab from "../subcomponents/DebugPanel/DirtyTab";
 import MemTabFooter from "../subcomponents/DebugPanel/MemTabFooter";
 import SessionMemTab from "../subcomponents/DebugPanel/SessionMemTab";
 import SystemTab from "../subcomponents/DebugPanel/SystemTab";
-import {
-  MemKeyEvent,
-  Props
-} from "../types/DebugPanel";
+import { MemKeyEvent, Props } from "../types/DebugPanel";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -59,7 +56,6 @@ const TABS: { id: TabId; label: string }[] = [
   { id: "logs", label: "Backend Logs" },
   { id: "dirty", label: "Dirty" },
 ];
-
 
 // ---------------------------------------------------------------------------
 // DebugPanel

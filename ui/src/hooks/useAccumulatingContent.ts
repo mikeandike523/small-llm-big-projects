@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback } from "react";
 
 /**
  * Manages a string that grows incrementally via token streaming.
@@ -9,16 +9,16 @@ import { useState, useCallback } from 'react'
  *   // Call reset() or reset(finalContent) when the stream ends.
  *   <TextPresenter content={content} streaming={isStreaming} maxHeight={480} />
  */
-export default function useAccumulatingContent(initial = '') {
-  const [content, setContent] = useState(initial)
+export default function useAccumulatingContent(initial = "") {
+  const [content, setContent] = useState(initial);
 
   const append = useCallback((token: string) => {
-    setContent(prev => prev + token)
-  }, [])
+    setContent((prev) => prev + token);
+  }, []);
 
-  const reset = useCallback((value = '') => {
-    setContent(value)
-  }, [])
+  const reset = useCallback((value = "") => {
+    setContent(value);
+  }, []);
 
-  return { content, append, reset }
+  return { content, append, reset };
 }

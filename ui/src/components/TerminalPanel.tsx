@@ -4,7 +4,7 @@ import "@xterm/xterm/css/xterm.css";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { type Socket } from "socket.io-client";
 import {
-   collapsedLabelCss,
+  collapsedLabelCss,
   collapsedStripCss,
   headerCss,
   modalBodyCss,

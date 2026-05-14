@@ -1,11 +1,11 @@
 /** @jsxImportSource @emotion/react */
-import { css } from '@emotion/react'
-import { useState } from 'react'
-import * as Dialog from '@radix-ui/react-dialog'
+import { css } from "@emotion/react";
+import { useState } from "react";
+import * as Dialog from "@radix-ui/react-dialog";
 
 interface Props {
-  onClose: () => void
-  onSuccess: () => void
+  onClose: () => void;
+  onSuccess: () => void;
 }
 
 const overlayCss = css`
@@ -13,7 +13,7 @@ const overlayCss = css`
   inset: 0;
   background: rgba(0, 0, 0, 0.7);
   z-index: 1000;
-`
+`;
 
 const contentCss = css`
   position: fixed;
@@ -28,32 +28,32 @@ const contentCss = css`
   max-width: 560px;
   width: 90%;
   z-index: 1001;
-  font-family: 'Fira Code', 'Consolas', monospace;
+  font-family: "Fira Code", "Consolas", monospace;
   display: flex;
   flex-direction: column;
   gap: 14px;
   position: relative;
-`
+`;
 
 const titleCss = css`
   font-size: 15px;
   font-weight: 700;
   color: #f2f6ff;
   letter-spacing: 1px;
-`
+`;
 
 const fieldGroupCss = css`
   display: flex;
   flex-direction: column;
   gap: 4px;
-`
+`;
 
 const labelCss = css`
   font-size: 11px;
   color: #8a9ab8;
   text-transform: uppercase;
   letter-spacing: 1px;
-`
+`;
 
 const inputCss = css`
   width: 100%;
@@ -61,33 +61,35 @@ const inputCss = css`
   border: 1px solid #333;
   border-radius: 5px;
   color: #e0e0e0;
-  font-family: 'Fira Code', 'Consolas', monospace;
+  font-family: "Fira Code", "Consolas", monospace;
   font-size: 12px;
   padding: 8px 10px;
   outline: none;
-  &:focus { border-color: #4a6aee; }
-`
+  &:focus {
+    border-color: #4a6aee;
+  }
+`;
 
 const textareaCss = css`
   ${inputCss};
   resize: vertical;
-`
+`;
 
 const requiredMarkCss = css`
   color: #cc6666;
   margin-left: 3px;
-`
+`;
 
 const errorCss = css`
   font-size: 12px;
   color: #cc6666;
-`
+`;
 
 const footerCss = css`
   display: flex;
   justify-content: flex-end;
   gap: 10px;
-`
+`;
 
 const cancelBtnCss = css`
   background: none;
@@ -98,8 +100,10 @@ const cancelBtnCss = css`
   font-size: 12px;
   font-family: inherit;
   cursor: pointer;
-  &:hover { border-color: #8aa4d8; }
-`
+  &:hover {
+    border-color: #8aa4d8;
+  }
+`;
 
 const addBtnCss = css`
   background: #1a1a2e;
@@ -111,9 +115,15 @@ const addBtnCss = css`
   font-family: inherit;
   cursor: pointer;
   font-weight: 600;
-  &:hover:not(:disabled) { background: #222244; border-color: #4a6aee; }
-  &:disabled { opacity: 0.5; cursor: not-allowed; }
-`
+  &:hover:not(:disabled) {
+    background: #222244;
+    border-color: #4a6aee;
+  }
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+`;
 
 const closeBtnCss = css`
   position: absolute;
@@ -125,69 +135,111 @@ const closeBtnCss = css`
   font-size: 14px;
   cursor: pointer;
   line-height: 1;
-  &:hover { color: #e0e0e0; }
-`
+  &:hover {
+    color: #e0e0e0;
+  }
+`;
 
 export function AddTokenDialog({ onClose, onSuccess }: Props) {
-  const [form, setForm] = useState({ provider: '', name: '', endpoint: '', value: '' })
-  const [error, setError] = useState<string | null>(null)
-  const [loading, setLoading] = useState(false)
+  const [form, setForm] = useState({
+    provider: "",
+    name: "",
+    endpoint: "",
+    value: "",
+  });
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
 
   function set(field: keyof typeof form) {
     return (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
-      setForm(f => ({ ...f, [field]: e.target.value }))
+      setForm((f) => ({ ...f, [field]: e.target.value }));
   }
 
   async function handleSubmit() {
     const trimmed = {
       provider: form.provider.trim(),
-      name:     form.name.trim(),
+      name: form.name.trim(),
       endpoint: form.endpoint.trim() || undefined,
-      value:    form.value.trim(),
+      value: form.value.trim(),
+    };
+    if (!trimmed.provider) {
+      setError("Provider is required");
+      return;
     }
-    if (!trimmed.provider) { setError('Provider is required'); return }
-    if (!trimmed.value)    { setError('Value is required'); return }
-    setLoading(true)
-    setError(null)
-    const res = await fetch('/api/tokens', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+    if (!trimmed.value) {
+      setError("Value is required");
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    const res = await fetch("/api/tokens", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(trimmed),
-    })
-    setLoading(false)
-    if (!res.ok) { setError((await res.json()).error); return }
-    onSuccess()
+    });
+    setLoading(false);
+    if (!res.ok) {
+      setError((await res.json()).error);
+      return;
+    }
+    onSuccess();
   }
 
   return (
-    <Dialog.Root open onOpenChange={open => !open && onClose()}>
+    <Dialog.Root open onOpenChange={(open) => !open && onClose()}>
       <Dialog.Portal>
         <Dialog.Overlay css={overlayCss} />
         <Dialog.Content css={contentCss}>
           <Dialog.Title css={titleCss}>Add Token</Dialog.Title>
 
           <div css={fieldGroupCss}>
-            <label css={labelCss}>Provider<span css={requiredMarkCss}>*</span></label>
-            <input css={inputCss} value={form.provider} onChange={set('provider')}
-              placeholder="e.g. openai, anthropic" autoFocus />
+            <label css={labelCss}>
+              Provider<span css={requiredMarkCss}>*</span>
+            </label>
+            <input
+              css={inputCss}
+              value={form.provider}
+              onChange={set("provider")}
+              placeholder="e.g. openai, anthropic"
+              autoFocus
+            />
           </div>
 
           <div css={fieldGroupCss}>
-            <label css={labelCss}>Name <span style={{ color: '#555' }}>(optional)</span></label>
-            <input css={inputCss} value={form.name} onChange={set('name')}
-              placeholder="e.g. production, personal" />
+            <label css={labelCss}>
+              Name <span style={{ color: "#555" }}>(optional)</span>
+            </label>
+            <input
+              css={inputCss}
+              value={form.name}
+              onChange={set("name")}
+              placeholder="e.g. production, personal"
+            />
           </div>
 
           <div css={fieldGroupCss}>
-            <label css={labelCss}>Endpoint URL <span style={{ color: '#555' }}>(optional)</span></label>
-            <input css={inputCss} value={form.endpoint} onChange={set('endpoint')}
-              placeholder="e.g. https://api.openai.com/v1" />
+            <label css={labelCss}>
+              Endpoint URL <span style={{ color: "#555" }}>(optional)</span>
+            </label>
+            <input
+              css={inputCss}
+              value={form.endpoint}
+              onChange={set("endpoint")}
+              placeholder="e.g. https://api.openai.com/v1"
+            />
           </div>
 
           <div css={fieldGroupCss}>
-            <label css={labelCss}>Token Value<span css={requiredMarkCss}>*</span></label>
-            <textarea css={textareaCss} value={form.value} onChange={set('value')}
-              placeholder="Paste token value..." rows={3} />
+            <label css={labelCss}>
+              Token Value<span css={requiredMarkCss}>*</span>
+            </label>
+            <textarea
+              css={textareaCss}
+              value={form.value}
+              onChange={set("value")}
+              placeholder="Paste token value..."
+              rows={3}
+            />
           </div>
 
           {error && <p css={errorCss}>{error}</p>}
@@ -197,15 +249,17 @@ export function AddTokenDialog({ onClose, onSuccess }: Props) {
               <button css={cancelBtnCss}>Cancel</button>
             </Dialog.Close>
             <button css={addBtnCss} onClick={handleSubmit} disabled={loading}>
-              {loading ? 'Adding...' : 'Add'}
+              {loading ? "Adding..." : "Add"}
             </button>
           </div>
 
           <Dialog.Close asChild>
-            <button css={closeBtnCss} aria-label="Close">✕</button>
+            <button css={closeBtnCss} aria-label="Close">
+              ✕
+            </button>
           </Dialog.Close>
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>
-  )
+  );
 }

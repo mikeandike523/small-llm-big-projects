@@ -1,7 +1,7 @@
-import { keyframes } from "@emotion/react"
+import { keyframes } from "@emotion/react";
 
 const _spin = keyframes`
   to { transform: rotate(360deg); }
-`
+`;
 
-export default _spin
+export default _spin;

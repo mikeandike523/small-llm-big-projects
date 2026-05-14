@@ -1,1 +1,1 @@
-export const MAX_TOOL_CHARS = 80
+export const MAX_TOOL_CHARS = 80;
