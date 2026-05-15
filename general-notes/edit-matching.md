@@ -23,26 +23,35 @@ original `lines` array.
 ### Step 0+1 — Normalized matching (always applied)
 
 EOL is already normalized by `_split_lines_preserve` (splits on `\n`, strips
-trailing `\r`). For matching, each line is `.strip()`-ped to remove all
-leading/trailing whitespace. This catches:
+trailing `\r`). For matching, each line is `.rstrip()`-ped to remove trailing
+whitespace only. This catches:
 
 - Trailing spaces/tabs
-- Indentation drift
 - `\r` remnants from CRLF files
+
+**Leading whitespace is intentionally NOT stripped.** Stripping leading whitespace
+would allow indentation mismatches to pass, but since context lines from the patch
+are written into the file as-is, a wrong-indent context line would silently corrupt
+the file's indentation. Fixing this properly requires smart reindentation: detect
+the indentation delta between the patch's context lines and the matched file lines,
+then apply that delta uniformly to all `+` lines in the hunk. Not yet implemented.
 
 Very low false-positive risk. Always runs as the first (and often only) attempt.
 
-### Step 3 — Per-line fuzzy matching (fallback)
+### Step 3 — Block fuzzy matching (fallback)
 
-If normalized matching finds no hit, each candidate position is evaluated using
-`difflib.SequenceMatcher` per line. A position is accepted only if **all**
-context lines have a similarity ratio >= `1 - FUZZY_MATCH_MAX_ERROR`.
+If normalized matching finds no hit, the entire `before` block and each candidate
+window are each assembled into a single string (trailing whitespace stripped per
+line, `\n` inserted where `has_newline` is True). `difflib.SequenceMatcher` is run
+on the two block strings; a position is accepted if the ratio >=
+`1 - FUZZY_MATCH_MAX_ERROR`.
 
-Controlled by: `FUZZY_MATCH_MAX_ERROR = 0.10` in `_text_editor_utils.py`
-(default threshold: >= 90% per line).
+Controlled by: `FUZZY_MATCH_MAX_ERROR = 0.05` in `_text_editor_utils.py`
+(default threshold: >= 95% for the whole block).
 
-The "all lines must pass" rule prevents a case where one wildly wrong line is
-masked by many correct ones dragging the average up.
+Block-level matching is used rather than per-line so that `\ No newline at end of
+file` information (encoded as absent `\n` in the block string) is naturally
+incorporated into the similarity score.
 
 ### Step 2 — Blank-line edge trimming (not yet implemented)
 
@@ -55,24 +64,24 @@ actual replacement range.
 
 ### Per-line vs. whole-block similarity
 
-We use per-line `SequenceMatcher` (list of strings), not whole-block (joined
-string). Rationale: per-line with "all must pass" prevents a case where one
-completely wrong line is hidden by many correct lines bringing the average up.
-Whole-block similarity also has trouble when the block has different line counts.
-
-### Why "all lines must pass" and not average?
-
-Average ratio could mask a completely wrong anchor line. If 9 of 10 lines are
-perfect (ratio=1.0) and 1 is completely wrong (ratio=0.0), average is 0.90 —
-above threshold — but the match location would be wrong. "All lines" enforces
-that every anchor point is plausibly correct before applying.
+We use whole-block `SequenceMatcher` (the `before` block and each candidate window
+assembled into a single string). This naturally incorporates `\ No newline at end
+of file` information (absent `\n` between lines) into the similarity score.
+Per-line matching was the previous approach but was replaced because it required
+a separate mechanism to handle the no-newline case and was harder to reason about.
 
 ### Threshold choice
 
-`FUZZY_MATCH_MAX_ERROR = 0.10` (>= 90% per line) is conservative. At this
-level, a 20-character line can differ by at most ~2 characters. Raise to 0.15
-(85%) for more forgiveness; lower to 0.05 (95%) to reduce false-positive risk
-on codebases with lots of structurally similar boilerplate.
+Leniency is dynamic rather than a fixed constant:
+
+- `MAX_LENIENCY = 0.05` — maximum error fraction allowed (at full leniency, threshold = 95%)
+- `MAX_LENIENCY_AT_LINES = 15` — anchor line count at which full leniency applies
+- At 1 anchor line: leniency = 0.0, exact match required (fuzzy step skipped entirely)
+- Scales linearly between 1 and 15 lines
+
+Rationale: more anchor lines provide more matching evidence, making it safer to
+tolerate minor differences without risking a false-positive match at the wrong
+location. A single-line context block is inherently ambiguous and must match exactly.
 
 ### Match method is reported in output
 
@@ -154,8 +163,8 @@ Source: https://dev.to/mrquite/smart-text-matching-rapidfuzz-vs-difflib-ge5
 No paper publishes a rigorous ablation. The only practitioner data:
 - RooCode documents 0.8–1.0 as the practical range, with 0.85 as a typical default
 - Values below 0.80 produce too many false positives in typical source files
-- Our default of 0.90 (FUZZY_MATCH_MAX_ERROR=0.10) sits conservatively above this
-  floor; raise to 0.85 if agents are still looping on near-misses
+- Our max leniency of 0.05 (95% threshold at full leniency) is stricter than
+  RooCode's typical value; raise MAX_LENIENCY to 0.10 if agents loop on near-misses
 
 ### Key takeaway
 

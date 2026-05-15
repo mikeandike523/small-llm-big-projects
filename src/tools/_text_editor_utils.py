@@ -9,10 +9,11 @@ from typing import List, Tuple
 # Fuzzy matching configuration
 # ---------------------------------------------------------------------------
 
-# Maximum allowed per-line error fraction for fuzzy context matching (step 3).
-# A value of 0.05 means each context line must be >= 95% similar to its
-# counterpart in the target.
-FUZZY_MATCH_MAX_ERROR = 0.05
+# Maximum leniency (error fraction) allowed for fuzzy block matching.
+# Leniency is dynamic: 0.0 at 1 anchor line, MAX_LENIENCY at MAX_LENIENCY_AT_LINES+.
+# threshold = 1 - leniency, so MAX_LENIENCY=0.05 → 95% minimum similarity at full leniency.
+MAX_LENIENCY = 0.05
+MAX_LENIENCY_AT_LINES = 15
 
 # ---------------------------------------------------------------------------
 # Hunk data model
@@ -228,39 +229,64 @@ def _block_str(lines: list[tuple[str, bool]]) -> str:
     return "".join(c + ("\n" if nl else "") for c, nl in lines)
 
 
+def _compute_leniency(anchor_lines: int) -> float:
+    """Return the fuzzy leniency for a block with *anchor_lines* context/removed lines.
+
+    Scales linearly from 0.0 at 1 anchor line (exact match required) to MAX_LENIENCY
+    at MAX_LENIENCY_AT_LINES or more. More anchor lines = more evidence = safer to
+    tolerate minor differences.
+    """
+    if anchor_lines <= 1:
+        return 0.0
+    t = min(anchor_lines - 1, MAX_LENIENCY_AT_LINES - 1) / (MAX_LENIENCY_AT_LINES - 1)
+    return MAX_LENIENCY * t
+
+
 def _find_context_hits(
     lines: list[tuple[str, bool]], before: list[tuple[str, bool]]
 ) -> tuple[list[int], str]:
     """Find positions in *lines* where *before* matches.
 
     Each candidate window and *before* are assembled into a single block string
-    (per-line strip for normalisation; \\n inserted where has_newline is True).
-    The 95% SequenceMatcher threshold applies to the block as a whole, not per line.
+    (trailing whitespace stripped per line; \\n inserted where has_newline is True).
+    Leniency is dynamic: 0 at 1 anchor line, MAX_LENIENCY at MAX_LENIENCY_AT_LINES+.
 
-    Step 1: normalised exact match.
-    Step 2 (fallback): fuzzy block match via SequenceMatcher >= 1 - FUZZY_MATCH_MAX_ERROR.
+    Only TRAILING whitespace is stripped, not leading. Stripping leading whitespace
+    would forgive indentation mismatches, but since context lines are written into
+    the file as-is (after is derived from the patch, not the original), a wrong-indent
+    context line in the patch would silently corrupt the file's indentation. Fixing
+    this properly requires smart reindentation (detect the indent delta, apply it to
+    all after lines) — not yet implemented.
+
+    Step 1: normalised exact match (trailing-ws stripped).
+    Step 2 (fallback): fuzzy block match via SequenceMatcher >= 1 - leniency.
+                       Skipped entirely when leniency is 0.
 
     Returns (hit_positions, label) where label is 'normalized' or 'fuzzy'.
     """
     n = len(before)
-    norm_before = _block_str([(c.strip(), nl) for c, nl in before])
+    norm_before = _block_str([(c.rstrip(), nl) for c, nl in before])
 
     exact_hits = [
         i
         for i in range(len(lines) - n + 1)
-        if _block_str([(c.strip(), nl) for c, nl in lines[i : i + n]]) == norm_before
+        if _block_str([(c.rstrip(), nl) for c, nl in lines[i : i + n]]) == norm_before
     ]
     if exact_hits:
         return exact_hits, "normalized"
 
-    threshold = 1.0 - FUZZY_MATCH_MAX_ERROR
+    leniency = _compute_leniency(n)
+    if leniency == 0.0:
+        return [], "fuzzy"
+
+    threshold = 1.0 - leniency
     fuzzy_hits = [
         i
         for i in range(len(lines) - n + 1)
         if difflib.SequenceMatcher(
             None,
             norm_before,
-            _block_str([(c.strip(), nl) for c, nl in lines[i : i + n]]),
+            _block_str([(c.rstrip(), nl) for c, nl in lines[i : i + n]]),
         ).ratio() >= threshold
     ]
     return fuzzy_hits, "fuzzy"
