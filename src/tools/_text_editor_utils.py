@@ -165,6 +165,14 @@ def _apply_edits(
         position = edit.get("position")
         before, after = _parse_simple_edit(edit_text)
 
+        if before and before == after:
+            statuses.append(
+                f"Edit {n} of {total}: Failed — edit contains only context lines "
+                "(no '+' or '-' lines); nothing to change. Add the lines to add/remove, or omit this edit entirely."
+            )
+            has_failure = True
+            continue
+
         if not before:
             if position is None:
                 statuses.append(
