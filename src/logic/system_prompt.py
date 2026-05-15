@@ -424,6 +424,8 @@ For large files, use line_reader to read in chunks:
   - line_reader(action=”read_lines”, path=..., start_line=..., end_line=..., number_lines=true) to read a chunk.
 When in doubt, prefer line_reader â€” it scales to any file size.
 
+Do not rely on file content from a previously completed task — re-read files from disk when the
+user gives a new request or when you begin a new complex task.
 Use text_editor(filepath=..., action=...) to read and patch files directly. At the start of a new
 task that writes files, check each target file once with git (e.g. git status --short <file>) --
 not before every edit in a multi-step sequence. If a file has unstaged or uncommitted staged

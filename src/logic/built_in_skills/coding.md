@@ -16,6 +16,10 @@ As you explore, write your key findings to session memory so you can reference t
 Reading: use `read_text_file` for small files, or `line_reader` (count_lines + read_lines) for large files.
 Use these when exploring and understanding code — they are fast and lightweight.
 
+**Do not rely on file content from a previously completed task.** Re-read files fresh from disk
+when the user gives a new request or when you begin a new complex task. File content may have
+changed since your last read, and patching stale content will produce incorrect results.
+
 **Editing files on disk:**
 
     Use `text_editor(filepath=..., action=...)` to read, edit, and write a file directly.
