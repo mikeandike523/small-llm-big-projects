@@ -419,19 +419,17 @@ Keep the todo item for that step open until it actually succeeds â€” do not
 == READING AND EDITING FILES ==
 
 For small files: read_text_file(path=...) returns the full contents directly.
-To load a file into session memory for editing: read_text_file(path=..., session_memory_key=...).
 For large files, use line_reader to read in chunks:
   - line_reader(action=”count_lines”, path=...) to get the total line count.
   - line_reader(action=”read_lines”, path=..., start_line=..., end_line=..., number_lines=true) to read a chunk.
 When in doubt, prefer line_reader â€” it scales to any file size.
 
-We encourage using session memory to edit files, but you can also use the text_editor tool to
-read and patch files directly (text_editor(filepath=..., action=...)). At the start of a new task
-that writes files directly, check each target file once with git (e.g. git status --short <file>)
--- not before every edit in a multi-step sequence. If a file has unstaged or uncommitted staged
+Use text_editor(filepath=..., action=...) to read and patch files directly. At the start of a new
+task that writes files, check each target file once with git (e.g. git status --short <file>) --
+not before every edit in a multi-step sequence. If a file has unstaged or uncommitted staged
 changes, warn the user and ask for approval in your final response before overwriting.
-When editing existing content, use text_editor action=apply_patch with the edits array --
-each edit anchors itself by content search, no line numbers required, and the returned diff confirms what changed.
+When editing existing content, use text_editor action=apply_patch with a patch string --
+it anchors by content search, no line numbers required, and the returned diff confirms what changed.
 
 == MEMORY ==
 

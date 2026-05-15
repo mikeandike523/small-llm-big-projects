@@ -16,37 +16,19 @@ As you explore, write your key findings to session memory so you can reference t
 Reading: use `read_text_file` for small files, or `line_reader` (count_lines + read_lines) for large files.
 Use these when exploring and understanding code — they are fast and lightweight.
 
-We encourage using session memory to edit files — routing edits through a buffer increases accuracy
-and prevents partially-written files. But you can also use the `text_editor` tool to read and patch
-files directly without a session memory buffer.
+**Editing files on disk:**
 
-**Pick one approach per file and stick with it.** Once you start editing a file via session memory,
-continue reading and writing it through session memory for the rest of the task. Once you start
-editing directly on disk, continue directly on disk. Switching mid-task causes drift and stale reads.
-
-**Via session memory (recommended for larger or multi-step edits):**
-
-    Use `read_text_file(path=..., session_memory_key=...)` to load a file into a session memory key.
-    Perform edits with `text_editor(key=...)`.
-    Save back to disk with `write_text_file(path=..., session_memory_key=...)`.
-    After each write, pause and check the todo list — if a step is now complete, close it.
-    To re-read the latest content of a session memory item, use:
-      session_memory(action='get', key='...')
-    NOT read_text_file — the file on disk may be stale relative to your in-memory edits.
-
-**Directly on disk (fine for targeted patches):**
-
-    Use `text_editor(filepath=..., action=...)` to read, edit, and write a file in one step.
-    At the start of any new task that will write files directly, run:
+    Use `text_editor(filepath=..., action=...)` to read, edit, and write a file directly.
+    At the start of any new task that will write files, run:
       host_shell("git status --short <file>") or host_shell("git diff --name-only <file>")
     for each target file. Do this once per task — not before every individual edit in a
     multi-step sequence. If a file has unstaged changes or uncommitted staged changes,
     warn the user and state your concern clearly as your final response, waiting for their approval before proceeding.
     If a tool reports a file is dirty (modified since last read), re-read it with:
       read_text_file(path='...', target='return_value')
-    This ensures you get the current on-disk content as the tool return value, not a stale version.
+    This ensures you get the current on-disk content, not a stale version.
 
-When editing existing content (session memory or disk), **use `apply_patch` with a `patch` string** for any change. The returned diff confirms exactly what was applied.
+When editing existing content, **use `apply_patch` with a `patch` string** for any change. The returned diff confirms exactly what was applied.
 
 **`patch` is a unified diff string.** File headers (`diff --git`, `---`, `+++`) may be included or omitted — only `@@` hunk blocks are required. Each hunk line must be prefixed:
 - `+` — add this line
@@ -82,16 +64,11 @@ Example — pure insertion at line 1 (no surrounding context exists):
 +# generated file
 ```
 
-Writing Small Files (new or complete rewrite):
+Writing New Files or Complete Rewrites:
 
     Use `write_text_file(path=..., content=...)` to write the full content in one step.
-    Best for small files (configs, short scripts, stubs) where you have the entire content ready.
+    Best for configs, short scripts, stubs, and any file where you have the entire content ready.
     Also works as a complete overwrite of an existing file when a full rewrite is appropriate.
-
-Creating New Files (larger content via session memory):
-
-    Use `session_memory(action="set")` to build the content in session memory,
-    then `write_text_file(path=..., session_memory_key=...)` to write it to disk.
 
 Do NOT use host_shell with cat, sed, awk, or echo redirects for file writing.
 
