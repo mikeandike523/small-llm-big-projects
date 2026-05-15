@@ -44,11 +44,10 @@ def dirty_effects(args: dict) -> dict:
     path = args.get("path")
     session_memory_key = args.get("session_memory_key")
     effects: dict = {}
-    if path:
+    if path and not session_memory_key:
         effects["cleans_files"] = [path]
     if session_memory_key:
-        # Loading file into memory establishes a known state — treat as clean
-        effects["cleans_mem"] = [session_memory_key]
+        effects["dirties_mem"] = [session_memory_key]
     return effects
 
 
