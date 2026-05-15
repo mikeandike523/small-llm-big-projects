@@ -91,22 +91,33 @@ export const viewButtonCss = css`
   }
 `;
 
-export const dirtyAsteriskCss = css`
+export const dirtyTagCss = css`
   color: #c07828;
-  font-size: 11px;
-  margin-left: 4px;
+  font-size: 9px;
+  margin-left: 5px;
   flex-shrink: 0;
+  font-family: "Consolas", monospace;
+`;
+
+export const seenTagCss = css`
+  color: #5a8a6a;
+  font-size: 9px;
+  margin-left: 5px;
+  flex-shrink: 0;
+  font-family: "Consolas", monospace;
 `;
 
 export default function SessionMemTab({
   keys,
   dirtyMemKeys,
+  seenMemKeys,
   onRefresh,
   onView,
   loading,
 }: {
   keys: string[];
   dirtyMemKeys: Set<string>;
+  seenMemKeys: Set<string>;
   onRefresh: () => void;
   onView: (key: string) => void;
   loading: boolean;
@@ -130,8 +141,13 @@ export default function SessionMemTab({
               <span css={memKeyNameCss}>
                 {key}
                 {dirtyMemKeys.has(key) && (
-                  <span css={dirtyAsteriskCss} title="Modified since last read">
-                    *
+                  <span css={dirtyTagCss} title="Modified since last read">
+                    (dirty)
+                  </span>
+                )}
+                {seenMemKeys.has(key) && (
+                  <span css={seenTagCss} title="Read at least once">
+                    (seen)
                   </span>
                 )}
               </span>

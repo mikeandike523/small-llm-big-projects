@@ -28,7 +28,8 @@ changed since your last read, and patching stale content will produce incorrect 
     for each target file. Do this once per task — not before every individual edit in a
     multi-step sequence. If a file has unstaged changes or uncommitted staged changes,
     warn the user and state your concern clearly as your final response, waiting for their approval before proceeding.
-    If a tool reports a file is dirty (modified since last read), re-read it with:
+    If a tool reports that a file has not been read yet, or has been modified since last read,
+    re-read it with:
       read_text_file(path='...', target='return_value')
     This ensures you get the current on-disk content, not a stale version.
 

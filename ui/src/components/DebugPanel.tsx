@@ -92,7 +92,9 @@ export function DebugPanel({
     message: string;
   } | null>(null);
   const [dirtyFiles, setDirtyFiles] = useState<string[]>([]);
+  const [seenFiles, setSeenFiles] = useState<string[]>([]);
   const [dirtyMemKeys, setDirtyMemKeys] = useState<string[]>([]);
+  const [seenMemKeys, setSeenMemKeys] = useState<string[]>([]);
 
   // Listen for session and project memory socket events
   useEffect(() => {
@@ -157,13 +159,19 @@ export function DebugPanel({
     }
     function onDirtyCacheUpdate({
       files,
+      seen_files,
       mem_keys,
+      seen_mem_keys,
     }: {
       files: string[];
+      seen_files: string[];
       mem_keys: string[];
+      seen_mem_keys: string[];
     }) {
       setDirtyFiles(files);
+      setSeenFiles(seen_files ?? []);
       setDirtyMemKeys(mem_keys);
+      setSeenMemKeys(seen_mem_keys ?? []);
     }
 
     socket.on("session_memory_keys_update", onSessionMemoryKeys);
@@ -330,6 +338,7 @@ export function DebugPanel({
               <SessionMemTab
                 keys={sessionMemKeys}
                 dirtyMemKeys={new Set(dirtyMemKeys)}
+                seenMemKeys={new Set(seenMemKeys)}
                 onRefresh={refreshMemoryKeys}
                 onView={viewMemoryValue}
                 loading={sessionMemLoading}
@@ -350,7 +359,12 @@ export function DebugPanel({
           <BackendLogsTab logs={backendLogs} visible={activeTab === "logs"} />
 
           <div css={tabPanelCss(activeTab === "dirty")}>
-            <DirtyTab files={dirtyFiles} memKeys={dirtyMemKeys} />
+            <DirtyTab
+              files={dirtyFiles}
+              seenFiles={seenFiles.filter((f) => !dirtyFiles.includes(f))}
+              memKeys={dirtyMemKeys}
+              seenMemKeys={seenMemKeys.filter((k) => !dirtyMemKeys.includes(k))}
+            />
           </div>
         </div>
       </div>
