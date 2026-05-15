@@ -356,11 +356,8 @@ def _do_apply_patch(args: dict, value: str, label: str) -> tuple[str, str]:
     except Exception as exc:
         return f"Error applying patch: {exc}", value
 
-    original_lines = _count_lines(value)
-    new_lines = _count_lines(result)
-    delta = new_lines - original_lines
-    sign = "+" if delta >= 0 else ""
-    summary = f"Patch applied to {label!r}. Lines: {original_lines} -> {new_lines} ({sign}{delta})."
+    n = len(edits)
+    summary = f"Success: ({n}) {'edit' if n == 1 else 'edits'} applied to {label!r}."
     return f"{summary}\n\n{_make_diff(value, result)}", result
 
 

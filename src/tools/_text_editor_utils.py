@@ -4,6 +4,16 @@ import difflib
 from typing import List, Tuple
 
 # ---------------------------------------------------------------------------
+# Fuzzy matching configuration
+# ---------------------------------------------------------------------------
+
+# Maximum allowed per-line error fraction for fuzzy context matching (step 3).
+# A value of 0.10 means each context line must be >= 90% similar to its
+# counterpart in the target. Raise to allow more forgiveness; lower to reduce
+# false-positive matches on structurally similar code.
+FUZZY_MATCH_MAX_ERROR = 0.10
+
+# ---------------------------------------------------------------------------
 # Line-splitting helpers
 # ---------------------------------------------------------------------------
 
@@ -93,6 +103,46 @@ def _parse_simple_edit(edit_text: str) -> tuple[list[str], list[str]]:
     return before, after
 
 
+def _find_context_hits(lines: list[str], before: list[str]) -> tuple[list[int], str]:
+    """Find positions in *lines* where *before* matches, using progressive matching.
+
+    Step 0+1 (always): strip leading/trailing whitespace from each line before
+    comparing (EOL is already normalised by _split_lines_preserve / splitlines).
+
+    Step 3 (fallback): per-line fuzzy via SequenceMatcher — a position is
+    accepted only when ALL context lines score >= 1 - FUZZY_MATCH_MAX_ERROR.
+
+    Returns (hit_positions, label) where label is "normalized" or "fuzzy".
+    Empty hit_positions means no match was found at any level.
+    """
+    n = len(before)
+    norm_lines = [line.strip() for line in lines]
+    norm_before = [line.strip() for line in before]
+
+    # Step 0+1 — normalised exact match
+    hits = [
+        i
+        for i in range(len(lines))
+        if i + n <= len(lines) and norm_lines[i : i + n] == norm_before
+    ]
+    if hits:
+        return hits, "normalized"
+
+    # Step 3 — per-line fuzzy (all lines must clear the threshold)
+    threshold = 1.0 - FUZZY_MATCH_MAX_ERROR
+    fuzzy_hits = [
+        i
+        for i in range(len(lines))
+        if i + n <= len(lines)
+        and all(
+            difflib.SequenceMatcher(None, norm_before[j], norm_lines[i + j]).ratio()
+            >= threshold
+            for j in range(n)
+        )
+    ]
+    return fuzzy_hits, "fuzzy"
+
+
 def _apply_edits(
     original_text: str,
     edits: list[dict],
@@ -106,45 +156,55 @@ def _apply_edits(
     newline = _detect_newline_style(original_text) if auto_eol else "\n"
     lines, had_trailing_nl = _split_lines_preserve(original_text)
 
+    total = len(edits)
+    statuses: list[str] = []  # one entry per edit
+    has_failure = False
+
     for n, edit in enumerate(edits, start=1):
         edit_text = edit.get("text", "")
         position = edit.get("position")
         before, after = _parse_simple_edit(edit_text)
 
         if not before:
-            # Pure insertion: no content to anchor on — require position.
             if position is None:
-                raise ValueError(
-                    f"Edit {n}: no context or removed lines to anchor on, and no 'position' given. "
-                    "Either include at least one context line (space prefix) or removed line ('-'), "
-                    "or set 'position' to a 1-based line number for pure insertions."
+                statuses.append(
+                    f"Edit {n} of {total}: Failed — no context or removed lines to anchor on, "
+                    "and no 'position' given. Either include at least one context line (space "
+                    "prefix) or removed line ('-'), or set 'position' for pure insertions."
                 )
+                has_failure = True
+                continue
             apply_at = min(max(position - 1, 0), len(lines))
             lines = lines[:apply_at] + after + lines[apply_at:]
+            statuses.append(f"Edit {n} of {total}: Valid.")
         else:
-            before_keys = [s.rstrip() for s in before]
-            hits = [
-                i
-                for i in range(len(lines))
-                if (
-                    i + len(before_keys) <= len(lines)
-                    and [s.rstrip() for s in lines[i : i + len(before_keys)]]
-                    == before_keys
-                )
-            ]
+            hits, match_method = _find_context_hits(lines, before)
 
             if not hits:
-                raise ValueError(
-                    f"Edit {n}: context did not match anywhere in the target."
+                statuses.append(
+                    f"Edit {n} of {total}: Failed — context did not match anywhere in the target."
                 )
+                has_failure = True
+                continue
             if len(hits) > 1:
-                raise ValueError(
-                    f"Edit {n}: context matches multiple locations "
-                    f"({[h + 1 for h in hits]}); ambiguous, refusing to apply."
+                statuses.append(
+                    f"Edit {n} of {total}: Failed — context matches multiple locations "
+                    f"({[h + 1 for h in hits]}); ambiguous."
                 )
+                has_failure = True
+                continue
 
             apply_at = hits[0]
             lines = lines[:apply_at] + after + lines[apply_at + len(before) :]
+            statuses.append(f"Edit {n} of {total}: Valid ({match_method} match).")
+
+    if has_failure:
+        status_lines = "\n".join(
+            s.replace(": Valid", ": Valid, not applied") for s in statuses
+        )
+        raise ValueError(
+            f"At least one edit is invalid; no changes applied.\n{status_lines}"
+        )
 
     ends_with_nl = had_trailing_nl if trailing_newline is None else trailing_newline
     result = newline.join(lines)
