@@ -15,9 +15,7 @@ from src.tools._text_editor_utils import (
     _apply_edits,
     _count_lines,
     _make_diff,
-    _split_lines_preserve,
-    _detect_newline_style,
-    _parse_simple_edit,
+    _parse_patch_file,
 )
 from src.utils.text.line_numbers import add_line_numbers
 
@@ -35,8 +33,8 @@ DEFINITION: dict = {
             "LINE ENDING RULES:\n"
             "Only LF (\\n) and CRLF (\\r\\n) are recognised as line terminators. "
             "Bare \\r is treated as a regular character and is never split on or converted. "
-            "apply_patch re-encodes the result to match the existing EOL style (CRLF if any CRLF "
-            "present, else LF); set disable_auto_eol=true to suppress. "
+            "apply_patch always re-encodes the result to match the existing EOL style "
+            "(CRLF if any CRLF present, else LF). "
             "\n\n"
             "Actions: read_lines, search_by_regex, count_lines, "
             "check_eol, normalize_eol, check_indentation, convert_indentation, apply_patch."
@@ -65,9 +63,9 @@ DEFINITION: dict = {
                         "  normalize_eol       -- normalize all line endings to a single style.\n"
                         "  check_indentation   -- report indentation style statistics.\n"
                         "  convert_indentation -- convert leading-whitespace indentation style.\n"
-                        "  apply_patch         -- apply a list of edits (see 'edits' parameter). "
-                        "Each edit locates itself by content search; no line numbers required. "
-                        "Auto-matches EOL style."
+                        "  apply_patch         -- apply a unified diff patch string (see 'patch' parameter). "
+                        "Hunks locate themselves by content search; @@ line numbers are used only "
+                        "for pure-insertion anchoring. Always matches the target file's EOL style."
                     ),
                 },
                 "key": {
@@ -107,26 +105,6 @@ DEFINITION: dict = {
                         "Defaults to ' | '. Used by: read_lines."
                     ),
                 },
-                "disable_auto_eol": {
-                    "type": "boolean",
-                    "description": (
-                        "If true, skip automatic EOL style normalisation for apply_patch and write verbatim. "
-                        "By default (false), apply_patch re-encodes the result to match the existing "
-                        "EOL style: CRLF if any CRLF present, else LF. "
-                        "Used by: apply_patch."
-                    ),
-                },
-                "trailing_newline": {
-                    "type": "boolean",
-                    "description": (
-                        "Override trailing-newline behaviour for apply_patch. "
-                        "Omit (default) to preserve the original file's trailing newline state. "
-                        "true = always end result with a newline. "
-                        "false = always strip trailing newline. "
-                        "Useful for data files (e.g. flashcard decks, CSV) expected to have no trailing newline. "
-                        "Used by: apply_patch."
-                    ),
-                },
                 "eol": {
                     "type": "string",
                     "enum": EOL_CHOICES,
@@ -152,38 +130,18 @@ DEFINITION: dict = {
                     "type": "string",
                     "description": "Python regular expression to search for. Used by: search_by_regex.",
                 },
-                "edits": {
-                    "type": "array",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "text": {
-                                "type": "string",
-                                "description": (
-                                    "The edit block. Each line is prefixed with:\n"
-                                    "  '+'  add this line\n"
-                                    "  '-'  remove this line\n"
-                                    "  ' '  (space) context line -- must exist unchanged; used to locate the edit\n"
-                                    "Lines with no prefix are also treated as context. "
-                                    "Always surround every change with at least one context line above and below -- "
-                                    "a block with only '+' lines and no '-' or context has nothing to anchor on "
-                                    "and requires 'position' to be set."
-                                ),
-                            },
-                            "position": {
-                                "type": "integer",
-                                "minimum": 1,
-                                "description": (
-                                    "1-based line number. Used ONLY when the edit has no context or removed lines "
-                                    "(pure insertion of '+' lines only). In all other cases the edit is anchored "
-                                    "by content search and 'position' is ignored."
-                                ),
-                            },
-                        },
-                        "required": ["text"],
-                        "additionalProperties": False,
-                    },
-                    "description": "List of edits to apply sequentially. Used by: apply_patch.",
+                "patch": {
+                    "type": "string",
+                    "description": (
+                        "A unified diff patch string. File headers (diff --git, ---, +++) may be "
+                        "included or omitted; only @@ hunk blocks are required. "
+                        "Each hunk line must be prefixed: '+' (add), '-' (remove), or ' ' (context). "
+                        "A '\\ No newline at end of file' line may follow any +, -, or context line "
+                        "to mark that line as having no trailing newline. "
+                        "@@ line numbers are used only to anchor pure-insertion hunks "
+                        "(hunks with no context or '-' lines); declared hunk lengths are ignored. "
+                        "Used by: apply_patch."
+                    ),
                 },
             },
             "required": ["action"],
@@ -335,29 +293,29 @@ def _do_convert_indentation(args: dict, value: str, label: str) -> tuple[str, st
 
 
 def _do_apply_patch(args: dict, value: str, label: str) -> tuple[str, str]:
-    edits = args.get("edits")
-    disable_auto_eol = bool(args.get("disable_auto_eol", False))
-    trailing_newline = args.get("trailing_newline")  # bool | None
-
-    if not edits:
-        return "Error: 'edits' is required for action 'apply_patch'.", value
-    if not isinstance(edits, list) or not all(isinstance(e, dict) for e in edits):
-        return "Error: 'edits' must be an array of objects.", value
+    patch = args.get("patch")
+    if not patch:
+        return "Error: 'patch' is required for action 'apply_patch'.", value
+    if not isinstance(patch, str):
+        return "Error: 'patch' must be a string.", value
 
     try:
-        result = _apply_edits(
-            value,
-            edits,
-            auto_eol=not disable_auto_eol,
-            trailing_newline=trailing_newline,
-        )
+        hunks = _parse_patch_file(patch)
+    except Exception as exc:
+        return f"Error parsing patch: {exc}", value
+
+    if not hunks:
+        return "Error: no hunks found in patch.", value
+
+    try:
+        result = _apply_edits(value, hunks)
     except (ValueError, RuntimeError) as exc:
         return f"Error: {exc}", value
     except Exception as exc:
         return f"Error applying patch: {exc}", value
 
-    n = len(edits)
-    summary = f"Success: ({n}) {'edit' if n == 1 else 'edits'} applied to {label!r}."
+    n = len(hunks)
+    summary = f"Success: ({n}) {'hunk' if n == 1 else 'hunks'} applied to {label!r}."
     return f"{summary}\n\n{_make_diff(value, result)}", result
 
 
