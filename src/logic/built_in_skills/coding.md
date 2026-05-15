@@ -36,35 +36,40 @@ files directly without a session memory buffer.
     multi-step sequence. If a file has unstaged changes or uncommitted staged changes,
     warn the user and state your concern clearly as your final response, waiting for their approval before proceeding.
 
-When editing existing content (session memory or disk), **use `apply_patch` with `edits`** for any change. The returned diff confirms exactly what was applied.
+When editing existing content (session memory or disk), **use `apply_patch` with a `patch` string** for any change. The returned diff confirms exactly what was applied.
 
-**`edits` is a list of edit objects**, each with a `text` field (and optional `position` for pure insertions). Lines in `text` are prefixed with:
+**`patch` is a unified diff string.** File headers (`diff --git`, `---`, `+++`) may be included or omitted — only `@@` hunk blocks are required. Each hunk line must be prefixed:
 - `+` — add this line
 - `-` — remove this line
-- ` ` (space prefix, or no prefix) — context line: must exist unchanged; used to locate the edit
+- ` ` (space) — context line: must exist unchanged; used to locate the hunk
 
-No headers, no line numbers needed. Each edit anchors itself by searching the entire file for its context/removed lines.
+A `\ No newline at end of file` line may follow any `+`, `-`, or context line to indicate that line has no trailing newline.
 
-**Always surround every change with context lines, including insertions.** An edit with only `+` lines has nothing to anchor on — include at least one context line above and below, or set `position` (1-based line number) for a true positional insertion.
+Hunks anchor themselves by searching the file for their context/removed lines. Declared hunk lengths in `@@` headers are ignored (they may be approximate) — only the `+` start line number matters, and only for pure-insertion hunks (hunks with no context or `-` lines to anchor on).
 
-Example — replacing a line (the `text` field value, one edit object):
+**Always surround every change with context lines.** A hunk with only `+` lines has nothing to anchor on — include at least one context line above and below, or write a pure-insertion hunk with a correct `@@` start line.
+
+Example — replacing a line:
 ```
+@@ -3,4 +3,4 @@
  def old_function():
 -    return False
 +    return True
  def bar():
 ```
 
-Example — inserting after a known line (context-anchored, no `position` needed):
+Example — inserting after a known line (context-anchored):
 ```
+@@ -10,3 +10,4 @@
  def setup():
 +    configure_logging()
-     start_server()
+ start_server()
 ```
 
 Example — pure insertion at line 1 (no surrounding context exists):
-```json
-{"text": "+# generated file", "position": 1}
+```
+@@ -0,0 +1 @@
++# generated file
 ```
 
 Writing Small Files (new or complete rewrite):
