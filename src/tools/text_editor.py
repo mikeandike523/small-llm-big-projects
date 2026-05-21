@@ -178,7 +178,14 @@ def dirty_effects(args: dict, session_data: dict | None = None) -> dict:
 
 
 def needs_approval(args: dict) -> bool:
+    action = args.get("action", "")
     filepath = args.get("filepath")
+
+    if action in _WRITE_ACTIONS_SET:
+        # Write actions on files always need explicit approval.
+        return filepath is not None
+
+    # Read-only actions: path-based approval (consistent with read_text_file).
     if filepath is not None:
         from src.tools._approval import needs_path_approval
 

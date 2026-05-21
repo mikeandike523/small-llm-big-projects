@@ -107,10 +107,10 @@ def check_requires_clean(session_id: str, effects: dict, tool_name: str) -> str 
     lines = [f"Error: '{tool_name}' blocked:"]
     for p in unseen_files:
         lines.append(f"  File '{p}' has not been read yet.")
-        lines.append(f"    Read first with: read_text_file(path='...', target='return_value')")
+        lines.append(f"    Read first with: read_text_file(path='...')")
     for p in dirty_files:
         lines.append(f"  File '{p}' has been modified since last read.")
-        lines.append(f"    Re-read with: read_text_file(path='...', target='return_value')")
+        lines.append(f"    Re-read with: read_text_file(path='...')")
     for k in unseen_mem:
         lines.append(f"  Session memory key '{k}' has not been read yet.")
         lines.append(f"    Read first with: session_memory(action='get', key='{k}')")
