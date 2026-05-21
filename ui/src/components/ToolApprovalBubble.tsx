@@ -142,6 +142,13 @@ const diffSectionCss = css`
   margin-bottom: 4px;
 `;
 
+const diffLabelCss = css`
+  font-size: 10px;
+  color: #666;
+  font-family: "Consolas", monospace;
+  margin-bottom: 4px;
+`;
+
 const redirectInputAreaCss = css`
   display: flex;
   flex-direction: column;
@@ -237,25 +244,66 @@ export default function ToolApprovalBubble({
 
   const isTextEditorPatch =
     item.tool_name === "text_editor" && item.args.action === "apply_patch";
+  const isWriteTextFile = item.tool_name === "write_text_file";
+  const isSessionMemorySet =
+    item.tool_name === "session_memory" && item.args.action === "set";
+  const wantsDiffPreview = isTextEditorPatch || isWriteTextFile || isSessionMemorySet;
+
+  const diffLabel: string | null = (() => {
+    if (isTextEditorPatch) {
+      if (item.args.filepath) return `File(${item.args.filepath as string})`;
+      if (item.args.key) return `Memory Item (key="${item.args.key as string}")`;
+    }
+    if (isWriteTextFile) return `File(${item.args.path as string})`;
+    if (isSessionMemorySet) return `Memory Item (key="${item.args.key as string}")`;
+    return null;
+  })();
 
   useEffect(() => {
-    if (!isTextEditorPatch || item.resolved) return;
+    if (!wantsDiffPreview || item.resolved) return;
     setDiffStatus("loading");
     const sessionId = getSessionId();
-    fetch(`${window.location.origin}/api/tool-preview/text-editor`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
+
+    let url: string;
+    let body: Record<string, unknown>;
+
+    if (isTextEditorPatch) {
+      url = `${window.location.origin}/api/tool-preview/text-editor`;
+      body = {
         filepath: item.args.filepath as string | undefined,
         key: item.args.key as string | undefined,
         patch: item.args.patch as string,
         session_id: sessionId,
-      }),
+      };
+    } else if (isWriteTextFile) {
+      url = `${window.location.origin}/api/tool-preview/write-text-file`;
+      body = {
+        path: item.args.path as string,
+        content: item.args.content as string | undefined,
+        session_memory_key: item.args.session_memory_key as string | undefined,
+        session_id: sessionId,
+      };
+    } else {
+      url = `${window.location.origin}/api/tool-preview/session-memory`;
+      body = {
+        key: item.args.key as string,
+        value: item.args.value as string,
+        session_id: sessionId,
+      };
+    }
+
+    fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
     })
       .then((r) => r.json())
       .then((data) => {
         if (data.error) {
           setDiffStatus("error");
+        } else if (data.exists === false) {
+          // New file / new key — nothing to diff against
+          setDiffStatus("idle");
         } else {
           setDiffData({ before: data.before as string, after: data.after as string });
           setDiffStatus("loaded");
@@ -279,7 +327,7 @@ export default function ToolApprovalBubble({
           <JsonArgsViewer args={item.args} />
         </div>
       )}
-      {isTextEditorPatch && (
+      {wantsDiffPreview && diffStatus !== "idle" && (
         <div css={diffSectionCss}>
           {diffStatus === "loading" && (
             <div css={diffSpinnerCss}>
@@ -291,7 +339,10 @@ export default function ToolApprovalBubble({
             <div css={diffErrorCss}>Could not compute diff preview.</div>
           )}
           {diffStatus === "loaded" && diffData && (
-            <DiffViewer before={diffData.before} after={diffData.after} />
+            <>
+              {diffLabel && <div css={diffLabelCss}>Preview for: {diffLabel}</div>}
+              <DiffViewer before={diffData.before} after={diffData.after} />
+            </>
           )}
         </div>
       )}
@@ -299,8 +350,8 @@ export default function ToolApprovalBubble({
         <button
           css={approveButtonCss}
           onClick={() => onApprove(item.id)}
-          disabled={isTextEditorPatch && diffStatus === "loading"}
-          style={isTextEditorPatch && diffStatus === "loading" ? { opacity: 0.4, cursor: "default" } : undefined}
+          disabled={wantsDiffPreview && diffStatus === "loading"}
+          style={wantsDiffPreview && diffStatus === "loading" ? { opacity: 0.4, cursor: "default" } : undefined}
         >
           Approve
         </button>
