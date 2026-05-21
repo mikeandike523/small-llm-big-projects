@@ -9,10 +9,14 @@ from typing import List, Tuple
 # Fuzzy matching configuration
 # ---------------------------------------------------------------------------
 
-# Maximum leniency (error fraction) allowed for fuzzy block matching.
-# Leniency is dynamic: 0.0 at 1 anchor line, MAX_LENIENCY at MAX_LENIENCY_AT_LINES+.
-# threshold = 1 - leniency, so MAX_LENIENCY=0.05 → 95% minimum similarity at full leniency.
-MAX_LENIENCY = 0.05
+# Fuzzy matching pass configuration.
+# Each pass has a min and max leniency; the actual leniency scales linearly with
+# anchor-line count from MIN_LENIENCY_* (at 1 line) to MAX_LENIENCY_* (at MAX_LENIENCY_AT_LINES+).
+# Pass 3 is always exact (0% tolerance) and acts as the final tiebreaker.
+MAX_LENIENCY_LAX = 0.15   # lax pass ceiling
+MIN_LENIENCY_LAX = 0.05   # lax pass floor  (never fully exact even for 1-line blocks)
+MAX_LENIENCY_MID = 0.05   # mid pass ceiling
+MIN_LENIENCY_MID = 0.01   # mid pass floor
 MAX_LENIENCY_AT_LINES = 15
 
 # ---------------------------------------------------------------------------
@@ -229,17 +233,13 @@ def _block_str(lines: list[tuple[str, bool]]) -> str:
     return "".join(c + ("\n" if nl else "") for c, nl in lines)
 
 
-def _compute_leniency(anchor_lines: int) -> float:
-    """Return the fuzzy leniency for a block with *anchor_lines* context/removed lines.
+def _compute_leniency(anchor_lines: int, max_leniency: float, min_leniency: float = 0.0) -> float:
+    """Return fuzzy leniency for *anchor_lines* context/removed lines.
 
-    Scales linearly from 0.0 at 1 anchor line (exact match required) to MAX_LENIENCY
-    at MAX_LENIENCY_AT_LINES or more. More anchor lines = more evidence = safer to
-    tolerate minor differences.
+    Scales linearly from *min_leniency* at 1 anchor line to *max_leniency* at MAX_LENIENCY_AT_LINES+.
     """
-    if anchor_lines <= 1:
-        return 0.0
-    t = min(anchor_lines - 1, MAX_LENIENCY_AT_LINES - 1) / (MAX_LENIENCY_AT_LINES - 1)
-    return MAX_LENIENCY * t
+    t = min(max(anchor_lines - 1, 0), MAX_LENIENCY_AT_LINES - 1) / (MAX_LENIENCY_AT_LINES - 1)
+    return min_leniency + (max_leniency - min_leniency) * t
 
 
 def _find_context_hits(
@@ -249,47 +249,81 @@ def _find_context_hits(
 
     Each candidate window and *before* are assembled into a single block string
     (trailing whitespace stripped per line; \\n inserted where has_newline is True).
-    Leniency is dynamic: 0 at 1 anchor line, MAX_LENIENCY at MAX_LENIENCY_AT_LINES+.
 
     Only TRAILING whitespace is stripped, not leading. Stripping leading whitespace
     would forgive indentation mismatches, but since context lines are written into
     the file as-is (after is derived from the patch, not the original), a wrong-indent
-    context line in the patch would silently corrupt the file's indentation. Fixing
-    this properly requires smart reindentation (detect the indent delta, apply it to
-    all after lines) — not yet implemented.
+    context line in the patch would silently corrupt the file's indentation.
 
-    Step 1: normalised exact match (trailing-ws stripped).
-    Step 2 (fallback): fuzzy block match via SequenceMatcher >= 1 - leniency.
-                       Skipped entirely when leniency is 0.
+    Scans strict → lax, returning on the first non-empty result:
+      exact (0% tolerance)  → any hits? return them.
+      mid   (MIN–MAX_LENIENCY_MID scaled) → any hits? return them.
+      lax   (MIN–MAX_LENIENCY_LAX scaled) → any hits? return them.
+      all empty → return [] (not found).
 
-    Returns (hit_positions, label) where label is 'normalized' or 'fuzzy'.
+    Starting strict means most patches (which match exactly) never pay for a
+    SequenceMatcher scan.  The first non-empty result is also the TIGHTEST
+    non-empty set — exact_hits ⊆ mid_hits ⊆ lax_hits by threshold ordering —
+    so ambiguous error messages show the most constrained candidate list, not the
+    broadest.  There is no reverse (lax→strict) pass: >1 is a hard failure and
+    tightening could never reduce a multi-hit set to a unique hit.
+
+    Returns (hit_positions, label) where label is one of
+    "normalized" / "fuzzy" / "fuzzy (lax)".
     """
     n = len(before)
     norm_before = _block_str([(c.rstrip(), nl) for c, nl in before])
 
-    exact_hits = [
-        i
-        for i in range(len(lines) - n + 1)
-        if _block_str([(c.rstrip(), nl) for c, nl in lines[i : i + n]]) == norm_before
-    ]
-    if exact_hits:
-        return exact_hits, "normalized"
+    def _norm_candidate(start: int) -> str:
+        return _block_str([(c.rstrip(), nl) for c, nl in lines[start : start + n]])
 
-    leniency = _compute_leniency(n)
-    if leniency == 0.0:
-        return [], "fuzzy"
+    def _exact_hits() -> list[int]:
+        return [i for i in range(len(lines) - n + 1) if _norm_candidate(i) == norm_before]
 
-    threshold = 1.0 - leniency
-    fuzzy_hits = [
-        i
-        for i in range(len(lines) - n + 1)
-        if difflib.SequenceMatcher(
-            None,
-            norm_before,
-            _block_str([(c.rstrip(), nl) for c, nl in lines[i : i + n]]),
-        ).ratio() >= threshold
-    ]
-    return fuzzy_hits, "fuzzy"
+    def _fuzzy_hits(threshold: float) -> list[int]:
+        return [
+            i
+            for i in range(len(lines) - n + 1)
+            if difflib.SequenceMatcher(None, norm_before, _norm_candidate(i)).ratio() >= threshold
+        ]
+
+    leniency_lax = _compute_leniency(n, MAX_LENIENCY_LAX, MIN_LENIENCY_LAX)
+    leniency_mid = _compute_leniency(n, MAX_LENIENCY_MID, MIN_LENIENCY_MID)
+
+    hits_exact = _exact_hits()
+    if hits_exact:
+        return hits_exact, "normalized"
+
+    hits_mid = _fuzzy_hits(1.0 - leniency_mid)
+    if hits_mid:
+        return hits_mid, "fuzzy"
+
+    hits_lax = _fuzzy_hits(1.0 - leniency_lax)
+    return hits_lax, "fuzzy (lax)"
+
+
+# ---------------------------------------------------------------------------
+# Location preview helper (used in ambiguous-match error messages)
+# ---------------------------------------------------------------------------
+
+
+def _location_preview(lines: list[tuple[str, bool]], start: int, count: int) -> str:
+    """Return a one-line preview of the matched block starting at *start*.
+
+    Shows the first content line of the window.  If the block is more than one
+    line, appends ' ...' so the reader knows there is more.
+    """
+    if count == 0 or start >= len(lines):
+        return "(empty)"
+    first = lines[start][0]
+    return first + (" ..." if count > 1 else "")
+
+
+_MATCH_LABEL = {
+    "normalized": "exact",
+    "fuzzy": "fuzzy/mid",
+    "fuzzy (lax)": "fuzzy/lax",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -357,12 +391,18 @@ def _apply_edits(original_text: str, hunks: list[ParsedHunk]) -> str:
         hits, match_method = _find_context_hits(lines, before)
 
         if not hits:
-            _fail(n, hunk, "context did not match anywhere in the target.")
+            _fail(n, hunk, "context not found at any tolerance level.")
             continue
         if len(hits) > 1:
+            level = _MATCH_LABEL.get(match_method, match_method)
+            previews = "\n".join(
+                f"  line {h + 1}: {_location_preview(lines, h, len(before))}"
+                for h in hits
+            )
             _fail(
                 n, hunk,
-                f"context matches multiple locations ({[h + 1 for h in hits]}); ambiguous.",
+                f"context matches {len(hits)} locations ({level}); "
+                f"add more surrounding lines to disambiguate:\n{previews}",
             )
             continue
 
