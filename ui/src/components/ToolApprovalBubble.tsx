@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { ApprovalItem } from "../types";
 import { css } from "@emotion/react";
 import JsonArgsViewer from "./JsonArgsViewer";
+import DiffViewer from "../subcomponents/Chat/DiffViewer";
 
 const approvalResolvedBubbleCss = (approved: boolean) => css`
   font-family: "Consolas", monospace;
@@ -105,6 +106,42 @@ const denyAndStopButtonCss = css`
   }
 `;
 
+const diffSpinnerCss = css`
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 4px;
+  font-size: 11px;
+  color: #888;
+  font-family: "Consolas", monospace;
+`;
+
+const diffSpinnerDotsCss = css`
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 2px solid #333;
+  border-top-color: #888;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  @keyframes spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+`;
+
+const diffErrorCss = css`
+  font-size: 11px;
+  color: #888;
+  font-family: "Consolas", monospace;
+  padding: 4px 0;
+`;
+
+const diffSectionCss = css`
+  margin-bottom: 4px;
+`;
+
 const redirectInputAreaCss = css`
   display: flex;
   flex-direction: column;
@@ -170,6 +207,16 @@ const redirectCancelButtonCss = css`
   }
 `;
 
+type DiffStatus = "idle" | "loading" | "loaded" | "error";
+
+function getSessionId(): string {
+  return (
+    new URLSearchParams(window.location.search).get("sessionId") ||
+    sessionStorage.getItem("session_id") ||
+    ""
+  );
+}
+
 export default function ToolApprovalBubble({
   item,
   onApprove,
@@ -185,6 +232,37 @@ export default function ToolApprovalBubble({
 }) {
   const [showRedirect, setShowRedirect] = useState(false);
   const [redirectText, setRedirectText] = useState("");
+  const [diffStatus, setDiffStatus] = useState<DiffStatus>("idle");
+  const [diffData, setDiffData] = useState<{ before: string; after: string } | null>(null);
+
+  const isTextEditorPatch =
+    item.tool_name === "text_editor" && item.args.action === "apply_patch";
+
+  useEffect(() => {
+    if (!isTextEditorPatch || item.resolved) return;
+    setDiffStatus("loading");
+    const sessionId = getSessionId();
+    fetch(`${window.location.origin}/api/tool-preview/text-editor`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        filepath: item.args.filepath as string | undefined,
+        key: item.args.key as string | undefined,
+        patch: item.args.patch as string,
+        session_id: sessionId,
+      }),
+    })
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.error) {
+          setDiffStatus("error");
+        } else {
+          setDiffData({ before: data.before as string, after: data.after as string });
+          setDiffStatus("loaded");
+        }
+      })
+      .catch(() => setDiffStatus("error"));
+  }, [item.id]);  // eslint-disable-line react-hooks/exhaustive-deps
 
   if (item.resolved) {
     return (
@@ -201,8 +279,29 @@ export default function ToolApprovalBubble({
           <JsonArgsViewer args={item.args} />
         </div>
       )}
+      {isTextEditorPatch && (
+        <div css={diffSectionCss}>
+          {diffStatus === "loading" && (
+            <div css={diffSpinnerCss}>
+              <span css={diffSpinnerDotsCss} />
+              Computing diff preview...
+            </div>
+          )}
+          {diffStatus === "error" && (
+            <div css={diffErrorCss}>Could not compute diff preview.</div>
+          )}
+          {diffStatus === "loaded" && diffData && (
+            <DiffViewer before={diffData.before} after={diffData.after} />
+          )}
+        </div>
+      )}
       <div css={approvalButtonRowCss}>
-        <button css={approveButtonCss} onClick={() => onApprove(item.id)}>
+        <button
+          css={approveButtonCss}
+          onClick={() => onApprove(item.id)}
+          disabled={isTextEditorPatch && diffStatus === "loading"}
+          style={isTextEditorPatch && diffStatus === "loading" ? { opacity: 0.4, cursor: "default" } : undefined}
+        >
           Approve
         </button>
         <button css={denyButtonCss} onClick={() => onDeny(item.id)}>

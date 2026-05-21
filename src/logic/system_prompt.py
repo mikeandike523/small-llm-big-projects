@@ -432,6 +432,12 @@ not before every edit in a multi-step sequence. If a file has unstaged or uncomm
 changes, warn the user and ask for approval in your final response before overwriting.
 When editing existing content, use text_editor action=apply_patch with a patch string --
 it anchors by content search, no line numbers required, and the returned diff confirms what changed.
+After every apply_patch, re-read the file and verify the result. If the edit is wrong or corrupted:
+  in a git repo: run host_shell("git restore <file>") to revert, then retry with a corrected patch.
+  without git: reconstruct the correct content from session memory and rewrite with write_text_file.
+  Note: file snapshots are a planned feature and are not yet available.
+  If reconstruction is not possible, stop and inform the user of a potential data loss event,
+  name the affected file, and advise them to recover using git or another version control system.
 
 == MEMORY ==
 

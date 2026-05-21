@@ -35,6 +35,13 @@ changed since your last read, and patching stale content will produce incorrect 
 
 When editing existing content, **use `apply_patch` with a `patch` string** for any change. The returned diff confirms exactly what was applied.
 
+**After every `apply_patch` call, re-read the edited file and verify it looks correct.**
+If the result is wrong or corrupted:
+- In a git repo: run `host_shell("git restore <file>")` to undo the bad edit, then try again with a corrected patch.
+- Without git: attempt to reconstruct the correct content from your session memory and rewrite the file using `write_text_file`.
+  - Note: file snapshots (automatic pre-edit backups) are a planned feature not yet available.
+  - If you cannot confidently reconstruct the original content, stop immediately and inform the user that a data loss event may have occurred. Advise them to use git or another version control system to recover, and tell them exactly which file was affected.
+
 **`patch` is a unified diff string.** File headers (`diff --git`, `---`, `+++`) may be included or omitted — only `@@` hunk blocks are required. Each hunk line must be prefixed:
 - `+` — add this line
 - `-` — remove this line
