@@ -136,7 +136,7 @@ const approvalRowCss = css`
 // Inner 3-column grid for the approval/questions row
 const approvalInnerGridCss = css`
   display: grid;
-  grid-template-columns: 150px 1.2fr 1fr;
+  grid-template-columns: 150px 1.2fr;
   min-height: 100px;
 `;
 
@@ -159,15 +159,6 @@ const approvalCol2Css = css`
   min-width: 0;
 `;
 
-const approvalCol3Css = css`
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 0 4px 4px 14px;
-  border-left: 1px solid #22304d;
-  min-width: 0;
-  min-height: 0;
-`;
 
 const approvalColHeaderCss = css`
   font-size: 10px;
@@ -811,8 +802,6 @@ export default function TurnContainer({
                 )}
               </div>
 
-              {/* Col 3: empty (reserved) */}
-              <div css={approvalCol3Css} />
             </div>
           </div>
         )}

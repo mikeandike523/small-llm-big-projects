@@ -5,9 +5,9 @@ const wrapperCss = css`
   font-size: 11px;
   font-family: "Consolas", monospace;
   border-radius: 4px;
-  overflow: hidden;
   border: 1px solid #2a2a2a;
   max-height: 400px;
+  overflow-x: auto;
   overflow-y: auto;
 `;
 

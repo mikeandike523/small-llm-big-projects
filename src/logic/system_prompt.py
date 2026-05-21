@@ -433,11 +433,16 @@ changes, warn the user and ask for approval in your final response before overwr
 When editing existing content, use text_editor action=apply_patch with a patch string --
 it anchors by content search, no line numbers required, and the returned diff confirms what changed.
 After every apply_patch, re-read the file and verify the result. If the edit is wrong or corrupted:
-  in a git repo: run host_shell("git restore <file>") to revert, then retry with a corrected patch.
-  without git: reconstruct the correct content from session memory and rewrite with write_text_file.
-  Note: file snapshots are a planned feature and are not yet available.
-  If reconstruction is not possible, stop and inform the user of a potential data loss event,
-  name the affected file, and advise them to recover using git or another version control system.
+  Use restore_file(path=<file>) to restore from the latest snapshot (default).
+  In a git repo, host_shell("git restore <file>") can revert to the last commit if preferred.
+  If no snapshot is available (file was newly created this session) and no git history exists,
+  inform the user of a potential data loss event and name the affected file.
+
+When you finish a task, ask the user if they are satisfied with the changes. If they confirm, use
+snapshot_file on each modified file to checkpoint the approved state. In future interactions, if
+the user asks you to restore a file, first restore the latest snapshot. If they are still not
+satisfied, ask whether to search for prior snapshots or restore the original pre-session state
+(snapshot_index=0).
 
 == MEMORY ==
 

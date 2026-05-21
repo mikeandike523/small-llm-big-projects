@@ -37,10 +37,15 @@ When editing existing content, **use `apply_patch` with a `patch` string** for a
 
 **After every `apply_patch` call, re-read the edited file and verify it looks correct.**
 If the result is wrong or corrupted:
-- In a git repo: run `host_shell("git restore <file>")` to undo the bad edit, then try again with a corrected patch.
-- Without git: attempt to reconstruct the correct content from your session memory and rewrite the file using `write_text_file`.
-  - Note: file snapshots (automatic pre-edit backups) are a planned feature not yet available.
-  - If you cannot confidently reconstruct the original content, stop immediately and inform the user that a data loss event may have occurred. Advise them to use git or another version control system to recover, and tell them exactly which file was affected.
+- Use `restore_file(path=<file>)` to restore from the latest snapshot (default behavior).
+- In a git repo, `host_shell("git restore <file>")` can revert to the last commit if that is preferred.
+- If no snapshot exists (the file was newly created this session) and no git history exists, stop and inform the user of a potential data loss event, naming the affected file.
+
+**After completing a task, ask the user if they are satisfied with the changes.** If they confirm:
+- Call `snapshot_file(path=<file>)` on each modified file to checkpoint the approved state.
+
+**When restoring files in a future interaction:**
+- First restore the latest snapshot (default). If the user is still not satisfied, ask whether to search for a prior snapshot or restore the original pre-session state (`snapshot_index=0`).
 
 **`patch` is a unified diff string.** File headers (`diff --git`, `---`, `+++`) may be included or omitted — only `@@` hunk blocks are required. Each hunk line must be prefixed:
 - `+` — add this line

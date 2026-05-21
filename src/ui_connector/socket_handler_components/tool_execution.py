@@ -19,6 +19,7 @@ from src.ui_connector.socket_handler_components.terminal import (
 from src.ui_connector.socket_handler_components.approval import _request_approval
 from src.tools import execute_tool, check_needs_approval, get_dirty_effects, _TOOL_MAP
 from src.tools import _dirty_cache
+from src.tools import _file_snapshot
 from src.tools.todo_list import format_items_for_ui as _todo_format_items_for_ui
 from src.utils.session_model import Session, Turn, LLMExchange, ToolCallRecord
 from src.utils.exceptions import ToolHangError, ToolTimeoutError
@@ -200,6 +201,13 @@ def _execute_tools(
                 )
 
             special_resources["on_chunk"] = _on_chunk
+
+            # Auto-snapshot: capture original file state before the first write this session.
+            for _snap_path in _effects.get("dirties_files", []):
+                try:
+                    _file_snapshot.auto_snapshot_if_first_write(session_id, _snap_path)
+                except Exception:
+                    pass
 
             started_at = int(time.time() * 1000)
             tool_record.started_at = started_at

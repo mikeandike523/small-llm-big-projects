@@ -28,10 +28,11 @@ const jsonValueCss = css`
   font-size: 11px;
   padding: 0px 5px;
   border-radius: 3px;
-  white-space: pre-wrap;
-  word-break: break-word;
+  white-space: pre;
+  overflow-x: auto;
   flex: 1;
   min-width: 0;
+  ${scrollbarCss}
 `;
 
 const jsonValueScrollableCss = css`
@@ -41,11 +42,11 @@ const jsonValueScrollableCss = css`
   font-size: 11px;
   padding: 2px 5px;
   border-radius: 3px;
-  white-space: pre-wrap;
-  word-break: break-word;
+  white-space: pre;
   width: 100%;
   box-sizing: border-box;
   max-height: ${JSON_VALUE_MAX_LINES}em;
+  overflow-x: auto;
   overflow-y: auto;
   display: block;
   ${scrollbarCss}

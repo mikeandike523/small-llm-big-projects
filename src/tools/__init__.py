@@ -28,7 +28,9 @@ from src.tools import list_working_tree
 from src.tools import read_text_file
 from src.tools import remove_dir
 from src.tools import report_impossible
+from src.tools import restore_file
 from src.tools import scrape_web_page
+from src.tools import snapshot_file
 from src.tools import search_filesystem_by_regex
 from src.tools import session_memory
 from src.tools import summarize_memory_item
@@ -61,7 +63,9 @@ ALL_TOOL_DEFINITIONS: list[dict] = [
     read_text_file.DEFINITION,
     remove_dir.DEFINITION,
     report_impossible.DEFINITION,
+    restore_file.DEFINITION,
     scrape_web_page.DEFINITION,
+    snapshot_file.DEFINITION,
     search_filesystem_by_regex.DEFINITION,
     session_memory.DEFINITION,
     summarize_memory_item.DEFINITION,
@@ -94,7 +98,9 @@ _TOOL_MAP: dict[str, object] = {
     "read_text_file": read_text_file,
     "remove_dir": remove_dir,
     "report_impossible": report_impossible,
+    "restore_file": restore_file,
     "scrape_web_page": scrape_web_page,
+    "snapshot_file": snapshot_file,
     "search_filesystem_by_regex": search_filesystem_by_regex,
     "session_memory": session_memory,
     "summarize_memory_item": summarize_memory_item,
