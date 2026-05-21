@@ -121,9 +121,9 @@ def needs_approval(args: dict) -> bool:
     raw = args.get("path")
     if not raw:
         return False
-    from src.tools._approval import _resolve, _is_under_cwd
+    from src.tools._approval import is_path_in_scope
 
-    return not _is_under_cwd(_resolve(raw))
+    return not is_path_in_scope(raw)
 
 
 # ---------------------------------------------------------------------------

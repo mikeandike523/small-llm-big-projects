@@ -85,10 +85,10 @@ const cwdRowCss = css`
   align-items: stretch;
 `;
 
-const cwdInputCss = css`
+const cwdInputCss = (hasError: boolean) => css`
   flex: 1;
   background: #0f0f0f;
-  border: 1px solid #2a2a2a;
+  border: 1px solid ${hasError ? "#7a2a2a" : "#2a2a2a"};
   border-radius: 5px;
   color: #d0d0d0;
   font-family: inherit;
@@ -96,8 +96,14 @@ const cwdInputCss = css`
   padding: 8px 10px;
   outline: none;
   &:focus {
-    border-color: #3a3a5a;
+    border-color: ${hasError ? "#aa3a3a" : "#3a3a5a"};
   }
+`;
+
+const cwdErrorCss = css`
+  font-size: 10px;
+  color: #cc6666;
+  margin-top: 5px;
 `;
 
 const browseBtnCss = (loading: boolean) => css`
@@ -246,6 +252,7 @@ export default function NewSessionDialog({
   onClose,
 }: Props) {
   const [cwd, setCwd] = useState("");
+  const [workspaceDir, setWorkspaceDir] = useState<string>("");
   const [flags, setFlags] = useState<SessionDefaults>(() => ({
     ...sessionDefaults,
   }));
@@ -253,13 +260,16 @@ export default function NewSessionDialog({
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const cwdEmpty = cwd.trim() === "";
+
   // Fetch default workspace directory as default CWD on mount
   useEffect(() => {
     fetch("/api/system-info")
       .then((r) => r.json())
       .then((d) => {
-        if (d.workspace_dir) setCwd(d.workspace_dir);
-        else if (d.home_dir) setCwd(d.home_dir);
+        const dir = d.workspace_dir || d.home_dir || "";
+        setWorkspaceDir(dir);
+        if (dir) setCwd(dir);
       })
       .catch(() => {});
   }, []);
@@ -344,11 +354,11 @@ export default function NewSessionDialog({
           <div css={fieldLabelCss}>Working Directory</div>
           <div css={cwdRowCss}>
             <input
-              css={cwdInputCss}
+              css={cwdInputCss(cwdEmpty)}
               type="text"
               value={cwd}
               onChange={(e) => setCwd(e.target.value)}
-              placeholder="/path/to/project"
+              placeholder={workspaceDir || "/path/to/project"}
               spellCheck={false}
             />
             <button
@@ -360,6 +370,24 @@ export default function NewSessionDialog({
               {browsing ? "..." : "Browse"}
             </button>
           </div>
+          {cwdEmpty && (
+            <div css={cwdErrorCss}>
+              Working directory is required.{" "}
+              {workspaceDir ? (
+                <span>
+                  No specific project?{" "}
+                  <span
+                    style={{ cursor: "pointer", textDecoration: "underline" }}
+                    onClick={() => setCwd(workspaceDir)}
+                  >
+                    Use global workspace
+                  </span>
+                </span>
+              ) : (
+                "Enter a directory path to continue."
+              )}
+            </div>
+          )}
         </div>
 
         <div>
@@ -396,7 +424,7 @@ export default function NewSessionDialog({
           <button
             css={createBtnCss(creating)}
             onClick={handleCreate}
-            disabled={creating || !cwd.trim()}
+            disabled={creating || cwdEmpty}
           >
             {creating ? "Creating..." : "Create Session"}
           </button>

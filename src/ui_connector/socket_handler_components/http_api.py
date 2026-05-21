@@ -55,6 +55,18 @@ def api_create_session():
 
     session_id = str(_uuid_module.uuid4())
     initial_cwd = data.get("initial_cwd", "")
+    if not initial_cwd or not initial_cwd.strip():
+        return (
+            jsonify(
+                {
+                    "error": (
+                        "initial_cwd is required. "
+                        "If no specific project is needed, pass the global workspace path."
+                    )
+                }
+            ),
+            400,
+        )
     skills_path = data.get("skills_path") or None
     custom_tools_path = data.get("custom_tools_path") or None
     startup_tool_calls_path = data.get("startup_tool_calls_path") or None

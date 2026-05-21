@@ -146,6 +146,7 @@ def _execute_tools(
                 tc.arguments,
                 tool_map=actual_tool_map,
                 session_cwd=session.initial_cwd or None,
+                session_current_cwd=_state._session_current_cwd.get(session_id),
                 session_data=session.session_data,
             ):
                 approved, redirect_message = _request_approval(

@@ -28,7 +28,6 @@ DEFINITION: dict = {
             "Provide exactly one of: 'key' (session memory key) or 'filepath' (path to a file on disk). "
             "When 'filepath' is given the file is read into a temporary buffer, the operation is applied, "
             "and (for write actions) the result is written back atomically. "
-            "filepath uses the same approval gating as write_text_file. "
             "\n\n"
             "LINE ENDING RULES:\n"
             "Only LF (\\n) and CRLF (\\r\\n) are recognised as line terminators. "
@@ -80,7 +79,6 @@ DEFINITION: dict = {
                     "description": (
                         "Path to a file on disk (relative or absolute). "
                         "The file is read, the operation is applied, and (for write actions) the result is written back. "
-                        "Requires the same approval as write_text_file. "
                         "Mutually exclusive with 'key'. Provide exactly one."
                     ),
                 },
@@ -181,14 +179,45 @@ def needs_approval(args: dict) -> bool:
     action = args.get("action", "")
     filepath = args.get("filepath")
 
+    if action == "apply_patch":
+        if filepath is None:
+            return False  # session memory key only — no file write
+
+        from src.tools._approval import needs_path_approval
+
+        # Outside approved roots: always require approval regardless of outcome.
+        if needs_path_approval(filepath):
+            return True
+
+        # Path is in-scope. Do a dry-run: if the patch would fail (no matches,
+        # bad args, file missing), auto-approve so the agent sees the error
+        # without a prompt. Only require approval when the patch WOULD actually
+        # write to the file.
+        patch = args.get("patch")
+        if not patch or not isinstance(patch, str):
+            return False  # bad args — tool will fail anyway
+
+        try:
+            from src.tools._text_editor_utils import _parse_patch_file, _apply_edits
+
+            hunks = _parse_patch_file(patch)
+            if not hunks:
+                return False  # no hunks parsed — tool will fail
+            with open(filepath, "r", encoding="utf-8", newline="") as fh:
+                value = fh.read()
+            _apply_edits(value, hunks)
+            return True  # patch would apply — require approval before writing
+        except Exception:
+            return False  # any failure means no file will be written
+
     if action in _WRITE_ACTIONS_SET:
-        # Write actions on files always need explicit approval.
+        # Other write actions (normalize_eol, convert_indentation) on files
+        # always require explicit approval.
         return filepath is not None
 
     # Read-only actions: path-based approval (consistent with read_text_file).
     if filepath is not None:
         from src.tools._approval import needs_path_approval
-
         return needs_path_approval(filepath)
     return False
 

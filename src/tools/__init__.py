@@ -138,6 +138,7 @@ def check_needs_approval(
     args: dict,
     tool_map: dict | None = None,
     session_cwd: str | None = None,
+    session_current_cwd: str | None = None,
     session_data: dict | None = None,
 ) -> bool:
     """Return True if this tool call requires user approval before executing."""
@@ -147,15 +148,17 @@ def check_needs_approval(
     fn = getattr(module, "needs_approval", None)
     if fn is None:
         return False
-    from src.tools._approval import set_approval_cwd
+    from src.tools._approval import set_approval_cwd, set_approval_current_cwd
 
     set_approval_cwd(session_cwd or None)
+    set_approval_current_cwd(session_current_cwd or None)
     try:
         if _accepts_session_data(fn):
             return bool(fn(args, session_data))
         return bool(fn(args))
     finally:
         set_approval_cwd(None)
+        set_approval_current_cwd(None)
 
 
 def _accepts_session_data(fn) -> bool:
