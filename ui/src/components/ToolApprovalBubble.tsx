@@ -34,7 +34,14 @@ const approvalToolNameCss = css`
 `;
 
 const approvalArgsCss = css`
-  margin-bottom: 4px;
+  min-width: 0;
+`;
+
+const approvalArgsAndDiffGridCss = css`
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  align-items: start;
 `;
 
 const approvalButtonRowCss = css`
@@ -139,7 +146,7 @@ const diffErrorCss = css`
 `;
 
 const diffSectionCss = css`
-  margin-bottom: 4px;
+  min-width: 0;
 `;
 
 const diffLabelCss = css`
@@ -322,30 +329,32 @@ export default function ToolApprovalBubble({
   return (
     <div css={approvalPendingCardCss}>
       <div css={approvalToolNameCss}>{item.tool_name}</div>
-      {Object.keys(item.args).length > 0 && (
-        <div css={approvalArgsCss}>
-          <JsonArgsViewer args={item.args} />
-        </div>
-      )}
-      {wantsDiffPreview && diffStatus !== "idle" && (
-        <div css={diffSectionCss}>
-          {diffStatus === "loading" && (
-            <div css={diffSpinnerCss}>
-              <span css={diffSpinnerDotsCss} />
-              Computing diff preview...
-            </div>
-          )}
-          {diffStatus === "error" && (
-            <div css={diffErrorCss}>Could not compute diff preview.</div>
-          )}
-          {diffStatus === "loaded" && diffData && (
-            <>
-              {diffLabel && <div css={diffLabelCss}>Preview for: {diffLabel}</div>}
-              <DiffViewer before={diffData.before} after={diffData.after} />
-            </>
-          )}
-        </div>
-      )}
+      <div css={approvalArgsAndDiffGridCss}>
+        {Object.keys(item.args).length > 0 && (
+          <div css={approvalArgsCss}>
+            <JsonArgsViewer args={item.args} />
+          </div>
+        )}
+        {wantsDiffPreview && diffStatus !== "idle" && (
+          <div css={diffSectionCss}>
+            {diffStatus === "loading" && (
+              <div css={diffSpinnerCss}>
+                <span css={diffSpinnerDotsCss} />
+                Computing diff preview...
+              </div>
+            )}
+            {diffStatus === "error" && (
+              <div css={diffErrorCss}>Could not compute diff preview.</div>
+            )}
+            {diffStatus === "loaded" && diffData && (
+              <>
+                {diffLabel && <div css={diffLabelCss}>Preview for: {diffLabel}</div>}
+                <DiffViewer before={diffData.before} after={diffData.after} />
+              </>
+            )}
+          </div>
+        )}
+      </div>
       <div css={approvalButtonRowCss}>
         <button
           css={approveButtonCss}
