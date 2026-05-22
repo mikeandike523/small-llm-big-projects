@@ -43,13 +43,6 @@ const approvalArgsAndDiffContainerCss = css`
   gap: 12px;
 `;
 
-const approvalArgsAndDiffGridCss = css`
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-  align-items: start;
-`;
-
 const approvalButtonRowCss = css`
   display: flex;
   gap: 6px;
@@ -149,10 +142,6 @@ const diffErrorCss = css`
   color: #888;
   font-family: "Consolas", monospace;
   padding: 4px 0;
-`;
-
-const diffSectionCss = css`
-  min-width: 0;
 `;
 
 const diffLabelCss = css`
