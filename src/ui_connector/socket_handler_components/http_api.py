@@ -23,7 +23,7 @@ from src.ui_connector.socket_handler_components.terminal import (
     _build_starting_environment_info,
 )
 from src.data import get_pool
-from src.tools import ALL_TOOL_DEFINITIONS, _TOOL_MAP, load_custom_tools
+from src.tools import ALL_TOOL_DEFINITIONS, _TOOL_MAP, load_custom_tools, validate_no_reserved_params
 from src.logic.system_prompt import (
     SkillManifestError,
     build_skill_registry,
@@ -105,6 +105,14 @@ def api_create_session():
 
     if record_traces:
         _state._session_trace_buffers[session_id] = deque()
+
+    # Validate builtin tools for reserved parameter names before touching session state.
+    # Custom tools are validated inside load_custom_tools (raises RuntimeError on violation).
+    _builtin_err = validate_no_reserved_params(_TOOL_MAP)
+    if _builtin_err:
+        if record_traces:
+            _state._session_trace_buffers.pop(session_id, None)
+        return jsonify({"error": _builtin_err}), 400
 
     # Pre-validate and cache custom tools so errors surface at creation time.
     if custom_tools_path:

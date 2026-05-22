@@ -40,39 +40,68 @@ from src.tools import wikipedia
 from src.tools import write_text_file
 from src.utils.tool_calling.arguments import validate_tool_args
 
+# ---------------------------------------------------------------------------
+# Framework-injected parameters — reserved names no tool may declare itself
+# ---------------------------------------------------------------------------
+
+_RESERVED_TOOL_PARAMS: frozenset[str] = frozenset({"request_unredacted"})
+
+_REQUEST_UNREDACTED_PARAM: dict = {
+    "type": "boolean",
+    "description": (
+        "Request to bypass secret redactor. "
+        "Use only if absolutely needed. Requires user permission."
+    ),
+}
+
+
+def _inject_framework_params(module: object, definition: dict) -> dict:
+    """Return a deep copy of definition with framework-managed parameters injected.
+
+    Currently injects 'request_unredacted' for modules that opt in via
+    ALLOW_REQUEST_UNREDACTED = True.
+    """
+    result = copy.deepcopy(definition)
+    if getattr(module, "ALLOW_REQUEST_UNREDACTED", False):
+        params = result.setdefault("function", {}).setdefault("parameters", {})
+        params.setdefault("properties", {})["request_unredacted"] = _REQUEST_UNREDACTED_PARAM
+        # Intentionally NOT added to "required" — it is optional, default false.
+    return result
+
+
 ALL_TOOL_DEFINITIONS: list[dict] = [
-    basic_web_request.DEFINITION,
-    code_interpreter.DEFINITION,
-    brave_web_search.DEFINITION,
-    change_pwd.DEFINITION,
-    create_dir.DEFINITION,
-    create_text_file.DEFINITION,
-    delete_file.DEFINITION,
-    find_files_by_name.DEFINITION,
-    line_reader.DEFINITION,
-    get_environment_info.DEFINITION,
-    get_global_workspace_dir.DEFINITION,
-    get_pwd.DEFINITION,
-    host_check_command.DEFINITION,
-    host_shell.DEFINITION,
-    check_terminal_state.DEFINITION,
-    open_in_terminal.DEFINITION,
-    read_open_terminal.DEFINITION,
-    list_dir.DEFINITION,
-    list_working_tree.DEFINITION,
-    read_text_file.DEFINITION,
-    remove_dir.DEFINITION,
-    report_impossible.DEFINITION,
-    restore_file.DEFINITION,
-    scrape_web_page.DEFINITION,
-    snapshot_file.DEFINITION,
-    search_filesystem_by_regex.DEFINITION,
-    session_memory.DEFINITION,
-    summarize_memory_item.DEFINITION,
-    text_editor.DEFINITION,
-    todo_list.DEFINITION,
-    wikipedia.DEFINITION,
-    write_text_file.DEFINITION,
+    _inject_framework_params(basic_web_request, basic_web_request.DEFINITION),
+    _inject_framework_params(code_interpreter, code_interpreter.DEFINITION),
+    _inject_framework_params(brave_web_search, brave_web_search.DEFINITION),
+    _inject_framework_params(change_pwd, change_pwd.DEFINITION),
+    _inject_framework_params(create_dir, create_dir.DEFINITION),
+    _inject_framework_params(create_text_file, create_text_file.DEFINITION),
+    _inject_framework_params(delete_file, delete_file.DEFINITION),
+    _inject_framework_params(find_files_by_name, find_files_by_name.DEFINITION),
+    _inject_framework_params(line_reader, line_reader.DEFINITION),
+    _inject_framework_params(get_environment_info, get_environment_info.DEFINITION),
+    _inject_framework_params(get_global_workspace_dir, get_global_workspace_dir.DEFINITION),
+    _inject_framework_params(get_pwd, get_pwd.DEFINITION),
+    _inject_framework_params(host_check_command, host_check_command.DEFINITION),
+    _inject_framework_params(host_shell, host_shell.DEFINITION),
+    _inject_framework_params(check_terminal_state, check_terminal_state.DEFINITION),
+    _inject_framework_params(open_in_terminal, open_in_terminal.DEFINITION),
+    _inject_framework_params(read_open_terminal, read_open_terminal.DEFINITION),
+    _inject_framework_params(list_dir, list_dir.DEFINITION),
+    _inject_framework_params(list_working_tree, list_working_tree.DEFINITION),
+    _inject_framework_params(read_text_file, read_text_file.DEFINITION),
+    _inject_framework_params(remove_dir, remove_dir.DEFINITION),
+    _inject_framework_params(report_impossible, report_impossible.DEFINITION),
+    _inject_framework_params(restore_file, restore_file.DEFINITION),
+    _inject_framework_params(scrape_web_page, scrape_web_page.DEFINITION),
+    _inject_framework_params(snapshot_file, snapshot_file.DEFINITION),
+    _inject_framework_params(search_filesystem_by_regex, search_filesystem_by_regex.DEFINITION),
+    _inject_framework_params(session_memory, session_memory.DEFINITION),
+    _inject_framework_params(summarize_memory_item, summarize_memory_item.DEFINITION),
+    _inject_framework_params(text_editor, text_editor.DEFINITION),
+    _inject_framework_params(todo_list, todo_list.DEFINITION),
+    _inject_framework_params(wikipedia, wikipedia.DEFINITION),
+    _inject_framework_params(write_text_file, write_text_file.DEFINITION),
 ]
 
 _TOOL_MAP: dict[str, object] = {
@@ -133,6 +162,31 @@ if _load_excluded:
         _TOOL_MAP.pop(_excl_name, None)
 
 
+def validate_no_reserved_params(tool_map: dict) -> str | None:
+    """Check that no tool in tool_map explicitly declares a reserved framework parameter.
+
+    Returns an error string if a violation is found, None if all tools are clean.
+    Checks module.DEFINITION (the raw, pre-injection definition) so injected params
+    added by _inject_framework_params are never flagged as violations.
+    """
+    for tool_name, module in tool_map.items():
+        props = (
+            getattr(module, "DEFINITION", {})
+            .get("function", {})
+            .get("parameters", {})
+            .get("properties", {})
+            or {}
+        )
+        for reserved in _RESERVED_TOOL_PARAMS:
+            if reserved in props:
+                return (
+                    f"Tool '{tool_name}' explicitly declares reserved parameter "
+                    f"'{reserved}'. This parameter is managed by the framework and "
+                    "must not be defined in tool source code."
+                )
+    return None
+
+
 def check_needs_approval(
     name: str,
     args: dict,
@@ -141,7 +195,18 @@ def check_needs_approval(
     session_current_cwd: str | None = None,
     session_data: dict | None = None,
 ) -> bool:
-    """Return True if this tool call requires user approval before executing."""
+    """Return True if this tool call requires user approval before executing.
+
+    Short-circuits immediately to True when request_unredacted=True is present —
+    the tool's own needs_approval is never consulted in that case. This is a hard
+    gate: bypassing the redactor always requires explicit user permission, with no
+    code path that can reach execution without it.
+    """
+    # Hard gate: request_unredacted=True forces approval unconditionally.
+    # Do NOT call the tool's needs_approval — the answer is already True.
+    if args.get("request_unredacted"):
+        return True
+
     module = (tool_map if tool_map is not None else _TOOL_MAP).get(name)
     if module is None:
         return False
@@ -150,12 +215,13 @@ def check_needs_approval(
         return False
     from src.tools._approval import set_approval_cwd, set_approval_current_cwd
 
+    clean_args = {k: v for k, v in args.items() if k not in _RESERVED_TOOL_PARAMS}
     set_approval_cwd(session_cwd or None)
     set_approval_current_cwd(session_current_cwd or None)
     try:
         if _accepts_session_data(fn):
-            return bool(fn(args, session_data))
-        return bool(fn(args))
+            return bool(fn(clean_args, session_data))
+        return bool(fn(clean_args))
     finally:
         set_approval_cwd(None)
         set_approval_current_cwd(None)
@@ -211,19 +277,40 @@ def execute_tool(
         return f"Unknown tool: {name!r}"
     if session_data is None:
         session_data = {}
+
+    # Determine bypass before stripping args: request_unredacted=True AND the tool
+    # opted in. Both conditions must hold — if the tool did not opt in, bypass is
+    # False and the result still goes through the redactor.
+    bypass_redaction = bool(args.get("request_unredacted")) and bool(
+        getattr(module, "ALLOW_REQUEST_UNREDACTED", False)
+    )
+
+    # Strip framework-managed params before validation and execution so tool code
+    # never sees them and validate_tool_args doesn't reject them as extra properties.
+    clean_args = {k: v for k, v in args.items() if k not in _RESERVED_TOOL_PARAMS}
+
     try:
-        validate_tool_args(module.DEFINITION, args)
+        validate_tool_args(module.DEFINITION, clean_args)
         fn = module.execute
         if special_resources is not None and _accepts_special_resources(fn):
-            return fn(args, session_data, special_resources)
-        return fn(args, session_data)
+            result = fn(clean_args, session_data, special_resources)
+        else:
+            result = fn(clean_args, session_data)
     except (ToolHangError, ToolTimeoutError):
         raise
     except Exception as e:
         if os.environ.get("SLBP_TOOL_TRACEBACKS") == "1":
             tb = traceback.format_exc()
-            return f"Failed to execute tool {name}:\n{tb}".rstrip()
-        return f"Failed to execute tool {name}:\n{e}"
+            result = f"Failed to execute tool {name}:\n{tb}".rstrip()
+        else:
+            result = f"Failed to execute tool {name}:\n{e}"
+
+    if bypass_redaction:
+        return result
+
+    from src.redaction.core import redact as _redact
+    file_path = args.get("path") or args.get("filepath") or None
+    return _redact(file_path, result)
 
 
 # ---------------------------------------------------------------------------
@@ -357,7 +444,24 @@ def load_custom_tools(
                     f" Rename the tool to resolve this collision."
                 )
 
-            prefixed_def = copy.deepcopy(module.DEFINITION)
+            # Validate before injection: reserved params must not be declared by the tool.
+            raw_props = (
+                module.DEFINITION.get("function", {})
+                .get("parameters", {})
+                .get("properties", {})
+                or {}
+            )
+            for _reserved in _RESERVED_TOOL_PARAMS:
+                if _reserved in raw_props:
+                    sys.modules.pop(module_name, None)
+                    raise RuntimeError(
+                        f"Custom tool {tool_path!r} explicitly declares reserved parameter "
+                        f"'{_reserved}'. This parameter is managed by the framework and "
+                        "must not be defined in tool source code."
+                    )
+
+            # Inject framework params into a copy, then set the namespaced tool name.
+            prefixed_def = _inject_framework_params(module, module.DEFINITION)
             prefixed_def["function"]["name"] = tool_name
             extra_defs.append(prefixed_def)
             extra_map[tool_name] = module
