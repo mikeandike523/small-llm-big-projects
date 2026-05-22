@@ -53,9 +53,7 @@ def dirty_effects(args: dict) -> dict:
 
 
 def needs_approval(args: dict) -> bool:
-    from src.tools._approval import needs_path_approval
-
-    return needs_path_approval(args.get("path"))
+    return True
 
 
 def execute(args: dict, session_data: dict) -> str:

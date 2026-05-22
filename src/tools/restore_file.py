@@ -52,11 +52,7 @@ def dirty_effects(args: dict) -> dict:
 
 
 def needs_approval(args: dict) -> bool:
-    from src.tools._approval import needs_path_approval
-
-    if args.get("action", "restore") == "restore":
-        return needs_path_approval(args.get("path"))
-    return False
+    return args.get("action", "restore") == "restore"
 
 
 def execute(args: dict, session_data: dict, special_resources: dict) -> str:
