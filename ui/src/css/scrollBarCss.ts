@@ -3,6 +3,7 @@ import { css } from "@emotion/react";
 const scrollbarCss = css`
   &::-webkit-scrollbar {
     width: 6px;
+    height: 6px;
   }
   &::-webkit-scrollbar-track {
     background: #0a0a0a;
@@ -13,6 +14,9 @@ const scrollbarCss = css`
   }
   &::-webkit-scrollbar-thumb:hover {
     background: #4f73b3;
+  }
+  &::-webkit-scrollbar-corner {
+    background: #0a0a0a;
   }
 `;
 

@@ -35,6 +35,12 @@ const approvalToolNameCss = css`
 
 const approvalArgsCss = css`
   min-width: 0;
+  flex: 1;
+`;
+
+const approvalArgsAndDiffContainerCss = css`
+  display: flex;
+  gap: 12px;
 `;
 
 const approvalArgsAndDiffGridCss = css`
@@ -329,14 +335,14 @@ export default function ToolApprovalBubble({
   return (
     <div css={approvalPendingCardCss}>
       <div css={approvalToolNameCss}>{item.tool_name}</div>
-      <div css={approvalArgsAndDiffGridCss}>
+      <div css={approvalArgsAndDiffContainerCss}>
         {Object.keys(item.args).length > 0 && (
           <div css={approvalArgsCss}>
             <JsonArgsViewer args={item.args} />
           </div>
         )}
         {wantsDiffPreview && diffStatus !== "idle" && (
-          <div css={diffSectionCss}>
+          <div css={approvalArgsCss}>
             {diffStatus === "loading" && (
               <div css={diffSpinnerCss}>
                 <span css={diffSpinnerDotsCss} />
