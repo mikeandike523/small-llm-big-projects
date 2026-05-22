@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from src.utils.text_truncation import truncate_long_lines as _truncate_long_lines
 
+ALLOW_REQUEST_UNREDACTED = True
+
 DEFINITION = {
     "type": "function",
     "function": {

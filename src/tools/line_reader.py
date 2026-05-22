@@ -3,6 +3,8 @@ from __future__ import annotations
 import os
 from io import StringIO
 
+ALLOW_REQUEST_UNREDACTED = True
+
 from src.tools._memory import ensure_session_memory
 from src.utils.text.line_numbers import add_line_numbers
 

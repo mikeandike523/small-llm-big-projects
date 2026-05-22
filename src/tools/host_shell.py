@@ -4,6 +4,8 @@ import os
 import subprocess
 import threading
 
+ALLOW_REQUEST_UNREDACTED = True
+
 from src.tools._subprocess import run_command
 from src.tools._managed_process import run_command_streaming
 from src.tools._autoresponse import get_applicable_rules

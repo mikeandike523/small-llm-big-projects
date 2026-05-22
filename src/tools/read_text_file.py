@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import os
 
+ALLOW_REQUEST_UNREDACTED = True
+
 from src.utils.git_heuristic_is_binary import git_heuristic_is_binary
 
 DEFINITION: dict = {

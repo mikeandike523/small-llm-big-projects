@@ -3,6 +3,8 @@ from __future__ import annotations
 import re
 from io import StringIO
 
+ALLOW_REQUEST_UNREDACTED = True
+
 from src.tools._eol import EOL_CHOICES, check_eol, normalize_eol
 from src.tools._indentation import (
     INDENT_TARGET_CHOICES,
