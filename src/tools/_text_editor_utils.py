@@ -3,21 +3,111 @@ from __future__ import annotations
 import difflib
 import re
 from dataclasses import dataclass
-from typing import List, Tuple
 
 # ---------------------------------------------------------------------------
 # Fuzzy matching configuration
 # ---------------------------------------------------------------------------
 
-# Fuzzy matching pass configuration.
-# Each pass has a min and max leniency; the actual leniency scales linearly with
-# anchor-line count from MIN_LENIENCY_* (at 1 line) to MAX_LENIENCY_* (at MAX_LENIENCY_AT_LINES+).
-# Pass 3 is always exact (0% tolerance) and acts as the final tiebreaker.
-MAX_LENIENCY_LAX = 0.15   # lax pass ceiling
-MIN_LENIENCY_LAX = 0.05   # lax pass floor  (never fully exact even for 1-line blocks)
-MAX_LENIENCY_MID = 0.05   # mid pass ceiling
-MIN_LENIENCY_MID = 0.01   # mid pass floor
+# Per-line minimum ratio passes.  Each pass has a min and max leniency that
+# scales linearly with the number of before-lines from MIN (at 1 line) to MAX
+# (at MAX_LENIENCY_AT_LINES+).  Every line in the candidate window must meet
+# the threshold; a single low-scoring pair fails the whole window.
+MAX_LENIENCY_LAX = 0.15
+MIN_LENIENCY_LAX = 0.05
+MAX_LENIENCY_MID = 0.05
+MIN_LENIENCY_MID = 0.01
 MAX_LENIENCY_AT_LINES = 15
+
+# ---------------------------------------------------------------------------
+# LineGroup — parsed, validated hunk body
+# ---------------------------------------------------------------------------
+
+_NO_NEWLINE_MARKER = "\\ No newline at end of file"
+
+
+@dataclass
+class LineGroup:
+    """A parsed hunk body: tagged content lines plus trailing-newline state.
+
+    tagged: list of (prefix, content) where prefix is '+', '-', or ' '.
+            '\\ No newline at end of file' markers are never stored here;
+            they are consumed during parsing and expressed via the flags below.
+    new_has_trailing_newline: whether the new (after-apply) side ends with a newline.
+    old_has_trailing_newline: whether the old (before-apply) side ends with a newline.
+    """
+
+    tagged: list[tuple[str, str]]
+    new_has_trailing_newline: bool = True
+    old_has_trailing_newline: bool = True
+
+    def before_lines(self) -> list[str]:
+        """Content of context + remove lines — what the file must contain at the match site."""
+        return [c for p, c in self.tagged if p in ("-", " ")]
+
+
+def _parse_hunk_body(body_text: str) -> LineGroup:
+    """Parse a hunk body string into a LineGroup.
+
+    Two-pass approach:
+      Pass 1 — collect raw (prefix, content) pairs; bare blank lines become context (' ').
+      Pass 2 — locate, validate, and strip '\\' (no-newline) markers:
+                * must form a contiguous tail (none may appear mid-hunk)
+                * must be exactly _NO_NEWLINE_MARKER
+                * at most 2 per hunk (one per side)
+                Sets old_/new_has_trailing_newline based on which side each marker follows.
+    """
+    # Pass 1 — collect
+    raw: list[tuple[str, str]] = []
+    for line in body_text.splitlines():
+        if not line:
+            raw.append((" ", ""))
+        elif line[0] in ("+", "-", " "):
+            raw.append((line[0], line[1:]))
+        elif line[0] == "\\":
+            raw.append(("\\", line[1:]))
+        else:
+            raise ValueError(f"invalid hunk line prefix {line[0]!r} in: {line!r}")
+
+    # Pass 2 — validate '\' entries
+    bs_indices = [i for i, (p, _) in enumerate(raw) if p == "\\"]
+
+    if bs_indices:
+        first = bs_indices[0]
+        # Must be a contiguous tail
+        if bs_indices != list(range(first, len(raw))):
+            raise ValueError(
+                "no-newline marker ('\\\\') appears mid-hunk; "
+                "it may only appear at the very end of a hunk section"
+            )
+        if len(bs_indices) > 2:
+            raise ValueError(
+                f"too many no-newline markers in hunk: {len(bs_indices)} (max 2)"
+            )
+        for i in bs_indices:
+            full = "\\" + raw[i][1]
+            if full != _NO_NEWLINE_MARKER:
+                raise ValueError(f"unrecognized no-newline marker: {full!r}")
+
+    # Determine which side each marker affects by looking at the preceding non-'\' prefix
+    old_has_trailing_newline = True
+    new_has_trailing_newline = True
+    prev_prefix: str | None = None
+    for prefix, _ in raw:
+        if prefix != "\\":
+            prev_prefix = prefix
+        else:
+            if prev_prefix in ("-", " "):
+                old_has_trailing_newline = False
+            if prev_prefix in ("+", " "):
+                new_has_trailing_newline = False
+
+    tagged = [(p, c) for p, c in raw if p != "\\"]
+    return LineGroup(
+        tagged=tagged,
+        new_has_trailing_newline=new_has_trailing_newline,
+        old_has_trailing_newline=old_has_trailing_newline,
+    )
+
 
 # ---------------------------------------------------------------------------
 # Hunk data model
@@ -26,8 +116,8 @@ MAX_LENIENCY_AT_LINES = 15
 
 @dataclass
 class ParsedHunk:
-    start: int | None  # +start from @@ header; set only for pure-insertion hunks
-    text: str          # processed hunk body (blank lines resolved); shown in errors
+    start: int | None  # +start from @@ header; only set for pure-insertion hunks
+    group: LineGroup
 
 
 # ---------------------------------------------------------------------------
@@ -35,7 +125,7 @@ class ParsedHunk:
 # ---------------------------------------------------------------------------
 
 
-def _split_lines_preserve(text: str) -> Tuple[List[str], bool]:
+def _split_lines_preserve(text: str) -> tuple[list[str], bool]:
     """Split *text* into content lines (without terminators).
 
     Only \\n is treated as a line boundary (bare \\r is a character).
@@ -77,7 +167,7 @@ def _count_lines(text: str) -> int:
 
 
 # ---------------------------------------------------------------------------
-# diff helper
+# Diff helper
 # ---------------------------------------------------------------------------
 
 
@@ -101,10 +191,6 @@ _HUNK_HEADER_RE = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
 _FILE_HEADER_PREFIXES = ("diff ", "index ", "--- ", "+++ ")
 
 
-def _is_no_newline_marker(line: str) -> bool:
-    return line.startswith("\\ ")
-
-
 def _parse_patch_file(patch: str) -> list[ParsedHunk]:
     """Parse a unified diff string into a list of ParsedHunk objects."""
     raw_lines = patch.replace("\r\n", "\n").replace("\r", "\n").split("\n")
@@ -124,9 +210,7 @@ def _parse_patch_file(patch: str) -> list[ParsedHunk]:
             i += 1
             continue
 
-        old_len = int(m.group(2)) if m.group(2) is not None else 1
         new_start = int(m.group(3))
-        new_len = int(m.group(4)) if m.group(4) is not None else 1
         i += 1
 
         body_lines: list[str] = []
@@ -138,153 +222,70 @@ def _parse_patch_file(patch: str) -> list[ParsedHunk]:
             body_lines.append(raw_lines[i])
             i += 1
 
-        # Exclude no-newline markers from length counts
-        countable = [l for l in body_lines if not _is_no_newline_marker(l)]
-
-        # Count including bare blank lines as potential context
-        old_with_blanks = sum(
-            1 for l in countable
-            if l.startswith("-") or l.startswith(" ") or l == ""
+        group = _parse_hunk_body("\n".join(body_lines))
+        is_pure_insertion = bool(group.tagged) and all(
+            p == "+" for p, _ in group.tagged
         )
-        new_with_blanks = sum(
-            1 for l in countable
-            if l.startswith("+") or l.startswith(" ") or l == ""
-        )
-
-        if old_with_blanks == old_len and new_with_blanks == new_len:
-            # Blank lines are genuine context; normalise to space-prefix form
-            resolved = [(" " if l == "" else l) for l in body_lines]
-        else:
-            # Lengths are hallucinated; strip bare blank lines (keep prefixed blanks)
-            resolved = [l for l in body_lines if l or _is_no_newline_marker(l)]
-
-        text = "\n".join(resolved)
-
-        # Pure insertion: no context or removed lines present
-        non_marker = [l for l in resolved if not _is_no_newline_marker(l)]
-        is_pure_insertion = bool(non_marker) and not any(
-            l.startswith(" ") or l.startswith("-") for l in non_marker
-        )
-
         hunks.append(ParsedHunk(
             start=new_start if is_pure_insertion else None,
-            text=text,
+            group=group,
         ))
 
     return hunks
 
 
 # ---------------------------------------------------------------------------
-# Hunk body parsing (strict unified diff format)
+# Context matching — per-line minimum ratio
 # ---------------------------------------------------------------------------
 
 
-def _parse_simple_edit(
-    edit_text: str,
-) -> tuple[list[tuple[str, bool]], list[tuple[str, bool]]]:
-    """Parse a hunk body into (before, after) with per-line has_newline flags.
-
-    '+' prefix  → after only
-    '-' prefix  → before only
-    ' ' prefix  → context (before and after)
-    '\\ '       → No newline at end of file; clears has_newline on the preceding line
-    any other   → raises ValueError
-    """
-    before: list[tuple[str, bool]] = []
-    after: list[tuple[str, bool]] = []
-    last_in_before = False
-    last_in_after = False
-
-    for raw in edit_text.splitlines():
-        if _is_no_newline_marker(raw):
-            if last_in_before and before:
-                before[-1] = (before[-1][0], False)
-            if last_in_after and after:
-                after[-1] = (after[-1][0], False)
-            last_in_before = False
-            last_in_after = False
-        elif raw.startswith("+"):
-            after.append((raw[1:], True))
-            last_in_before = False
-            last_in_after = True
-        elif raw.startswith("-"):
-            before.append((raw[1:], True))
-            last_in_before = True
-            last_in_after = False
-        elif raw.startswith(" "):
-            content = raw[1:]
-            before.append((content, True))
-            after.append((content, True))
-            last_in_before = True
-            last_in_after = True
-        else:
-            raise ValueError(f"Invalid line prefix in hunk: {raw!r}")
-
-    return before, after
-
-
-# ---------------------------------------------------------------------------
-# Context matching
-# ---------------------------------------------------------------------------
-
-
-def _block_str(lines: list[tuple[str, bool]]) -> str:
-    """Join lines into one string using \\n where has_newline is True, nothing where False."""
-    return "".join(c + ("\n" if nl else "") for c, nl in lines)
-
-
-def _compute_leniency(anchor_lines: int, max_leniency: float, min_leniency: float = 0.0) -> float:
-    """Return fuzzy leniency for *anchor_lines* context/removed lines.
-
-    Scales linearly from *min_leniency* at 1 anchor line to *max_leniency* at MAX_LENIENCY_AT_LINES+.
-    """
-    t = min(max(anchor_lines - 1, 0), MAX_LENIENCY_AT_LINES - 1) / (MAX_LENIENCY_AT_LINES - 1)
+def _compute_leniency(
+    anchor_lines: int, max_leniency: float, min_leniency: float = 0.0
+) -> float:
+    """Scale leniency linearly from *min_leniency* (1 line) to *max_leniency* (MAX_LENIENCY_AT_LINES+)."""
+    t = (
+        min(max(anchor_lines - 1, 0), MAX_LENIENCY_AT_LINES - 1)
+        / (MAX_LENIENCY_AT_LINES - 1)
+    )
     return min_leniency + (max_leniency - min_leniency) * t
 
 
 def _find_context_hits(
-    lines: list[tuple[str, bool]], before: list[tuple[str, bool]]
+    file_lines: list[str], before_lines: list[str]
 ) -> tuple[list[int], str]:
-    """Find positions in *lines* where *before* matches.
+    """Find positions in *file_lines* where *before_lines* matches.
 
-    Each candidate window and *before* are assembled into a single block string
-    (trailing whitespace stripped per line; \\n inserted where has_newline is True).
+    Comparison is right-stripped per line.  Each candidate window must have
+    every line pair meet the ratio threshold (minimum, not mean) — a single
+    poor-scoring pair fails the whole window.  This makes dropped or shifted
+    lines fail reliably rather than being absorbed by a high-scoring majority.
 
-    Only TRAILING whitespace is stripped, not leading. Stripping leading whitespace
-    would forgive indentation mismatches, but since context lines are written into
-    the file as-is (after is derived from the patch, not the original), a wrong-indent
-    context line in the patch would silently corrupt the file's indentation.
-
-    Scans strict → lax, returning on the first non-empty result:
-      exact (0% tolerance)  → any hits? return them.
-      mid   (MIN–MAX_LENIENCY_MID scaled) → any hits? return them.
-      lax   (MIN–MAX_LENIENCY_LAX scaled) → any hits? return them.
-      all empty → return [] (not found).
-
-    Starting strict means most patches (which match exactly) never pay for a
-    SequenceMatcher scan.  The first non-empty result is also the TIGHTEST
-    non-empty set — exact_hits ⊆ mid_hits ⊆ lax_hits by threshold ordering —
-    so ambiguous error messages show the most constrained candidate list, not the
-    broadest.  There is no reverse (lax→strict) pass: >1 is a hard failure and
-    tightening could never reduce a multi-hit set to a unique hit.
-
-    Returns (hit_positions, label) where label is one of
-    "normalized" / "fuzzy" / "fuzzy (lax)".
+    Scans exact -> mid -> lax, returning on the first non-empty result.
+    Returns (hit_positions, label).
     """
-    n = len(before)
-    norm_before = _block_str([(c.rstrip(), nl) for c, nl in before])
+    n = len(before_lines)
+    norm_before = [b.rstrip() for b in before_lines]
+    total = len(file_lines)
 
-    def _norm_candidate(start: int) -> str:
-        return _block_str([(c.rstrip(), nl) for c, nl in lines[start : start + n]])
+    def _candidate(start: int) -> list[str]:
+        return [file_lines[start + k].rstrip() for k in range(n)]
 
     def _exact_hits() -> list[int]:
-        return [i for i in range(len(lines) - n + 1) if _norm_candidate(i) == norm_before]
+        return [
+            i for i in range(total - n + 1)
+            if _candidate(i) == norm_before
+        ]
+
+    def _min_ratio(start: int) -> float:
+        return min(
+            difflib.SequenceMatcher(None, b, c).ratio()
+            for b, c in zip(norm_before, _candidate(start))
+        )
 
     def _fuzzy_hits(threshold: float) -> list[int]:
         return [
-            i
-            for i in range(len(lines) - n + 1)
-            if difflib.SequenceMatcher(None, norm_before, _norm_candidate(i)).ratio() >= threshold
+            i for i in range(total - n + 1)
+            if _min_ratio(i) >= threshold
         ]
 
     leniency_lax = _compute_leniency(n, MAX_LENIENCY_LAX, MIN_LENIENCY_LAX)
@@ -307,15 +308,10 @@ def _find_context_hits(
 # ---------------------------------------------------------------------------
 
 
-def _location_preview(lines: list[tuple[str, bool]], start: int, count: int) -> str:
-    """Return a one-line preview of the matched block starting at *start*.
-
-    Shows the first content line of the window.  If the block is more than one
-    line, appends ' ...' so the reader knows there is more.
-    """
-    if count == 0 or start >= len(lines):
+def _location_preview(file_lines: list[str], start: int, count: int) -> str:
+    if count == 0 or start >= len(file_lines):
         return "(empty)"
-    first = lines[start][0]
+    first = file_lines[start]
     return first + (" ..." if count > 1 else "")
 
 
@@ -334,37 +330,40 @@ _MATCH_LABEL = {
 def _apply_edits(original_text: str, hunks: list[ParsedHunk]) -> str:
     """Apply a list of parsed hunks to original_text.
 
-    EOL style always matches the original file.
-    Per-line has_newline flags (from '\\ No newline at end of file' markers)
-    trump the original file's trailing-newline state for affected lines.
+    Context lines are taken from the actual file via a file pointer, never
+    from the patch text.  This prevents LLM hallucinations in context lines
+    from corrupting the output, and ensures the line count consumed from the
+    file exactly matches the number of context+remove lines in the hunk.
+
+    EOL style of the result always matches the original file.
+    has_trailing_newline for the result is taken from the last hunk that
+    touches the end of the file; otherwise the original file's state is kept.
     """
     newline = _detect_newline_style(original_text)
-    raw_lines, had_trailing_nl = _split_lines_preserve(original_text)
-
-    lines: list[tuple[str, bool]] = [(c, True) for c in raw_lines]
-    if lines:
-        lines[-1] = (lines[-1][0], had_trailing_nl)
+    file_lines, had_trailing_nl = _split_lines_preserve(original_text)
 
     total = len(hunks)
     statuses: list[str] = []
     has_failure = False
+    final_trailing_nl = had_trailing_nl
 
     def _fail(n: int, hunk: ParsedHunk, reason: str) -> None:
         nonlocal has_failure
         has_failure = True
+        hunk_repr = "\n".join(p + c for p, c in hunk.group.tagged)
         statuses.append(
             f"Hunk #{n} of {total} Failed — {reason}\n"
-            f"Detected hunk text:\n{hunk.text}"
+            f"Detected hunk text:\n{hunk_repr}"
         )
 
     for n, hunk in enumerate(hunks, start=1):
-        try:
-            before, after = _parse_simple_edit(hunk.text)
-        except ValueError as exc:
-            _fail(n, hunk, str(exc))
+        group = hunk.group
+
+        if not group.tagged:
+            _fail(n, hunk, "empty hunk body.")
             continue
 
-        if before and before == after:
+        if all(p == " " for p, _ in group.tagged):
             _fail(
                 n, hunk,
                 "hunk contains only context lines (no '+' or '-' lines); "
@@ -372,7 +371,10 @@ def _apply_edits(original_text: str, hunks: list[ParsedHunk]) -> str:
             )
             continue
 
-        if not before:
+        before_lines = group.before_lines()
+
+        # Pure insertion: no context or removed lines to locate on
+        if not before_lines:
             if hunk.start is None:
                 _fail(
                     n, hunk,
@@ -381,14 +383,17 @@ def _apply_edits(original_text: str, hunks: list[ParsedHunk]) -> str:
                     "removed ('-') line, or ensure the @@ header contains a valid line number.",
                 )
                 continue
-            apply_at = min(max(hunk.start - 1, 0), len(lines))
-            lines = lines[:apply_at] + after + lines[apply_at:]
+            apply_at = min(max(hunk.start - 1, 0), len(file_lines))
+            additions = [c for p, c in group.tagged if p == "+"]
+            if apply_at >= len(file_lines):
+                final_trailing_nl = group.new_has_trailing_newline
+            file_lines = file_lines[:apply_at] + additions + file_lines[apply_at:]
             statuses.append(
                 f"Hunk #{n} of {total}: Valid (pure insertion at line {hunk.start})."
             )
             continue
 
-        hits, match_method = _find_context_hits(lines, before)
+        hits, match_method = _find_context_hits(file_lines, before_lines)
 
         if not hits:
             _fail(n, hunk, "context not found at any tolerance level.")
@@ -396,7 +401,7 @@ def _apply_edits(original_text: str, hunks: list[ParsedHunk]) -> str:
         if len(hits) > 1:
             level = _MATCH_LABEL.get(match_method, match_method)
             previews = "\n".join(
-                f"  line {h + 1}: {_location_preview(lines, h, len(before))}"
+                f"  line {h + 1}: {_location_preview(file_lines, h, len(before_lines))}"
                 for h in hits
             )
             _fail(
@@ -407,7 +412,22 @@ def _apply_edits(original_text: str, hunks: list[ParsedHunk]) -> str:
             continue
 
         apply_at = hits[0]
-        lines = lines[:apply_at] + after + lines[apply_at + len(before):]
+        result_lines: list[str] = []
+        file_ptr = apply_at
+
+        for prefix, content in group.tagged:
+            if prefix == " ":
+                result_lines.append(file_lines[file_ptr])
+                file_ptr += 1
+            elif prefix == "-":
+                file_ptr += 1
+            else:  # '+'
+                result_lines.append(content)
+
+        if file_ptr == len(file_lines):
+            final_trailing_nl = group.new_has_trailing_newline
+
+        file_lines = file_lines[:apply_at] + result_lines + file_lines[file_ptr:]
         statuses.append(f"Hunk #{n} of {total}: Valid ({match_method} match).")
 
     if has_failure:
@@ -418,7 +438,7 @@ def _apply_edits(original_text: str, hunks: list[ParsedHunk]) -> str:
             f"At least one hunk is invalid; no changes applied.\n\n{status_lines}"
         )
 
-    result = ""
-    for content, has_nl in lines:
-        result += content + (newline if has_nl else "")
+    result = newline.join(file_lines)
+    if final_trailing_nl and file_lines:
+        result += newline
     return result
