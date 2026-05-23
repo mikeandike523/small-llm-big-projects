@@ -80,7 +80,29 @@ def snapshot(session_id: str) -> dict:
     }
 
 
-def check_requires_clean(session_id: str, effects: dict, tool_name: str) -> str | None:
+def _display_path(norm_path: str, cwd: str | None) -> str:
+    """Return a relative path if norm_path is under cwd, else return norm_path as-is.
+
+    Ideally we would surface the exact string the LLM passed in its arguments,
+    so the hint exactly mirrors what the agent wrote. That would require each
+    dirty_effects() function to annotate which argument keys are the path
+    sources, so check_requires_clean could look them up in the original args.
+    For now, relativising against the session CWD is a decent interim: it avoids
+    nudging the agent toward absolute paths, even though it still loses the
+    original casing.
+    """
+    if cwd:
+        norm_cwd = _norm(cwd)
+        try:
+            rel = os.path.relpath(norm_path, norm_cwd)
+            if not rel.startswith(".."):
+                return rel
+        except ValueError:
+            pass
+    return norm_path
+
+
+def check_requires_clean(session_id: str, effects: dict, tool_name: str, cwd: str | None = None) -> str | None:
     """Return an error string if any required-clean resource is unseen or dirty, else None."""
     unseen_files = [
         _norm(p)
@@ -106,11 +128,13 @@ def check_requires_clean(session_id: str, effects: dict, tool_name: str) -> str 
 
     lines = [f"Error: '{tool_name}' blocked:"]
     for p in unseen_files:
-        lines.append(f"  File '{p}' has not been read yet.")
-        lines.append(f"    Read first with: read_text_file(path='{p}')")
+        dp = _display_path(p, cwd)
+        lines.append(f"  File '{dp}' has not been read yet.")
+        lines.append(f"    Read first with: read_text_file(path='{dp}')")
     for p in dirty_files:
-        lines.append(f"  File '{p}' has been modified since last read.")
-        lines.append(f"    Re-read with: read_text_file(path='{p}')")
+        dp = _display_path(p, cwd)
+        lines.append(f"  File '{dp}' has been modified since last read.")
+        lines.append(f"    Re-read with: read_text_file(path='{dp}')")
     for k in unseen_mem:
         lines.append(f"  Session memory key '{k}' has not been read yet.")
         lines.append(f"    Read first with: session_memory(action='get', key='{k}')")

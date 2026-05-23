@@ -125,7 +125,8 @@ def _execute_tools(
                 tool_map=actual_tool_map,
             )
             _dirty_error = _dirty_cache.check_requires_clean(
-                session_id, _effects, tc.name
+                session_id, _effects, tc.name,
+                cwd=_state._session_current_cwd.get(session_id),
             )
             if _dirty_error:
                 tool_record.result = _dirty_error
