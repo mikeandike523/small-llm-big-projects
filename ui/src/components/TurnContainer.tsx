@@ -59,7 +59,7 @@ const skillPillCss = css`
 
 const turnContainerCss = css`
   display: grid;
-  grid-template-columns: 3fr 2.5fr 1.5fr;
+  grid-template-columns: 2fr 1.5fr 1fr;
   gap: 24px;
   padding: 20px 24px;
   border: 1px solid #22304d;
@@ -67,7 +67,7 @@ const turnContainerCss = css`
   background: #0d131e;
   box-shadow: 0 3px 16px rgba(0, 0, 0, 0.5);
 `;
-
+ 
 const turnContainerNoTitleCss = css`
   display: grid;
   grid-template-columns: 3fr 2.5fr 1.5fr;
@@ -97,7 +97,7 @@ const leftContentCss = css`
 // so scrolling tool calls does not scroll the thinking bubble away.
 const centerColumnCss = css`
   display: grid;
-  grid-template-rows: 1fr 4.5fr;
+  grid-template-rows: minmax(150px, 400px) minmax(200px, 500px);
   max-height: 480px;
   min-height: 0;
   gap: 8px;
