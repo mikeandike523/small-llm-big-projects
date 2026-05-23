@@ -81,11 +81,15 @@ const turnContainerNoTitleCss = css`
 
 const leftColumnCss = css`
   ${scrollbarCss}
+  overflow-y: auto;
+  max-height: 480px;
+`;
+
+const leftContentCss = css`
   display: flex;
   flex-direction: column;
   gap: 14px;
-  overflow-y: auto;
-  max-height: 480px;
+  overflow-y: hidden;
 `;
 
 const rightColumnCss = css`
@@ -625,7 +629,7 @@ export default function TurnContainer({
       <div css={hasBanner ? turnContainerCss : turnContainerNoTitleCss}>
         {/* Left column: user message(s) + AI content — one bubble-group per subturn */}
         <div css={leftColumnCss} ref={leftScrollRef}>
-          <div ref={leftContentRef}>
+          <div css={leftContentCss} ref={leftContentRef}>
             {subturns.map((st, stIdx) => {
               const isLast = stIdx === subturns.length - 1;
               const stFinal = st.exchanges.find((ex) => ex.isFinal);
