@@ -187,16 +187,70 @@ def _make_diff(before: str, after: str) -> str:
 # Patch parsing
 # ---------------------------------------------------------------------------
 
-_HUNK_HEADER_RE = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
+# Strict: captures all four numbers from a well-formed @@ -N,N +N,N @@ header.
+_HUNK_HEADER_STRICT_RE = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
+# Lenient: any line starting with @@ (optionally closed by @@) counts as a hunk header.
+_HUNK_HEADER_LENIENT_RE = re.compile(r"^@@.*?(@@)?$")
+_NEW_START_RE = re.compile(r"\+(\d+)")   # +N in header → new-file start
+_ANY_NUMBER_RE = re.compile(r"(\d+)")    # bare integer → last-resort anchor
 _FILE_HEADER_PREFIXES = ("diff ", "index ", "--- ", "+++ ")
 
 
+def _extract_new_start_from_header(line: str) -> int | None:
+    """Try to extract the new-file start number from a hunk header line.
+
+    Priority:
+      1. Strict @@ -N +N @@ — uses group 3 (unambiguous new-file position).
+      2. First +N pattern in the line.
+      3. First bare integer anywhere in the line (used as pure-insertion anchor only).
+    Returns None when no number can be found.
+    """
+    m = _HUNK_HEADER_STRICT_RE.match(line)
+    if m:
+        return int(m.group(3))
+    m2 = _NEW_START_RE.search(line)
+    if m2:
+        return int(m2.group(1))
+    m3 = _ANY_NUMBER_RE.search(line)
+    if m3:
+        return int(m3.group(1))
+    return None
+
+
+def _is_valid_body_line(line: str) -> bool:
+    """Return True when *line* is a legal hunk body line (valid first-char or empty)."""
+    return not line or line[0] in ("+", "-", " ", "\\")
+
+
 def _parse_patch_file(patch: str) -> list[ParsedHunk]:
-    """Parse a unified diff string into a list of ParsedHunk objects."""
+    """Parse a unified diff string into a list of ParsedHunk objects.
+
+    Header leniency
+    ---------------
+    Any line matching ``^@@.*?(@@)?$`` is treated as a hunk header.
+    Line numbers are extracted in priority order: strict @@ -N +N @@ form,
+    then the first +N pattern, then the first bare integer.  Only the new-file
+    start position matters (used solely to anchor pure-insertion hunks).
+
+    No-header fallback
+    ------------------
+    If no @@ line appears anywhere, the entire patch body (after stripping file
+    headers) is treated as a single hunk, provided every line has a valid first
+    character (+, -, space, or \\).  Pure insertions in this path have no
+    position anchor (start=None) and will fail at apply time with the usual
+    "include a @@ header" guidance.
+
+    Body strictness
+    ---------------
+    Body lines must start with +, -, space, or \\.  Any other first character
+    raises ValueError — no leniency here.  Backslash lines must be the exact
+    string '\\ No newline at end of file'.
+    """
     raw_lines = patch.replace("\r\n", "\n").replace("\r", "\n").split("\n")
     hunks: list[ParsedHunk] = []
     i = 0
     n_lines = len(raw_lines)
+    found_any_header = False
 
     while i < n_lines:
         line = raw_lines[i]
@@ -205,17 +259,17 @@ def _parse_patch_file(patch: str) -> list[ParsedHunk]:
             i += 1
             continue
 
-        m = _HUNK_HEADER_RE.match(line)
-        if not m:
+        if not _HUNK_HEADER_LENIENT_RE.match(line):
             i += 1
             continue
 
-        new_start = int(m.group(3))
+        found_any_header = True
+        new_start = _extract_new_start_from_header(line)
         i += 1
 
         body_lines: list[str] = []
         while i < n_lines:
-            if _HUNK_HEADER_RE.match(raw_lines[i]):
+            if _HUNK_HEADER_LENIENT_RE.match(raw_lines[i]):
                 break
             if any(raw_lines[i].startswith(p) for p in _FILE_HEADER_PREFIXES):
                 break
@@ -230,6 +284,21 @@ def _parse_patch_file(patch: str) -> list[ParsedHunk]:
             start=new_start if is_pure_insertion else None,
             group=group,
         ))
+
+    # No-header fallback: treat whole body as a single hunk.
+    if not found_any_header:
+        body_lines = [
+            l for l in raw_lines
+            if not any(l.startswith(p) for p in _FILE_HEADER_PREFIXES)
+        ]
+        if body_lines and all(_is_valid_body_line(l) for l in body_lines):
+            body_text = "\n".join(body_lines)
+            if body_text.strip():
+                group = _parse_hunk_body(body_text)
+                is_pure_insertion = bool(group.tagged) and all(
+                    p == "+" for p, _ in group.tagged
+                )
+                hunks.append(ParsedHunk(start=None, group=group))
 
     return hunks
 
