@@ -422,40 +422,25 @@ const iratThinkingWrapperCss = css`
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
 `;
 
-const iratThinkingAnimationOuterCss = css`
+const thinkingAnimWrapCss = css`
   display: grid;
-  transition: grid-template-rows 0.35s ease-out;
+  transition: grid-template-rows 0.3s ease-out, opacity 0.25s ease-out;
 `;
 
-const iratThinkingAnimationInnerCss = css`
+const thinkingAnimInnerCss = css`
   overflow: hidden;
 `;
 
-const thinkingKeyOuterCss = css`
-  display: grid;
-  transition: grid-template-rows 0.3s ease-out;
-`;
-
-const thinkingKeyInnerCss = css`
-  overflow: hidden;
-`;
-
-const thinkingKeyBarCss = css`
-  display: flex;
-  gap: 14px;
-  padding: 0 2px 8px;
-  align-items: center;
-`;
-
-const thinkingKeyItemCss = css`
-  display: flex;
-  align-items: center;
-  gap: 5px;
+const thinkingBubbleLabelCss = css`
   font-size: 10px;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.1em;
   font-family: "Consolas", monospace;
-  opacity: 0.65;
+  font-style: normal;
+  margin-bottom: 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid;
+  opacity: 0.8;
 `;
 
 // Same layout as toolCallsGroupCss but without its own scroll — for use inside
@@ -648,10 +633,8 @@ export default function TurnContainer({
       : undefined;
   const displayContent = finalExchange?.assistantContent ?? liveContent ?? "";
 
-  // Reasoning from the latest exchange in the last subturn
-  const reasoning =
-    [...lastSubturnExchanges].reverse().find((ex) => ex.reasoning)?.reasoning ??
-    "";
+  // Reasoning from the current (last) exchange only — resets naturally each LLM call
+  const reasoning = lastExchange?.reasoning ?? "";
 
   // IRAT thinking: only the current (last) exchange — resets naturally each LLM call
   const iratThinking =
@@ -761,56 +744,42 @@ export default function TurnContainer({
             <div css={centerSectionHeaderCss}>Thinking</div>
             <div css={thinkingScrollCss} ref={thinkingScrollRef}>
               <div css={thinkingContentCss} ref={thinkingContentRef}>
-                {/* Color key — animates in/out independently when any thinking content is present */}
                 <div
-                  css={thinkingKeyOuterCss}
-                  style={{ gridTemplateRows: reasoning || iratThinking ? "1fr" : "0fr" }}
+                  css={thinkingAnimWrapCss}
+                  style={{ gridTemplateRows: reasoning ? "1fr" : "0fr", opacity: reasoning ? 1 : 0 }}
                 >
-                  <div css={thinkingKeyInnerCss}>
-                    <div css={thinkingKeyBarCss}>
-                      <span>Thinking Color Key:</span>
-                      {reasoning && (
-                        <span css={thinkingKeyItemCss}>
-                          <span style={{ color: "#7aa2e0" }}>●</span>
-                          <span style={{ color: "#7aa2e0" }}>Native Thinking Tokens</span>
-                        </span>
-                      )}
-                      {iratThinking && (
-                        <span css={thinkingKeyItemCss}>
-                          <span style={{ color: "#c49a4a" }}>●</span>
-                          <span style={{ color: "#c49a4a" }}>IRAT Thinking Tokens</span>
-                        </span>
-                      )}
+                  <div css={thinkingAnimInnerCss}>
+                    <div css={reasoningWrapperCss}>
+                      <div css={thinkingBubbleLabelCss} style={{ color: "#7aa2e0", borderBottomColor: "#1e3a5f" }}>
+                        Native Thinking
+                      </div>
+                      <TextPresenter
+                        content={reasoning}
+                        maxHeight={200}
+                        streaming={streaming}
+                        initialMode="plain"
+                        showToggle={false}
+                      />
                     </div>
                   </div>
                 </div>
-                {reasoning ? (
-                  <div css={reasoningWrapperCss}>
-                    <TextPresenter
-                      content={reasoning}
-                      maxHeight={200}
-                      streaming={streaming}
-                      initialMode="plain"
-                      showToggle={false}
-                    />
-                  </div>
-                ) : null}
                 <div
-                  css={iratThinkingAnimationOuterCss}
-                  style={{ gridTemplateRows: iratThinking ? "1fr" : "0fr" }}
+                  css={thinkingAnimWrapCss}
+                  style={{ gridTemplateRows: iratThinking ? "1fr" : "0fr", opacity: iratThinking ? 1 : 0 }}
                 >
-                  <div css={iratThinkingAnimationInnerCss}>
-                    {iratThinking ? (
-                      <div css={iratThinkingWrapperCss}>
-                        <TextPresenter
-                          content={iratThinking}
-                          maxHeight={200}
-                          streaming={streaming}
-                          initialMode="plain"
-                          showToggle={false}
-                        />
+                  <div css={thinkingAnimInnerCss}>
+                    <div css={iratThinkingWrapperCss}>
+                      <div css={thinkingBubbleLabelCss} style={{ color: "#c49a4a", borderBottomColor: "#4a360f" }}>
+                        IRAT Thinking
                       </div>
-                    ) : null}
+                      <TextPresenter
+                        content={iratThinking}
+                        maxHeight={200}
+                        streaming={streaming}
+                        initialMode="plain"
+                        showToggle={false}
+                      />
+                    </div>
                   </div>
                 </div>
               </div>
