@@ -92,13 +92,69 @@ const leftContentCss = css`
   overflow-y: hidden;
 `;
 
-const rightColumnCss = css`
+// Center column is a sub-grid split into a Thinking section (top, 1fr) and a
+// Tool Calls section (bottom, 4.5fr). Each section is independently scrollable
+// so scrolling tool calls does not scroll the thinking bubble away.
+const centerColumnCss = css`
+  display: grid;
+  grid-template-rows: 1fr 4.5fr;
+  max-height: 480px;
+  min-height: 0;
+  gap: 8px;
+`;
+
+const centerSectionHeaderCss = css`
+  font-size: 11px;
+  color: #e6edff;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 4px;
+  flex-shrink: 0;
+`;
+
+// Top sub-section (Thinking). Owns its own scroll viewport so that scrolling
+// tool calls below does not affect what is shown here.
+const thinkingSectionCss = css`
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+`;
+
+const thinkingScrollCss = css`
   ${scrollbarCss}
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+`;
+
+const thinkingContentCss = css`
   display: flex;
   flex-direction: column;
   gap: 12px;
+`;
+
+// Bottom sub-section (Tool Calls). Visually separated from the thinking
+// section above by a top border, mirroring the column divider style used
+// between the major columns of TurnContainer.
+const toolCallsSectionCss = css`
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-top: 1px solid #22304d;
+  padding-top: 8px;
+`;
+
+const toolCallsScrollCss = css`
+  ${scrollbarCss}
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
-  max-height: 480px;
+`;
+
+const toolCallsContentCss = css`
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 `;
 
 const todoColumnCss = css`
@@ -550,6 +606,8 @@ export default function TurnContainer({
 
   const { scrollRef: leftScrollRef, contentRef: leftContentRef } =
     useStickToBottom();
+  const { scrollRef: thinkingScrollRef, contentRef: thinkingContentRef } =
+    useStickToBottom();
   const { scrollRef: toolsScrollRef, contentRef: toolsContentRef } =
     useStickToBottom();
   const { scrollRef: todoScrollRef, contentRef: todoContentRef } =
@@ -693,51 +751,42 @@ export default function TurnContainer({
           </div>
         </div>
 
-        {/* Right column: reasoning + irat thinking + tool calls (scoped to last subturn) */}
-        <div css={rightColumnCss} ref={toolsScrollRef}>
-          <div ref={toolsContentRef}>
-            {/* Color key — animates in/out independently when any thinking content is present */}
-            <div
-              css={thinkingKeyOuterCss}
-              style={{ gridTemplateRows: reasoning || iratThinking ? "1fr" : "0fr" }}
-            >
-              <div css={thinkingKeyInnerCss}>
-                <div css={thinkingKeyBarCss}>
-                  {reasoning && (
-                    <span css={thinkingKeyItemCss}>
-                      <span style={{ color: "#7aa2e0" }}>●</span>
-                      <span style={{ color: "#7aa2e0" }}>Reasoning</span>
-                    </span>
-                  )}
-                  {iratThinking && (
-                    <span css={thinkingKeyItemCss}>
-                      <span style={{ color: "#c49a4a" }}>●</span>
-                      <span style={{ color: "#c49a4a" }}>Thinking</span>
-                    </span>
-                  )}
+        {/* Center column: sub-grid split into a Thinking section (top, 1fr)
+            and a Tool Calls section (bottom, 4.5fr). Each section has its
+            own scroll viewport so that scrolling tool calls does not push
+            the thinking bubble away. */}
+        <div css={centerColumnCss}>
+          {/* Top sub-section: Thinking (reasoning + irat thinking) */}
+          <div css={thinkingSectionCss}>
+            <div css={centerSectionHeaderCss}>Thinking</div>
+            <div css={thinkingScrollCss} ref={thinkingScrollRef}>
+              <div css={thinkingContentCss} ref={thinkingContentRef}>
+                {/* Color key — animates in/out independently when any thinking content is present */}
+                <div
+                  css={thinkingKeyOuterCss}
+                  style={{ gridTemplateRows: reasoning || iratThinking ? "1fr" : "0fr" }}
+                >
+                  <div css={thinkingKeyInnerCss}>
+                    <div css={thinkingKeyBarCss}>
+                      {reasoning && (
+                        <span css={thinkingKeyItemCss}>
+                          <span style={{ color: "#7aa2e0" }}>●</span>
+                          <span style={{ color: "#7aa2e0" }}>Reasoning</span>
+                        </span>
+                      )}
+                      {iratThinking && (
+                        <span css={thinkingKeyItemCss}>
+                          <span style={{ color: "#c49a4a" }}>●</span>
+                          <span style={{ color: "#c49a4a" }}>Thinking</span>
+                        </span>
+                      )}
+                    </div>
+                  </div>
                 </div>
-              </div>
-            </div>
-            {reasoning ? (
-              <div css={reasoningWrapperCss}>
-                <TextPresenter
-                  content={reasoning}
-                  maxHeight={200}
-                  streaming={streaming}
-                  initialMode="plain"
-                  showToggle={false}
-                />
-              </div>
-            ) : null}
-            <div
-              css={iratThinkingAnimationOuterCss}
-              style={{ gridTemplateRows: iratThinking ? "1fr" : "0fr" }}
-            >
-              <div css={iratThinkingAnimationInnerCss}>
-                {iratThinking ? (
-                  <div css={iratThinkingWrapperCss}>
+                {reasoning ? (
+                  <div css={reasoningWrapperCss}>
                     <TextPresenter
-                      content={iratThinking}
+                      content={reasoning}
                       maxHeight={200}
                       streaming={streaming}
                       initialMode="plain"
@@ -745,28 +794,55 @@ export default function TurnContainer({
                     />
                   </div>
                 ) : null}
+                <div
+                  css={iratThinkingAnimationOuterCss}
+                  style={{ gridTemplateRows: iratThinking ? "1fr" : "0fr" }}
+                >
+                  <div css={iratThinkingAnimationInnerCss}>
+                    {iratThinking ? (
+                      <div css={iratThinkingWrapperCss}>
+                        <TextPresenter
+                          content={iratThinking}
+                          maxHeight={200}
+                          streaming={streaming}
+                          initialMode="plain"
+                          showToggle={false}
+                        />
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
               </div>
             </div>
-            {totalToolCallCount > 0 && (
-              <div css={toolCallsGroupInnerCss}>
-                {toolCallGroups.map((group) => (
-                  <Fragment key={group.subturnId}>
-                    {hasMultipleToolGroups && (
-                      <div css={subturnDividerCss}>
-                        subturn {group.subturnIdx + 1}
-                      </div>
-                    )}
-                    {group.toolCalls.map((tc) => (
-                      <ToolCallCard
-                        key={tc.id}
-                        tc={tc}
-                        onViewFull={onViewFull}
-                      />
+          </div>
+
+          {/* Bottom sub-section: Tool Calls */}
+          <div css={toolCallsSectionCss}>
+            <div css={centerSectionHeaderCss}>Tool Calls</div>
+            <div css={toolCallsScrollCss} ref={toolsScrollRef}>
+              <div css={toolCallsContentCss} ref={toolsContentRef}>
+                {totalToolCallCount > 0 && (
+                  <div css={toolCallsGroupInnerCss}>
+                    {toolCallGroups.map((group) => (
+                      <Fragment key={group.subturnId}>
+                        {hasMultipleToolGroups && (
+                          <div css={subturnDividerCss}>
+                            subturn {group.subturnIdx + 1}
+                          </div>
+                        )}
+                        {group.toolCalls.map((tc) => (
+                          <ToolCallCard
+                            key={tc.id}
+                            tc={tc}
+                            onViewFull={onViewFull}
+                          />
+                        ))}
+                      </Fragment>
                     ))}
-                  </Fragment>
-                ))}
+                  </div>
+                )}
               </div>
-            )}
+            </div>
           </div>
         </div>
 
