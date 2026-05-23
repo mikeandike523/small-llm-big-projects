@@ -164,16 +164,15 @@ async def _async_run_llm_call(
             )
         if chunk.get("content"):
             acc["content"] += chunk["content"]
-            if not suppress_content_streaming:
-                socketio.emit(
-                    "token",
-                    {
-                        "type": "content",
-                        "text": chunk["content"],
-                        "turn_id": turn_id,
-                    },
-                    room=session_id,
-                )
+            socketio.emit(
+                "token",
+                {
+                    "type": "irat_thinking" if suppress_content_streaming else "content",
+                    "text": chunk["content"],
+                    "turn_id": turn_id,
+                },
+                room=session_id,
+            )
             token_count += 1
             if token_count % 50 == 0:
                 _emit_content_snapshot(

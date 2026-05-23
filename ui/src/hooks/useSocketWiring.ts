@@ -313,18 +313,18 @@ export default function useSocketWiring(
           }));
           break;
         }
-        case "irat_thinking_flush": {
+        case "irat_thinking_clear": {
           const subturnId = data.subturn_id as string;
           const idx = data.exchange_idx as number;
-          const text = (data.text as string) ?? "";
           updateTurn(turnId, (t) => {
             const subturns = [...t.subturns];
             const stIdx = subturns.findIndex((st) => st.id === subturnId);
             if (stIdx < 0) return t;
             const st = { ...subturns[stIdx] };
             const exchanges = [...st.exchanges];
-            while (exchanges.length <= idx) exchanges.push(emptyExchange());
-            exchanges[idx] = { ...exchanges[idx], iratThinking: text };
+            if (exchanges[idx]) {
+              exchanges[idx] = { ...exchanges[idx], iratThinking: "" };
+            }
             st.exchanges = exchanges;
             subturns[stIdx] = st;
             return { ...t, subturns };
@@ -754,7 +754,7 @@ export default function useSocketWiring(
           exchanges.push({
             assistantContent: data.type === "content" ? data.text : "",
             reasoning: data.type === "reasoning" ? data.text : "",
-            iratThinking: "",
+            iratThinking: data.type === "irat_thinking" ? data.text : "",
             toolCalls: [],
             isFinal: false,
           });
@@ -770,6 +770,10 @@ export default function useSocketWiring(
               data.type === "reasoning"
                 ? exchanges[idx].reasoning + data.text
                 : exchanges[idx].reasoning,
+            iratThinking:
+              data.type === "irat_thinking"
+                ? exchanges[idx].iratThinking + data.text
+                : exchanges[idx].iratThinking,
           };
         }
         lastSt.exchanges = exchanges;
@@ -795,15 +799,14 @@ export default function useSocketWiring(
       applyReplayEvent("begin_final_summary", data);
     }
 
-    function onIratThinkingFlush(data: {
+    function onIratThinkingClear(data: {
       event_id?: string;
       turn_id?: string;
       subturn_id: string;
       exchange_idx: number;
-      text: string;
     }) {
       if (data.event_id) updateLastEventId(data.event_id);
-      applyReplayEvent("irat_thinking_flush", data);
+      applyReplayEvent("irat_thinking_clear", data);
     }
 
     function onSubturnCompaction(data: {
@@ -947,7 +950,7 @@ export default function useSocketWiring(
     socket.on("token", onToken);
     socket.on("begin_interim_stream", onBeginInterimStream);
     socket.on("begin_final_summary", onBeginFinalSummary);
-    socket.on("irat_thinking_flush", onIratThinkingFlush);
+    socket.on("irat_thinking_clear", onIratThinkingClear);
     socket.on("subturn_compaction", onSubturnCompaction);
     socket.on("tool_call", onToolCall);
     socket.on("tool_call_start", onToolCallStart);
@@ -992,7 +995,7 @@ export default function useSocketWiring(
       socket.off("token", onToken);
       socket.off("begin_interim_stream", onBeginInterimStream);
       socket.off("begin_final_summary", onBeginFinalSummary);
-      socket.off("irat_thinking_flush", onIratThinkingFlush);
+      socket.off("irat_thinking_clear", onIratThinkingClear);
       socket.off("subturn_compaction", onSubturnCompaction);
       socket.off("tool_call", onToolCall);
       socket.off("tool_call_start", onToolCallStart);

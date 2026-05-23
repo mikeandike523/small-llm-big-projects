@@ -362,6 +362,42 @@ const iratThinkingWrapperCss = css`
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
 `;
 
+const iratThinkingAnimationOuterCss = css`
+  display: grid;
+  transition: grid-template-rows 0.35s ease-out;
+`;
+
+const iratThinkingAnimationInnerCss = css`
+  overflow: hidden;
+`;
+
+const thinkingKeyOuterCss = css`
+  display: grid;
+  transition: grid-template-rows 0.3s ease-out;
+`;
+
+const thinkingKeyInnerCss = css`
+  overflow: hidden;
+`;
+
+const thinkingKeyBarCss = css`
+  display: flex;
+  gap: 14px;
+  padding: 0 2px 8px;
+  align-items: center;
+`;
+
+const thinkingKeyItemCss = css`
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-family: "Consolas", monospace;
+  opacity: 0.65;
+`;
+
 // Same layout as toolCallsGroupCss but without its own scroll — for use inside
 // a column that is itself the scroll viewport (see TurnContainer right column).
 const toolCallsGroupInnerCss = css`
@@ -555,11 +591,9 @@ export default function TurnContainer({
     [...lastSubturnExchanges].reverse().find((ex) => ex.reasoning)?.reasoning ??
     "";
 
-  // IRAT thinking: concatenation of all last-subturn exchanges
-  const iratThinking = lastSubturnExchanges
-    .map((ex) => ex.iratThinking)
-    .filter(Boolean)
-    .join("\n\n---\n\n");
+  // IRAT thinking: only the current (last) exchange — resets naturally each LLM call
+  const iratThinking =
+    lastSubturnExchanges[lastSubturnExchanges.length - 1]?.iratThinking ?? "";
 
   const isStreamingFinal = streaming && !isInterimStreaming;
   const showPlaceholder =
@@ -658,6 +692,28 @@ export default function TurnContainer({
         {/* Right column: reasoning + irat thinking + tool calls (scoped to last subturn) */}
         <div css={rightColumnCss} ref={toolsScrollRef}>
           <div ref={toolsContentRef}>
+            {/* Color key — animates in/out independently when any thinking content is present */}
+            <div
+              css={thinkingKeyOuterCss}
+              style={{ gridTemplateRows: reasoning || iratThinking ? "1fr" : "0fr" }}
+            >
+              <div css={thinkingKeyInnerCss}>
+                <div css={thinkingKeyBarCss}>
+                  {reasoning && (
+                    <span css={thinkingKeyItemCss}>
+                      <span style={{ color: "#7aa2e0" }}>●</span>
+                      <span style={{ color: "#7aa2e0" }}>Reasoning</span>
+                    </span>
+                  )}
+                  {iratThinking && (
+                    <span css={thinkingKeyItemCss}>
+                      <span style={{ color: "#c49a4a" }}>●</span>
+                      <span style={{ color: "#c49a4a" }}>Thinking</span>
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
             {reasoning ? (
               <div css={reasoningWrapperCss}>
                 <TextPresenter
@@ -669,17 +725,24 @@ export default function TurnContainer({
                 />
               </div>
             ) : null}
-            {iratThinking ? (
-              <div css={iratThinkingWrapperCss}>
-                <TextPresenter
-                  content={iratThinking}
-                  maxHeight={200}
-                  streaming={false}
-                  initialMode="plain"
-                  showToggle={false}
-                />
+            <div
+              css={iratThinkingAnimationOuterCss}
+              style={{ gridTemplateRows: iratThinking ? "1fr" : "0fr" }}
+            >
+              <div css={iratThinkingAnimationInnerCss}>
+                {iratThinking ? (
+                  <div css={iratThinkingWrapperCss}>
+                    <TextPresenter
+                      content={iratThinking}
+                      maxHeight={200}
+                      streaming={streaming}
+                      initialMode="plain"
+                      showToggle={false}
+                    />
+                  </div>
+                ) : null}
               </div>
-            ) : null}
+            </div>
             {totalToolCallCount > 0 && (
               <div css={toolCallsGroupInnerCss}>
                 {toolCallGroups.map((group) => (

@@ -63,6 +63,7 @@ async def _async_agent_loop(
     had_todo_items = False
     final_summary_reprompt_sent = False
     pending_final_candidate: tuple[str, str] | None = None
+    irat_candidate_exchange: tuple[str, int] | None = None
     was_cancelled = False
     last_assistant_content = ""
     turn_completed = False
@@ -122,6 +123,7 @@ async def _async_agent_loop(
             is_interim_call = (
                 had_tool_calls or bool(current_subturn.exchanges)
             ) and not final_summary_reprompt_sent
+            was_irat_call = session.interim_response_as_thinking and is_interim_call
             if is_interim_call:
                 _emit_and_log(
                     session_id,
@@ -275,7 +277,6 @@ async def _async_agent_loop(
 
             # No tool calls — this is a non-tool assistant response.
             is_candidate = False
-            irat_flush_pending: tuple[str, int, str] | None = None
             if content_for_history and content_for_history.strip():
                 is_candidate = await _is_sufficient_final_answer(
                     streaming_llm,
@@ -287,27 +288,11 @@ async def _async_agent_loop(
                 )
                 if is_candidate:
                     pending_final_candidate = (content_for_history, reasoning)
-                elif session.interim_response_as_thinking and is_interim_call:
-                    irat_flush_pending = (
-                        current_subturn.id,
-                        exchange_idx,
-                        content_for_history,
-                    )
+                    irat_candidate_exchange = (current_subturn.id, exchange_idx) if was_irat_call else None
 
             # Hard block: todos must be closed before the turn can end.
             unclosed = _get_open_items(session.session_data.get("todo_list") or [])
             if unclosed:
-                if irat_flush_pending is not None:
-                    _emit_and_log(
-                        session_id,
-                        "irat_thinking_flush",
-                        {
-                            "turn_id": turn_id,
-                            "subturn_id": irat_flush_pending[0],
-                            "exchange_idx": irat_flush_pending[1],
-                            "text": irat_flush_pending[2],
-                        },
-                    )
                 items_text = "\n".join(
                     f"  {i + 1}. {item}" for i, item in enumerate(unclosed)
                 )
@@ -323,6 +308,16 @@ async def _async_agent_loop(
                 continue
 
             if is_candidate:
+                if was_irat_call:
+                    _emit_and_log(
+                        session_id,
+                        "irat_thinking_clear",
+                        {
+                            "turn_id": turn_id,
+                            "subturn_id": current_subturn.id,
+                            "exchange_idx": exchange_idx,
+                        },
+                    )
                 final_exchange = LLMExchange(
                     assistant_content=content_for_history,
                     reasoning=reasoning,
@@ -350,6 +345,16 @@ async def _async_agent_loop(
 
             if pending_final_candidate is not None:
                 cand_content, cand_reasoning = pending_final_candidate
+                if irat_candidate_exchange is not None:
+                    _emit_and_log(
+                        session_id,
+                        "irat_thinking_clear",
+                        {
+                            "turn_id": turn_id,
+                            "subturn_id": irat_candidate_exchange[0],
+                            "exchange_idx": irat_candidate_exchange[1],
+                        },
+                    )
                 final_exchange = LLMExchange(
                     assistant_content=cand_content,
                     reasoning=cand_reasoning,
@@ -376,17 +381,6 @@ async def _async_agent_loop(
                 break
 
             if had_tool_calls and not final_summary_reprompt_sent:
-                if irat_flush_pending is not None:
-                    _emit_and_log(
-                        session_id,
-                        "irat_thinking_flush",
-                        {
-                            "turn_id": turn_id,
-                            "subturn_id": irat_flush_pending[0],
-                            "exchange_idx": irat_flush_pending[1],
-                            "text": irat_flush_pending[2],
-                        },
-                    )
                 final_summary_reprompt_sent = True
                 continuation = (
                     "All action items are complete. "
