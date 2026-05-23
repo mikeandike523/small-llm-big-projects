@@ -768,16 +768,17 @@ export default function TurnContainer({
                 >
                   <div css={thinkingKeyInnerCss}>
                     <div css={thinkingKeyBarCss}>
+                      <span>Thinking Color Key:</span>
                       {reasoning && (
                         <span css={thinkingKeyItemCss}>
                           <span style={{ color: "#7aa2e0" }}>●</span>
-                          <span style={{ color: "#7aa2e0" }}>Reasoning</span>
+                          <span style={{ color: "#7aa2e0" }}>Native Thinking Tokens</span>
                         </span>
                       )}
                       {iratThinking && (
                         <span css={thinkingKeyItemCss}>
                           <span style={{ color: "#c49a4a" }}>●</span>
-                          <span style={{ color: "#c49a4a" }}>Thinking</span>
+                          <span style={{ color: "#c49a4a" }}>IRAT Thinking Tokens</span>
                         </span>
                       )}
                     </div>
