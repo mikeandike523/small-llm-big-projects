@@ -725,7 +725,7 @@ export default function useSocketWiring(
     }
 
     function onToken(data: {
-      type: "reasoning" | "content";
+      type: "reasoning" | "content" | "irat_thinking";
       text: string;
       turn_id?: string;
     }) {
