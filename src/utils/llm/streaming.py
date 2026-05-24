@@ -4,7 +4,7 @@ import json
 import logging
 import time
 from numbers import Number
-from typing import Callable, Optional
+from typing import Callable, Optional, Any
 
 import httpx
 from termcolor import colored
@@ -63,6 +63,7 @@ class StreamingLLM:
     _default_parameters: dict
     _timeout_s: Optional[Number]
     _adapter: "DialectAdapter"
+    _config_loader: Optional[Callable[[], Any]]
 
     def __init__(
         self,
@@ -72,12 +73,14 @@ class StreamingLLM:
         model=None,
         default_parameters={},
         adapter: "DialectAdapter | None" = None,
+        config_loader: Optional[Callable[[], Any]] = None,
     ):
         self._endpoint = endpoint
         self._token = token
         self._model = model
         self._default_parameters = default_parameters
         self._timeout_s = timeout_s
+        self._config_loader = config_loader
 
         if adapter is not None:
             self._adapter = adapter
@@ -85,6 +88,25 @@ class StreamingLLM:
             from src.utils.llm.dialect import OpenAIDialect
 
             self._adapter = OpenAIDialect()
+
+    def _refresh(self) -> None:
+        """Reload endpoint/token/model/params from config_loader if one is set."""
+        if self._config_loader is None:
+            return
+        config = self._config_loader()
+        if config is None:
+            return
+        from src.utils.llm.dialect import detect_dialect, get_adapter
+
+        self._endpoint = config["endpoint_url"]
+        self._token = config["token_value"]
+        self._model = config.get("model")
+        self._default_parameters = config.get("model_params", {})
+        dialect = detect_dialect(
+            provider=config.get("provider"),
+            endpoint_url=config.get("endpoint_url"),
+        )
+        self._adapter = get_adapter(dialect)
 
     def _build_base_payload(
         self, messages, max_tokens, parameters, tools, streaming: bool
@@ -118,6 +140,7 @@ class StreamingLLM:
         record: bool = False,
     ) -> StreamResult:
         """Async streaming LLM call. Cancellable via asyncio task cancellation."""
+        self._refresh()
         payload = self._adapter.adapt_payload(
             self._build_base_payload(
                 messages, max_tokens, parameters, tools, streaming=True
@@ -229,6 +252,7 @@ class StreamingLLM:
         tools: Optional[list[dict]] = None,
     ) -> FetchResult:
         """Synchronous (non-streaming) request — used for out-of-band calls (e.g. hang triage)."""
+        self._refresh()
         payload = self._adapter.adapt_payload(
             self._build_base_payload(
                 messages, max_tokens, parameters, tools, streaming=False

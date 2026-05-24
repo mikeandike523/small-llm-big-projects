@@ -113,11 +113,16 @@ def load_llm_config() -> dict | None:
     }
 
 
-def make_llm_from_config(config: dict, timeout_s: float | None = None) -> StreamingLLM:
+def make_llm_from_config(
+    config: dict,
+    timeout_s: float | None = None,
+    config_loader=None,
+) -> StreamingLLM:
     """
     Create a StreamingLLM from an already-loaded config dict (as returned by
     load_llm_config). Avoids a second DB round-trip when the caller already
     has the config in hand. Caller must check config is not None before calling.
+    Pass config_loader to enable per-exchange config refresh.
     """
     dialect = detect_dialect(
         provider=config.get("provider"),
@@ -131,7 +136,20 @@ def make_llm_from_config(config: dict, timeout_s: float | None = None) -> Stream
         config["model"],
         config["model_params"],
         adapter=adapter,
+        config_loader=config_loader,
     )
+
+
+def make_llm_refreshing(timeout_s: float | None = None) -> StreamingLLM:
+    """
+    Create a StreamingLLM that reloads its config from the DB on every stream()/fetch() call.
+    Use this for the main agent loop so profile/token switches take effect at the next exchange.
+    Raises RuntimeError if no active config is found at construction time.
+    """
+    config = load_llm_config()
+    if config is None:
+        raise RuntimeError("No active token/endpoint configured.")
+    return make_llm_from_config(config, timeout_s, config_loader=load_llm_config)
 
 
 def make_llm(timeout_s: float | None = None) -> StreamingLLM | None:

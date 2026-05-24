@@ -45,7 +45,7 @@ from src.ui_connector.socket_handler_components.llm import (
 from src.tools import execute_tool, _TOOL_MAP
 from src.tools import _dirty_cache
 from src.tools.todo_list import format_items_for_ui as _todo_format_items_for_ui
-from src.utils.llm.factory import load_llm_config, make_llm_from_config
+from src.utils.llm.factory import load_llm_config, make_llm_refreshing
 from src.utils.session_model import (
     Session,
     Turn,
@@ -656,7 +656,7 @@ def handle_user_message(data: dict):
         )
         return
 
-    streaming_llm = make_llm_from_config(llm_config, timeout_s=60)
+    streaming_llm = make_llm_refreshing(timeout_s=60)
     return_value_max_chars: int | None = llm_config["system_params"].get(
         "return_value_max_chars"
     )
@@ -842,7 +842,7 @@ def handle_force_continuation(data: dict):
         emit("error", {"message": "No previous turn to continue."})
         return
 
-    streaming_llm = make_llm_from_config(llm_config, timeout_s=60)
+    streaming_llm = make_llm_refreshing(timeout_s=60)
     return_value_max_chars: int | None = llm_config["system_params"].get(
         "return_value_max_chars"
     )
