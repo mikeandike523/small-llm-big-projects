@@ -4,6 +4,8 @@ import difflib
 import re
 from dataclasses import dataclass
 
+import numpy as np
+
 # ---------------------------------------------------------------------------
 # Fuzzy matching configuration
 # ---------------------------------------------------------------------------
@@ -321,6 +323,62 @@ def _parse_patch_file(patch: str) -> list[ParsedHunk]:
 # Context matching — per-line minimum ratio
 # ---------------------------------------------------------------------------
 
+# Length pre-filter constants for collect_candidates.
+# Math: SequenceMatcher.ratio() >= r  ⟹  |len_a - len_b| / len_b <= 2*(1-r)/r.
+# Our lax pass uses r >= 1 - MAX_LENIENCY_LAX = 0.85, giving max deviation ~35.3%.
+# Default THRESHOLD=0.50 corresponds to r=0.80, safely below 0.85 → zero false negatives.
+# Tight safe lower bound: ~0.36.  Sensible range: [0.36, 0.55].
+_CANDIDATE_THRESHOLD_DEFAULT = 0.50
+_CANDIDATE_MIN_ABS_TOL = 3  # absolute-char floor so very short lines aren't over-filtered
+
+
+def collect_candidates(
+    file_lines: list[str],
+    hunk_lines: list[str],
+    threshold: float = _CANDIDATE_THRESHOLD_DEFAULT,
+) -> list[int]:
+    """Return window-start positions where every hunk line passes a length gate.
+
+    For each hunk line j, keeps only start positions i where
+      |file_lens[i+j] - hunk_lens[j]| <= max(threshold * hunk_lens[j], _CANDIDATE_MIN_ABS_TOL)
+
+    Uses numpy broadcasting + sequential lookahead — no O(A*B) string ops.
+    The returned list is a strict subset of range(total - n + 1); all windows
+    are fully within the file.  The actual SequenceMatcher comparison is only
+    run on survivors.
+    """
+    n = len(hunk_lines)
+    total = len(file_lines)
+
+    if n == 0 or n > total:
+        return []
+
+    file_lens = np.array([len(l.strip()) for l in file_lines], dtype=np.int32)
+    hunk_lens = np.array([len(l.strip()) for l in hunk_lines], dtype=np.int32)
+
+    # Seed on hunk line j=0.
+    # Slice to [0, total-n] so that i+j stays within the file for all j < n.
+    seed_lens = file_lens[: total - n + 1]
+    first_hunk_len = int(hunk_lens[0])
+    max_allowed = max(int(threshold * first_hunk_len), _CANDIDATE_MIN_ABS_TOL)
+    candidates = np.where(np.abs(seed_lens - first_hunk_len) <= max_allowed)[0]
+
+    # Lookahead: for each subsequent hunk line, filter surviving starts.
+    # candidates values are actual file-line indices throughout (the "reverse map").
+    # reverse_maps is a Python list (variable length per step) of numpy arrays.
+    reverse_maps: list[np.ndarray] = [candidates]
+    for j in range(1, n):
+        if len(candidates) == 0:
+            break
+        hunk_len_j = int(hunk_lens[j])
+        max_allowed_j = max(int(threshold * hunk_len_j), _CANDIDATE_MIN_ABS_TOL)
+        # candidates + j: vectorized index into file_lens; safe because candidates <= total-n
+        abs_dev = np.abs(file_lens[candidates + j] - hunk_len_j)
+        candidates = candidates[abs_dev <= max_allowed_j]
+        reverse_maps.append(candidates)
+
+    return candidates.tolist()
+
 
 def _compute_leniency(
     anchor_lines: int, max_leniency: float, min_leniency: float = 0.0
@@ -350,14 +408,16 @@ def _find_context_hits(
     norm_before = [b.strip() for b in before_lines]
     total = len(file_lines)
 
+    # Pre-filter: collect window starts that pass the length gate for every hunk
+    # line before running any string comparison.  Uses the lax threshold so the
+    # same candidate set is valid for all three passes below.
+    candidates = collect_candidates(file_lines, before_lines)
+
     def _candidate(start: int) -> list[str]:
         return [file_lines[start + k].strip() for k in range(n)]
 
     def _exact_hits() -> list[int]:
-        return [
-            i for i in range(total - n + 1)
-            if _candidate(i) == norm_before
-        ]
+        return [i for i in candidates if _candidate(i) == norm_before]
 
     def _min_ratio(start: int) -> float:
         return min(
@@ -366,10 +426,7 @@ def _find_context_hits(
         )
 
     def _fuzzy_hits(threshold: float) -> list[int]:
-        return [
-            i for i in range(total - n + 1)
-            if _min_ratio(i) >= threshold
-        ]
+        return [i for i in candidates if _min_ratio(i) >= threshold]
 
     leniency_lax = _compute_leniency(n, MAX_LENIENCY_LAX, MIN_LENIENCY_LAX)
     leniency_mid = _compute_leniency(n, MAX_LENIENCY_MID, MIN_LENIENCY_MID)
