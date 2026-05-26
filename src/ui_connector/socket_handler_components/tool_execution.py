@@ -142,6 +142,104 @@ def _execute_tools(
                 )
                 continue
 
+            # Patch rewrite watchdog: before the approval check, attempt to fix a
+            # failing apply_patch call so the agent never sees the error.
+            if (
+                tc.name == "text_editor"
+                and tc.arguments.get("action") == "apply_patch"
+            ):
+                _patch = tc.arguments.get("patch")
+                _filepath = tc.arguments.get("filepath")
+                _key = tc.arguments.get("key")
+                if _patch and isinstance(_patch, str) and (_filepath or _key):
+                    # Read the target contents for dry-run and watchdog use.
+                    _contents: str | None = None
+                    if _filepath:
+                        try:
+                            with open(_filepath, "r", encoding="utf-8", newline="") as _fh:
+                                _contents = _fh.read()
+                        except Exception:
+                            pass
+                    elif _key:
+                        _mem = session.session_data.get("memory")
+                        if isinstance(_mem, dict):
+                            _val = _mem.get(_key)
+                            if isinstance(_val, str):
+                                _contents = _val
+
+                    if _contents is not None:
+                        # Quick dry-run: skip watchdog entirely if patch already applies.
+                        from src.tools._text_editor_utils import (
+                            _parse_patch_file as _ptf,
+                            _apply_edits as _ae,
+                        )
+                        _patch_ok = False
+                        try:
+                            _hs = _ptf(_patch)
+                            if _hs:
+                                _ae(_contents, _hs)
+                                _patch_ok = True
+                        except Exception:
+                            pass
+
+                        if not _patch_ok:
+                            from src.tools._patch_rewrite_watchdog import attempt_patch_fix
+
+                            _emit_and_log(
+                                session_id,
+                                "patch_rewrite_start",
+                                {
+                                    "tool_call_id": tc.id,
+                                    "turn_id": turn_id,
+                                    "original_args": dict(tc.arguments),
+                                },
+                            )
+
+                            _tc_id_rw = tc.id
+
+                            def _on_rw_progress(
+                                _attempt: int,
+                                _max: int,
+                                _tid: str = _tc_id_rw,
+                            ) -> None:
+                                _emit_and_log(
+                                    session_id,
+                                    "patch_rewrite_attempt",
+                                    {
+                                        "tool_call_id": _tid,
+                                        "turn_id": turn_id,
+                                        "attempt": _attempt,
+                                        "max_attempts": _max,
+                                    },
+                                )
+
+                            _fixed = attempt_patch_fix(_contents, _patch, _on_rw_progress)
+                            if _fixed is not None:
+                                # Mutate in-place so tool_record.args also reflects
+                                # the rewritten patch (same dict reference).
+                                tc.arguments["patch"] = _fixed
+                                _emit_and_log(
+                                    session_id,
+                                    "patch_rewrite_done",
+                                    {
+                                        "tool_call_id": tc.id,
+                                        "turn_id": turn_id,
+                                        "success": True,
+                                        "final_patch": _fixed,
+                                    },
+                                )
+                            else:
+                                _emit_and_log(
+                                    session_id,
+                                    "patch_rewrite_done",
+                                    {
+                                        "tool_call_id": tc.id,
+                                        "turn_id": turn_id,
+                                        "success": False,
+                                        "final_patch": None,
+                                    },
+                                )
+
             if check_needs_approval(
                 tc.name,
                 tc.arguments,

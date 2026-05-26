@@ -6,6 +6,7 @@ import type {
   ToolCallEntry,
   TodoItem,
   ApprovalItem,
+  PatchRewriteState,
 } from "../types";
 
 const MAX_LOGS = 100;
@@ -122,6 +123,25 @@ function backendTurnToFrontendTurn(d: {
     isInterimStreaming: false,
     interimShowCharCount: false,
     interimCharCount: 0,
+  };
+}
+
+function updateToolCallById(
+  t: Turn,
+  toolCallId: string,
+  updater: (tc: ToolCallEntry) => ToolCallEntry,
+): Turn {
+  return {
+    ...t,
+    subturns: t.subturns.map((st) => ({
+      ...st,
+      exchanges: st.exchanges.map((ex) => ({
+        ...ex,
+        toolCalls: ex.toolCalls.map((tc) =>
+          tc.id === toolCallId ? updater(tc) : tc,
+        ),
+      })),
+    })),
   };
 }
 
@@ -481,6 +501,72 @@ export default function useSocketWiring(
         case "pwd_update":
           setPwd(data.path as string);
           break;
+        case "patch_rewrite_start": {
+          const toolCallId = data.tool_call_id as string;
+          const originalArgs = data.original_args as Record<string, unknown>;
+          updateTurn(turnId, (t) =>
+            updateToolCallById(t, toolCallId, (tc) => ({
+              ...tc,
+              patchRewrite: {
+                status: "in_progress" as const,
+                originalArgs,
+                attempt: 0,
+                maxAttempts: 3,
+              },
+            })),
+          );
+          break;
+        }
+        case "patch_rewrite_attempt": {
+          const toolCallId = data.tool_call_id as string;
+          const attempt = data.attempt as number;
+          const maxAttempts = data.max_attempts as number;
+          updateTurn(turnId, (t) =>
+            updateToolCallById(t, toolCallId, (tc) => ({
+              ...tc,
+              patchRewrite: tc.patchRewrite
+                ? { ...tc.patchRewrite, attempt, maxAttempts }
+                : {
+                    status: "in_progress" as const,
+                    originalArgs: {},
+                    attempt,
+                    maxAttempts,
+                  },
+            })),
+          );
+          break;
+        }
+        case "patch_rewrite_done": {
+          const toolCallId = data.tool_call_id as string;
+          const success = data.success as boolean;
+          const finalPatch = (data.final_patch as string | null) ?? null;
+          updateTurn(turnId, (t) =>
+            updateToolCallById(t, toolCallId, (tc) => {
+              const newRewrite: PatchRewriteState = tc.patchRewrite
+                ? {
+                    ...tc.patchRewrite,
+                    status: success ? "success" : "failed",
+                    ...(finalPatch !== null ? { finalPatch } : {}),
+                  }
+                : {
+                    status: success ? "success" : "failed",
+                    originalArgs: {},
+                    attempt: 3,
+                    maxAttempts: 3,
+                    ...(finalPatch !== null ? { finalPatch } : {}),
+                  };
+              return {
+                ...tc,
+                patchRewrite: newRewrite,
+                // On success, update args so the second viewer shows the fixed patch.
+                ...(success && finalPatch !== null
+                  ? { args: { ...tc.args, patch: finalPatch } }
+                  : {}),
+              };
+            }),
+          );
+          break;
+        }
       }
     },
     [updateTurn],
@@ -932,6 +1018,38 @@ export default function useSocketWiring(
       setTerminalOpen(true);
     }
 
+    function onPatchRewriteStart(data: {
+      event_id?: string;
+      turn_id?: string;
+      tool_call_id: string;
+      original_args: Record<string, unknown>;
+    }) {
+      if (data.event_id) updateLastEventId(data.event_id);
+      applyReplayEvent("patch_rewrite_start", data);
+    }
+
+    function onPatchRewriteAttempt(data: {
+      event_id?: string;
+      turn_id?: string;
+      tool_call_id: string;
+      attempt: number;
+      max_attempts: number;
+    }) {
+      if (data.event_id) updateLastEventId(data.event_id);
+      applyReplayEvent("patch_rewrite_attempt", data);
+    }
+
+    function onPatchRewriteDone(data: {
+      event_id?: string;
+      turn_id?: string;
+      tool_call_id: string;
+      success: boolean;
+      final_patch: string | null;
+    }) {
+      if (data.event_id) updateLastEventId(data.event_id);
+      applyReplayEvent("patch_rewrite_done", data);
+    }
+
     socket.on("connect", onConnect);
     socket.on("disconnect", onDisconnect);
     socket.on("pwd_update", onPwdUpdate);
@@ -963,6 +1081,9 @@ export default function useSocketWiring(
     socket.on("approval_resolved", onApprovalResolved);
     socket.on("shell_output_snapshot", onShellOutputSnapshot);
     socket.on("terminal_open_panel", onTerminalOpenPanel);
+    socket.on("patch_rewrite_start", onPatchRewriteStart);
+    socket.on("patch_rewrite_attempt", onPatchRewriteAttempt);
+    socket.on("patch_rewrite_done", onPatchRewriteDone);
     socket.on("task_title", (data: { turn_id: string; title: string }) => {
       applyReplayEvent("task_title", data);
     });
@@ -1008,6 +1129,9 @@ export default function useSocketWiring(
       socket.off("approval_resolved", onApprovalResolved);
       socket.off("shell_output_snapshot", onShellOutputSnapshot);
       socket.off("terminal_open_panel", onTerminalOpenPanel);
+      socket.off("patch_rewrite_start", onPatchRewriteStart);
+      socket.off("patch_rewrite_attempt", onPatchRewriteAttempt);
+      socket.off("patch_rewrite_done", onPatchRewriteDone);
       socket.off("task_title");
       socket.off("skills_loaded");
       socket.disconnect();

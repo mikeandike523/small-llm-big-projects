@@ -1,5 +1,13 @@
 // Shared types for the session/turn model
 
+export interface PatchRewriteState {
+  status: "in_progress" | "success" | "failed";
+  originalArgs: Record<string, unknown>;
+  attempt: number;
+  maxAttempts: number;
+  finalPatch?: string;
+}
+
 export interface ToolCallEntry {
   id: string;
   name: string;
@@ -9,6 +17,7 @@ export interface ToolCallEntry {
   streamingResult?: string; // live output chunks before result arrives
   startedAt?: number; // ms timestamp — set after approval, before execute
   finishedAt?: number; // ms timestamp — set when result arrives
+  patchRewrite?: PatchRewriteState;
 }
 
 export interface TodoItem {
