@@ -59,7 +59,9 @@ def _parse_hunk_body(body_text: str) -> LineGroup:
     # Pass 1 — collect
     raw: list[tuple[str, str]] = []
     for line in body_text.splitlines():
-        if not line:
+        if not line or not line.rstrip():
+            # Empty line or all-whitespace line → treat as a context line.
+            # Covers LLM output that uses a bare tab/spaces where " " was expected.
             raw.append((" ", ""))
         elif line[0] in ("+", "-", " "):
             raw.append((line[0], line[1:]))
@@ -276,6 +278,15 @@ def _parse_patch_file(patch: str) -> list[ParsedHunk]:
             body_lines.append(raw_lines[i])
             i += 1
 
+        # Strip blank/whitespace-only lines from the body edges.
+        # The declared line counts in the @@ header are never used; we terminate on
+        # the next @@ instead.  Any blank lines the LLM appended or prepended to a
+        # hunk body would otherwise become spurious context entries that fail to match.
+        while body_lines and not body_lines[0].strip():
+            body_lines.pop(0)
+        while body_lines and not body_lines[-1].strip():
+            body_lines.pop()
+
         group = _parse_hunk_body("\n".join(body_lines))
         is_pure_insertion = bool(group.tagged) and all(
             p == "+" for p, _ in group.tagged
@@ -291,14 +302,17 @@ def _parse_patch_file(patch: str) -> list[ParsedHunk]:
             l for l in raw_lines
             if not any(l.startswith(p) for p in _FILE_HEADER_PREFIXES)
         ]
+        # Same edge-stripping as the header path.
+        while body_lines and not body_lines[0].strip():
+            body_lines.pop(0)
+        while body_lines and not body_lines[-1].strip():
+            body_lines.pop()
         if body_lines and all(_is_valid_body_line(l) for l in body_lines):
-            body_text = "\n".join(body_lines)
-            if body_text.strip():
-                group = _parse_hunk_body(body_text)
-                is_pure_insertion = bool(group.tagged) and all(
-                    p == "+" for p, _ in group.tagged
-                )
-                hunks.append(ParsedHunk(start=None, group=group))
+            group = _parse_hunk_body("\n".join(body_lines))
+            is_pure_insertion = bool(group.tagged) and all(
+                p == "+" for p, _ in group.tagged
+            )
+            hunks.append(ParsedHunk(start=None, group=group))
 
     return hunks
 
@@ -333,11 +347,11 @@ def _find_context_hits(
     Returns (hit_positions, label).
     """
     n = len(before_lines)
-    norm_before = [b.rstrip() for b in before_lines]
+    norm_before = [b.strip() for b in before_lines]
     total = len(file_lines)
 
     def _candidate(start: int) -> list[str]:
-        return [file_lines[start + k].rstrip() for k in range(n)]
+        return [file_lines[start + k].strip() for k in range(n)]
 
     def _exact_hits() -> list[int]:
         return [
