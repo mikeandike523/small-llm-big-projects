@@ -11,7 +11,6 @@ from src.tools._managed_process import run_command_streaming
 from src.tools._autoresponse import get_applicable_rules
 from src.tools._validate_timeout import validate_timeout
 from src.utils.exceptions import ToolTimeoutError, ToolHangError
-from src.utils.text_truncation import truncate_long_lines as _truncate_long_lines
 from src.terminal.shell_resolver import resolve_cmd as _resolve_cmd
 
 STREAMS_RESULT = True
@@ -93,17 +92,6 @@ DEFINITION = {
                         f"Default {DEFAULT_HANG_TIMEOUT}, max {MAX_HANG_TIMEOUT}."
                     ),
                 },
-                "max_line_length": {
-                    "type": "integer",
-                    "description": (
-                        "Truncate lines in the returned result longer than this many characters, "
-                        "appending '[... N more bytes]'. "
-                        "Protects the LLM context from base64 output, minified files, or "
-                        "other commands that emit very long lines. "
-                        "Streamed chunks shown in the UI are not affected. "
-                        "0 disables the limit. Range: 0-256. Default: 160."
-                    ),
-                },
             },
             "required": ["command", "command_args"],
             "additionalProperties": False,
@@ -143,7 +131,6 @@ def execute(
     timeout = args.get("timeout", DEFAULT_TIMEOUT)
     target = args.get("target", "return_value")
     memory_key = args.get("memory_key")
-    max_line_length: int = max(0, min(256, args.get("max_line_length", 160)))
     use_known_autoresponse = args.get("use_known_autoresponse", True)
     hang_timeout = args.get("hang_timeout", DEFAULT_HANG_TIMEOUT)
 
@@ -212,7 +199,7 @@ def execute(
     except (ToolTimeoutError, ToolHangError):
         raise
 
-    output = _truncate_long_lines(str(result), max_line_length)
+    output = str(result)
 
     if target == "return_value":
         return output

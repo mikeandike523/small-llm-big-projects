@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import random
-
+import re
 import time
 from typing import Literal
 from urllib.parse import urlparse
@@ -11,7 +11,6 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 from src.utils.http.helpers import ensure_session_memory
-from src.utils.text_truncation import truncate_long_lines as _truncate_long_lines
 
 DEFAULT_TIMEOUT = 20  # seconds per request
 DEFAULT_MAX_RETRIES = 3  # transient-failure retries
@@ -126,13 +125,12 @@ DEFINITION: dict = {
                         "Required when target is 'session_memory'."
                     ),
                 },
-                "max_line_length": {
-                    "type": "integer",
+                "apply_basic_filters": {
+                    "type": "boolean",
                     "description": (
-                        "Truncate lines in the returned content longer than this many characters, "
-                        "appending '[... N more bytes]'. "
-                        "Protects against minified HTML/CSS/JS with very long lines. "
-                        "0 disables the limit. Range: 0-256. Default: 160."
+                        "When true (default), apply basic noise-reduction filters to the output. "
+                        "Currently strips base64-encoded data URIs (e.g. inline images) and replaces "
+                        "them with a '<base64 data>' placeholder. Applies in all output modes."
                     ),
                 },
             },
@@ -252,6 +250,15 @@ def _check_robots(
     return True, None
 
 
+_DATA_URI_RE = re.compile(
+    r'data:[a-zA-Z]+/[a-zA-Z0-9.+\-]+;base64,[A-Za-z0-9+/=]+'
+)
+
+
+def _apply_basic_filters(text: str) -> str:
+    return _DATA_URI_RE.sub("<base64 data>", text)
+
+
 def _render_content(
     body_text: str, fmt: Literal["xml", "markdown", "text", "raw"]
 ) -> str:
@@ -305,7 +312,7 @@ def execute(args: dict, session_data: dict | None = None) -> str:
     output_format: Literal["xml", "markdown", "text", "raw"] = args.get("format", "xml")
     target: str = args.get("target", "return_value")
     memory_key: str | None = args.get("memory_key")
-    max_line_length: int = max(0, min(256, args.get("max_line_length", 160)))
+    apply_filters: bool = args.get("apply_basic_filters", True)
 
     if target == "session_memory" and not memory_key:
         return "Error: 'memory_key' is required when target is 'session_memory'."
@@ -364,7 +371,9 @@ def execute(args: dict, session_data: dict | None = None) -> str:
     header_line = f"HTTP {resp.status_code} | {content_type}"
     body_text = resp.content.decode("utf-8", errors="replace")
     rendered = _render_content(body_text, output_format)
-    result = _truncate_long_lines(f"{header_line}\n\n{rendered}", max_line_length)
+    result = f"{header_line}\n\n{rendered}"
+    if apply_filters:
+        result = _apply_basic_filters(result)
 
     # --- deliver ---
     if target == "return_value":

@@ -19,7 +19,6 @@ import time
 from pathlib import Path
 
 from python_ripgrep import search as _rg_search
-from src.utils.text_truncation import truncate_long_lines as _truncate_long_lines
 from src.tools._list_dir_utils import (
     _traverse,
     _find_gitignore_root,
@@ -72,15 +71,6 @@ DEFINITION: dict = {
                         "gitignore_parser so .gitignore rules still apply. "
                         "The .git directory is always excluded when enabled. "
                         "Default: true."
-                    ),
-                },
-                "max_line_length": {
-                    "type": "integer",
-                    "description": (
-                        "Truncate matched lines longer than this many characters, "
-                        "appending '[... N more bytes]' to indicate the omission. "
-                        "Protects against minified files with very long lines. "
-                        "0 disables the limit. Range: 0-256. Default: 160."
                     ),
                 },
             },
@@ -145,10 +135,6 @@ def execute(args: dict, _session_data: dict | None = None) -> str:
     pattern: str = args.get("pattern", "")
     raw_path: str = args.get("path", "")
     use_gitignore: bool = args.get("use_gitignore", True)
-    max_line_length: int = args.get("max_line_length", 160)
-
-    # Clamp max_line_length to valid range; 0 means disabled
-    max_line_length = max(0, min(256, max_line_length))
 
     display_path: str = raw_path if raw_path else "."
     path: str = raw_path or os.getcwd()
@@ -219,9 +205,6 @@ def execute(args: dict, _session_data: dict | None = None) -> str:
                 continue
             lineno = raw_line[:colon_pos]
             content = raw_line[colon_pos + 1 :]
-
-            # Truncate long lines before highlighting (mirrors rg --max-columns-preview)
-            content = _truncate_long_lines(content, max_line_length)
 
             try:
                 highlighted = _apply_bold(content, pattern)
