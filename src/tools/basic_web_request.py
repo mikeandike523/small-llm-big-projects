@@ -11,7 +11,11 @@ from src.utils.http.helpers import (
     load_latest_service_tokens_from_db,
     validate_string_list,
 )
-DEFAULT_TIMEOUT = 30  # informational; actual value comes from args
+from src.tools._validate_timeout import validate_timeout
+
+DEFAULT_TIMEOUT = 30
+MIN_TIMEOUT = 5
+MAX_TIMEOUT = 120
 TIMEOUT_HINT = None
 
 DEFINITION: dict = {
@@ -66,8 +70,12 @@ DEFINITION: dict = {
                 },
                 "timeout": {
                     "type": "integer",
-                    "description": "The request time limit, in seconds. Must be at least 5",
-                    "minimum": 5,
+                    "description": (
+                        f"The request time limit in seconds "
+                        f"(minimum {MIN_TIMEOUT}, maximum {MAX_TIMEOUT}, default {DEFAULT_TIMEOUT})."
+                    ),
+                    "minimum": MIN_TIMEOUT,
+                    "maximum": MAX_TIMEOUT,
                 },
                 "debug_show_bad_json": {
                     "type": "boolean",
@@ -127,6 +135,8 @@ def execute(args, session_data):
     accept: str = args.get("accept") or "*/*"
     method: str = args["method"]
     timeout: int = args["timeout"]
+
+    validate_timeout("basic_web_request", timeout, DEFAULT_TIMEOUT, MAX_TIMEOUT, min_timeout=MIN_TIMEOUT)
 
     headers: dict[str, str] = (args.get("headers") or {}).copy()
     body: str | dict | None = args.get("body")

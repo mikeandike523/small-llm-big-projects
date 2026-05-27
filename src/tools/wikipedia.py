@@ -6,8 +6,11 @@ import httpx
 
 from src.utils.http.helpers import ensure_session_memory
 from src.utils.exceptions import ToolTimeoutError
+from src.tools._validate_timeout import validate_timeout
 
 DEFAULT_TIMEOUT = 15  # seconds
+MIN_TIMEOUT = 5
+MAX_TIMEOUT = 60
 
 # Wikipedia asks for a descriptive User-Agent identifying the tool.
 _USER_AGENT = "slbp-agent/1.0 (https://github.com/slbp; open-source LLM assistant)"
@@ -78,9 +81,9 @@ DEFINITION: dict = {
                 },
                 "timeout": {
                     "type": "integer",
-                    "description": f"Request timeout in seconds (default {DEFAULT_TIMEOUT}, max 60).",
-                    "minimum": 5,
-                    "maximum": 60,
+                    "description": f"Request timeout in seconds (minimum {MIN_TIMEOUT}, maximum {MAX_TIMEOUT}, default {DEFAULT_TIMEOUT}).",
+                    "minimum": MIN_TIMEOUT,
+                    "maximum": MAX_TIMEOUT,
                 },
             },
             "required": ["url_or_title"],
@@ -210,6 +213,7 @@ def execute(args: dict, session_data: dict | None = None) -> str:
     target: str = args.get("target", "return_value")
     memory_key: str | None = args.get("memory_key")
     timeout: int = args.get("timeout", DEFAULT_TIMEOUT)
+    validate_timeout("wikipedia", timeout, DEFAULT_TIMEOUT, MAX_TIMEOUT, min_timeout=MIN_TIMEOUT)
 
     if target == "session_memory" and not memory_key:
         return "Error: 'memory_key' is required when target is 'session_memory'."

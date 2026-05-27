@@ -11,8 +11,11 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 from src.utils.http.helpers import ensure_session_memory
+from src.tools._validate_timeout import validate_timeout
 
 DEFAULT_TIMEOUT = 20  # seconds per request
+MIN_TIMEOUT = 5
+MAX_TIMEOUT = 60
 DEFAULT_MAX_RETRIES = 3  # transient-failure retries
 DEFAULT_MIN_DELAY = 1.0  # politeness delay before fetching
 _JITTER = (0.05, 0.35)  # random seconds added on top of min_delay
@@ -51,11 +54,12 @@ DEFINITION: dict = {
                 "timeout": {
                     "type": "integer",
                     "description": (
-                        f"Per-request timeout in seconds (default {DEFAULT_TIMEOUT}). "
+                        f"Per-request timeout in seconds "
+                        f"(minimum {MIN_TIMEOUT}, maximum {MAX_TIMEOUT}, default {DEFAULT_TIMEOUT}). "
                         "Applies to both the robots.txt prefetch and the main fetch."
                     ),
-                    "minimum": 5,
-                    "maximum": 60,
+                    "minimum": MIN_TIMEOUT,
+                    "maximum": MAX_TIMEOUT,
                 },
                 "max_retries": {
                     "type": "integer",
@@ -304,6 +308,7 @@ def execute(args: dict, session_data: dict | None = None) -> str:
 
     url: str = args["url"]
     timeout: int = args.get("timeout", DEFAULT_TIMEOUT)
+    validate_timeout("scrape_web_page", timeout, DEFAULT_TIMEOUT, MAX_TIMEOUT, min_timeout=MIN_TIMEOUT)
     max_retries: int = args.get("max_retries", DEFAULT_MAX_RETRIES)
     min_delay: float = args.get("min_delay_seconds", DEFAULT_MIN_DELAY)
     check_robots_flag: bool = args.get("check_robots", True)

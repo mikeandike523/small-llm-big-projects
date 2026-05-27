@@ -59,6 +59,8 @@ DEFINITION = {
                         f"Command timeout in seconds. "
                         f"Default {DEFAULT_TIMEOUT}, max {MAX_TIMEOUT}."
                     ),
+                    "minimum": 1,
+                    "maximum": MAX_TIMEOUT,
                 },
                 "target": {
                     "type": "string",
@@ -91,6 +93,8 @@ DEFINITION = {
                         f"(no new output and no autoresponder matched). "
                         f"Default {DEFAULT_HANG_TIMEOUT}, max {MAX_HANG_TIMEOUT}."
                     ),
+                    "minimum": 1,
+                    "maximum": MAX_HANG_TIMEOUT,
                 },
             },
             "required": ["command", "command_args"],

@@ -6,6 +6,7 @@ from src.utils.exceptions import ToolTimeoutError
 from src.utils.docker_compose import get_service_port
 
 DEFAULT_TIMEOUT = 30
+MIN_TIMEOUT = 1
 MAX_ALLOWABLE_TIMEOUT = 120
 
 _PISTON_EXECUTE_PATH = "/api/v2/execute"
@@ -83,10 +84,10 @@ DEFINITION: dict = {
                 "timeout": {
                     "type": "integer",
                     "description": (
-                        f"Timeout in seconds (1-{MAX_ALLOWABLE_TIMEOUT}, "
+                        f"Timeout in seconds (minimum {MIN_TIMEOUT}, maximum {MAX_ALLOWABLE_TIMEOUT}, "
                         f"default {DEFAULT_TIMEOUT})."
                     ),
-                    "minimum": 1,
+                    "minimum": MIN_TIMEOUT,
                     "maximum": MAX_ALLOWABLE_TIMEOUT,
                 },
                 "enable_tracebacks": {
@@ -130,16 +131,16 @@ def _validate_timeout(raw) -> tuple[int | None, str | None]:
     if isinstance(raw, bool):
         return None, (
             f"Error: 'timeout' must be an integer, got bool. "
-            f"Provide a value between 1 and {MAX_ALLOWABLE_TIMEOUT}."
+            f"Provide a value between {MIN_TIMEOUT} and {MAX_ALLOWABLE_TIMEOUT}."
         )
     if not isinstance(raw, int):
         return None, (
             f"Error: 'timeout' must be an integer, got {type(raw).__name__}. "
-            f"Provide a value between 1 and {MAX_ALLOWABLE_TIMEOUT}."
+            f"Provide a value between {MIN_TIMEOUT} and {MAX_ALLOWABLE_TIMEOUT}."
         )
-    if not (1 <= raw <= MAX_ALLOWABLE_TIMEOUT):
+    if not (MIN_TIMEOUT <= raw <= MAX_ALLOWABLE_TIMEOUT):
         return None, (
-            f"Error: 'timeout' must be between 1 and {MAX_ALLOWABLE_TIMEOUT}, got {raw}."
+            f"Error: 'timeout' must be between {MIN_TIMEOUT} and {MAX_ALLOWABLE_TIMEOUT}, got {raw}."
         )
     return raw, None
 
