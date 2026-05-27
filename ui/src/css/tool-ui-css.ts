@@ -62,3 +62,35 @@ export const toolResultCss = css`
     margin: 0;
   }
 `;
+
+export const toolResultContainerCss = css`
+  position: relative;
+  min-height: 120px;
+`;
+
+export const expandButtonCss = css`
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  background: rgba(136, 96, 192, 0.15);
+  border: 1px solid #6a4a9a;
+  border-radius: 4px;
+  color: #b48be0;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  transition:
+    background 0.15s,
+    color 0.15s,
+    border-color 0.15s;
+  &:hover {
+    background: rgba(136, 96, 192, 0.3);
+    color: #d4b0ff;
+    border-color: #8a6aba;
+  }
+`;

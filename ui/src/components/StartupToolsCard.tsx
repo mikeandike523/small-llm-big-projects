@@ -1,4 +1,5 @@
 import { css } from "@emotion/react";
+import { MdOpenInFull } from "react-icons/md";
 import _spin from "../css/_spin";
 import { ToolCallEntry } from "../types";
 import { useStickToBottom } from "use-stick-to-bottom";
@@ -8,7 +9,8 @@ import {
   toolCallCss,
   toolHeaderCss,
   toolResultCss,
-  viewFullButtonCss,
+  toolResultContainerCss,
+  expandButtonCss,
 } from "../css/tool-ui-css";
 import scrollbarCss from "../css/scrollBarCss";
 import JsonArgsViewer from "./JsonArgsViewer";
@@ -103,14 +105,6 @@ export default function StartupToolCallsCard({
                 <div key={tc.id} css={toolCallCss}>
                   <div css={toolHeaderCss}>
                     <span>⚙ {tc.name}</span>
-                    {truncated && (
-                      <button
-                        css={viewFullButtonCss}
-                        onClick={() => onViewFull(tc.result!)}
-                      >
-                        view full
-                      </button>
-                    )}
                   </div>
                   {Object.keys(tc.args).length > 0 && (
                     <div css={toolArgsCss}>
@@ -118,8 +112,19 @@ export default function StartupToolCallsCard({
                     </div>
                   )}
                   {hasResult && (
-                    <div css={toolResultCss}>
-                      <Ansi>{displayResult}</Ansi>
+                    <div css={toolResultContainerCss}>
+                      <div css={toolResultCss}>
+                        <Ansi>{displayResult}</Ansi>
+                      </div>
+                      {truncated && (
+                        <button
+                          css={expandButtonCss}
+                          onClick={() => onViewFull(tc.result!)}
+                          title="View full result"
+                        >
+                          <MdOpenInFull />
+                        </button>
+                      )}
                     </div>
                   )}
                 </div>

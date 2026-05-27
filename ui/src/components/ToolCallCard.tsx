@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { css, keyframes } from "@emotion/react";
+import { MdOpenInFull } from "react-icons/md";
 
 import { ToolCallEntry } from "../types";
 import ElapsedTimer from "./ElapsedTimer";
@@ -10,8 +11,9 @@ import {
   toolArgsCss,
   toolCallCss,
   toolHeaderCss,
+  toolResultContainerCss,
   toolResultCss,
-  viewFullButtonCss,
+  expandButtonCss,
 } from "../css/tool-ui-css";
 
 const MAX_STREAMING_CHARS = 300;
@@ -176,14 +178,6 @@ export default function ToolCallCard({
           `}
         >
           <ElapsedTimer startedAt={tc.startedAt} finishedAt={tc.finishedAt} />
-          {truncated && (
-            <button
-              css={viewFullButtonCss}
-              onClick={() => onViewFull(tc.result!)}
-            >
-              view full
-            </button>
-          )}
         </span>
       </div>
 
@@ -242,13 +236,26 @@ export default function ToolCallCard({
       )}
 
       {isStreaming && displayResult !== undefined && (
-        <div css={streamingResultCss}>
-          <Ansi>{displayResult}</Ansi>
+        <div css={toolResultContainerCss}>
+          <div css={streamingResultCss}>
+            <Ansi>{displayResult}</Ansi>
+          </div>
         </div>
       )}
       {hasResult && (
-        <div css={isDenied ? deniedToolResultCss : toolResultCss}>
-          <Ansi>{displayResult}</Ansi>
+        <div css={toolResultContainerCss}>
+          <div css={isDenied ? deniedToolResultCss : toolResultCss}>
+            <Ansi>{displayResult}</Ansi>
+          </div>
+          {truncated && (
+            <button
+              css={expandButtonCss}
+              onClick={() => onViewFull(tc.result!)}
+              title="View full result"
+            >
+              <MdOpenInFull />
+            </button>
+          )}
         </div>
       )}
     </div>
