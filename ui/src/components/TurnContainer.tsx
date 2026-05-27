@@ -59,7 +59,7 @@ const skillPillCss = css`
 
 const turnContainerCss = css`
   display: grid;
-  grid-template-columns: 2fr 1.5fr 1fr;
+  grid-template-columns: 5fr 4fr 2fr;
   gap: 24px;
   padding: 20px 24px;
   border: 1px solid #22304d;
@@ -70,7 +70,7 @@ const turnContainerCss = css`
  
 const turnContainerNoTitleCss = css`
   display: grid;
-  grid-template-columns: 3fr 2.5fr 1.5fr;
+  grid-template-columns: 5fr 4fr 2fr;
   gap: 24px;
   padding: 20px 24px;
   border: 1px solid #22304d;
@@ -519,7 +519,7 @@ const todoItemOpenCss = css`
   color: #c0c0c0;
   font-family: "Consolas", monospace;
   padding: 2px 0;
-  white-space: nowrap;
+  white-space: pre-wrap;
 `;
 
 const todoItemClosedCss = css`
@@ -528,7 +528,7 @@ const todoItemClosedCss = css`
   font-family: "Consolas", monospace;
   padding: 2px 0;
   text-decoration: line-through;
-  white-space: nowrap;
+  white-space: pre-wrap;
 `;
 
 function stripMdExtension(s: string): string {
