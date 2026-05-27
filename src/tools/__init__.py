@@ -348,6 +348,23 @@ def load_custom_tools(
     extra_map: dict = {}
     plugins: list[dict] = []
 
+    # Execute tools-level __init__.py if present (e.g. to add site-packages to sys.path).
+    tools_init = os.path.join(tools_dir, "__init__.py")
+    if os.path.isfile(tools_init):
+        tools_init_module_name = f"_slbp_{session_prefix}_tools_init"
+        try:
+            tools_init_spec = importlib.util.spec_from_file_location(
+                tools_init_module_name, tools_init
+            )
+            tools_init_module = importlib.util.module_from_spec(tools_init_spec)
+            sys.modules[tools_init_module_name] = tools_init_module
+            tools_init_spec.loader.exec_module(tools_init_module)
+        except Exception as e:
+            sys.modules.pop(tools_init_module_name, None)
+            raise RuntimeError(
+                f"Failed to execute tools/__init__.py at {tools_init!r}: {e}"
+            ) from e
+
     try:
         plugin_candidates = sorted(
             entry
