@@ -41,3 +41,4 @@ def _handle_preflight():
 # circular-import problems (handlers import `socketio` from this module).
 import src.ui_connector.socket_handlers  # noqa: E402, F401
 import src.config_routes.tokens  # noqa: E402, F401
+import src.config_routes.profiles  # noqa: E402, F401

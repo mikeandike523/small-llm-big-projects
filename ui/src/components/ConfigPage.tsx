@@ -2,9 +2,10 @@
 import { css } from "@emotion/react";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import ProfilesTab from "./config/ProfilesTab";
 import TokensTab from "./config/TokensTab";
 
-const TABS = ["Tokens"] as const;
+const TABS = ["Tokens", "Profiles"] as const;
 type Tab = (typeof TABS)[number];
 
 const pageCss = css`
@@ -134,7 +135,10 @@ export default function ConfigPage() {
           </button>
         </div>
       </div>
-      <main css={contentCss}>{tab === "Tokens" && <TokensTab />}</main>
+      <main css={contentCss}>
+        {tab === "Tokens" && <TokensTab />}
+        {tab === "Profiles" && <ProfilesTab />}
+      </main>
     </div>
   );
 }
