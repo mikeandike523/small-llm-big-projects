@@ -1,6 +1,6 @@
 import { css } from "@emotion/react";
 
-import scrollbarCss from "../css/scrollBarCss";
+import scrollbarCss, { thinScrollbarCss } from "../css/scrollBarCss";
 
 const JSON_VALUE_MAX_LINES = 10;
 
@@ -32,7 +32,7 @@ const jsonValueCss = css`
   overflow-x: auto;
   flex: 1;
   min-width: 0;
-  ${scrollbarCss}
+  ${thinScrollbarCss}
 `;
 
 const jsonValueScrollableCss = css`
