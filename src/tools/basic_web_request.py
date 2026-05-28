@@ -118,7 +118,7 @@ DEFINITION: dict = {
                     ),
                 },
             },
-            "required": ["url", "method", "timeout"],
+            "required": ["url", "method"],
             "additionalProperties": False,
         },
     },
@@ -134,7 +134,7 @@ def execute(args, session_data):
     content_type: str | None = args.get("content_type")
     accept: str = args.get("accept") or "*/*"
     method: str = args["method"]
-    timeout: int = args["timeout"]
+    timeout: int = args.get("timeout", DEFAULT_TIMEOUT)
 
     validate_timeout("basic_web_request", timeout, DEFAULT_TIMEOUT, MAX_TIMEOUT, min_timeout=MIN_TIMEOUT)
 
