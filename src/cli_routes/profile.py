@@ -189,6 +189,50 @@ def sub_cmd_show(verbose: bool):
                 click.echo(line)
 
 
+@profile.command(name="copy-to")
+@click.argument("name", type=str)
+def sub_cmd_copy_to(name: str):
+    """Copy the default profile's config to a new named profile."""
+    err = validate_profile_name(name)
+    if err:
+        click.echo(f"Error: {err}")
+        raise SystemExit(1)
+
+    pool = get_pool()
+    with pool.get_connection() as conn:
+        kv = KVManager(conn)
+
+        active_profile = get_active_profile(kv)
+        if active_profile is None:
+            click.echo("Error: No default profile selected.")
+            raise SystemExit(1)
+
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT 1 FROM profiles WHERE name = %s LIMIT 1", (name,))
+            already_exists = cursor.fetchone() is not None
+
+        if already_exists:
+            if not click.confirm(f"Overwrite profile '{name}'?", default=False):
+                click.echo("Aborted.")
+                return
+            for key in kv.list_keys(prefix=_kv_prefix(name)):
+                kv.delete_value(key)
+
+        src_prefix = _kv_prefix(active_profile)
+        dst_prefix = _kv_prefix(name)
+        for src_key in kv.list_keys(prefix=src_prefix):
+            val = kv.get_value(src_key)
+            if val is not None:
+                kv.set_value(dst_prefix + src_key[len(src_prefix):], val)
+
+        if not already_exists:
+            with conn.cursor() as cursor:
+                cursor.execute("INSERT INTO profiles (name) VALUES (%s)", (name,))
+        conn.commit()
+
+    click.echo(f"Copied profile '{active_profile}' to '{name}'.")
+
+
 @profile.command(name="list")
 @click.option(
     "--verbose",
