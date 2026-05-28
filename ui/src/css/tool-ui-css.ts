@@ -67,7 +67,7 @@ export const toolResultCss = css`
 
 export const toolResultContainerCss = css`
   position: relative;
-  min-height: 120px;
+  min-height: calc(10px + 28px + 10px);
 `;
 
 export const expandButtonCss = css`
@@ -77,22 +77,27 @@ export const expandButtonCss = css`
   width: 28px;
   height: 28px;
   padding: 0;
-  background: rgba(136, 96, 192, 0.15);
-  border: 1px solid #6a4a9a;
+  background: rgba(18, 6, 34, 0.78);
+  backdrop-filter: blur(8px) saturate(1.5);
+  -webkit-backdrop-filter: blur(8px) saturate(1.5);
+  border: 1px solid rgba(138, 106, 186, 0.55);
   border-radius: 4px;
-  color: #b48be0;
+  color: #c4a0f0;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 14px;
+  box-shadow:
+    0 2px 8px rgba(0, 0, 0, 0.55),
+    inset 0 1px 0 rgba(210, 170, 255, 0.13);
   transition:
     background 0.15s,
     color 0.15s,
     border-color 0.15s;
   &:hover {
-    background: rgba(136, 96, 192, 0.3);
-    color: #d4b0ff;
-    border-color: #8a6aba;
+    background: rgba(35, 12, 62, 0.88);
+    color: #d8b8ff;
+    border-color: rgba(180, 139, 224, 0.75);
   }
 `;
