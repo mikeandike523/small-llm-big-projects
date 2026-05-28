@@ -177,6 +177,7 @@ class Session:
     interim_response_as_thinking: bool = False
     record_traces: bool = False
     created_at: float = field(default_factory=time.time)
+    profile_name: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -317,6 +318,7 @@ def session_to_dict(session: Session) -> dict:
         "interim_response_as_thinking": session.interim_response_as_thinking,
         "record_traces": session.record_traces,
         "created_at": session.created_at,
+        "profile_name": session.profile_name,
     }
 
 
@@ -337,4 +339,5 @@ def session_from_dict(d: dict) -> Session:
         interim_response_as_thinking=d.get("interim_response_as_thinking", False),
         record_traces=d.get("record_traces", False),
         created_at=d.get("created_at", 0.0),
+        profile_name=d.get("profile_name"),
     )

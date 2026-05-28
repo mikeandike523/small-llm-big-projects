@@ -13,6 +13,7 @@ export interface SessionDefaults {
   load_tools: boolean;
   load_startup_tool_calls: boolean;
   default_profile: string | null;
+  profiles: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -205,6 +206,22 @@ const errorMsgCss = css`
   padding: 8px 12px;
 `;
 
+const selectCss = css`
+  width: 100%;
+  background: #0f0f0f;
+  border: 1px solid #2a2a2a;
+  border-radius: 5px;
+  color: #d0d0d0;
+  font-family: inherit;
+  font-size: 12px;
+  padding: 8px 10px;
+  cursor: pointer;
+  outline: none;
+  &:focus {
+    border-color: #3a3a5a;
+  }
+`;
+
 // ---------------------------------------------------------------------------
 // Checkbox option config
 // ---------------------------------------------------------------------------
@@ -257,6 +274,9 @@ export default function NewSessionDialog({
   const [flags, setFlags] = useState<SessionDefaults>(() => ({
     ...sessionDefaults,
   }));
+  const [selectedProfile, setSelectedProfile] = useState<string>(
+    sessionDefaults.default_profile ?? "",
+  );
   const [browsing, setBrowsing] = useState(false);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -311,6 +331,7 @@ export default function NewSessionDialog({
       interim_response_as_thinking:
         sessionDefaults.interim_response_as_thinking,
       record_traces: flags.record_traces,
+      profile_name: selectedProfile || null,
     };
     if (flags.load_skills) payload.skills_path = `${cwd}/skills`;
     if (flags.load_tools) payload.custom_tools_path = `${cwd}/tools`;
@@ -415,6 +436,24 @@ export default function NewSessionDialog({
             ))}
           </div>
         </div>
+
+        {sessionDefaults.profiles.length > 0 && (
+          <div>
+            <div css={fieldLabelCss}>Starting Profile</div>
+            <select
+              css={selectCss}
+              value={selectedProfile}
+              onChange={(e) => setSelectedProfile(e.target.value)}
+            >
+              {sessionDefaults.profiles.map((p) => (
+                <option key={p} value={p}>
+                  {p}
+                  {p === sessionDefaults.default_profile ? " (default)" : ""}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
 
         {error && <div css={errorMsgCss}>{error}</div>}
 

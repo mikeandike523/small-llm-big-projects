@@ -14,6 +14,7 @@ from flask import request, jsonify
 import src.ui_connector.socket_handler_components.state as _state
 from src.ui_connector.app import app
 from src.ui_connector.socket_handler_components.session_store import (
+    _load_session,
     _save_session,
     _delete_session,
     _init_session_caches,
@@ -73,6 +74,32 @@ def api_create_session():
     interim_response_as_thinking = bool(data.get("interim_response_as_thinking", False))
     record_traces = bool(data.get("record_traces", False))
 
+    # Resolve starting profile: explicit override or system default.
+    raw_profile = (data.get("profile_name") or "").strip() or None
+    if raw_profile is not None:
+        try:
+            pool = get_pool()
+            with pool.get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "SELECT 1 FROM profiles WHERE name = %s LIMIT 1", (raw_profile,)
+                    )
+                    if cur.fetchone() is None:
+                        return (
+                            jsonify({"error": f"Profile '{raw_profile}' does not exist."}),
+                            400,
+                        )
+        except Exception as exc:
+            return jsonify({"error": f"Failed to validate profile: {exc}"}), 500
+        profile_name: str | None = raw_profile
+    else:
+        try:
+            pool = get_pool()
+            with pool.get_connection() as conn:
+                profile_name = get_active_profile(KVManager(conn))
+        except Exception:
+            profile_name = None
+
     startup_tool_calls: list = []
     if startup_tool_calls_path:
         try:
@@ -101,6 +128,7 @@ def api_create_session():
         startup_tool_calls=startup_tool_calls,
         interim_response_as_thinking=interim_response_as_thinking,
         record_traces=record_traces,
+        profile_name=profile_name,
     )
 
     if record_traces:
@@ -197,6 +225,7 @@ def api_list_sessions():
                 "record_traces": d.get("record_traces", False),
                 "skills_path": d.get("skills_path") or None,
                 "custom_tools_path": d.get("custom_tools_path") or None,
+                "profile_name": d.get("profile_name") or None,
             }
         )
     results.sort(key=lambda s: s["created_at"], reverse=True)
@@ -211,6 +240,34 @@ def api_delete_session(session_id: str):
     _delete_session(session_id)
     logger.info("Session deleted via API: %s", session_id)
     return jsonify({"ok": True})
+
+
+@app.route("/api/sessions/<session_id>/profile", methods=["PATCH"])
+def api_session_set_profile(session_id: str):
+    """Change the profile for a session (takes effect on next turn)."""
+    data = request.get_json(force=True, silent=True) or {}
+    profile_name = (data.get("profile_name") or "").strip() or None
+
+    if profile_name is not None:
+        try:
+            pool = get_pool()
+            with pool.get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "SELECT 1 FROM profiles WHERE name = %s LIMIT 1", (profile_name,)
+                    )
+                    if cur.fetchone() is None:
+                        return (
+                            jsonify({"error": f"Profile '{profile_name}' does not exist."}),
+                            404,
+                        )
+        except Exception as exc:
+            return jsonify({"error": f"DB error: {exc}"}), 500
+
+    session = _load_session(session_id)
+    session.profile_name = profile_name
+    _save_session(session_id, session)
+    return jsonify({"ok": True, "profile_name": profile_name})
 
 
 @app.route("/api/session-defaults", methods=["GET"])
@@ -234,6 +291,14 @@ def api_session_defaults():
             500,
         )
     defaults["default_profile"] = profile
+    try:
+        pool = get_pool()
+        with pool.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT name FROM profiles ORDER BY name")
+                defaults["profiles"] = [r[0] for r in cur.fetchall()]
+    except Exception:
+        defaults["profiles"] = []
     return jsonify(defaults)
 
 

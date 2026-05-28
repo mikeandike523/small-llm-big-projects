@@ -15,9 +15,10 @@ from src.utils.param_registry import (
 logger = logging.getLogger(__name__)
 
 
-def load_llm_config() -> dict | None:
+def load_llm_config(profile_name: str | None = None) -> dict | None:
     """
-    Read the active token, endpoint, model, and params from the DB.
+    Read token, endpoint, model, and params from the DB for the given profile.
+    If profile_name is None, reads the system-wide active profile.
     Returns a dict with keys: endpoint_url, token_value, model, model_params,
     system_params — or None if no active token/endpoint is configured.
     """
@@ -29,7 +30,7 @@ def load_llm_config() -> dict | None:
 
     with pool.get_connection() as conn:
         kv = KVManager(conn)
-        profile = get_active_profile(kv)
+        profile = profile_name if profile_name is not None else get_active_profile(kv)
         if not profile:
             return None
         prefix = _kv_prefix(profile)
@@ -142,16 +143,20 @@ def make_llm_from_config(
     )
 
 
-def make_llm_refreshing(timeout_s: float | None = None) -> StreamingLLM:
+def make_llm_refreshing(
+    timeout_s: float | None = None,
+    profile_name: str | None = None,
+) -> StreamingLLM:
     """
     Create a StreamingLLM that reloads its config from the DB on every stream()/fetch() call.
-    Use this for the main agent loop so profile/token switches take effect at the next exchange.
+    If profile_name is given, that profile is used for every reload (session-level override).
     Raises RuntimeError if no active config is found at construction time.
     """
-    config = load_llm_config()
+    config = load_llm_config(profile_name)
     if config is None:
         raise RuntimeError("No active token/endpoint configured.")
-    return make_llm_from_config(config, timeout_s, config_loader=load_llm_config)
+    loader = (lambda: load_llm_config(profile_name)) if profile_name else load_llm_config
+    return make_llm_from_config(config, timeout_s, config_loader=loader)
 
 
 def make_llm(timeout_s: float | None = None) -> StreamingLLM | None:

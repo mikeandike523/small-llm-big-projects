@@ -58,9 +58,9 @@ from src.utils.event_log import get_events_since
 logger = logging.getLogger(__name__)
 
 
-def _load_llm_config() -> dict | None:
+def _load_llm_config(profile_name: str | None = None) -> dict | None:
     """Return dict with endpoint_url, token_value, model or None on failure."""
-    return load_llm_config()
+    return load_llm_config(profile_name)
 
 
 # ---------------------------------------------------------------------------
@@ -138,6 +138,7 @@ def handle_resume_session(data: dict):
             "completedTurns": completed_turns_data,
             "currentTurn": current_turn_data,
             "isTurnActive": is_turn_active,
+            "profileName": session.profile_name,
         },
     )
 
@@ -644,7 +645,10 @@ def handle_user_message(data: dict):
     if not turn_id:
         turn_id = str(_uuid_module.uuid4())
 
-    llm_config = _load_llm_config()
+    session = _load_session(session_id)
+    _session_profile = session.profile_name
+
+    llm_config = _load_llm_config(_session_profile)
     if llm_config is None:
         _emit_and_log(
             session_id,
@@ -656,7 +660,7 @@ def handle_user_message(data: dict):
         )
         return
 
-    streaming_llm = make_llm_refreshing(timeout_s=60)
+    streaming_llm = make_llm_refreshing(timeout_s=60, profile_name=_session_profile)
     return_value_max_chars: int | None = llm_config["system_params"].get(
         "return_value_max_chars"
     )
@@ -666,8 +670,6 @@ def handle_user_message(data: dict):
     title_summary_max_tokens: int | None = llm_config["system_params"].get(
         "title_summary_max_tokens"
     )
-
-    session = _load_session(session_id)
 
     _effective_cwd = _state._session_current_cwd.get(session_id) or session.initial_cwd
     if _effective_cwd:
@@ -826,7 +828,15 @@ def handle_force_continuation(data: dict):
     if not _state._sid_to_session_id.get(sid):
         return
 
-    llm_config = _load_llm_config()
+    session = _load_session(session_id)
+
+    if not session.completed_turns:
+        emit("error", {"message": "No previous turn to continue."})
+        return
+
+    _session_profile = session.profile_name
+
+    llm_config = _load_llm_config(_session_profile)
     if llm_config is None:
         emit(
             "error",
@@ -836,13 +846,7 @@ def handle_force_continuation(data: dict):
         )
         return
 
-    session = _load_session(session_id)
-
-    if not session.completed_turns:
-        emit("error", {"message": "No previous turn to continue."})
-        return
-
-    streaming_llm = make_llm_refreshing(timeout_s=60)
+    streaming_llm = make_llm_refreshing(timeout_s=60, profile_name=_session_profile)
     return_value_max_chars: int | None = llm_config["system_params"].get(
         "return_value_max_chars"
     )

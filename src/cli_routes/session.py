@@ -10,7 +10,7 @@ from src.cli_obj import cli
 from src.data import get_pool
 from src.utils.server_state import read_state
 from src.utils.sql.kv_manager import KVManager
-from src.utils.profile_utils import require_active_profile, _kv_prefix
+from src.utils.profile_utils import get_active_profile, require_active_profile, _kv_prefix
 
 
 @cli.group()
@@ -54,8 +54,21 @@ def session():
         "flush the buffer to disk as an XML file."
     ),
 )
+@click.option(
+    "--starting-profile",
+    default=None,
+    help=(
+        "Profile to use for this session. "
+        "Defaults to the system default profile set via 'slbp profile use'."
+    ),
+)
 def session_new(
-    load_skills, load_tools, load_startup_tool_calls, cwd, enable_trace_recording
+    load_skills,
+    load_tools,
+    load_startup_tool_calls,
+    cwd,
+    enable_trace_recording,
+    starting_profile,
 ):
     """
     Create a new agentic session and open it in the default web browser.
@@ -70,10 +83,26 @@ def session_new(
         pool = get_pool()
         with pool.get_connection() as conn:
             kv = KVManager(conn)
-            profile = require_active_profile(kv)
-            prefix = _kv_prefix(profile)
+            # Validate --starting-profile if given; otherwise require the default profile.
+            if starting_profile:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "SELECT 1 FROM profiles WHERE name = %s LIMIT 1",
+                        (starting_profile,),
+                    )
+                    if cur.fetchone() is None:
+                        raise click.ClickException(
+                            f"Profile '{starting_profile}' does not exist. "
+                            "Use 'slbp profile list' to see available profiles."
+                        )
+                effective_profile = starting_profile
+            else:
+                effective_profile = require_active_profile(kv)
+            prefix = _kv_prefix(effective_profile)
             val = kv.get_value(f"{prefix}params.model.irat")
         interim_response_as_thinking = val if val is not None else False
+    except click.ClickException:
+        raise
     except Exception as exc:
         raise click.ClickException(
             f"Failed to load session defaults from database: {exc}"
@@ -97,6 +126,7 @@ def session_new(
         "initial_cwd": session_cwd,
         "interim_response_as_thinking": interim_response_as_thinking,
         "record_traces": enable_trace_recording,
+        "profile_name": starting_profile,
     }
     if load_skills:
         payload["skills_path"] = os.path.join(session_cwd, "skills")
@@ -130,6 +160,7 @@ def session_new(
 
     url = f"http://localhost:{proxy_port}/session?sessionId={session_id}"
     click.echo(f"[slbp] Session created: {session_id}")
+    click.echo(f"[slbp] Profile: {starting_profile or effective_profile}")
     click.echo(f"[slbp] CWD: {session_cwd}")
     click.echo(f"[slbp] Opening {url}")
     webbrowser.open(url, new=0, autoraise=True)

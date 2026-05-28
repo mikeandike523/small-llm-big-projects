@@ -179,6 +179,7 @@ export default function useSocketWiring(
   const [backendLogs, setBackendLogs] = useState<BackendLogEntry[]>([]);
   const [isLoadingBackendState, setIsLoadingBackendState] = useState(false);
   const [sessionCost, setSessionCost] = useState<number | null>(null);
+  const [sessionProfile, setSessionProfile] = useState<string | null>(null);
 
   // ---------------------------------------------------------------------------
   // lastEventId — persisted to sessionStorage
@@ -672,6 +673,7 @@ export default function useSocketWiring(
       completedTurns?: unknown[];
       currentTurn?: unknown;
       schemaInvalid?: boolean;
+      profileName?: string | null;
     }) {
       if (data.schemaInvalid) {
         // Schema mismatch — no event_replay will follow, so clear loading now
@@ -715,6 +717,10 @@ export default function useSocketWiring(
           // First-ever session: run startup tools now that we know they haven't run yet
           socket.emit("run_startup_tool_calls");
         }
+      }
+
+      if (data.profileName !== undefined) {
+        setSessionProfile(data.profileName ?? null);
       }
     }
 
@@ -1156,6 +1162,8 @@ export default function useSocketWiring(
     backendLogs,
     isLoadingBackendState,
     sessionCost,
+    sessionProfile,
+    setSessionProfile,
     terminalOpen,
     setTerminalOpen,
   };

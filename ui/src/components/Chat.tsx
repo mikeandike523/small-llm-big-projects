@@ -92,9 +92,41 @@ export default function Chat() {
     backendLogs,
     isLoadingBackendState,
     sessionCost,
+    sessionProfile,
+    setSessionProfile,
     terminalOpen,
     setTerminalOpen,
   } = useSocketWiring(socket, scrollToBottom);
+
+  const [profiles, setProfiles] = useState<string[]>([]);
+  const [profileChanging, setProfileChanging] = useState(false);
+
+  // Fetch available profile names for the dropdown once on mount.
+  React.useEffect(() => {
+    fetch("/api/session-defaults")
+      .then((r) => r.json())
+      .then((d) => {
+        if (Array.isArray(d.profiles)) setProfiles(d.profiles);
+      })
+      .catch(() => {});
+  }, []);
+
+  async function handleProfileChange(newProfile: string) {
+    if (profileChanging || newProfile === sessionProfile) return;
+    setProfileChanging(true);
+    try {
+      await fetch(`/api/sessions/${sessionId}/profile`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ profile_name: newProfile || null }),
+      });
+      setSessionProfile(newProfile || null);
+    } catch {
+      // silently ignore — user can retry
+    } finally {
+      setProfileChanging(false);
+    }
+  }
 
   // ---------------------------------------------------------------------------
   // Approval actions
@@ -204,6 +236,31 @@ export default function Chat() {
             session: {sessionId.slice(0, 8)}
           </span>
           <div css={headerSideCss}>
+            {profiles.length > 0 && (
+              <select
+                value={sessionProfile ?? ""}
+                onChange={(e) => handleProfileChange(e.target.value)}
+                disabled={profileChanging || busy}
+                title="Session profile (takes effect on next turn)"
+                style={{
+                  background: "#101722",
+                  border: "1px solid #2a3a6e",
+                  borderRadius: 4,
+                  color: sessionProfile ? "#a0b8f0" : "#666",
+                  fontFamily: "inherit",
+                  fontSize: 11,
+                  padding: "3px 6px",
+                  cursor: profileChanging || busy ? "not-allowed" : "pointer",
+                  opacity: profileChanging ? 0.5 : 1,
+                }}
+              >
+                {profiles.map((p) => (
+                  <option key={p} value={p}>
+                    {p}
+                  </option>
+                ))}
+              </select>
+            )}
             {sessionCost !== null && (
               <span
                 css={sessionCostCss}
