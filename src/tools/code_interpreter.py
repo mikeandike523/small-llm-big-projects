@@ -4,6 +4,7 @@ import httpx
 
 from src.utils.exceptions import ToolTimeoutError
 from src.utils.docker_compose import get_service_port
+from src.tools._memory import ensure_session_memory
 
 DEFAULT_TIMEOUT = 30
 MIN_TIMEOUT = 1
@@ -148,7 +149,7 @@ def _validate_timeout(raw) -> tuple[int | None, str | None]:
 def execute(args: dict, session_data: dict | None = None) -> str:
     if session_data is None:
         session_data = {}
-    memory: dict = session_data.get("memory") or {}
+    memory: dict = ensure_session_memory(session_data)
 
     raw_code = args.get("raw_code")
     code_key = args.get("code_session_memory_key")
