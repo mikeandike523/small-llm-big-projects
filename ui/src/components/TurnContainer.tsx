@@ -59,7 +59,7 @@ const skillPillCss = css`
 
 const turnContainerCss = css`
   display: grid;
-  grid-template-columns: 5fr 4fr 2fr;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 4fr) minmax(0, 2fr);
   gap: 24px;
   padding: 20px 24px;
   border: 1px solid #22304d;
@@ -70,7 +70,7 @@ const turnContainerCss = css`
  
 const turnContainerNoTitleCss = css`
   display: grid;
-  grid-template-columns: 5fr 4fr 2fr;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 4fr) minmax(0, 2fr);
   gap: 24px;
   padding: 20px 24px;
   border: 1px solid #22304d;
@@ -81,6 +81,7 @@ const turnContainerNoTitleCss = css`
 
 const leftColumnCss = css`
   ${scrollbarCss}
+  min-width: 0;
   overflow-y: auto;
   max-height: 480px;
 `;
@@ -100,6 +101,7 @@ const centerColumnCss = css`
   grid-template-rows: minmax(150px, 400px) minmax(200px, 500px);
   max-height: 480px;
   min-height: 0;
+  min-width: 0;
   gap: 8px;
 `;
 
@@ -118,19 +120,23 @@ const thinkingSectionCss = css`
   display: flex;
   flex-direction: column;
   min-height: 0;
+  min-width: 0;
 `;
 
 const thinkingScrollCss = css`
   ${scrollbarCss}
   flex: 1;
   min-height: 0;
+  min-width: 0;
   overflow-y: auto;
+  overflow-x: hidden;
 `;
 
 const thinkingContentCss = css`
   display: flex;
   flex-direction: column;
   gap: 12px;
+  min-width: 0;
 `;
 
 // Bottom sub-section (Tool Calls). Visually separated from the thinking
@@ -140,6 +146,7 @@ const toolCallsSectionCss = css`
   display: flex;
   flex-direction: column;
   min-height: 0;
+  min-width: 0;
   border-top: 1px solid #22304d;
   padding-top: 8px;
 `;
@@ -148,13 +155,16 @@ const toolCallsScrollCss = css`
   ${scrollbarCss}
   flex: 1;
   min-height: 0;
+  min-width: 0;
   overflow-y: auto;
+  overflow-x: hidden;
 `;
 
 const toolCallsContentCss = css`
   display: flex;
   flex-direction: column;
   gap: 12px;
+  min-width: 0;
 `;
 
 const todoColumnCss = css`

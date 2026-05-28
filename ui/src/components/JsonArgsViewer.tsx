@@ -43,7 +43,8 @@ const jsonValueScrollableCss = css`
   padding: 2px 5px;
   border-radius: 3px;
   white-space: pre;
-  width: 100%;
+  min-width: 0;
+  max-width: 100%;
   box-sizing: border-box;
   max-height: ${JSON_VALUE_MAX_LINES}em;
   overflow-x: auto;
@@ -105,7 +106,7 @@ export default function JsonArgsViewer({
   const entries = Object.entries(args);
   if (entries.length === 0) return null;
   return (
-    <div>
+    <div style={{ minWidth: 0, overflow: "hidden" }}>
       {entries.map(([k, v]) => (
         <JsonEntry key={k} name={k} value={v} depth={0} />
       ))}

@@ -44,6 +44,8 @@ export const toolArgsCss = css`
   background: #16162a;
   padding: 8px 14px;
   border-top: 1px solid #252545;
+  min-width: 0;
+  overflow: hidden;
 `;
 
 export const toolResultCss = css`
