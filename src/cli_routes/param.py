@@ -6,7 +6,7 @@ from termcolor import colored
 from src.data import get_pool
 from src.cli_obj import cli
 from src.utils.sql.kv_manager import KVManager
-from src.utils.profile_utils import get_active_profile, _kv_prefix
+from src.utils.profile_utils import require_active_profile, _kv_prefix
 from src.utils.param_registry import ALLOWED_PARAMS as _ALLOWED_PARAMS
 
 _PARAM_DOCS = {
@@ -208,7 +208,7 @@ def sub_cmd_list(available):
     pool = get_pool()
     with pool.get_connection() as conn:
         kv = KVManager(conn)
-        profile = get_active_profile(kv)
+        profile = require_active_profile(kv)
         prefix = _kv_prefix(profile)
         params_prefix = prefix + "params."
         keys = [
@@ -242,7 +242,7 @@ def sub_cmd_set(name, value):
     pool = get_pool()
     with pool.get_connection() as conn:
         kv = KVManager(conn)
-        profile = get_active_profile(kv)
+        profile = require_active_profile(kv)
         prefix = _kv_prefix(profile)
         kv.set_value(f"{prefix}params.{name}", typed_value)
         conn.commit()
@@ -257,7 +257,7 @@ def sub_cmd_show():
     pool = get_pool()
     with pool.get_connection() as conn:
         kv = KVManager(conn)
-        profile = get_active_profile(kv)
+        profile = require_active_profile(kv)
         prefix = _kv_prefix(profile)
         params_prefix = prefix + "params."
         keys = [
@@ -284,7 +284,7 @@ def sub_cmd_unset(name):
     pool = get_pool()
     with pool.get_connection() as conn:
         kv = KVManager(conn)
-        profile = get_active_profile(kv)
+        profile = require_active_profile(kv)
         prefix = _kv_prefix(profile)
         if not kv.exists(f"{prefix}params.{name}"):
             click.echo(f"{name} is not set.  (profile: {profile})")

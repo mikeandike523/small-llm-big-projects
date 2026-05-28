@@ -30,6 +30,8 @@ def load_llm_config() -> dict | None:
     with pool.get_connection() as conn:
         kv = KVManager(conn)
         profile = get_active_profile(kv)
+        if not profile:
+            return None
         prefix = _kv_prefix(profile)
 
         active_token = kv.get_value(prefix + "active_token")

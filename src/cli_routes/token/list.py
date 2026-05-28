@@ -6,7 +6,7 @@ from src.cli_obj import cli
 
 from src.data import get_pool
 from src.utils.sql.kv_manager import KVManager
-from src.utils.profile_utils import get_active_profile, _kv_prefix
+
 from src.cli_routes.token.helpers import mask_token, resolve_token
 
 from src.cli_routes.token_obj import token

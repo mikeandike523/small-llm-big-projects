@@ -12,6 +12,7 @@ export interface SessionDefaults {
   load_skills: boolean;
   load_tools: boolean;
   load_startup_tool_calls: boolean;
+  default_profile: string | null;
 }
 
 // ---------------------------------------------------------------------------

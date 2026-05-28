@@ -6,7 +6,7 @@ from src.cli_obj import cli
 
 from src.data import get_pool
 from src.utils.sql.kv_manager import KVManager
-from src.utils.profile_utils import get_active_profile, _kv_prefix
+from src.utils.profile_utils import require_active_profile, _kv_prefix
 from src.cli_routes.token.helpers import mask_token, resolve_token
 
 from src.cli_routes.token_obj import token
@@ -36,7 +36,7 @@ def sub_cmd_use(yes: bool, provider: str, name: str):
     if provider.lower() == "none":
         with pool.get_connection() as conn:
             kv = KVManager(conn)
-            profile = get_active_profile(kv)
+            profile = require_active_profile(kv)
             prefix = _kv_prefix(profile)
             kv.delete_value(prefix + "active_token")
             conn.commit()

@@ -498,11 +498,16 @@ export default function Dashboard() {
           <button
             css={newSessionBtnCss}
             onClick={() => setShowNewSession(true)}
-            disabled={sessionDefaults === null}
+            disabled={
+              sessionDefaults === null ||
+              sessionDefaults.default_profile === null
+            }
             title={
               sessionDefaults === null
                 ? "Loading session defaults..."
-                : undefined
+                : sessionDefaults.default_profile === null
+                  ? "No default profile selected"
+                  : undefined
             }
           >
             + New Session
@@ -527,6 +532,18 @@ export default function Dashboard() {
             </span>
           </div>
         )}
+        {sessionDefaults !== null &&
+          sessionDefaults.default_profile === null && (
+            <div css={errorBannerCss}>
+              <span>
+                No default profile selected — visit the{" "}
+                <Link to="/config" style={{ color: "inherit" }}>
+                  Config page
+                </Link>{" "}
+                to add a profile and set it as default before starting sessions.
+              </span>
+            </div>
+          )}
 
         {!loading && sessions.length === 0 && !error && (
           <div css={emptyStateCss}>

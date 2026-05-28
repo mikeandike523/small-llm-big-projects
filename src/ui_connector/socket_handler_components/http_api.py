@@ -222,16 +222,18 @@ def api_session_defaults():
         with pool.get_connection() as conn:
             kv = KVManager(conn)
             profile = get_active_profile(kv)
-            prefix = _kv_prefix(profile)
-            for param_key, defaults_key in _state._SESSION_DEFAULTS_FROM_DB.items():
-                val = kv.get_value(prefix + param_key)
-                if val is not None:
-                    defaults[defaults_key] = val
+            if profile is not None:
+                prefix = _kv_prefix(profile)
+                for param_key, defaults_key in _state._SESSION_DEFAULTS_FROM_DB.items():
+                    val = kv.get_value(prefix + param_key)
+                    if val is not None:
+                        defaults[defaults_key] = val
     except Exception as exc:
         return (
             jsonify({"error": f"Failed to load session defaults from database: {exc}"}),
             500,
         )
+    defaults["default_profile"] = profile
     return jsonify(defaults)
 
 

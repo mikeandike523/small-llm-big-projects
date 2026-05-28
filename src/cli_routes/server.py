@@ -158,34 +158,44 @@ def server_run(
     """
     _run_preflight_checks()
 
-    # Lightweight pre-flight config check.
+    # Lightweight pre-flight config advisory (non-fatal).
     try:
         pool = get_pool()
         with pool.get_connection() as conn:
             kv = KVManager(conn)
             profile = get_active_profile(kv)
-            prefix = _kv_prefix(profile)
-            active_token = kv.get_value(prefix + "active_token")
-            model_val = kv.get_value(prefix + "model")
-        if not active_token:
+        if profile is None:
             click.echo(
                 click.style(
-                    f"Error: No active token set for profile '{profile}'. "
-                    "Use 'slbp token use <provider>' to set one.",
-                    fg="red",
-                )
-            )
-            raise SystemExit(1)
-        if not model_val:
-            click.echo(
-                click.style(
-                    "Warning: No model set. The platform may automatically choose a model. "
-                    "This is not recommended.",
+                    "Warning: No default profile selected. "
+                    "The server will start, but sessions cannot be created until "
+                    "a profile is configured. Visit the dashboard Config page or "
+                    "use 'slbp profile new <name>' / 'slbp profile use <name>'.",
                     fg="yellow",
                 )
             )
-    except SystemExit:
-        raise
+        else:
+            with pool.get_connection() as conn:
+                kv = KVManager(conn)
+                prefix = _kv_prefix(profile)
+                active_token = kv.get_value(prefix + "active_token")
+                model_val = kv.get_value(prefix + "model")
+            if not active_token:
+                click.echo(
+                    click.style(
+                        f"Warning: No active token set for default profile '{profile}'. "
+                        "Use 'slbp token use <provider>' to set one.",
+                        fg="yellow",
+                    )
+                )
+            elif not model_val:
+                click.echo(
+                    click.style(
+                        "Warning: No model set. The platform may automatically choose a model. "
+                        "This is not recommended.",
+                        fg="yellow",
+                    )
+                )
     except Exception as exc:
         click.echo(click.style(f"Warning: Could not verify config: {exc}", fg="yellow"))
 

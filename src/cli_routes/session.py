@@ -10,7 +10,7 @@ from src.cli_obj import cli
 from src.data import get_pool
 from src.utils.server_state import read_state
 from src.utils.sql.kv_manager import KVManager
-from src.utils.profile_utils import get_active_profile, _kv_prefix
+from src.utils.profile_utils import require_active_profile, _kv_prefix
 
 
 @cli.group()
@@ -70,7 +70,7 @@ def session_new(
         pool = get_pool()
         with pool.get_connection() as conn:
             kv = KVManager(conn)
-            profile = get_active_profile(kv)
+            profile = require_active_profile(kv)
             prefix = _kv_prefix(profile)
             val = kv.get_value(f"{prefix}params.model.irat")
         interim_response_as_thinking = val if val is not None else False

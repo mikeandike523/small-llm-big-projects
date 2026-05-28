@@ -119,8 +119,6 @@ def _parse_param_value(name: str, raw_value: Any) -> Any:
 
 
 def _profile_exists(cursor, name: str) -> bool:
-    if name == "default":
-        return True
     cursor.execute("SELECT 1 FROM profiles WHERE name = %s LIMIT 1", (name,))
     return cursor.fetchone() is not None
 
@@ -145,7 +143,7 @@ def api_profiles_config():
     pool = get_pool()
     with pool.get_connection() as conn:
         kv = KVManager(conn)
-        active = get_active_profile(kv)
+        default_profile = get_active_profile(kv)
         with conn.cursor() as cursor:
             cursor.execute("SELECT name FROM profiles ORDER BY name")
             profile_rows = cursor.fetchall()
@@ -154,7 +152,7 @@ def api_profiles_config():
             )
             token_rows = cursor.fetchall()
 
-        names = ["default"] + [row[0] for row in profile_rows]
+        names = [row[0] for row in profile_rows]
         profiles = []
         for name in names:
             prefix = _kv_prefix(name)
@@ -167,7 +165,7 @@ def api_profiles_config():
             profiles.append(
                 {
                     "name": name,
-                    "active": name == active,
+                    "is_default": name == default_profile,
                     "model": kv.get_value(prefix + "model", "") or "",
                     "active_token": kv.get_value(prefix + "active_token"),
                     "params": params,
@@ -176,7 +174,7 @@ def api_profiles_config():
 
     return jsonify(
         {
-            "active_profile": active,
+            "default_profile": default_profile,
             "profiles": profiles,
             "tokens": [_token_payload(row) for row in token_rows],
             "param_specs": _param_specs_payload(),
@@ -202,8 +200,8 @@ def api_profiles_create():
     return jsonify({"ok": True})
 
 
-@app.route("/api/profiles/active", methods=["PATCH"])
-def api_profiles_set_active():
+@app.route("/api/profiles/default", methods=["PATCH"])
+def api_profiles_set_default():
     data = request.get_json(force=True, silent=True) or {}
     name = (data.get("name") or "").strip()
     pool = get_pool()
@@ -296,9 +294,6 @@ def api_profiles_unset_param(profile_name: str, param_name: str):
 
 @app.route("/api/profiles/<profile_name>", methods=["DELETE"])
 def api_profiles_delete(profile_name: str):
-    if profile_name == "default":
-        return jsonify({"error": "'default' is a reserved profile name."}), 400
-
     pool = get_pool()
     with pool.get_connection() as conn:
         kv = KVManager(conn)
@@ -310,6 +305,6 @@ def api_profiles_delete(profile_name: str):
                 kv.delete_value(key)
             cursor.execute("DELETE FROM profiles WHERE name = %s", (profile_name,))
         if get_active_profile(kv) == profile_name:
-            kv.set_value("active_profile", "default")
+            kv.delete_value("active_profile")
         conn.commit()
     return jsonify({"ok": True})

@@ -37,14 +37,14 @@ type ActiveToken = { provider: string; name: string } | null;
 
 type ProfileRow = {
   name: string;
-  active: boolean;
+  is_default: boolean;
   model: string;
   active_token: ActiveToken;
   params: Record<string, unknown>;
 };
 
 type ConfigPayload = {
-  active_profile: string;
+  default_profile: string | null;
   profiles: ProfileRow[];
   tokens: TokenOption[];
   param_specs: ParamSpec[];
@@ -94,12 +94,12 @@ function formatParamValue(value: unknown) {
 }
 
 function profileLabel(profile: ProfileRow) {
-  return profile.active ? `${profile.name} (active)` : profile.name;
+  return profile.is_default ? `${profile.name} (default)` : profile.name;
 }
 
 export default function ProfilesTab() {
   const [data, setData] = useState<ConfigPayload | null>(null);
-  const [selectedProfile, setSelectedProfile] = useState("default");
+  const [selectedProfile, setSelectedProfile] = useState<string | null>(null);
   const [newName, setNewName] = useState("");
   const [modelDrafts, setModelDrafts] = useState<Record<string, string>>({});
   const [paramDrafts, setParamDrafts] = useState<Record<string, string>>({});
@@ -113,7 +113,10 @@ export default function ProfilesTab() {
       !keepSelection ||
       !payload.profiles.some((p: ProfileRow) => p.name === selectedProfile)
     ) {
-      setSelectedProfile(payload.active_profile || "default");
+      setSelectedProfile(
+        payload.default_profile ||
+          (payload.profiles.length > 0 ? payload.profiles[0].name : null),
+      );
     }
   }
 
@@ -122,6 +125,7 @@ export default function ProfilesTab() {
   }, []);
 
   const selected = useMemo(() => {
+    if (!selectedProfile) return null;
     return data?.profiles.find((p) => p.name === selectedProfile) ?? null;
   }, [data, selectedProfile]);
 
@@ -164,8 +168,8 @@ export default function ProfilesTab() {
     }
   }
 
-  async function setActiveProfile(name: string) {
-    await checkedFetch("/api/profiles/active", {
+  async function setDefaultProfile(name: string) {
+    await checkedFetch("/api/profiles/default", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name }),
@@ -223,7 +227,6 @@ export default function ProfilesTab() {
   }
 
   async function deleteProfile(profile: ProfileRow) {
-    if (profile.name === "default") return;
     await checkedFetch(`/api/profiles/${profile.name}`, { method: "DELETE" });
   }
 
@@ -235,8 +238,10 @@ export default function ProfilesTab() {
     <div css={containerCss}>
       <div css={topBarCss}>
         <span style={{ fontSize: 12, color: "#8a9ab8" }}>
-          Active profile:{" "}
-          <span style={{ color: "#3ccc6c" }}>{data.active_profile}</span>
+          Default profile:{" "}
+          <span style={{ color: data.default_profile ? "#3ccc6c" : "#cc6666" }}>
+            {data.default_profile ?? "(none)"}
+          </span>
         </span>
         <div css={actionsCss}>
           <input
@@ -277,7 +282,7 @@ export default function ProfilesTab() {
                             profile.name === selectedProfile
                               ? "#f2f6ff"
                               : "#8a9ab8",
-                          fontWeight: profile.active ? 700 : 400,
+                          fontWeight: profile.is_default ? 700 : 400,
                         }}
                         onClick={() => setSelectedProfile(profile.name)}
                       >
@@ -302,20 +307,18 @@ export default function ProfilesTab() {
                       <div css={actionsCss}>
                         <button
                           css={rotateBtnCss}
-                          disabled={profile.active}
-                          onClick={() => setActiveProfile(profile.name)}
+                          disabled={profile.is_default}
+                          onClick={() => setDefaultProfile(profile.name)}
                         >
-                          Use
+                          Set Default
                         </button>
-                        {profile.name !== "default" && (
-                          <button
-                            css={deleteBtnCss}
-                            title="Delete profile"
-                            onClick={() => deleteProfile(profile)}
-                          >
-                            Delete
-                          </button>
-                        )}
+                        <button
+                          css={deleteBtnCss}
+                          title="Delete profile"
+                          onClick={() => deleteProfile(profile)}
+                        >
+                          Delete
+                        </button>
                       </div>
                     </td>
                   </tr>

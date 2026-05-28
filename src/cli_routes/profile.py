@@ -100,10 +100,6 @@ def sub_cmd_new(name: str):
 @click.argument("name", type=str)
 def sub_cmd_delete(name: str):
     """Delete a profile and all its configuration."""
-    if name.lower() == "default":
-        click.echo("Error: 'default' is a reserved profile name.")
-        raise SystemExit(1)
-
     pool = get_pool()
     with pool.get_connection() as conn:
         kv = KVManager(conn)
@@ -115,9 +111,18 @@ def sub_cmd_delete(name: str):
                 raise SystemExit(1)
 
         active_profile = get_active_profile(kv)
-        if active_profile == name:
-            click.echo(f"Warning: '{name}' is the currently active profile.")
-            if not click.confirm("Switch to 'default' and delete?", default=False):
+        is_active = active_profile == name
+        if is_active:
+            click.echo(
+                click.style(
+                    f"Warning: '{name}' is the currently selected default profile.",
+                    fg="yellow",
+                )
+            )
+            if not click.confirm(
+                "Delete it? (No default profile will be selected afterwards.)",
+                default=False,
+            ):
                 click.echo("Aborted.")
                 return
 
@@ -125,8 +130,8 @@ def sub_cmd_delete(name: str):
         for key in keys:
             kv.delete_value(key)
 
-        if active_profile == name:
-            kv.set_value("active_profile", "default")
+        if is_active:
+            kv.delete_value("active_profile")
 
         with conn.cursor() as cursor:
             cursor.execute("DELETE FROM profiles WHERE name = %s", (name,))
@@ -137,25 +142,23 @@ def sub_cmd_delete(name: str):
 @profile.command(name="use")
 @click.argument("name", type=str)
 def sub_cmd_use(name: str):
-    """Switch the active profile."""
+    """Set the default profile."""
+    err = validate_profile_name(name)
+    if err:
+        click.echo(f"Error: {err}")
+        raise SystemExit(1)
+
     pool = get_pool()
     with pool.get_connection() as conn:
         kv = KVManager(conn)
-        if name.lower() != "default":
-            err = validate_profile_name(name)
-            if err:
-                click.echo(f"Error: {err}")
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT 1 FROM profiles WHERE name = %s LIMIT 1", (name,))
+            if cursor.fetchone() is None:
+                click.echo(f"Error: Profile '{name}' does not exist.")
                 raise SystemExit(1)
-            with conn.cursor() as cursor:
-                cursor.execute(
-                    "SELECT 1 FROM profiles WHERE name = %s LIMIT 1", (name,)
-                )
-                if cursor.fetchone() is None:
-                    click.echo(f"Error: Profile '{name}' does not exist.")
-                    raise SystemExit(1)
         kv.set_value("active_profile", name)
         conn.commit()
-    click.echo(f"Switched to profile '{name}'.")
+    click.echo(f"Default profile set to '{name}'.")
 
 
 @profile.command(name="show")
@@ -167,11 +170,15 @@ def sub_cmd_use(name: str):
     help="Show token, model, and params.",
 )
 def sub_cmd_show(verbose: bool):
-    """Show the active profile."""
+    """Show the default profile."""
     pool = get_pool()
     with pool.get_connection() as conn:
         kv = KVManager(conn)
         active = get_active_profile(kv)
+
+        if active is None:
+            click.echo("No default profile selected.")
+            return
 
         marker = click.style("*", fg="cyan") + " "
         name_str = click.style(active, bold=True)
@@ -201,7 +208,11 @@ def sub_cmd_list(verbose: bool):
             cursor.execute("SELECT name FROM profiles ORDER BY name")
             rows = cursor.fetchall()
 
-        all_profiles = ["default"] + [r[0] for r in rows]
+        all_profiles = [r[0] for r in rows]
+
+        if not all_profiles:
+            click.echo("No profiles. Use 'slbp profile new <name>' to create one.")
+            return
 
         for i, name in enumerate(all_profiles):
             if i > 0 and verbose:
@@ -215,53 +226,3 @@ def sub_cmd_list(verbose: bool):
             if verbose:
                 for line in _profile_verbose_lines(conn, kv, name):
                     click.echo(line)
-
-
-@profile.command(name="migrate")
-@click.argument("name", type=str)
-def sub_cmd_migrate(name: str):
-    """Copy the current profile's config into a new named profile and switch to it."""
-    err = validate_profile_name(name)
-    if err:
-        click.echo(f"Error: {err}")
-        raise SystemExit(1)
-
-    pool = get_pool()
-    with pool.get_connection() as conn:
-        kv = KVManager(conn)
-
-        with conn.cursor() as cursor:
-            cursor.execute("SELECT 1 FROM profiles WHERE name = %s LIMIT 1", (name,))
-            if cursor.fetchone() is not None:
-                click.echo(f"Error: Profile '{name}' already exists.")
-                raise SystemExit(1)
-
-        active_profile = get_active_profile(kv)
-        dst_prefix = _kv_prefix(name)
-
-        if active_profile == "default":
-            src_keys = []
-            for key in ("active_token", "model"):
-                if kv.exists(key):
-                    src_keys.append(key)
-            src_keys += kv.list_keys(prefix="params.")
-            for src_key in src_keys:
-                val = kv.get_value(src_key)
-                if val is not None:
-                    kv.set_value(dst_prefix + src_key, val)
-        else:
-            src_prefix = _kv_prefix(active_profile)
-            src_keys = kv.list_keys(prefix=src_prefix)
-            for src_key in src_keys:
-                val = kv.get_value(src_key)
-                if val is not None:
-                    kv.set_value(dst_prefix + src_key[len(src_prefix) :], val)
-
-        with conn.cursor() as cursor:
-            cursor.execute("INSERT INTO profiles (name) VALUES (%s)", (name,))
-        kv.set_value("active_profile", name)
-        conn.commit()
-
-    click.echo(
-        f"Migrated '{active_profile}' configuration to profile '{name}'. Now active."
-    )
