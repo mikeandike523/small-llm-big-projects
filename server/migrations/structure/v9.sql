@@ -17,10 +17,12 @@
 
 DELIMITER $$
 
+DROP PROCEDURE IF EXISTS _slbp_v9_migrate_default_profile $$
+
 CREATE PROCEDURE _slbp_v9_migrate_default_profile()
 BEGIN
   DECLARE has_data BOOLEAN DEFAULT FALSE;
-  DECLARE chosen_name VARCHAR(255) DEFAULT 'unnamed';
+  DECLARE chosen_name VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT 'unnamed';
   DECLARE counter INT DEFAULT 2;
   DECLARE found_name BOOLEAN DEFAULT FALSE;
 
