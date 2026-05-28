@@ -1,20 +1,9 @@
 import { css } from "@emotion/react";
-import { MdOpenInFull } from "react-icons/md";
 import _spin from "../css/_spin";
 import { ToolCallEntry } from "../types";
 import { useStickToBottom } from "use-stick-to-bottom";
-import { MAX_TOOL_CHARS } from "../constants/tool-ui-constants";
-import {
-  toolArgsCss,
-  toolCallCss,
-  toolHeaderCss,
-  toolResultCss,
-  toolResultContainerCss,
-  expandButtonCss,
-} from "../css/tool-ui-css";
 import scrollbarCss from "../css/scrollBarCss";
-import JsonArgsViewer from "./JsonArgsViewer";
-import Ansi from "ansi-to-react";
+import ToolCallCard from "./ToolCallCard";
 
 const toolCallsGroupCss = css`
   ${scrollbarCss}
@@ -91,45 +80,9 @@ export default function StartupToolCallsCard({
       <div css={startupCardBodyCss}>
         <div css={toolCallsGroupCss} ref={scrollRef}>
           <div ref={contentRef}>
-            {toolCalls.map((tc) => {
-              const hasResult = tc.result !== undefined;
-              const truncated = hasResult && tc.result!.length > MAX_TOOL_CHARS;
-              const displayResult = hasResult
-                ? truncated
-                  ? tc.result!.slice(0, MAX_TOOL_CHARS) +
-                    `... (${tc.result!.length - MAX_TOOL_CHARS} more)`
-                  : tc.result!
-                : undefined;
-
-              return (
-                <div key={tc.id} css={toolCallCss}>
-                  <div css={toolHeaderCss}>
-                    <span>⚙ {tc.name}</span>
-                  </div>
-                  {Object.keys(tc.args).length > 0 && (
-                    <div css={toolArgsCss}>
-                      <JsonArgsViewer args={tc.args} />
-                    </div>
-                  )}
-                  {hasResult && (
-                    <div css={toolResultContainerCss}>
-                      <div css={toolResultCss}>
-                        <Ansi>{displayResult}</Ansi>
-                      </div>
-                      {truncated && (
-                        <button
-                          css={expandButtonCss}
-                          onClick={() => onViewFull(tc.result!)}
-                          title="View full result"
-                        >
-                          <MdOpenInFull />
-                        </button>
-                      )}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
+            {toolCalls.map((tc) => (
+              <ToolCallCard key={tc.id} tc={tc} onViewFull={onViewFull} />
+            ))}
           </div>
         </div>
       </div>
