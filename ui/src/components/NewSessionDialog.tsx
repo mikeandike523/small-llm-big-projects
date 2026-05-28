@@ -420,7 +420,7 @@ export default function NewSessionDialog({
                 <input
                   type="checkbox"
                   css={checkboxInputCss}
-                  checked={flags[opt.key]}
+                  checked={Boolean(flags[opt.key])}
                   onChange={() => toggleFlag(opt.key)}
                 />
                 <div css={checkboxTextCss}>
