@@ -255,6 +255,72 @@ def api_profiles_patch(profile_name: str):
     return jsonify({"ok": True})
 
 
+@app.route("/api/profiles/<profile_name>/rename", methods=["POST"])
+def api_profiles_rename(profile_name: str):
+    data = request.get_json(force=True, silent=True) or {}
+    new_name = (data.get("new_name") or "").strip()
+    err = validate_profile_name(new_name)
+    if err:
+        return jsonify({"error": err}), 400
+
+    pool = get_pool()
+    with pool.get_connection() as conn:
+        kv = KVManager(conn)
+        with conn.cursor() as cursor:
+            missing = _require_profile(cursor, profile_name)
+            if missing:
+                return missing
+            if _profile_exists(cursor, new_name):
+                return jsonify({"error": f"Profile '{new_name}' already exists."}), 409
+
+        src_prefix = _kv_prefix(profile_name)
+        dst_prefix = _kv_prefix(new_name)
+        src_keys = kv.list_keys(prefix=src_prefix)
+        for src_key in src_keys:
+            val = kv.get_value(src_key)
+            if val is not None:
+                kv.set_value(dst_prefix + src_key[len(src_prefix):], val)
+        for src_key in src_keys:
+            kv.delete_value(src_key)
+        if get_active_profile(kv) == profile_name:
+            kv.set_value("active_profile", new_name)
+        with conn.cursor() as cursor:
+            cursor.execute("DELETE FROM profiles WHERE name = %s", (profile_name,))
+            cursor.execute("INSERT INTO profiles (name) VALUES (%s)", (new_name,))
+        conn.commit()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/profiles/<profile_name>/copy-to", methods=["POST"])
+def api_profiles_copy_to(profile_name: str):
+    data = request.get_json(force=True, silent=True) or {}
+    new_name = (data.get("new_name") or "").strip()
+    err = validate_profile_name(new_name)
+    if err:
+        return jsonify({"error": err}), 400
+
+    pool = get_pool()
+    with pool.get_connection() as conn:
+        kv = KVManager(conn)
+        with conn.cursor() as cursor:
+            missing = _require_profile(cursor, profile_name)
+            if missing:
+                return missing
+            if _profile_exists(cursor, new_name):
+                return jsonify({"error": f"Profile '{new_name}' already exists."}), 409
+
+        src_prefix = _kv_prefix(profile_name)
+        dst_prefix = _kv_prefix(new_name)
+        for src_key in kv.list_keys(prefix=src_prefix):
+            val = kv.get_value(src_key)
+            if val is not None:
+                kv.set_value(dst_prefix + src_key[len(src_prefix):], val)
+        with conn.cursor() as cursor:
+            cursor.execute("INSERT INTO profiles (name) VALUES (%s)", (new_name,))
+        conn.commit()
+    return jsonify({"ok": True})
+
+
 @app.route("/api/profiles/<profile_name>/params/<path:param_name>", methods=["PUT"])
 def api_profiles_set_param(profile_name: str, param_name: str):
     data = request.get_json(force=True, silent=True) or {}

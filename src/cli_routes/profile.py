@@ -233,6 +233,76 @@ def sub_cmd_copy_to(name: str):
     click.echo(f"Copied profile '{active_profile}' to '{name}'.")
 
 
+def _rename_profile(conn, kv, old_name: str, new_name: str) -> None:
+    src_prefix = _kv_prefix(old_name)
+    dst_prefix = _kv_prefix(new_name)
+    src_keys = kv.list_keys(prefix=src_prefix)
+    for src_key in src_keys:
+        val = kv.get_value(src_key)
+        if val is not None:
+            kv.set_value(dst_prefix + src_key[len(src_prefix):], val)
+    for src_key in src_keys:
+        kv.delete_value(src_key)
+    if get_active_profile(kv) == old_name:
+        kv.set_value("active_profile", new_name)
+    with conn.cursor() as cursor:
+        cursor.execute("DELETE FROM profiles WHERE name = %s", (old_name,))
+        cursor.execute("INSERT INTO profiles (name) VALUES (%s)", (new_name,))
+
+
+@profile.command(name="rename")
+@click.argument("old_name", type=str)
+@click.argument("new_name", type=str)
+def sub_cmd_rename(old_name: str, new_name: str):
+    """Rename a profile."""
+    err = validate_profile_name(new_name)
+    if err:
+        click.echo(f"Error: {err}")
+        raise SystemExit(1)
+
+    pool = get_pool()
+    with pool.get_connection() as conn:
+        kv = KVManager(conn)
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT 1 FROM profiles WHERE name = %s LIMIT 1", (old_name,))
+            if cursor.fetchone() is None:
+                click.echo(f"Error: Profile '{old_name}' does not exist.")
+                raise SystemExit(1)
+            cursor.execute("SELECT 1 FROM profiles WHERE name = %s LIMIT 1", (new_name,))
+            if cursor.fetchone() is not None:
+                click.echo(f"Error: Profile '{new_name}' already exists.")
+                raise SystemExit(1)
+        _rename_profile(conn, kv, old_name, new_name)
+        conn.commit()
+    click.echo(f"Renamed profile '{old_name}' to '{new_name}'.")
+
+
+@profile.command(name="rename-to")
+@click.argument("new_name", type=str)
+def sub_cmd_rename_to(new_name: str):
+    """Rename the default profile."""
+    err = validate_profile_name(new_name)
+    if err:
+        click.echo(f"Error: {err}")
+        raise SystemExit(1)
+
+    pool = get_pool()
+    with pool.get_connection() as conn:
+        kv = KVManager(conn)
+        active_profile = get_active_profile(kv)
+        if active_profile is None:
+            click.echo("Error: No default profile selected.")
+            raise SystemExit(1)
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT 1 FROM profiles WHERE name = %s LIMIT 1", (new_name,))
+            if cursor.fetchone() is not None:
+                click.echo(f"Error: Profile '{new_name}' already exists.")
+                raise SystemExit(1)
+        _rename_profile(conn, kv, active_profile, new_name)
+        conn.commit()
+    click.echo(f"Renamed profile '{active_profile}' to '{new_name}'.")
+
+
 @profile.command(name="list")
 @click.option(
     "--verbose",

@@ -104,6 +104,10 @@ export default function ProfilesTab() {
   const [modelDrafts, setModelDrafts] = useState<Record<string, string>>({});
   const [paramDrafts, setParamDrafts] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
+  const [renamingProfile, setRenamingProfile] = useState<string | null>(null);
+  const [renameInput, setRenameInput] = useState("");
+  const [copyingProfile, setCopyingProfile] = useState<string | null>(null);
+  const [copyInput, setCopyInput] = useState("");
 
   async function refresh(keepSelection = true) {
     const res = await fetch("/api/profiles/config");
@@ -230,6 +234,30 @@ export default function ProfilesTab() {
     await checkedFetch(`/api/profiles/${profile.name}`, { method: "DELETE" });
   }
 
+  async function renameProfile(oldName: string) {
+    const ok = await checkedFetch(`/api/profiles/${oldName}/rename`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ new_name: renameInput.trim() }),
+    });
+    if (ok) {
+      setRenamingProfile(null);
+      setSelectedProfile(renameInput.trim());
+    }
+  }
+
+  async function copyProfile(srcName: string) {
+    const ok = await checkedFetch(`/api/profiles/${srcName}/copy-to`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ new_name: copyInput.trim() }),
+    });
+    if (ok) {
+      setCopyingProfile(null);
+      setSelectedProfile(copyInput.trim());
+    }
+  }
+
   if (!data) {
     return <div css={hintCss}>Loading profiles...</div>;
   }
@@ -275,19 +303,31 @@ export default function ProfilesTab() {
                 {data.profiles.map((profile) => (
                   <tr key={profile.name}>
                     <td css={tdCss}>
-                      <button
-                        css={iconBtnCss}
-                        style={{
-                          color:
-                            profile.name === selectedProfile
-                              ? "#f2f6ff"
-                              : "#8a9ab8",
-                          fontWeight: profile.is_default ? 700 : 400,
-                        }}
-                        onClick={() => setSelectedProfile(profile.name)}
-                      >
-                        {profileLabel(profile)}
-                      </button>
+                      {renamingProfile === profile.name ? (
+                        <div css={actionsCss}>
+                          <input
+                            css={inputCss}
+                            style={{ width: 120 }}
+                            value={renameInput}
+                            onChange={(e) => setRenameInput(e.target.value)}
+                            onKeyDown={(e) => e.key === "Enter" && renameProfile(profile.name)}
+                            autoFocus
+                          />
+                          <button css={rotateBtnCss} onClick={() => renameProfile(profile.name)}>OK</button>
+                          <button css={noBtnCss} onClick={() => setRenamingProfile(null)}>Cancel</button>
+                        </div>
+                      ) : (
+                        <button
+                          css={iconBtnCss}
+                          style={{
+                            color: profile.name === selectedProfile ? "#f2f6ff" : "#8a9ab8",
+                            fontWeight: profile.is_default ? 700 : 400,
+                          }}
+                          onClick={() => setSelectedProfile(profile.name)}
+                        >
+                          {profileLabel(profile)}
+                        </button>
+                      )}
                     </td>
                     <td css={tdCss}>
                       <select
@@ -312,6 +352,34 @@ export default function ProfilesTab() {
                         >
                           Set Default
                         </button>
+                        <button
+                          css={rotateBtnCss}
+                          onClick={() => { setRenamingProfile(profile.name); setRenameInput(profile.name); setCopyingProfile(null); }}
+                        >
+                          Rename
+                        </button>
+                        {copyingProfile === profile.name ? (
+                          <>
+                            <input
+                              css={inputCss}
+                              style={{ width: 100 }}
+                              value={copyInput}
+                              placeholder="new name"
+                              onChange={(e) => setCopyInput(e.target.value)}
+                              onKeyDown={(e) => e.key === "Enter" && copyProfile(profile.name)}
+                              autoFocus
+                            />
+                            <button css={rotateBtnCss} onClick={() => copyProfile(profile.name)}>OK</button>
+                            <button css={noBtnCss} onClick={() => setCopyingProfile(null)}>Cancel</button>
+                          </>
+                        ) : (
+                          <button
+                            css={rotateBtnCss}
+                            onClick={() => { setCopyingProfile(profile.name); setCopyInput(""); setRenamingProfile(null); }}
+                          >
+                            Copy To
+                          </button>
+                        )}
                         <button
                           css={deleteBtnCss}
                           title="Delete profile"
