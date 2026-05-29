@@ -198,6 +198,18 @@ _HUNK_HEADER_LENIENT_RE = re.compile(r"^@@.*?(@@)?$")
 _NEW_START_RE = re.compile(r"\+(\d+)")   # +N in header → new-file start
 _ANY_NUMBER_RE = re.compile(r"(\d+)")    # bare integer → last-resort anchor
 _FILE_HEADER_PREFIXES = ("diff ", "index ", "--- ", "+++ ")
+_VALID_BODY_PREFIXES = frozenset(("+", "-", " ", "\\"))
+
+
+def _is_artifact_edge_line(line: str) -> bool:
+    """True for lines that are blank LLM artifacts at hunk edges, not valid diff content.
+
+    Lines starting with a valid diff prefix (+ - space backslash) are kept even
+    if their content is empty — e.g. ' ' (one space) is a proper blank context line.
+    Only completely empty lines or lines whose first character is not a valid prefix
+    are considered artifacts to strip.
+    """
+    return not line or line[0] not in _VALID_BODY_PREFIXES
 
 
 def _extract_new_start_from_header(line: str) -> int | None:
@@ -280,13 +292,13 @@ def _parse_patch_file(patch: str) -> list[ParsedHunk]:
             body_lines.append(raw_lines[i])
             i += 1
 
-        # Strip blank/whitespace-only lines from the body edges.
-        # The declared line counts in the @@ header are never used; we terminate on
-        # the next @@ instead.  Any blank lines the LLM appended or prepended to a
-        # hunk body would otherwise become spurious context entries that fail to match.
-        while body_lines and not body_lines[0].strip():
+        # Strip artifact lines from body edges: blank lines the LLM appended or
+        # prepended that have no valid diff prefix would otherwise become spurious
+        # context entries that fail to match.  Lines *with* a valid prefix (e.g.
+        # ' ' — a proper blank context line) are preserved.
+        while body_lines and _is_artifact_edge_line(body_lines[0]):
             body_lines.pop(0)
-        while body_lines and not body_lines[-1].strip():
+        while body_lines and _is_artifact_edge_line(body_lines[-1]):
             body_lines.pop()
 
         group = _parse_hunk_body("\n".join(body_lines))
@@ -305,9 +317,9 @@ def _parse_patch_file(patch: str) -> list[ParsedHunk]:
             if not any(l.startswith(p) for p in _FILE_HEADER_PREFIXES)
         ]
         # Same edge-stripping as the header path.
-        while body_lines and not body_lines[0].strip():
+        while body_lines and _is_artifact_edge_line(body_lines[0]):
             body_lines.pop(0)
-        while body_lines and not body_lines[-1].strip():
+        while body_lines and _is_artifact_edge_line(body_lines[-1]):
             body_lines.pop()
         if body_lines and all(_is_valid_body_line(l) for l in body_lines):
             group = _parse_hunk_body("\n".join(body_lines))
@@ -396,7 +408,7 @@ def _find_context_hits(
 ) -> tuple[list[int], str]:
     """Find positions in *file_lines* where *before_lines* matches.
 
-    Comparison is right-stripped per line.  Each candidate window must have
+    Comparison is fully stripped (both sides) per line.  Each candidate window must have
     every line pair meet the ratio threshold (minimum, not mean) — a single
     poor-scoring pair fails the whole window.  This makes dropped or shifted
     lines fail reliably rather than being absorbed by a high-scoring majority.
