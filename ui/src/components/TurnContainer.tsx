@@ -273,6 +273,16 @@ const streamingPlaceholderCss = css`
   color: #dbe5ff;
 `;
 
+const emptyResponseCss = css`
+  background: #111827;
+  border: 1px solid #283754;
+  border-radius: 16px 16px 16px 4px;
+  padding: 12px 16px;
+  color: #5a6a8a;
+  font-style: italic;
+  font-size: 13px;
+`;
+
 const interimBubbleCss = css`
   background: #0f1726;
   border: 1px solid #24324d;
@@ -710,6 +720,8 @@ export default function TurnContainer({
                     </div>
                   ) : isLast && showPlaceholder ? (
                     <div css={streamingPlaceholderCss}>…</div>
+                  ) : (isLast ? !streaming : stFinal !== undefined) ? (
+                    <div css={emptyResponseCss}>(no response)</div>
                   ) : null}
                   {(() => {
                     if (!st.detailedSummary) return null;

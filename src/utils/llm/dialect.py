@@ -108,6 +108,10 @@ class OpenAIDialect(DialectAdapter):
                 {"type": "on_data", "content": content, "reasoning": reasoning}
             )
 
+        finish_reason = choices[0].get("finish_reason")
+        if finish_reason is not None:
+            events.append({"type": "finish_reason", "reason": finish_reason})
+
         return events
 
     def parse_response(self, obj: dict) -> tuple[str, str, list[ToolCall]]:
@@ -262,6 +266,10 @@ class AnthropicDialect(DialectAdapter):
                 )
 
         elif etype == "message_delta":
+            delta = obj.get("delta") or {}
+            stop_reason = delta.get("stop_reason")
+            if stop_reason:
+                events.append({"type": "finish_reason", "reason": stop_reason})
             usage = obj.get("usage")
             if usage:
                 # merge output tokens into any existing usage event

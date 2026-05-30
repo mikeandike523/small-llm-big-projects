@@ -38,6 +38,7 @@ class StreamResult:
     tool_calls: list[ToolCall] = field(default_factory=list)
     usage: dict | None = None
     trace: TraceEntry | None = None
+    stop_reason: str | None = None
 
     @property
     def has_tool_calls(self) -> bool:
@@ -152,6 +153,7 @@ class StreamingLLM:
 
         _pending_tool_calls: dict[int, dict] = {}
         _last_usage: dict | None = None
+        _stop_reason: str | None = None
         _trace_acc: dict[str, str] | None = (
             {"content": "", "reasoning": ""} if record else None
         )
@@ -222,6 +224,9 @@ class StreamingLLM:
                         elif etype == "usage":
                             _last_usage = event["usage"]
 
+                        elif etype == "finish_reason":
+                            _stop_reason = event["reason"]
+
         tool_calls = []
         for entry in _pending_tool_calls.values():
             try:
@@ -242,7 +247,7 @@ class StreamingLLM:
                 usage=_last_usage,
             )
 
-        return StreamResult(tool_calls=tool_calls, usage=_last_usage, trace=trace)
+        return StreamResult(tool_calls=tool_calls, usage=_last_usage, trace=trace, stop_reason=_stop_reason)
 
     def fetch(
         self,

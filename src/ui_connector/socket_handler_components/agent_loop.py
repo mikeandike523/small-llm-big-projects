@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import sys
+import traceback
 import threading
 
 import httpx
@@ -211,6 +213,12 @@ async def _async_agent_loop(
                     f"total={usage.get('total_tokens', '?')}" + cost_str,
                 )
 
+            stop_reason = getattr(result, "stop_reason", None)
+            _emit_backend_log(
+                session_id,
+                colored("Stop reason: ", "cyan") + (stop_reason or "(none reported)"),
+            )
+
             last_assistant_content = content_for_history
 
             if cancel_event.is_set():
@@ -400,6 +408,11 @@ async def _async_agent_loop(
                 continue
 
             # Final response: no tool calls, or response after explicit reprompt.
+            if not content_for_history:
+                _emit_backend_log(
+                    session_id,
+                    colored("[WARNING]", "yellow") + " LLM returned empty final response — bubble will not render",
+                )
             final_exchange = LLMExchange(
                 assistant_content=content_for_history,
                 reasoning=reasoning,
@@ -461,7 +474,12 @@ async def _async_agent_loop(
                 "Agent loop exited abnormally for session %s turn %s",
                 session_id,
                 turn_id,
+                exc_info=True,
             )
+            exc_type, exc_val, exc_tb = sys.exc_info()
+            if exc_val is not None:
+                tb_str = "".join(traceback.format_exception(exc_type, exc_val, exc_tb))
+                _emit_backend_log(session_id, f"[SERVER ERROR] Agent loop crashed:\n{tb_str}")
             current_turn.completed = True
             current_turn.todo_snapshot = _todo_format_items_for_ui(
                 session.session_data.get("todo_list") or []
