@@ -124,7 +124,7 @@ async def _async_agent_loop(
                 break
 
             is_interim_call = (
-                had_tool_calls or bool(current_subturn.exchanges)
+                had_tool_calls or bool(current_subturn.exchanges) or current_subturn.is_continuation
             ) and not final_summary_reprompt_sent
             was_irat_call = session.interim_response_as_thinking and is_interim_call
             if is_interim_call:
