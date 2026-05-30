@@ -17,6 +17,7 @@ import {
   thCss,
   topBarCss,
 } from "../../css/config/TokensTab";
+import ObjectEditor from "./ObjectEditor";
 
 type TokenOption = {
   id: number;
@@ -77,6 +78,27 @@ const hintCss = css`
   color: #6f7f9e;
   font-size: 11px;
   line-height: 1.4;
+`;
+
+const dirtyRowCss = css`
+  background: rgba(196, 154, 74, 0.07);
+  box-shadow: inset 3px 0 0 #c49a4a;
+`;
+
+const saveAllBtnCss = css`
+  ${rotateBtnCss}
+  border-color: #8a7040;
+  color: #c49a4a;
+  &:hover {
+    border-color: #c49a4a;
+    color: #e4b86a;
+  }
+  &:disabled {
+    opacity: 0.35;
+    border-color: #333;
+    color: #6f7f9e;
+    cursor: not-allowed;
+  }
 `;
 
 function tokenValue(token: ActiveToken, tokens: TokenOption[]) {
@@ -228,6 +250,20 @@ export default function ProfilesTab() {
     await checkedFetch(`/api/profiles/${profile.name}/params/${spec.name}`, {
       method: "DELETE",
     });
+  }
+
+  async function saveAll(profile: ProfileRow) {
+    const saves: Promise<unknown>[] = [];
+    if (modelDrafts[profile.name] !== undefined) {
+      saves.push(saveModel(profile));
+    }
+    for (const spec of data!.param_specs) {
+      const key = paramKey(profile.name, spec.name);
+      if (paramDrafts[key] !== undefined) {
+        saves.push(saveParam(profile, spec));
+      }
+    }
+    await Promise.all(saves);
   }
 
   async function deleteProfile(profile: ProfileRow) {
@@ -400,125 +436,146 @@ export default function ProfilesTab() {
           <div css={panelTitleCss}>
             {selected?.name ?? "Profile"} Parameters
           </div>
-          {selected && (
-            <>
-              <div css={tableWrapCss}>
-                <table css={tableCss}>
-                  <tbody>
-                    <tr>
-                      <th css={thCss}>Model</th>
-                      <td css={tdCss}>
-                        <input
-                          css={inputCss}
-                          value={currentModel(selected)}
-                          onChange={(e) =>
-                            setModelDrafts((drafts) => ({
-                              ...drafts,
-                              [selected.name]: e.target.value,
-                            }))
-                          }
-                        />
-                      </td>
-                      <td css={tdCss}>
-                        <button
-                          css={rotateBtnCss}
-                          onClick={() => saveModel(selected)}
-                        >
-                          Save
-                        </button>
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
+          {selected && (() => {
+            const isModelDirty = modelDrafts[selected.name] !== undefined;
+            const dirtyParamKeys = new Set(
+              data.param_specs
+                .map((s) => paramKey(selected.name, s.name))
+                .filter((k) => paramDrafts[k] !== undefined),
+            );
+            const totalDirty = dirtyParamKeys.size + (isModelDirty ? 1 : 0);
+            return (
+              <>
+                <div css={tableWrapCss}>
+                  <table css={tableCss}>
+                    <tbody>
+                      <tr css={isModelDirty ? dirtyRowCss : undefined}>
+                        <th css={thCss} style={{ color: isModelDirty ? "#c49a4a" : undefined }}>
+                          Model
+                        </th>
+                        <td css={tdCss}>
+                          <input
+                            css={inputCss}
+                            value={currentModel(selected)}
+                            onChange={(e) =>
+                              setModelDrafts((drafts) => ({
+                                ...drafts,
+                                [selected.name]: e.target.value,
+                              }))
+                            }
+                          />
+                        </td>
+                        <td css={tdCss}>
+                          <button css={rotateBtnCss} onClick={() => saveModel(selected)}>
+                            Save
+                          </button>
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
 
-              <div css={tableWrapCss}>
-                <table css={tableCss}>
-                  <thead>
-                    <tr>
-                      <th css={thCss}>Param</th>
-                      <th css={thCss}>Value</th>
-                      <th css={thCss}>Type</th>
-                      <th css={thCss}>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {data.param_specs.map((spec) => {
-                      const key = paramKey(selected.name, spec.name);
-                      const value = currentParamValue(selected, spec);
-                      return (
-                        <tr key={spec.name} title={spec.description}>
-                          <td css={tdCss}>{spec.name}</td>
-                          <td css={tdCss}>
-                            {spec.value_type === "boolean" ? (
-                              <select
-                                css={selectCss}
-                                value={value}
-                                onChange={(e) =>
-                                  setParamDrafts((drafts) => ({
-                                    ...drafts,
-                                    [key]: e.target.value,
-                                  }))
-                                }
-                              >
-                                <option value="">Unset</option>
-                                <option value="true">true</option>
-                                <option value="false">false</option>
-                              </select>
-                            ) : (
-                              <input
-                                css={inputCss}
-                                type={
-                                  spec.value_type === "integer" ||
-                                  spec.value_type === "float"
-                                    ? "number"
-                                    : "text"
-                                }
-                                min={spec.min}
-                                max={spec.max}
-                                step={spec.value_type === "integer" ? 1 : "any"}
-                                value={value}
-                                placeholder="unset"
-                                onChange={(e) =>
-                                  setParamDrafts((drafts) => ({
-                                    ...drafts,
-                                    [key]: e.target.value,
-                                  }))
-                                }
-                              />
-                            )}
-                          </td>
-                          <td css={tdCss}>
-                            <span css={hintCss}>
-                              {spec.value_type}
-                              {spec.min !== undefined ? ` >= ${spec.min}` : ""}
-                              {spec.max !== undefined ? ` <= ${spec.max}` : ""}
-                            </span>
-                          </td>
-                          <td css={tdCss}>
-                            <div css={actionsCss}>
-                              <button
-                                css={rotateBtnCss}
-                                onClick={() => saveParam(selected, spec)}
-                              >
-                                Save
-                              </button>
-                              <button
-                                css={noBtnCss}
-                                onClick={() => unsetParam(selected, spec)}
-                              >
-                                Unset
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </>
-          )}
+                <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                  <button
+                    css={saveAllBtnCss}
+                    disabled={totalDirty === 0}
+                    onClick={() => saveAll(selected)}
+                  >
+                    Save All{totalDirty > 0 ? ` (${totalDirty})` : ""}
+                  </button>
+                </div>
+
+                <div css={tableWrapCss}>
+                  <table css={tableCss}>
+                    <thead>
+                      <tr>
+                        <th css={thCss}>Param</th>
+                        <th css={thCss}>Value</th>
+                        <th css={thCss}>Type</th>
+                        <th css={thCss}>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {data.param_specs.map((spec) => {
+                        const key = paramKey(selected.name, spec.name);
+                        const value = currentParamValue(selected, spec);
+                        const dirty = dirtyParamKeys.has(key);
+                        return (
+                          <tr key={spec.name} title={spec.description} css={dirty ? dirtyRowCss : undefined}>
+                            <td css={tdCss} style={{ color: dirty ? "#c49a4a" : undefined }}>
+                              {spec.name}
+                            </td>
+                            <td css={tdCss}>
+                              {spec.value_type === "boolean" ? (
+                                <select
+                                  css={selectCss}
+                                  value={value}
+                                  onChange={(e) =>
+                                    setParamDrafts((drafts) => ({
+                                      ...drafts,
+                                      [key]: e.target.value,
+                                    }))
+                                  }
+                                >
+                                  <option value="">Unset</option>
+                                  <option value="true">true</option>
+                                  <option value="false">false</option>
+                                </select>
+                              ) : spec.value_type === "object" ? (
+                                <ObjectEditor
+                                  value={value}
+                                  onChange={(v) =>
+                                    setParamDrafts((drafts) => ({ ...drafts, [key]: v }))
+                                  }
+                                />
+                              ) : (
+                                <input
+                                  css={inputCss}
+                                  type={
+                                    spec.value_type === "integer" || spec.value_type === "float"
+                                      ? "number"
+                                      : "text"
+                                  }
+                                  min={spec.min}
+                                  max={spec.max}
+                                  step={spec.value_type === "integer" ? 1 : "any"}
+                                  value={value}
+                                  placeholder="unset"
+                                  onChange={(e) =>
+                                    setParamDrafts((drafts) => ({
+                                      ...drafts,
+                                      [key]: e.target.value,
+                                    }))
+                                  }
+                                />
+                              )}
+                            </td>
+                            <td css={tdCss}>
+                              <span css={hintCss}>
+                                {spec.value_type}
+                                {spec.min !== undefined ? ` >= ${spec.min}` : ""}
+                                {spec.max !== undefined ? ` <= ${spec.max}` : ""}
+                              </span>
+                            </td>
+                            <td css={tdCss}>
+                              <div css={actionsCss}>
+                                <button css={rotateBtnCss} onClick={() => saveParam(selected, spec)}>
+                                  Save
+                                </button>
+                                <button css={noBtnCss} onClick={() => unsetParam(selected, spec)}>
+                                  Unset
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            );
+          })()}
         </div>
       </div>
     </div>
