@@ -216,12 +216,6 @@ async def _async_agent_loop(
                     f"total={usage.get('total_tokens', '?')}" + cost_str,
                 )
 
-            stop_reason = getattr(result, "stop_reason", None)
-            _emit_backend_log(
-                session_id,
-                colored("Stop reason: ", "cyan") + (stop_reason or "(none reported)"),
-            )
-
             last_assistant_content = content_for_history
 
             if cancel_event.is_set():
@@ -252,6 +246,7 @@ async def _async_agent_loop(
 
                 exchange.reasoning = reasoning
                 had_tool_calls = True
+                blank_nudge_sent = False
                 if not had_todo_items and session.session_data.get("todo_list"):
                     had_todo_items = True
                 current_subturn.exchanges.append(exchange)
@@ -313,11 +308,12 @@ async def _async_agent_loop(
                 _emit_backend_log(
                     session_id,
                     colored("[WARNING]", "yellow")
-                    + " Blank response after todo nudge — giving up",
+                    + " Second consecutive blank response — skipping nudge, handing off to standard exit logic",
                 )
-                # Fall through: loop will emit message_done with empty content → "(no response)" bubble.
+                # Fall through to unclosed-todo / final-reprompt / message_done paths.
 
             # No tool calls — this is a non-tool assistant response.
+            blank_nudge_sent = False
             is_candidate = False
             if content_for_history and content_for_history.strip():
                 is_candidate = await _is_sufficient_final_answer(
