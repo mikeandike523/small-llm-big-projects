@@ -132,16 +132,7 @@ DEFINITION: dict = {
                 },
                 "patch": {
                     "type": "string",
-                    "description": (
-                        "A unified diff patch string. File headers (diff --git, ---, +++) may be "
-                        "included or omitted; only @@ hunk blocks are required. "
-                        "Each hunk line must be prefixed: '+' (add), '-' (remove), or ' ' (context). "
-                        "A '\\ No newline at end of file' line may follow any +, -, or context line "
-                        "to mark that line as having no trailing newline. "
-                        "@@ line numbers are used only to anchor pure-insertion hunks "
-                        "(hunks with no context or '-' lines); declared hunk lengths are ignored. "
-                        "Used by: apply_patch."
-                    ),
+                    "description": "A unidiff or git-diff style patch indicating the desired changes. Used by: apply_patch.",
                 },
             },
             "required": ["action"],
