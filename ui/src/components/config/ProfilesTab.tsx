@@ -229,6 +229,25 @@ export default function ProfilesTab() {
   async function saveParam(profile: ProfileRow, spec: ParamSpec) {
     const key = paramKey(profile.name, spec.name);
     const value = currentParamValue(profile, spec);
+
+    if (spec.value_type === "object") {
+      if (!value.trim()) {
+        await unsetParam(profile, spec);
+        setParamDrafts((drafts) => {
+          const next = { ...drafts };
+          delete next[key];
+          return next;
+        });
+        return;
+      }
+      try {
+        JSON.parse(value);
+      } catch (e) {
+        setError(`Invalid JSON for "${spec.name}": ${(e as Error).message}`);
+        return;
+      }
+    }
+
     const ok = await checkedFetch(
       `/api/profiles/${profile.name}/params/${spec.name}`,
       {
