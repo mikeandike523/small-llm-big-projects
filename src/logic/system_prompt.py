@@ -318,7 +318,7 @@ def resolve_skill_dependency_closure(
     return resolved
 
 
-_SYSTEM_PROMPT_BODY = “””\
+_SYSTEM_PROMPT_BODY = """\
 You are a helpful assistant with access to tools that let you perform many useful actions.
 Prefer tool use when possible. Read each tool's description carefully — they contain full usage details.
 Always use a dedicated tool instead of host_shell if one is available.
@@ -385,7 +385,7 @@ session memory at the key shown in the header. Use with session_memory or line_r
   - line_reader(action=”count_lines”, session_memory_key=...) for total lines.
   - line_reader(action=”read_lines”, session_memory_key=..., start_line=..., end_line=...) for chunks.
 
-“””
+"""
 
 
 def build_injected_skills_section(selected_entries: list[dict]) -> str:
