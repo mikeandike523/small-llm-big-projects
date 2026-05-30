@@ -12,6 +12,7 @@ from src.ui_connector.socket_handler_components.llm import (
     _subturn_final_response,
 )
 from src.logic.system_prompt import get_selector_candidate_entries
+from src.utils.llm.factory import _call_sampler
 from src.utils.llm.streaming import StreamingLLM
 from src.utils.session_model import Session, Turn, Subturn
 
@@ -60,7 +61,7 @@ def _truncate_watchdog_text(text: Any, max_chars: int) -> str:
 async def _fetch_task_title(
     streaming_llm: StreamingLLM,
     user_text: str,
-    max_tokens: int | None,
+    watchdog_params: dict,
 ) -> str | None:
     """Make a non-streaming LLM call to generate a short title for the task."""
     messages = [
@@ -76,7 +77,7 @@ async def _fetch_task_title(
         {"role": "user", "content": user_text},
     ]
     try:
-        result = await asyncio.to_thread(streaming_llm.fetch, messages, max_tokens)
+        result = await asyncio.to_thread(_call_sampler, streaming_llm, messages, watchdog_params)
         title = (result.content or "").strip()
         if not title:
             return None
@@ -129,7 +130,7 @@ async def _is_sufficient_final_answer(
     current_turn: Turn,
     current_subturn: Subturn,
     candidate_text: str,
-    watchdog_max_tokens: int | None,
+    watchdog_params: dict,
 ) -> bool:
     """Ask a small out-of-band evaluator whether candidate_text is a sufficient final answer."""
     payload = _build_llm_payload(session, current_turn)
@@ -177,9 +178,7 @@ async def _is_sufficient_final_answer(
         },
     ]
     try:
-        result = await asyncio.to_thread(
-            streaming_llm.fetch, messages, watchdog_max_tokens
-        )
+        result = await asyncio.to_thread(_call_sampler, streaming_llm, messages, watchdog_params)
         decision = (result.content or "").strip().upper()
         return decision == "YES"
     except Exception as exc:
@@ -214,6 +213,7 @@ def _compute_subturn_compaction(
     streaming_llm: StreamingLLM,
     subturn: Subturn,
     final_content: str,
+    summarizer_params: dict,
 ) -> str:
     """Synchronous: call LLM to produce a context annotation for a completed subturn."""
     tool_calls_text = _format_tool_calls_for_compaction(subturn)
@@ -248,7 +248,7 @@ def _compute_subturn_compaction(
         },
     ]
     try:
-        result = streaming_llm.fetch(messages)
+        result = _call_sampler(streaming_llm, messages, summarizer_params)
         text = (result.content or "").strip()
         if text:
             return text
@@ -263,10 +263,15 @@ async def _generate_and_store_compaction(
     turn_id: str,
     current_subturn: Subturn,
     final_content: str,
+    summarizer_params: dict,
 ) -> None:
     """Async: generate a compaction for a completed subturn, store it, and emit to frontend."""
     compaction = await asyncio.to_thread(
-        _compute_subturn_compaction, streaming_llm, current_subturn, final_content
+        _compute_subturn_compaction,
+        streaming_llm,
+        current_subturn,
+        final_content,
+        summarizer_params,
     )
     current_subturn.detailed_summary = compaction
     _emit_and_log(
@@ -289,7 +294,7 @@ async def _is_continuation(
     streaming_llm: StreamingLLM,
     session: Session,
     user_text: str,
-    watchdog_max_tokens: int | None,
+    watchdog_params: dict,
 ) -> bool:
     """Decide whether a new user message is a follow-up continuation of the previous turn."""
     last_turn = session.completed_turns[-1]
@@ -321,9 +326,7 @@ async def _is_continuation(
         },
     ]
     try:
-        result = await asyncio.to_thread(
-            streaming_llm.fetch, messages, watchdog_max_tokens
-        )
+        result = await asyncio.to_thread(_call_sampler, streaming_llm, messages, watchdog_params)
         decision = (result.content or "").strip().upper()
         return decision != "YES"
     except Exception as exc:
@@ -360,7 +363,7 @@ async def _select_skills_for_turn(
     session: Session,
     user_text: str,
     skill_registry: list[dict],
-    watchdog_max_tokens: int | None,
+    watchdog_params: dict,
 ) -> list[dict]:
     """Run a lightweight LLM call to decide which skills to inject for this turn."""
     selector_candidates = get_selector_candidate_entries(skill_registry)
@@ -397,9 +400,7 @@ async def _select_skills_for_turn(
     ]
 
     try:
-        result = await asyncio.to_thread(
-            streaming_llm.fetch, messages, watchdog_max_tokens
-        )
+        result = await asyncio.to_thread(_call_sampler, streaming_llm, messages, watchdog_params)
         response = (result.content or "").strip().lower()
         if not response or response == "none":
             return []

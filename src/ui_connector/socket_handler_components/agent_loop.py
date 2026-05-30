@@ -56,7 +56,9 @@ async def _async_agent_loop(
     current_subturn: Subturn,
     return_value_max_chars: int | None,
     cancel_event: threading.Event,
-    watchdog_max_tokens: int | None = None,
+    watchdog_params: dict | None = None,
+    summarizer_params: dict | None = None,
+    patchrewriter_params: dict | None = None,
 ) -> None:
     """
     Main agentic loop. Runs inside a private asyncio event loop in the SocketIO thread.
@@ -92,7 +94,7 @@ async def _async_agent_loop(
             session,
             current_subturn.user_text,
             skill_registry,
-            watchdog_max_tokens,
+            watchdog_params or {},
         )
         current_turn.selected_skill_ids = [e["id"] for e in selected_skills]
 
@@ -240,6 +242,8 @@ async def _async_agent_loop(
                         cancel_event,
                         session_tool_map,
                         current_subturn.id,
+                        summarizer_params or {},
+                        patchrewriter_params or {},
                     )
                 except asyncio.CancelledError:
                     cancel_event.set()
@@ -272,7 +276,8 @@ async def _async_agent_loop(
                     )
                     if current_subturn.count_tool_calls() > 0:
                         await _generate_and_store_compaction(
-                            streaming_llm, session_id, turn_id, current_subturn, reason
+                            streaming_llm, session_id, turn_id, current_subturn, reason,
+                            summarizer_params or {},
                         )
                     _emit_and_log(
                         session_id,
@@ -321,7 +326,7 @@ async def _async_agent_loop(
                     current_turn,
                     current_subturn,
                     content_for_history,
-                    watchdog_max_tokens,
+                    watchdog_params or {},
                 )
                 if is_candidate:
                     pending_final_candidate = (content_for_history, reasoning)
@@ -368,6 +373,7 @@ async def _async_agent_loop(
                         turn_id,
                         current_subturn,
                         content_for_history,
+                        summarizer_params or {},
                     )
                 _emit_and_log(
                     session_id,
@@ -405,6 +411,7 @@ async def _async_agent_loop(
                         turn_id,
                         current_subturn,
                         cand_content,
+                        summarizer_params or {},
                     )
                 _emit_and_log(
                     session_id,
@@ -455,6 +462,7 @@ async def _async_agent_loop(
                     turn_id,
                     current_subturn,
                     content_for_history,
+                    summarizer_params or {},
                 )
             _emit_and_log(
                 session_id,

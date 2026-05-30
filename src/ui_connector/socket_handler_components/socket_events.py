@@ -664,12 +664,8 @@ def handle_user_message(data: dict):
     return_value_max_chars: int | None = llm_config["system_params"].get(
         "return_value_max_chars"
     )
-    watchdog_max_tokens: int | None = llm_config["system_params"].get(
-        "watchdog_max_tokens"
-    )
-    title_summary_max_tokens: int | None = llm_config["system_params"].get(
-        "title_summary_max_tokens"
-    )
+    watchdog_params: dict = llm_config.get("watchdog_params") or {}
+    summarizer_params: dict = llm_config.get("summarizer_params") or {}
 
     _effective_cwd = _state._session_current_cwd.get(session_id) or session.initial_cwd
     if _effective_cwd:
@@ -693,7 +689,7 @@ def handle_user_message(data: dict):
         _loop_for_watchdog = asyncio.new_event_loop()
         try:
             _is_cont = _loop_for_watchdog.run_until_complete(
-                _is_continuation(streaming_llm, session, text, watchdog_max_tokens)
+                _is_continuation(streaming_llm, session, text, watchdog_params)
             )
         except Exception as _wdog_exc:
             logger.warning("Continuation watchdog error: %s", _wdog_exc)
@@ -761,7 +757,7 @@ def handle_user_message(data: dict):
     _state._cancel_loops[session_id] = loop
 
     async def _fetch_and_store_title() -> None:
-        title = await _fetch_task_title(streaming_llm, text, title_summary_max_tokens)
+        title = await _fetch_task_title(streaming_llm, text, watchdog_params)
         if title:
             current_turn.task_title = title
             _emit_and_log(
@@ -783,7 +779,9 @@ def handle_user_message(data: dict):
                 current_subturn,
                 return_value_max_chars,
                 cancel_event,
-                watchdog_max_tokens=watchdog_max_tokens,
+                watchdog_params=watchdog_params,
+                summarizer_params=summarizer_params,
+                patchrewriter_params=llm_config.get("patchrewriter_params") or {},
             )
             if _had_tool_calls and not current_turn.task_title:
                 await _fetch_and_store_title()
@@ -850,9 +848,8 @@ def handle_force_continuation(data: dict):
     return_value_max_chars: int | None = llm_config["system_params"].get(
         "return_value_max_chars"
     )
-    watchdog_max_tokens: int | None = llm_config["system_params"].get(
-        "watchdog_max_tokens"
-    )
+    watchdog_params: dict = llm_config.get("watchdog_params") or {}
+    summarizer_params: dict = llm_config.get("summarizer_params") or {}
 
     _effective_cwd = _state._session_current_cwd.get(session_id) or session.initial_cwd
     if _effective_cwd:
@@ -922,7 +919,9 @@ def handle_force_continuation(data: dict):
                 current_subturn,
                 return_value_max_chars,
                 cancel_event,
-                watchdog_max_tokens=watchdog_max_tokens,
+                watchdog_params=watchdog_params,
+                summarizer_params=summarizer_params,
+                patchrewriter_params=llm_config.get("patchrewriter_params") or {},
             )
         except asyncio.CancelledError:
             cancel_event.set()

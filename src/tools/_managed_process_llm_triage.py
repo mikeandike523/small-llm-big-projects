@@ -76,15 +76,13 @@ def _llm_triage(
         )
     )
 
-    from src.utils.llm.factory import make_llm, load_llm_config
+    from src.utils.llm.factory import make_llm, load_llm_config, _call_sampler
 
     llm = make_llm(timeout_s=HANG_DECISION_TIMEOUT)
     if llm is None:
         return _kill(colored("No LLM available — killing process", "red"))
     _llm_cfg = load_llm_config() or {}
-    _watchdog_max_tokens: int | None = (_llm_cfg.get("system_params") or {}).get(
-        "watchdog_max_tokens"
-    )
+    _watchdog_params: dict = _llm_cfg.get("watchdog_params") or {}
 
     # ------------------------------------------------------------------
     # Stage 1 — still processing (WAITING) or waiting for a key (INPUT)?
@@ -101,12 +99,13 @@ def _llm_triage(
         "Reply with exactly one word: WAITING or INPUT."
     )
     try:
-        r1 = llm.fetch(
+        r1 = _call_sampler(
+            llm,
             [
                 {"role": "system", "content": stage1_system},
                 {"role": "user", "content": buffer_snapshot or "(no output yet)"},
             ],
-            max_tokens=_watchdog_max_tokens,
+            _watchdog_params,
         )
         decision1 = r1.content.strip().upper()
     except Exception as exc:
@@ -128,12 +127,13 @@ def _llm_triage(
         )
         chosen_wait = hang_timeout  # fallback if call fails or answer is invalid
         try:
-            r1b = llm.fetch(
+            r1b = _call_sampler(
+                llm,
                 [
                     {"role": "system", "content": stage1b_system},
                     {"role": "user", "content": buffer_snapshot or "(no output yet)"},
                 ],
-                max_tokens=_watchdog_max_tokens,
+                _watchdog_params,
             )
             raw = r1b.content.strip()
             parsed = float(raw)
@@ -189,12 +189,13 @@ def _llm_triage(
         "Reply with either SIMPLE:<chars> or EXOTIC."
     )
     try:
-        r2 = llm.fetch(
+        r2 = _call_sampler(
+            llm,
             [
                 {"role": "system", "content": stage2_system},
                 {"role": "user", "content": buffer_snapshot or "(no output yet)"},
             ],
-            max_tokens=_watchdog_max_tokens,
+            _watchdog_params,
         )
         decision2 = r2.content.strip()
     except Exception as exc:

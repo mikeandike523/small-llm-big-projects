@@ -4,8 +4,9 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import ProfilesTab from "./config/ProfilesTab";
 import TokensTab from "./config/TokensTab";
+import ParamsTab from "./config/ParamsTab";
 
-const TABS = ["Tokens", "Profiles"] as const;
+const TABS = ["Tokens", "Profiles", "Params"] as const;
 type Tab = (typeof TABS)[number];
 
 const pageCss = css`
@@ -81,6 +82,13 @@ const activeTabCss = css`
   border-bottom-color: #4a6aee;
 `;
 
+const contentNoPadCss = css`
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+`;
+
 const contentCss = css`
   flex: 1;
   overflow-y: auto;
@@ -135,9 +143,10 @@ export default function ConfigPage() {
           </button>
         </div>
       </div>
-      <main css={contentCss}>
+      <main css={tab === "Params" ? contentNoPadCss : contentCss}>
         {tab === "Tokens" && <TokensTab />}
         {tab === "Profiles" && <ProfilesTab />}
+        {tab === "Params" && <ParamsTab />}
       </main>
     </div>
   );

@@ -15,9 +15,6 @@ _SYSTEM_PROMPT = (
     "while preserving the original intention of the edit.\n\n"
     "Output ONLY the corrected unified diff patch text. "
     "No explanation, no markdown code fences, no commentary."
-    # Future improvement: detect the source file language; if it is not Markdown,
-    # any ``` or ====== delimiters in the LLM output are suspicious and should be
-    # stripped before attempting the dry-run.
 )
 
 
@@ -40,6 +37,7 @@ def attempt_patch_fix(
     original_patch: str,
     on_progress: Callable[[int, int], None],
     max_attempts: int = _MAX_ATTEMPTS,
+    patchrewriter_params: dict | None = None,
 ) -> str | None:
     """Try up to max_attempts LLM calls to produce a version of original_patch
     that applies cleanly to file_contents.
@@ -50,7 +48,7 @@ def attempt_patch_fix(
     Returns the first candidate that passes a dry-run, or None if all fail.
     """
     try:
-        from src.utils.llm.factory import make_llm
+        from src.utils.llm.factory import make_llm, _call_sampler
     except Exception as exc:
         logger.warning("Patch rewrite watchdog: cannot import make_llm: %s", exc)
         return None
@@ -60,6 +58,7 @@ def attempt_patch_fix(
         logger.warning("Patch rewrite watchdog: no LLM configured, skipping")
         return None
 
+    params = patchrewriter_params or {}
     messages = [
         {"role": "system", "content": _SYSTEM_PROMPT},
         {
@@ -74,7 +73,7 @@ def attempt_patch_fix(
     for attempt in range(1, max_attempts + 1):
         on_progress(attempt, max_attempts)
         try:
-            result = llm.fetch(messages)
+            result = _call_sampler(llm, messages, params)
             candidate = (result.content or "").strip()
             if candidate and _dry_run(file_contents, candidate):
                 return candidate

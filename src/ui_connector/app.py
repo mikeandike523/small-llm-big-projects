@@ -42,3 +42,4 @@ def _handle_preflight():
 import src.ui_connector.socket_handlers  # noqa: E402, F401
 import src.config_routes.tokens  # noqa: E402, F401
 import src.config_routes.profiles  # noqa: E402, F401
+import src.config_routes.params  # noqa: E402, F401

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from src.tools._memory import ensure_session_memory
+from src.utils.llm.factory import _call_sampler
 
 DEFINITION: dict = {
     "type": "function",
@@ -63,6 +64,7 @@ def execute(
     output_key: str | None = args.get("output_key")
 
     on_chunk = (special_resources or {}).get("on_chunk")
+    summarizer_params: dict = (special_resources or {}).get("summarizer_params") or {}
 
     memory = ensure_session_memory(session_data)
     content = memory.get(memory_key)
@@ -94,7 +96,7 @@ def execute(
     ]
 
     try:
-        fetch_result = llm.fetch(messages)
+        fetch_result = _call_sampler(llm, messages, summarizer_params)
         summary = (fetch_result.content or "").strip()
     except Exception as e:
         return f"Error: LLM summarization failed: {type(e).__name__}: {e}"

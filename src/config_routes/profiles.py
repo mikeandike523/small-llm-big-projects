@@ -39,16 +39,6 @@ _PARAM_SPECS: dict[str, dict[str, Any]] = {
         "min": 1,
         "description": "Maximum generated tokens for the main model response.",
     },
-    "model.watchdog_max_tokens": {
-        "value_type": "integer",
-        "min": 1,
-        "description": "Maximum generated tokens for watchdog LLM calls.",
-    },
-    "model.title_summary_max_tokens": {
-        "value_type": "integer",
-        "min": 1,
-        "description": "Maximum generated tokens for task title summaries.",
-    },
     "model.request_extra_params": {
         "value_type": "object",
         "description": "JSON object merged into every model request payload.",
@@ -63,6 +53,13 @@ _PARAM_SPECS: dict[str, dict[str, Any]] = {
         "description": "Maximum inline tool return characters before stubbing.",
     },
 }
+
+# Auto-generate specs for the three sampler namespaces from the model.* specs.
+for _ns in ("watchdog.model", "summarizer.model", "patchrewriter.model"):
+    for _suffix in ("temperature", "top_p", "top_k", "max_tokens", "request_extra_params"):
+        _src_key = f"model.{_suffix}"
+        if _src_key in _PARAM_SPECS:
+            _PARAM_SPECS[f"{_ns}.{_suffix}"] = dict(_PARAM_SPECS[_src_key])
 
 
 def _param_specs_payload() -> list[dict[str, Any]]:

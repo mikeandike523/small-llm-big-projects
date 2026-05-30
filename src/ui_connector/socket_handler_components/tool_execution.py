@@ -57,6 +57,8 @@ def _execute_tools(
     cancel_event: threading.Event | None = None,
     tool_map: dict | None = None,
     subturn_id: str = "",
+    summarizer_params: dict | None = None,
+    patchrewriter_params: dict | None = None,
 ) -> LLMExchange:
     """
     Execute all tool calls in result, emit events, and build an LLMExchange record.
@@ -75,6 +77,8 @@ def _execute_tools(
             session_id, tid, mode, num_lines
         ),
         "get_terminals_state": lambda lines=10: _get_terminals_state(session_id, lines),
+        "summarizer_params": summarizer_params or {},
+        "patchrewriter_params": patchrewriter_params or {},
     }
 
     actual_tool_map = tool_map if tool_map is not None else _TOOL_MAP
@@ -213,7 +217,10 @@ def _execute_tools(
                                     },
                                 )
 
-                            _fixed = attempt_patch_fix(_contents, _patch, _on_rw_progress)
+                            _fixed = attempt_patch_fix(
+                                _contents, _patch, _on_rw_progress,
+                                patchrewriter_params=patchrewriter_params or {},
+                            )
                             if _fixed is not None:
                                 # Mutate in-place so tool_record.args also reflects
                                 # the rewritten patch (same dict reference).
