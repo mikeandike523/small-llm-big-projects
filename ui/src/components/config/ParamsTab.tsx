@@ -25,12 +25,18 @@ const NS_LABELS: Record<NsKey | "system", string> = {
   system: "System",
 };
 
-const SAMPLER_FIELDS: { suffix: string; label: string; type: "float" | "int" | "json" }[] = [
-  { suffix: "temperature", label: "temperature", type: "float" },
-  { suffix: "top_p", label: "top_p", type: "float" },
-  { suffix: "top_k", label: "top_k", type: "int" },
-  { suffix: "max_tokens", label: "max_tokens", type: "int" },
-  { suffix: "request_extra_params", label: "request_extra_params", type: "json" },
+const SAMPLER_FIELDS: { suffix: string }[] = [
+  { suffix: "temperature" },
+  { suffix: "top_p" },
+  { suffix: "top_k" },
+  { suffix: "max_tokens" },
+  { suffix: "request_extra_params" },
+];
+
+// System params: full param name, which data bucket to read from, and the key within that bucket.
+const SYSTEM_PARAMS: { name: string; ns: string; suffix: string; bucketKey: string; bucket: keyof ParamsData }[] = [
+  { name: "model.irat",                   ns: "model",  suffix: "irat",                   bucketKey: "irat",                         bucket: "model"  },
+  { name: "system.return_value_max_chars", ns: "system", suffix: "return_value_max_chars",  bucketKey: "system.return_value_max_chars", bucket: "system" },
 ];
 
 // ── styles ─────────────────────────────────────────────────────────────────
@@ -82,7 +88,7 @@ const rowCss = css`
 `;
 
 const labelCss = css`
-  width: 180px;
+  width: 220px;
   flex-shrink: 0;
   font-size: 13px;
   color: #9090a0;
@@ -149,7 +155,6 @@ export default function ParamsTab() {
   const [data, setData] = useState<ParamsData | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
-  // draftInputs: nsKey.suffix -> current text in the input
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [rowErrors, setRowErrors] = useState<Record<string, string>>({});
 
@@ -190,9 +195,8 @@ export default function ParamsTab() {
       const json = await r.json();
       if (!r.ok || json.error) throw new Error(json.error ?? "Failed");
       setRowErrors(prev => { const n = { ...prev }; delete n[k]; return n; });
-      await load();
-      // Clear draft so it shows the saved value
       setDrafts(prev => { const n = { ...prev }; delete n[k]; return n; });
+      await load();
     } catch (e: any) {
       setRowErrors(prev => ({ ...prev, [k]: e.message ?? "Error" }));
     }
@@ -215,19 +219,48 @@ export default function ParamsTab() {
     setCollapsed(prev => ({ ...prev, [ns]: !prev[ns] }));
   }
 
+  function ParamRow({ ns, suffix, currentVal, label }: { ns: string; suffix: string; currentVal: unknown; label?: string }) {
+    const k = draftKey(ns, suffix);
+    const isSet = currentVal !== undefined;
+    const draft = getDraft(ns, suffix, currentVal);
+    const err = rowErrors[k];
+    return (
+      <div>
+        <div css={rowCss}>
+          <span css={labelCss}>{label ?? suffix}</span>
+          <input
+            css={inputCss}
+            value={draft}
+            placeholder={suffix === "request_extra_params" ? '{"key":"value"}' : ""}
+            onChange={e => setDraft(ns, suffix, e.target.value)}
+            onKeyDown={e => { if (e.key === "Enter") handleSet(ns, suffix); }}
+          />
+          <button css={setButtonCss} onClick={() => handleSet(ns, suffix)}>Set</button>
+          {isSet && (
+            <button css={unsetButtonCss} onClick={() => handleUnset(ns, suffix)}>Unset</button>
+          )}
+          {isSet && !(draftKey(ns, suffix) in drafts) && (
+            <span css={currentValueCss}>✓ {formatValue(currentVal)}</span>
+          )}
+        </div>
+        {err && <div css={errorCss} style={{ marginLeft: 228, marginTop: 4 }}>{err}</div>}
+      </div>
+    );
+  }
+
   if (loadError) return <div css={tabCss}><div css={errorCss}>{loadError}</div></div>;
   if (!data) return <div css={tabCss}><div style={{ color: "#666" }}>Loading...</div></div>;
 
-  const sections: { ns: NsKey; fields: typeof SAMPLER_FIELDS }[] = [
-    { ns: "model", fields: SAMPLER_FIELDS },
-    { ns: "watchdog.model", fields: SAMPLER_FIELDS },
-    { ns: "summarizer.model", fields: SAMPLER_FIELDS },
-    { ns: "patchrewriter.model", fields: SAMPLER_FIELDS },
+  const sections: { ns: NsKey }[] = [
+    { ns: "model" },
+    { ns: "watchdog.model" },
+    { ns: "summarizer.model" },
+    { ns: "patchrewriter.model" },
   ];
 
   return (
     <div css={tabCss}>
-      {sections.map(({ ns, fields }) => {
+      {sections.map(({ ns }) => {
         const nsData = data[ns] ?? {};
         const isOpen = !collapsed[ns];
         return (
@@ -238,42 +271,16 @@ export default function ParamsTab() {
             </div>
             {isOpen && (
               <div css={sectionBodyCss}>
-                {fields.map(({ suffix, label }) => {
-                  const k = draftKey(ns, suffix);
-                  const currentVal = nsData[suffix];
-                  const isSet = currentVal !== undefined;
-                  const draft = getDraft(ns, suffix, currentVal);
-                  const err = rowErrors[k];
-                  return (
-                    <div key={suffix}>
-                      <div css={rowCss}>
-                        <span css={labelCss}>{label}</span>
-                        <input
-                          css={inputCss}
-                          value={draft}
-                          placeholder={suffix === "request_extra_params" ? '{"key":"value"}' : ""}
-                          onChange={e => setDraft(ns, suffix, e.target.value)}
-                          onKeyDown={e => { if (e.key === "Enter") handleSet(ns, suffix); }}
-                        />
-                        <button css={setButtonCss} onClick={() => handleSet(ns, suffix)}>Set</button>
-                        {isSet && (
-                          <button css={unsetButtonCss} onClick={() => handleUnset(ns, suffix)}>Unset</button>
-                        )}
-                        {isSet && !drafts[k] && (
-                          <span css={currentValueCss}>✓ {formatValue(currentVal)}</span>
-                        )}
-                      </div>
-                      {err && <div css={errorCss} style={{ marginLeft: 192, marginTop: 4 }}>{err}</div>}
-                    </div>
-                  );
-                })}
+                {SAMPLER_FIELDS.map(({ suffix }) => (
+                  <ParamRow key={suffix} ns={ns} suffix={suffix} currentVal={nsData[suffix]} />
+                ))}
               </div>
             )}
           </div>
         );
       })}
 
-      {/* System params (irat + return_value_max_chars) */}
+      {/* System params: model.irat and system.return_value_max_chars */}
       <div css={sectionCss}>
         <div css={sectionHeaderCss} onClick={() => toggleCollapse("system")}>
           <span>{NS_LABELS.system}</span>
@@ -281,78 +288,15 @@ export default function ParamsTab() {
         </div>
         {!collapsed["system"] && (
           <div css={sectionBodyCss}>
-            {(["model.irat", "system.return_value_max_chars"] as const).map(name => {
-              const sysKey = name === "model.irat" ? "model.irat" : "return_value_max_chars";
-              const currentVal = name === "model.irat"
-                ? data.model["irat"]
-                : data.system["return_value_max_chars"];
-              const isSet = currentVal !== undefined;
-              const draft = draftKey("sys", name) in drafts
-                ? drafts[draftKey("sys", name)]
-                : formatValue(currentVal);
-              const err = rowErrors[draftKey("sys", name)];
-              return (
-                <div key={name}>
-                  <div css={rowCss}>
-                    <span css={labelCss}>{name}</span>
-                    <input
-                      css={inputCss}
-                      value={draft}
-                      onChange={e => setDrafts(prev => ({ ...prev, [draftKey("sys", name)]: e.target.value }))}
-                      onKeyDown={async e => {
-                        if (e.key === "Enter") {
-                          const raw = drafts[draftKey("sys", name)] ?? "";
-                          const r = await fetch(`${GATEWAY_URL}/api/params/set`, {
-                            method: "POST",
-                            headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({ name, value: raw }),
-                          });
-                          const json = await r.json();
-                          if (!r.ok || json.error) {
-                            setRowErrors(prev => ({ ...prev, [draftKey("sys", name)]: json.error ?? "Error" }));
-                          } else {
-                            setRowErrors(prev => { const n = { ...prev }; delete n[draftKey("sys", name)]; return n; });
-                            setDrafts(prev => { const n = { ...prev }; delete n[draftKey("sys", name)]; return n; });
-                            await load();
-                          }
-                        }
-                      }}
-                    />
-                    <button css={setButtonCss} onClick={async () => {
-                      const raw = drafts[draftKey("sys", name)] ?? "";
-                      const r = await fetch(`${GATEWAY_URL}/api/params/set`, {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ name, value: raw }),
-                      });
-                      const json = await r.json();
-                      if (!r.ok || json.error) {
-                        setRowErrors(prev => ({ ...prev, [draftKey("sys", name)]: json.error ?? "Error" }));
-                      } else {
-                        setRowErrors(prev => { const n = { ...prev }; delete n[draftKey("sys", name)]; return n; });
-                        setDrafts(prev => { const n = { ...prev }; delete n[draftKey("sys", name)]; return n; });
-                        await load();
-                      }
-                    }}>Set</button>
-                    {isSet && (
-                      <button css={unsetButtonCss} onClick={async () => {
-                        await fetch(`${GATEWAY_URL}/api/params/unset`, {
-                          method: "POST",
-                          headers: { "Content-Type": "application/json" },
-                          body: JSON.stringify({ name }),
-                        });
-                        setDrafts(prev => { const n = { ...prev }; delete n[draftKey("sys", name)]; return n; });
-                        await load();
-                      }}>Unset</button>
-                    )}
-                    {isSet && !drafts[draftKey("sys", name)] && (
-                      <span css={currentValueCss}>✓ {formatValue(currentVal)}</span>
-                    )}
-                  </div>
-                  {err && <div css={errorCss} style={{ marginLeft: 192, marginTop: 4 }}>{err}</div>}
-                </div>
-              );
-            })}
+            {SYSTEM_PARAMS.map(({ name, ns, suffix, bucketKey, bucket }) => (
+              <ParamRow
+                key={name}
+                ns={ns}
+                suffix={suffix}
+                currentVal={data[bucket][bucketKey]}
+                label={name}
+              />
+            ))}
           </div>
         )}
       </div>
