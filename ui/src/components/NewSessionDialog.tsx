@@ -24,6 +24,7 @@ interface Props {
   sessionDefaults: SessionDefaults;
   onCreated: (sessionId: string) => void;
   onClose: () => void;
+  initialCwd?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -268,8 +269,9 @@ export default function NewSessionDialog({
   sessionDefaults,
   onCreated,
   onClose,
+  initialCwd,
 }: Props) {
-  const [cwd, setCwd] = useState("");
+  const [cwd, setCwd] = useState(initialCwd ?? "");
   const [workspaceDir, setWorkspaceDir] = useState<string>("");
   const [flags, setFlags] = useState<SessionDefaults>(() => ({
     ...sessionDefaults,
@@ -283,14 +285,14 @@ export default function NewSessionDialog({
 
   const cwdEmpty = cwd.trim() === "";
 
-  // Fetch default workspace directory as default CWD on mount
+  // Fetch default workspace directory as default CWD on mount (skip if initialCwd was provided)
   useEffect(() => {
     fetch("/api/system-info")
       .then((r) => r.json())
       .then((d) => {
         const dir = d.workspace_dir || d.home_dir || "";
         setWorkspaceDir(dir);
-        if (dir) setCwd(dir);
+        if (dir && !initialCwd) setCwd(dir);
       })
       .catch(() => {});
   }, []);

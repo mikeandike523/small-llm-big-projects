@@ -1,6 +1,6 @@
 /** @jsxImportSource @emotion/react */
 import { css, keyframes } from "@emotion/react";
-import { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import NewSessionDialog, { type SessionDefaults } from "./NewSessionDialog";
 
@@ -266,6 +266,84 @@ const trashBtnCss = css`
   }
 `;
 
+const openDirBtnCss = css`
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #3a9a3a;
+  padding: 2px 4px;
+  border-radius: 4px;
+  line-height: 1;
+  opacity: 0.75;
+  transition:
+    opacity 0.12s,
+    background 0.12s;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  &:hover {
+    opacity: 1;
+    background: #0a2a0a;
+  }
+`;
+
+const tooltipWrapCss = css`
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+
+  &::after {
+    content: attr(data-tip);
+    position: absolute;
+    bottom: calc(100% + 6px);
+    left: 50%;
+    transform: translateX(-50%);
+    background: #1a1e2e;
+    color: #c8d8ff;
+    font-size: 10px;
+    font-family: "Fira Code", "Consolas", monospace;
+    white-space: nowrap;
+    padding: 3px 8px;
+    border-radius: 4px;
+    border: 1px solid #2a3a5a;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.08s;
+    z-index: 200;
+  }
+
+  &:hover::after {
+    opacity: 1;
+  }
+`;
+
+function Tooltip({ label, children }: { label: string; children: JSX.Element }) {
+  return (
+    <span css={tooltipWrapCss} data-tip={label}>
+      {children}
+    </span>
+  );
+}
+
+function FolderPlusIcon() {
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 16 16"
+      aria-hidden="true"
+      style={{ display: "block" }}
+    >
+      <path
+        d="M1 5.5C1 4.67 1.67 4 2.5 4H6.79L7.85 5.06A1 1 0 008.56 5.5H13.5C14.33 5.5 15 6.17 15 7V12C15 12.83 14.33 13.5 13.5 13.5H2.5C1.67 13.5 1 12.83 1 12V5.5Z"
+        fill="currentColor"
+      />
+      <line x1="8" y1="7.5" x2="8" y2="11.5" stroke="white" strokeWidth="1.4" strokeLinecap="round" />
+      <line x1="6" y1="9.5" x2="10" y2="9.5" stroke="white" strokeWidth="1.4" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 const modalOverlayCss = css`
   position: fixed;
   inset: 0;
@@ -407,6 +485,7 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showNewSession, setShowNewSession] = useState(false);
+  const [newSessionCwd, setNewSessionCwd] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<SessionSummary | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [sessionDefaults, setSessionDefaults] =
@@ -458,7 +537,14 @@ export default function Dashboard() {
 
   function handleSessionCreated(sessionId: string) {
     setShowNewSession(false);
+    setNewSessionCwd(null);
     navigate(`/session?sessionId=${sessionId}`);
+  }
+
+  function openNewSessionInDir(cwd: string, e: React.MouseEvent) {
+    e.stopPropagation();
+    setNewSessionCwd(cwd);
+    setShowNewSession(true);
   }
 
   async function confirmDelete() {
@@ -497,7 +583,7 @@ export default function Dashboard() {
           </Link>
           <button
             css={newSessionBtnCss}
-            onClick={() => setShowNewSession(true)}
+            onClick={() => { setNewSessionCwd(null); setShowNewSession(true); }}
             disabled={
               sessionDefaults === null ||
               sessionDefaults.default_profile === null
@@ -567,6 +653,7 @@ export default function Dashboard() {
                   e.stopPropagation();
                   setDeleteTarget(s);
                 }}
+                onOpenInSameDir={(e) => openNewSessionInDir(s.initial_cwd, e)}
               />
             ))}
           </div>
@@ -577,7 +664,8 @@ export default function Dashboard() {
         <NewSessionDialog
           sessionDefaults={sessionDefaults}
           onCreated={handleSessionCreated}
-          onClose={() => setShowNewSession(false)}
+          onClose={() => { setShowNewSession(false); setNewSessionCwd(null); }}
+          initialCwd={newSessionCwd ?? undefined}
         />
       )}
 
@@ -627,10 +715,12 @@ function SessionCard({
   session,
   onClick,
   onDelete,
+  onOpenInSameDir,
 }: {
   session: SessionSummary;
   onClick: () => void;
   onDelete: (e: React.MouseEvent) => void;
+  onOpenInSameDir: (e: React.MouseEvent) => void;
 }) {
   const base = cwdBasename(session.initial_cwd);
   const fullPath = session.initial_cwd.replace(/\\/g, "/");
@@ -659,13 +749,19 @@ function SessionCard({
             flexShrink: 0,
           }}
         >
-          <div
-            css={session.active_turn ? activeDotCss : idleDotCss}
-            title={session.active_turn ? "Turn in progress" : "Idle"}
-          />
-          <button css={trashBtnCss} onClick={onDelete} title="Delete session">
-            🗑
-          </button>
+          <Tooltip label={session.active_turn ? "Turn in progress" : "Idle"}>
+            <div css={session.active_turn ? activeDotCss : idleDotCss} />
+          </Tooltip>
+          <Tooltip label="New session in this directory">
+            <button css={openDirBtnCss} onClick={onOpenInSameDir}>
+              <FolderPlusIcon />
+            </button>
+          </Tooltip>
+          <Tooltip label="Delete session">
+            <button css={trashBtnCss} onClick={onDelete}>
+              🗑
+            </button>
+          </Tooltip>
         </div>
       </div>
 
