@@ -66,6 +66,7 @@ async def _async_agent_loop(
     final_summary_reprompt_sent = False
     pending_final_candidate: tuple[str, str] | None = None
     irat_candidate_exchange: tuple[str, int] | None = None
+    blank_nudge_sent = False
     was_cancelled = False
     last_assistant_content = ""
     turn_completed = False
@@ -282,6 +283,34 @@ async def _async_agent_loop(
                     break
 
                 continue
+
+            # Blank response guard: model emitted no content and no tool calls.
+            # Inject a todo-nudge once to get it back on track; if still blank, give up.
+            if not content_for_history.strip():
+                if not blank_nudge_sent:
+                    blank_nudge_sent = True
+                    _emit_backend_log(
+                        session_id,
+                        colored("[WARNING]", "yellow")
+                        + " Blank response with no tool calls — injecting todo nudge",
+                    )
+                    nudge_exchange = LLMExchange(
+                        assistant_content="",
+                        reasoning=reasoning,
+                        is_final=False,
+                        user_continuation=(
+                            "Looks like you stopped early on a long task, please make a todo list to stay on task.."
+                        ),
+                    )
+                    current_subturn.exchanges.append(nudge_exchange)
+                    _save_session(session_id, session)
+                    continue
+                _emit_backend_log(
+                    session_id,
+                    colored("[WARNING]", "yellow")
+                    + " Blank response after todo nudge — giving up",
+                )
+                # Fall through: loop will emit message_done with empty content → "(no response)" bubble.
 
             # No tool calls — this is a non-tool assistant response.
             is_candidate = False
