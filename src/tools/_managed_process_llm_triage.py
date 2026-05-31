@@ -24,6 +24,8 @@ def _llm_triage(
     hang_timeout: float,
     start_time: float,
     on_usage=None,
+    on_request_log=None,
+    on_reasoning_detected=None,
 ) -> bool:
     """
     Out-of-band LLM triage called when idle >= hang_timeout.
@@ -108,6 +110,8 @@ def _llm_triage(
             ],
             _watchdog_params,
             on_usage,
+            on_request_log=on_request_log,
+            on_reasoning_detected=on_reasoning_detected,
         )
         decision1 = r1.content.strip().upper()
     except Exception as exc:
@@ -137,6 +141,8 @@ def _llm_triage(
                 ],
                 _watchdog_params,
                 on_usage,
+                on_request_log=on_request_log,
+                on_reasoning_detected=on_reasoning_detected,
             )
             raw = r1b.content.strip()
             parsed = float(raw)
@@ -200,6 +206,8 @@ def _llm_triage(
             ],
             _watchdog_params,
             on_usage,
+            on_request_log=on_request_log,
+            on_reasoning_detected=on_reasoning_detected,
         )
         decision2 = r2.content.strip()
     except Exception as exc:

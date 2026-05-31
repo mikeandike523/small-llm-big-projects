@@ -14,6 +14,8 @@ from src.ui_connector.socket_handler_components.emit import (
     _emit_and_log,
     _emit_backend_log,
     _make_sampler_usage_tracker,
+    _make_sampler_request_logger,
+    _make_sampler_reasoning_detector,
 )
 from src.ui_connector.socket_handler_components.session_store import (
     _save_session,
@@ -100,6 +102,8 @@ async def _async_agent_loop(
             skill_registry,
             watchdog_params or {},
             on_usage=_make_sampler_usage_tracker(session_id, "skill_selector"),
+            on_request_log=_make_sampler_request_logger(session_id, "skill_selector"),
+            on_reasoning_detected=_make_sampler_reasoning_detector(session_id, "skill_selector"),
         )
         current_turn.selected_skill_ids = [e["id"] for e in selected_skills]
 
@@ -278,6 +282,8 @@ async def _async_agent_loop(
                         await _generate_and_store_compaction(
                             streaming_llm, session_id, turn_id, current_subturn, reason,
                             summarizer_params or {},
+                            on_request_log=_make_sampler_request_logger(session_id, "summarizer"),
+                            on_reasoning_detected=_make_sampler_reasoning_detector(session_id, "summarizer"),
                         )
                     _emit_and_log(
                         session_id,
@@ -358,6 +364,8 @@ async def _async_agent_loop(
                     content_for_history,
                     watchdog_params or {},
                     on_usage=_make_sampler_usage_tracker(session_id, "final_answer"),
+                    on_request_log=_make_sampler_request_logger(session_id, "final_answer"),
+                    on_reasoning_detected=_make_sampler_reasoning_detector(session_id, "final_answer"),
                 )
                 if is_candidate:
                     pending_final_candidate = (content_for_history, reasoning)
@@ -405,6 +413,8 @@ async def _async_agent_loop(
                         current_subturn,
                         content_for_history,
                         summarizer_params or {},
+                        on_request_log=_make_sampler_request_logger(session_id, "summarizer"),
+                        on_reasoning_detected=_make_sampler_reasoning_detector(session_id, "summarizer"),
                     )
                 _emit_and_log(
                     session_id,
@@ -443,6 +453,8 @@ async def _async_agent_loop(
                         current_subturn,
                         cand_content,
                         summarizer_params or {},
+                        on_request_log=_make_sampler_request_logger(session_id, "summarizer"),
+                        on_reasoning_detected=_make_sampler_reasoning_detector(session_id, "summarizer"),
                     )
                 _emit_and_log(
                     session_id,
@@ -494,6 +506,8 @@ async def _async_agent_loop(
                     current_subturn,
                     content_for_history,
                     summarizer_params or {},
+                    on_request_log=_make_sampler_request_logger(session_id, "summarizer"),
+                    on_reasoning_detected=_make_sampler_reasoning_detector(session_id, "summarizer"),
                 )
             _emit_and_log(
                 session_id,

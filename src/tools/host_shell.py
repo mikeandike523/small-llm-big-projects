@@ -150,6 +150,8 @@ def execute(
     on_chunk = sr.get("on_chunk")
     on_log = sr.get("on_log")
     on_sampler_usage = sr.get("on_sampler_usage")
+    on_sampler_request_log = sr.get("on_sampler_request_log")
+    on_sampler_reasoning_detected = sr.get("on_sampler_reasoning_detected")
     cancel_event: threading.Event | None = sr.get("cancel_event")
     session_id: str | None = sr.get("session_id")
 
@@ -189,6 +191,8 @@ def execute(
                     hang_timeout=hang_timeout,
                     on_log=on_log,
                     on_sampler_usage=on_sampler_usage,
+                    on_sampler_request_log=on_sampler_request_log,
+                    on_sampler_reasoning_detected=on_sampler_reasoning_detected,
                     tool_name="host_shell",
                     timeout_hint=TIMEOUT_HINT,
                     cancel_event=cancel_event,

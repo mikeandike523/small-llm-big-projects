@@ -7,11 +7,13 @@ import os
 from typing import Any
 
 import httpx
+from termcolor import colored
 
 import src.ui_connector.socket_handler_components.state as _state
 from src.ui_connector.app import socketio
 from src.ui_connector.socket_handler_components.emit import (
     _emit_and_log,
+    _emit_backend_log,
     _emit_content_snapshot,
 )
 from src.ui_connector.socket_handler_components.session_store import (
@@ -184,12 +186,39 @@ async def _async_run_llm_call(
                     acc["reasoning"],
                 )
 
+    # Log the params that will be sent to the API (model + default_parameters).
+    _main_params: dict = {}
+    if streaming_llm._model:
+        _main_params["model"] = streaming_llm._model
+    _main_params.update(streaming_llm._default_parameters)
+    if _main_params:
+        _parts = []
+        for _k, _v in _main_params.items():
+            try:
+                _parts.append(f"{_k}={json.dumps(_v, ensure_ascii=False)}")
+            except Exception:
+                _parts.append(f"{_k}={_v!r}")
+        _emit_backend_log(
+            session_id,
+            colored("[main agent]", "cyan") + " request params: " + ", ".join(_parts),
+        )
+    else:
+        _emit_backend_log(session_id, colored("[main agent]", "cyan") + " request params: (none)")
+
     result = await streaming_llm.stream(
         sanitize_messages_for_llm(payload),
         on_data,
         tools=(tool_defs if tool_defs is not None else ALL_TOOL_DEFINITIONS),
         record=record,
     )
+
+    if acc["reasoning"]:
+        _emit_backend_log(
+            session_id,
+            colored("[main agent]", "yellow")
+            + f" reasoning tokens detected (len={len(acc['reasoning'])})",
+        )
+
     _emit_content_snapshot(
         session_id, turn_id, subturn_id, exchange_idx, acc["content"], acc["reasoning"]
     )

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 from typing import Callable
 
@@ -82,3 +83,36 @@ def _emit_content_snapshot(
             "reasoning": reasoning,
         },
     )
+
+
+def _make_sampler_request_logger(session_id: str, sampler_name: str) -> Callable[[dict], None]:
+    """Return a callback that logs the sampler request params to the backend log."""
+    def _log(params: dict) -> None:
+        if not params:
+            _emit_backend_log(
+                session_id,
+                colored(f"[sampler:{sampler_name}]", "cyan") + " request params: (none)",
+            )
+            return
+        parts = []
+        for k, v in params.items():
+            try:
+                parts.append(f"{k}={json.dumps(v, ensure_ascii=False)}")
+            except Exception:
+                parts.append(f"{k}={v!r}")
+        _emit_backend_log(
+            session_id,
+            colored(f"[sampler:{sampler_name}]", "cyan") + " request params: " + ", ".join(parts),
+        )
+    return _log
+
+
+def _make_sampler_reasoning_detector(session_id: str, sampler_name: str) -> Callable[[int], None]:
+    """Return a callback that logs a warning when reasoning tokens are detected."""
+    def _detect(reasoning_len: int) -> None:
+        _emit_backend_log(
+            session_id,
+            colored(f"[sampler:{sampler_name}]", "yellow")
+            + f" reasoning tokens detected (len={reasoning_len})",
+        )
+    return _detect

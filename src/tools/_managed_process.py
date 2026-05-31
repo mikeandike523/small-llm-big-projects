@@ -37,6 +37,8 @@ def run_command_streaming(
     hang_timeout: int | None = None,
     on_log: Callable[[str], None] | None = None,
     on_sampler_usage=None,
+    on_sampler_request_log=None,
+    on_sampler_reasoning_detected=None,
     tool_name: str = "host_shell",
     timeout_hint: str | None = None,
     cancel_event: threading.Event | None = None,
@@ -253,6 +255,8 @@ def run_command_streaming(
                         hang_timeout=hang_timeout,
                         start_time=start_time,
                         on_usage=on_sampler_usage,
+                        on_request_log=on_sampler_request_log,
+                        on_reasoning_detected=on_sampler_reasoning_detected,
                     ):
                         break  # triage decided to kill — watchdog exits
                     # triage extended the timer — continue the loop

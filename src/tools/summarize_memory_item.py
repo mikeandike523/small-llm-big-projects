@@ -66,6 +66,8 @@ def execute(
     on_chunk = (special_resources or {}).get("on_chunk")
     summarizer_params: dict = (special_resources or {}).get("summarizer_params") or {}
     on_sampler_usage = (special_resources or {}).get("on_sampler_usage")
+    on_sampler_request_log = (special_resources or {}).get("on_sampler_request_log")
+    on_sampler_reasoning_detected = (special_resources or {}).get("on_sampler_reasoning_detected")
 
     memory = ensure_session_memory(session_data)
     content = memory.get(memory_key)
@@ -97,7 +99,11 @@ def execute(
     ]
 
     try:
-        fetch_result = _call_sampler(llm, messages, summarizer_params, on_sampler_usage)
+        fetch_result = _call_sampler(
+            llm, messages, summarizer_params, on_sampler_usage,
+            on_request_log=on_sampler_request_log,
+            on_reasoning_detected=on_sampler_reasoning_detected,
+        )
         summary = (fetch_result.content or "").strip()
     except Exception as e:
         return f"Error: LLM summarization failed: {type(e).__name__}: {e}"

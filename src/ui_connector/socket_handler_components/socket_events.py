@@ -16,6 +16,8 @@ from src.ui_connector.socket_handler_components.emit import (
     _emit_and_log,
     _emit_backend_log,
     _make_sampler_usage_tracker,
+    _make_sampler_request_logger,
+    _make_sampler_reasoning_detector,
 )
 from src.ui_connector.socket_handler_components.session_store import (
     _load_session,
@@ -698,6 +700,8 @@ def handle_user_message(data: dict):
                     text,
                     watchdog_params,
                     on_usage=_make_sampler_usage_tracker(session_id, "continuation"),
+                    on_request_log=_make_sampler_request_logger(session_id, "continuation"),
+                    on_reasoning_detected=_make_sampler_reasoning_detector(session_id, "continuation"),
                 )
             )
         except Exception as _wdog_exc:
@@ -771,6 +775,8 @@ def handle_user_message(data: dict):
             text,
             watchdog_params,
             on_usage=_make_sampler_usage_tracker(session_id, "task_title"),
+            on_request_log=_make_sampler_request_logger(session_id, "task_title"),
+            on_reasoning_detected=_make_sampler_reasoning_detector(session_id, "task_title"),
         )
         if title:
             current_turn.task_title = title
