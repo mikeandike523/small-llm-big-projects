@@ -303,32 +303,49 @@ async def _async_agent_loop(
                     )
                     continue
                 if not blank_nudge_sent:
-                    blank_nudge_sent = True
-                    blank_retry_count = 0
+                    existing_open = _get_open_items(session.session_data.get("todo_list") or [])
+                    if existing_open:
+                        _emit_backend_log(
+                            session_id,
+                            colored("[WARNING]", "yellow")
+                            + " Blank response with open todos — skipping nudge, letting todo reprompt handle it",
+                        )
+                        # Fall through: unclosed-todo block below will inject the continuation.
+                    else:
+                        blank_nudge_sent = True
+                        blank_retry_count = 0
+                        _emit_backend_log(
+                            session_id,
+                            colored("[WARNING]", "yellow")
+                            + " Blank response — injecting todo nudge",
+                        )
+                        nudge_exchange = LLMExchange(
+                            assistant_content="",
+                            reasoning=reasoning,
+                            is_final=False,
+                            user_continuation=(
+                                "Looks like you stopped early on a long task, please make a todo list to stay on task.."
+                            ),
+                        )
+                        current_subturn.exchanges.append(nudge_exchange)
+                        _save_session(session_id, session)
+                        continue
+                else:
                     _emit_backend_log(
                         session_id,
                         colored("[WARNING]", "yellow")
-                        + " Blank response — injecting todo nudge",
+                        + " Second consecutive blank response — handing off to standard exit logic",
                     )
-                    nudge_exchange = LLMExchange(
-                        assistant_content="",
-                        reasoning=reasoning,
-                        is_final=False,
-                        user_continuation=(
-                            "Looks like you stopped early on a long task, please make a todo list to stay on task.."
-                        ),
-                    )
-                    current_subturn.exchanges.append(nudge_exchange)
-                    _save_session(session_id, session)
-                    continue
-                _emit_backend_log(
-                    session_id,
-                    colored("[WARNING]", "yellow")
-                    + " Second consecutive blank response — handing off to standard exit logic",
-                )
                 # Fall through to unclosed-todo / final-reprompt / message_done paths.
 
             # No tool calls — this is a non-tool assistant response.
+            if blank_retry_count > 0:
+                _emit_backend_log(
+                    session_id,
+                    colored("[INFO]", "green")
+                    + f" Blank retry succeeded after {blank_retry_count} attempt(s) — resuming normal flow",
+                )
+                blank_retry_count = 0
             blank_nudge_sent = False
             blank_retry_count = 0
             is_candidate = False
