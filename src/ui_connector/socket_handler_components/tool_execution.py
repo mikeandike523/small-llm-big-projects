@@ -10,6 +10,7 @@ from src.ui_connector.app import socketio
 from src.ui_connector.socket_handler_components.emit import (
     _emit_and_log,
     _emit_backend_log,
+    _make_sampler_usage_tracker,
 )
 from src.ui_connector.socket_handler_components.terminal import (
     _launch_terminal_for_session,
@@ -79,6 +80,7 @@ def _execute_tools(
         "get_terminals_state": lambda lines=10: _get_terminals_state(session_id, lines),
         "summarizer_params": summarizer_params or {},
         "patchrewriter_params": patchrewriter_params or {},
+        "on_sampler_usage": _make_sampler_usage_tracker(session_id, "tool"),
     }
 
     actual_tool_map = tool_map if tool_map is not None else _TOOL_MAP
@@ -220,6 +222,7 @@ def _execute_tools(
                             _fixed = attempt_patch_fix(
                                 _contents, _patch, _on_rw_progress,
                                 patchrewriter_params=patchrewriter_params or {},
+                                on_usage=_make_sampler_usage_tracker(session_id, "patch_rewriter"),
                             )
                             if _fixed is not None:
                                 # Mutate in-place so tool_record.args also reflects

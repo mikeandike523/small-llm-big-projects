@@ -15,6 +15,7 @@ from src.ui_connector.app import socketio
 from src.ui_connector.socket_handler_components.emit import (
     _emit_and_log,
     _emit_backend_log,
+    _make_sampler_usage_tracker,
 )
 from src.ui_connector.socket_handler_components.session_store import (
     _load_session,
@@ -664,6 +665,8 @@ def handle_user_message(data: dict):
     return_value_max_chars: int | None = llm_config["system_params"].get(
         "return_value_max_chars"
     )
+    blank_response_retries: int = llm_config["system_params"].get("blank_response_retries") or 0
+    model_temperature: float | None = (llm_config.get("model_params") or {}).get("temperature")
     watchdog_params: dict = llm_config.get("watchdog_params") or {}
     summarizer_params: dict = llm_config.get("summarizer_params") or {}
 
@@ -689,7 +692,13 @@ def handle_user_message(data: dict):
         _loop_for_watchdog = asyncio.new_event_loop()
         try:
             _is_cont = _loop_for_watchdog.run_until_complete(
-                _is_continuation(streaming_llm, session, text, watchdog_params)
+                _is_continuation(
+                    streaming_llm,
+                    session,
+                    text,
+                    watchdog_params,
+                    on_usage=_make_sampler_usage_tracker(session_id, "continuation"),
+                )
             )
         except Exception as _wdog_exc:
             logger.warning("Continuation watchdog error: %s", _wdog_exc)
@@ -757,7 +766,12 @@ def handle_user_message(data: dict):
     _state._cancel_loops[session_id] = loop
 
     async def _fetch_and_store_title() -> None:
-        title = await _fetch_task_title(streaming_llm, text, watchdog_params)
+        title = await _fetch_task_title(
+            streaming_llm,
+            text,
+            watchdog_params,
+            on_usage=_make_sampler_usage_tracker(session_id, "task_title"),
+        )
         if title:
             current_turn.task_title = title
             _emit_and_log(
@@ -782,6 +796,8 @@ def handle_user_message(data: dict):
                 watchdog_params=watchdog_params,
                 summarizer_params=summarizer_params,
                 patchrewriter_params=llm_config.get("patchrewriter_params") or {},
+                blank_response_retries=blank_response_retries,
+                model_temperature=model_temperature,
             )
             if _had_tool_calls and not current_turn.task_title:
                 await _fetch_and_store_title()
@@ -848,6 +864,8 @@ def handle_force_continuation(data: dict):
     return_value_max_chars: int | None = llm_config["system_params"].get(
         "return_value_max_chars"
     )
+    blank_response_retries: int = llm_config["system_params"].get("blank_response_retries") or 0
+    model_temperature: float | None = (llm_config.get("model_params") or {}).get("temperature")
     watchdog_params: dict = llm_config.get("watchdog_params") or {}
     summarizer_params: dict = llm_config.get("summarizer_params") or {}
 
@@ -922,6 +940,8 @@ def handle_force_continuation(data: dict):
                 watchdog_params=watchdog_params,
                 summarizer_params=summarizer_params,
                 patchrewriter_params=llm_config.get("patchrewriter_params") or {},
+                blank_response_retries=blank_response_retries,
+                model_temperature=model_temperature,
             )
         except asyncio.CancelledError:
             cancel_event.set()

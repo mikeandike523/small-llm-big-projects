@@ -35,8 +35,9 @@ const SAMPLER_FIELDS: { suffix: string }[] = [
 
 // System params: full param name, which data bucket to read from, and the key within that bucket.
 const SYSTEM_PARAMS: { name: string; ns: string; suffix: string; bucketKey: string; bucket: keyof ParamsData }[] = [
-  { name: "model.irat",                   ns: "model",  suffix: "irat",                   bucketKey: "irat",                         bucket: "model"  },
-  { name: "system.return_value_max_chars", ns: "system", suffix: "return_value_max_chars",  bucketKey: "system.return_value_max_chars", bucket: "system" },
+  { name: "model.irat",                      ns: "model",  suffix: "irat",                      bucketKey: "irat",                            bucket: "model"  },
+  { name: "system.return_value_max_chars",   ns: "system", suffix: "return_value_max_chars",   bucketKey: "system.return_value_max_chars",   bucket: "system" },
+  { name: "system.blank_response_retries",   ns: "system", suffix: "blank_response_retries",   bucketKey: "system.blank_response_retries",   bucket: "system" },
 ];
 
 // ── styles ─────────────────────────────────────────────────────────────────

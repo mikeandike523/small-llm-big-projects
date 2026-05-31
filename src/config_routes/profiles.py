@@ -52,6 +52,11 @@ _PARAM_SPECS: dict[str, dict[str, Any]] = {
         "min": 1,
         "description": "Maximum inline tool return characters before stubbing.",
     },
+    "system.blank_response_retries": {
+        "value_type": "integer",
+        "min": 0,
+        "description": "Silent LLM retries on blank response before injecting a todo nudge.",
+    },
 }
 
 # Auto-generate specs for the three sampler namespaces from the model.* specs.

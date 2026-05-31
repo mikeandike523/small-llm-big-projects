@@ -50,6 +50,7 @@ class FetchResult:
     content: str
     reasoning: str
     tool_calls: list[ToolCall] = field(default_factory=list)
+    usage: dict | None = None
 
     @property
     def has_tool_calls(self) -> bool:
@@ -274,5 +275,11 @@ class StreamingLLM:
             logger.error(colored(r.text, "red"))
         r.raise_for_status()
 
-        content, reasoning, tool_calls = self._adapter.parse_response(r.json())
-        return FetchResult(content=content, reasoning=reasoning, tool_calls=tool_calls)
+        resp_json = r.json()
+        content, reasoning, tool_calls = self._adapter.parse_response(resp_json)
+        return FetchResult(
+            content=content,
+            reasoning=reasoning,
+            tool_calls=tool_calls,
+            usage=resp_json.get("usage"),
+        )

@@ -13,6 +13,7 @@ import src.ui_connector.socket_handler_components.state as _state
 from src.ui_connector.socket_handler_components.emit import (
     _emit_and_log,
     _emit_backend_log,
+    _make_sampler_usage_tracker,
 )
 from src.ui_connector.socket_handler_components.session_store import (
     _save_session,
@@ -59,6 +60,8 @@ async def _async_agent_loop(
     watchdog_params: dict | None = None,
     summarizer_params: dict | None = None,
     patchrewriter_params: dict | None = None,
+    blank_response_retries: int = 0,
+    model_temperature: float | None = None,
 ) -> None:
     """
     Main agentic loop. Runs inside a private asyncio event loop in the SocketIO thread.
@@ -72,6 +75,7 @@ async def _async_agent_loop(
     was_cancelled = False
     last_assistant_content = ""
     turn_completed = False
+    blank_retry_count = 0
 
     session_tool_defs = _get_session_tool_defs(session_id)
     session_tool_map = _get_session_tool_map(session_id)
@@ -95,6 +99,7 @@ async def _async_agent_loop(
             current_subturn.user_text,
             skill_registry,
             watchdog_params or {},
+            on_usage=_make_sampler_usage_tracker(session_id, "skill_selector"),
         )
         current_turn.selected_skill_ids = [e["id"] for e in selected_skills]
 
@@ -285,14 +290,25 @@ async def _async_agent_loop(
                 continue
 
             # Blank response guard: model emitted no content and no tool calls.
-            # Inject a todo-nudge once to get it back on track; if still blank, give up.
             if not content_for_history.strip():
-                if not blank_nudge_sent:
-                    blank_nudge_sent = True
+                # Silent retry: re-run without appending anything to history.
+                # Skip retries when temperature=0 (deterministic — would loop forever).
+                temp_allows_retry = model_temperature is None or model_temperature > 0
+                if temp_allows_retry and blank_retry_count < blank_response_retries:
+                    blank_retry_count += 1
                     _emit_backend_log(
                         session_id,
                         colored("[WARNING]", "yellow")
-                        + " Blank response with no tool calls — injecting todo nudge",
+                        + f" Blank response — silent retry {blank_retry_count}/{blank_response_retries}",
+                    )
+                    continue
+                if not blank_nudge_sent:
+                    blank_nudge_sent = True
+                    blank_retry_count = 0
+                    _emit_backend_log(
+                        session_id,
+                        colored("[WARNING]", "yellow")
+                        + " Blank response — injecting todo nudge",
                     )
                     nudge_exchange = LLMExchange(
                         assistant_content="",
@@ -308,12 +324,13 @@ async def _async_agent_loop(
                 _emit_backend_log(
                     session_id,
                     colored("[WARNING]", "yellow")
-                    + " Second consecutive blank response — skipping nudge, handing off to standard exit logic",
+                    + " Second consecutive blank response — handing off to standard exit logic",
                 )
                 # Fall through to unclosed-todo / final-reprompt / message_done paths.
 
             # No tool calls — this is a non-tool assistant response.
             blank_nudge_sent = False
+            blank_retry_count = 0
             is_candidate = False
             if content_for_history and content_for_history.strip():
                 is_candidate = await _is_sufficient_final_answer(
@@ -323,6 +340,7 @@ async def _async_agent_loop(
                     current_subturn,
                     content_for_history,
                     watchdog_params or {},
+                    on_usage=_make_sampler_usage_tracker(session_id, "final_answer"),
                 )
                 if is_candidate:
                     pending_final_candidate = (content_for_history, reasoning)

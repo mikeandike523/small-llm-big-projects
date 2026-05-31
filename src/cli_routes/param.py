@@ -75,6 +75,18 @@ _PARAM_DOCS["model.irat"] = {
         "Typically set to match the active model. If not set, defaults to false."
     ),
 }
+_PARAM_DOCS["system.blank_response_retries"] = {
+    "type": "integer >= 0",
+    "description": (
+        "Number of silent LLM retries before injecting a todo-nudge when the model "
+        "emits a blank response with no tool calls. "
+        "Silent retries do not append anything to conversation history so the model "
+        "gets a fresh chance to respond. "
+        "Retries are skipped when model.temperature is 0 (deterministic -- retrying would loop forever). "
+        "0 = no silent retries, nudge immediately (default). "
+        "Typical useful range: 1-2."
+    ),
+}
 _PARAM_DOCS["system.return_value_max_chars"] = {
     "type": "integer > 0",
     "description": (
@@ -117,6 +129,19 @@ def _parse_and_validate(name: str, raw_value: str):
             raise click.BadParameter(
                 f"{name} must be a JSON object (got {type(value).__name__})",
                 param_hint="value",
+            )
+        return value
+
+    if name == "system.blank_response_retries":
+        try:
+            value = int(raw_value)
+        except ValueError:
+            raise click.BadParameter(
+                f"value for '{name}' must be an integer", param_hint="value"
+            )
+        if value < 0:
+            raise click.BadParameter(
+                f"value for '{name}' must be >= 0", param_hint="value"
             )
         return value
 

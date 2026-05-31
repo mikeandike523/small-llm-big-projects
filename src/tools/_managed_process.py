@@ -36,6 +36,7 @@ def run_command_streaming(
     autoresponses: list[AutoResponse] | None = None,
     hang_timeout: int | None = None,
     on_log: Callable[[str], None] | None = None,
+    on_sampler_usage=None,
     tool_name: str = "host_shell",
     timeout_hint: str | None = None,
     cancel_event: threading.Event | None = None,
@@ -251,6 +252,7 @@ def run_command_streaming(
                         triage_count,
                         hang_timeout=hang_timeout,
                         start_time=start_time,
+                        on_usage=on_sampler_usage,
                     ):
                         break  # triage decided to kill — watchdog exits
                     # triage extended the timer — continue the loop

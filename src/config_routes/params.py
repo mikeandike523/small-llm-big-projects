@@ -10,7 +10,7 @@ from src.utils.param_registry import ALLOWED_PARAMS
 from src.cli_routes.param import _parse_and_validate
 
 _NAMESPACES = ("model", "watchdog.model", "summarizer.model", "patchrewriter.model")
-_SYSTEM_KEYS = ("system.return_value_max_chars",)
+_SYSTEM_KEYS = ("system.return_value_max_chars", "system.blank_response_retries")
 _MODEL_EXTRA = ("model.irat",)
 
 

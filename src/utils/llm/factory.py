@@ -163,16 +163,28 @@ def load_llm_config(profile_name: str | None = None) -> dict | None:
     }
 
 
-def _call_sampler(llm: StreamingLLM, messages: list[dict], sampler_params: dict):
+def _call_sampler(
+    llm: StreamingLLM,
+    messages: list[dict],
+    sampler_params: dict,
+    on_usage=None,
+):
     """Invoke llm.fetch() with a sampler params dict.
 
     max_tokens is extracted and passed as a kwarg; the remaining keys are
     forwarded as the parameters dict (API params like temperature/top_p/top_k,
     plus any extra keys merged in from request_extra_params).
+    on_usage(usage_dict) is called if provided and the response carries usage data.
     """
     max_tokens = sampler_params.get("max_tokens")
     api_params = {k: v for k, v in sampler_params.items() if k != "max_tokens"}
-    return llm.fetch(messages, max_tokens=max_tokens, parameters=api_params)
+    result = llm.fetch(messages, max_tokens=max_tokens, parameters=api_params)
+    if on_usage is not None and result.usage is not None:
+        try:
+            on_usage(result.usage)
+        except Exception:
+            pass
+    return result
 
 
 def make_llm_from_config(
