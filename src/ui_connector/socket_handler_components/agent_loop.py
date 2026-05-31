@@ -339,7 +339,7 @@ async def _async_agent_loop(
                 # Fall through to unclosed-todo / final-reprompt / message_done paths.
 
             # No tool calls — this is a non-tool assistant response.
-            if blank_retry_count > 0:
+            if blank_retry_count > 0 and content_for_history.strip():
                 _emit_backend_log(
                     session_id,
                     colored("[INFO]", "green")

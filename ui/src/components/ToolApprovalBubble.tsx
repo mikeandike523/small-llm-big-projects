@@ -36,6 +36,8 @@ const approvalToolNameCss = css`
 const approvalArgsCss = css`
   min-width: 0;
   flex: 1;
+  display: flex;
+  flex-direction: column;
 `;
 
 const approvalArgsAndDiffContainerCss = css`
@@ -247,17 +249,11 @@ export default function ToolApprovalBubble({
   const isTextEditorPatch =
     item.tool_name === "text_editor" && item.args.action === "apply_patch";
   const isWriteTextFile = item.tool_name === "write_text_file";
-  const isSessionMemorySet =
-    item.tool_name === "session_memory" && item.args.action === "set";
-  const wantsDiffPreview = isTextEditorPatch || isWriteTextFile || isSessionMemorySet;
+  const wantsDiffPreview = isTextEditorPatch || isWriteTextFile;
 
   const diffLabel: string | null = (() => {
-    if (isTextEditorPatch) {
-      if (item.args.filepath) return `File(${item.args.filepath as string})`;
-      if (item.args.key) return `Memory Item (key="${item.args.key as string}")`;
-    }
+    if (isTextEditorPatch) return `File(${item.args.filepath as string})`;
     if (isWriteTextFile) return `File(${item.args.path as string})`;
-    if (isSessionMemorySet) return `Memory Item (key="${item.args.key as string}")`;
     return null;
   })();
 
@@ -277,19 +273,12 @@ export default function ToolApprovalBubble({
         patch: item.args.patch as string,
         session_id: sessionId,
       };
-    } else if (isWriteTextFile) {
+    } else {
       url = `${window.location.origin}/api/tool-preview/write-text-file`;
       body = {
         path: item.args.path as string,
         content: item.args.content as string | undefined,
         session_memory_key: item.args.session_memory_key as string | undefined,
-        session_id: sessionId,
-      };
-    } else {
-      url = `${window.location.origin}/api/tool-preview/session-memory`;
-      body = {
-        key: item.args.key as string,
-        value: item.args.value as string,
         session_id: sessionId,
       };
     }
@@ -327,7 +316,7 @@ export default function ToolApprovalBubble({
       <div css={approvalArgsAndDiffContainerCss}>
         {Object.keys(item.args).length > 0 && (
           <div css={approvalArgsCss}>
-            <JsonArgsViewer args={item.args} />
+            <JsonArgsViewer args={item.args} toolName={item.tool_name} />
           </div>
         )}
         {wantsDiffPreview && diffStatus !== "idle" && (

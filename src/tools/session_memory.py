@@ -174,10 +174,6 @@ def dirty_effects(args: dict) -> dict:
 
 
 def needs_approval(args: dict, session_data: dict | None = None) -> bool:
-    if args.get("action") == "set" and args.get("key"):
-        if session_data:
-            memory = session_data.get("memory") or {}
-            return args["key"] in memory
     return False
 
 
