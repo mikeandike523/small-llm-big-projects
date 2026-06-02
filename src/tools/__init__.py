@@ -8,6 +8,7 @@ import traceback
 from src.utils.exceptions import ToolHangError, ToolTimeoutError
 from src.tools import basic_web_request
 from src.tools import code_interpreter
+from src.tools import dom_analyzer
 from src.tools import brave_web_search
 from src.tools import change_pwd
 from src.tools import create_dir
@@ -72,6 +73,7 @@ def _inject_framework_params(module: object, definition: dict) -> dict:
 ALL_TOOL_DEFINITIONS: list[dict] = [
     _inject_framework_params(basic_web_request, basic_web_request.DEFINITION),
     _inject_framework_params(code_interpreter, code_interpreter.DEFINITION),
+    _inject_framework_params(dom_analyzer, dom_analyzer.DEFINITION),
     _inject_framework_params(brave_web_search, brave_web_search.DEFINITION),
     _inject_framework_params(change_pwd, change_pwd.DEFINITION),
     _inject_framework_params(create_dir, create_dir.DEFINITION),
@@ -107,6 +109,7 @@ ALL_TOOL_DEFINITIONS: list[dict] = [
 _TOOL_MAP: dict[str, object] = {
     "basic_web_request": basic_web_request,
     "code_interpreter": code_interpreter,
+    "dom_analyzer": dom_analyzer,
     "brave_web_search": brave_web_search,
     "change_pwd": change_pwd,
     "create_dir": create_dir,

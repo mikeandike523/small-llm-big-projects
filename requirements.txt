@@ -21,6 +21,8 @@ pyte
 pytest-timeout
 tqdm
 numpy
+beautifulsoup4
+lxml
 
 # Dev dependencies
 black
