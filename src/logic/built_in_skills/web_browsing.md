@@ -2,32 +2,38 @@
 
 ### Workflow
 
-**1. Search** — Use `brave_web_search` to get results with URLs, titles, and descriptions. Use `freshness` for up-to-date info.
+**1. Search** — `brave_web_search` for URLs, titles, descriptions. Use `freshness` for recent info.
 
-**2. Answer if ready** — If the facts are sufficient to answer the question, respond directly without scraping.
+**2. Answer if ready** — If results are sufficient, respond without scraping.
 
-**3. Scrape for more info** — Fetch a URL from the results:
-- `scrape_web_page(url=..., target='session_memory', memory_key='page_raw')` — general web pages
-- `wikipedia(url=..., target='session_memory', memory_key='page_raw', mode='full')` — Wikipedia (prefer over `scrape_web_page` for wikipedia.org URLs)
+**3. Scrape** — Always write to session memory to avoid flooding context:
+- `scrape_web_page(url=..., target='session_memory', memory_key='page_raw')` — general pages (default format is `raw`)
+- `wikipedia(url=..., target='session_memory', memory_key='page_raw', mode='full')` — Wikipedia
 
-Always use `target='session_memory'` — never return large web content inline; it wastes context.
+**4. Extract** — Choose based on what you need:
 
-**4. Extract what you need** from the scraped content:
-- `summarize_memory_item(memory_key='page_raw', query='...', output_key='page_summary')` — focused LLM summary; best for concise answers.
-- `text_editor(action="search_by_regex", key='page_raw', ...)` — find specific sections without reading everything.
-- `line_reader(action="count_lines"/"read_lines", session_memory_key='page_raw')` — page through raw content; best for structured content.
+- **`dom_analyzer` (preferred for HTML)** — structured navigation with controlled context use. Recommended workflow:
+  1. `preview` with a low `depth` and small `truncate_chars` to orient yourself
+  2. `find_nodes` with a CSS selector to locate target elements
+  3. `get_node` / `get_attribute` with tight `truncate_chars` for initial inspection — set `truncate_chars=0` only for the specific node you've confirmed you need
+  - Especially useful for extracting image `src` attributes when cataloging or caching images from a page (`find_nodes(selector='img')` then `get_attribute(..., attribute='src')`)
 
-**5. Answer** — Collect your research and respond.
+- **`summarize_memory_item`** — focused LLM summary; best for prose answers from large pages.
+- **`session_memory(action="search_by_regex")`** — find specific sections in non-HTML content.
+- **`line_reader`** — page through raw content when structure isn't needed.
+
+**5. Answer** — Collect research and respond.
 
 ### Tools
 
-- `brave_web_search` — Brave Search API. Returns condensed results with URLs, titles, descriptions. Requires a `brave` service token.
-- `scrape_web_page` — Respectful HTML scraping with user-agent, robots.txt checking, and rate-limit jitter.
-- `wikipedia` — Clean plain-text extraction via the Wikimedia API (no key needed). Use `mode='intro'` for a quick summary, `mode='full'` for the complete article.
-- `summarize_memory_item` — Out-of-band LLM call to summarize a session memory item with respect to a query. Pass `output_key` to write the summary to a new key instead of returning inline.
+- `brave_web_search` — Brave Search API; condensed URL/title/description results. Requires a `brave` service token.
+- `scrape_web_page` — Respectful scraping with robots.txt, user-agent, and rate-limit jitter. Default format is `raw`.
+- `wikipedia` — Clean text via Wikimedia API (no key). `mode='intro'` for a quick summary, `mode='full'` for the full article.
+- `dom_analyzer` — Analyzes raw HTML stored in session memory. Use `preview` → `find_nodes` → `get_node`/`get_attribute` with truncation control.
+- `summarize_memory_item` — Out-of-band LLM summary of a session memory item focused on a query.
 
 ### Tips
 
-- Scrape only a few pages at a time — read their content before deciding whether to fetch more.
-- You may not need every URL to get a clear picture — focus on relevance.
-- If you notice relevant URLs in scraped pages, follow them by scraping and summarizing the same way.
+- Scrape a few pages at a time; read their content before deciding whether to fetch more.
+- Always start `dom_analyzer` with conservative truncation — expand only once you've located the exact node you need.
+- For image cataloging: `find_nodes(selector='img', limit=0)` then retrieve each `src` via `get_attribute` using the returned paths or `:nth-child()` selectors.

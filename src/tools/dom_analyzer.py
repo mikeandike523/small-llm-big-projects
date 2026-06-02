@@ -8,7 +8,8 @@ from src.tools._memory import ensure_session_memory
 
 NO_STUB = True
 
-_DEFAULT_TRUNCATE = 300
+DEFAULT_TRUNCATION_CHARS = 300
+DEFAULT_ITEM_LIMIT = 30
 
 DEFINITION: dict = {
     "type": "function",
@@ -16,9 +17,11 @@ DEFINITION: dict = {
         "name": "dom_analyzer",
         "description": (
             "Analyze HTML stored in session memory. "
-            "First use scrape_web_page with format='raw' and target='session_memory' to capture the raw HTML. "
-            "All results are truncated by default to save context — use full=true to see complete content. "
-            "Typical workflow: preview to orient, find_nodes to locate, get_node to inspect content."
+            "First use scrape_web_page with target='session_memory' to capture the raw HTML. "
+            f"Results are truncated to {DEFAULT_TRUNCATION_CHARS} chars by default; set truncate_chars=0 to disable. "
+            f"find_nodes returns up to {DEFAULT_ITEM_LIMIT} results by default; set limit=0 for unlimited. "
+            "get_attribute is never truncated. "
+            "Typical workflow: preview to orient, find_nodes to locate, get_node/get_attribute to inspect."
         ),
         "parameters": {
             "type": "object",
@@ -32,8 +35,8 @@ DEFINITION: dict = {
                     "enum": ["preview", "get_node", "get_attribute", "find_nodes", "list_children"],
                     "description": (
                         "preview: Render the DOM tree with truncated values. Good starting point. "
-                        "get_node: Return the outer HTML of the target node, truncated by default. "
-                        "get_attribute: Return one attribute value (not truncated by default). "
+                        "get_node: Return the outer HTML of the target node, truncated by default. Accepts path or selector. "
+                        "get_attribute: Return one attribute value (not truncated by default). Accepts path or selector. "
                         "find_nodes: Find elements by CSS selector; returns their paths + truncated markup. "
                         "list_children: List immediate element children as paths + key attributes (no markup)."
                     ),
@@ -57,15 +60,14 @@ DEFINITION: dict = {
                 },
                 "selector": {
                     "type": "string",
-                    "description": "CSS selector string. Required for find_nodes.",
-                },
-                "full": {
-                    "type": "boolean",
-                    "description": "Return complete untruncated content. Overrides truncate_chars.",
+                    "description": (
+                        "CSS selector string. Required for find_nodes. "
+                        "For get_node/get_attribute, use instead of path to target the first matching element."
+                    ),
                 },
                 "truncate_chars": {
                     "type": "integer",
-                    "description": f"Max characters in output (default {_DEFAULT_TRUNCATE}). 0 = no truncation. Ignored if full=true.",
+                    "description": f"Max characters per node in output (default {DEFAULT_TRUNCATION_CHARS}). Set to 0 to disable truncation.",
                     "minimum": 0,
                 },
                 "depth": {
@@ -75,9 +77,8 @@ DEFINITION: dict = {
                 },
                 "limit": {
                     "type": "integer",
-                    "description": "Max results for find_nodes (default 20, max 200).",
-                    "minimum": 1,
-                    "maximum": 200,
+                    "description": f"Max results for find_nodes (default {DEFAULT_ITEM_LIMIT}). Set to 0 for unlimited.",
+                    "minimum": 0,
                 },
                 "output_key": {
                     "type": "string",
@@ -181,9 +182,7 @@ def _node_to_path(node, soup) -> list[str]:
 
 def _tc(args: dict) -> int:
     """Effective truncation length. 0 = unlimited."""
-    if args.get("full"):
-        return 0
-    return args.get("truncate_chars", _DEFAULT_TRUNCATE)
+    return args.get("truncate_chars", DEFAULT_TRUNCATION_CHARS)
 
 
 def _trunc(s: str, n: int) -> str:
@@ -269,12 +268,46 @@ def _action_preview(soup, args: dict) -> str:
     return "\n".join(lines) if lines else "(empty)"
 
 
+def _check_selector_path_conflict(args: dict):
+    """Return error string if both selector and path are provided, else None."""
+    if args.get("selector") and args.get("path"):
+        return "Provide either 'selector' or 'path', not both."
+    return None
+
+
+def _resolve_path_arg(soup, args: dict):
+    """Return (node, error_str|None) via path resolution (no selector logic)."""
+    return _resolve_path(soup, args.get("path") or [])
+
+
 def _action_get_node(soup, args: dict, session_data: dict) -> str:
     from bs4 import Tag, NavigableString
 
-    path = args.get("path") or []
     output_key = args.get("output_key")
-    node, err = _resolve_path(soup, path)
+    conflict = _check_selector_path_conflict(args)
+    if conflict:
+        return f"Error: {conflict}"
+
+    selector = args.get("selector")
+    if selector:
+        try:
+            matches = soup.select(selector)
+        except Exception as e:
+            return f"Error: Invalid CSS selector '{selector}': {e}"
+        if not matches:
+            return f"Error: No element matched selector '{selector}'."
+        tc = _tc(args)
+        if len(matches) == 1:
+            result = _trunc(str(matches[0]), tc)
+        else:
+            parts = [f"[{i}] {_trunc(str(n), tc)}" for i, n in enumerate(matches)]
+            result = "\n\n".join(parts)
+        if output_key:
+            ensure_session_memory(session_data)[output_key] = result
+            return f"Node content written to session memory key '{output_key}'."
+        return result
+
+    node, err = _resolve_path_arg(soup, args)
     if err:
         return f"Error: {err}"
 
@@ -295,15 +328,34 @@ def _action_get_node(soup, args: dict, session_data: dict) -> str:
 def _action_get_attribute(soup, args: dict, session_data: dict) -> str:
     from bs4 import Tag
 
-    path = args.get("path") or []
     attribute = args.get("attribute")
     output_key = args.get("output_key")
 
     if not attribute:
         return "Error: 'attribute' is required for get_attribute."
-    node, err = _resolve_path(soup, path)
-    if err:
-        return f"Error: {err}"
+    conflict = _check_selector_path_conflict(args)
+    if conflict:
+        return f"Error: {conflict}"
+
+    selector = args.get("selector")
+    if selector:
+        try:
+            matches = soup.select(selector)
+        except Exception as e:
+            return f"Error: Invalid CSS selector '{selector}': {e}"
+        if not matches:
+            return f"Error: No element matched selector '{selector}'."
+        if len(matches) > 1:
+            return (
+                f"Error: Selector '{selector}' matched {len(matches)} elements. "
+                "get_attribute requires a single target — use a more specific selector, "
+                ":nth-child(), or the 'path' argument."
+            )
+        node = matches[0]
+    else:
+        node, err = _resolve_path_arg(soup, args)
+        if err:
+            return f"Error: {err}"
     if not isinstance(node, Tag) or node.name == "[document]":
         return "Error: path points to document root or a text node, not an element."
 
@@ -320,7 +372,7 @@ def _action_get_attribute(soup, args: dict, session_data: dict) -> str:
 
 def _action_find_nodes(soup, args: dict) -> str:
     selector = args.get("selector")
-    limit = min(args.get("limit", 20), 200)
+    raw_limit = args.get("limit", DEFAULT_ITEM_LIMIT)
     tc = _tc(args)
 
     if not selector:
@@ -333,6 +385,7 @@ def _action_find_nodes(soup, args: dict) -> str:
         return f"No elements matched '{selector}'."
 
     total = len(matches)
+    limit = total if raw_limit == 0 else raw_limit
     lines = [f"Found {total} match(es) for '{selector}' (showing {min(total, limit)}):"]
     for i, node in enumerate(matches[:limit]):
         path = _node_to_path(node, soup)

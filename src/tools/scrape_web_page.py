@@ -107,10 +107,10 @@ DEFINITION: dict = {
                     "enum": ["xml", "markdown", "text", "raw"],
                     "description": (
                         "Readable output format. "
-                        "'xml' (default) extracts structured content as trafilatura XML -- reliable and well-delimited. "
+                        "'raw' (default) returns the original response body -- use this when you plan to analyze the HTML with dom_analyzer. "
+                        "'xml' extracts structured content as trafilatura XML -- reliable and well-delimited. "
                         "'markdown' extracts and formats the main page content as Markdown. "
-                        "'text' extracts plain text. "
-                        "'raw' returns the original response body without readability post-processing."
+                        "'text' extracts plain text."
                     ),
                 },
                 "target": {
@@ -314,7 +314,7 @@ def execute(args: dict, session_data: dict | None = None) -> str:
     check_robots_flag: bool = args.get("check_robots", True)
     accept: str | None = args.get("accept")
     language: str | None = args.get("language")
-    output_format: Literal["xml", "markdown", "text", "raw"] = args.get("format", "xml")
+    output_format: Literal["xml", "markdown", "text", "raw"] = args.get("format", "raw")
     target: str = args.get("target", "return_value")
     memory_key: str | None = args.get("memory_key")
     apply_filters: bool = args.get("apply_basic_filters", True)
