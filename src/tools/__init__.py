@@ -331,13 +331,14 @@ def load_custom_tools(
     tools_dir: str,
     workspace_root: str | None = None,
     session_prefix: str = "",
-) -> tuple[list[dict], dict, list[dict]]:
+) -> tuple[list[dict], dict, list[dict], dict]:
     """
     Load custom tool plugins from tools_dir.
 
-    Returns (extra_definitions, extra_tool_map, plugin_info_list).
+    Returns (extra_definitions, extra_tool_map, plugin_info_list, custom_exclusions).
     extra_definitions and extra_tool_map contain only the newly loaded tools —
-    callers merge them with the base ALL_TOOL_DEFINITIONS / _TOOL_MAP.
+    callers merge them with the base ALL_TOOL_DEFINITIONS / _TOOL_MAP after applying
+    custom_exclusions (same format as _exclude_builtin_tools.EXCLUDE).
 
     session_prefix is prepended to sys.modules keys to prevent collisions when
     multiple sessions load tools from the same path simultaneously.
@@ -366,6 +367,28 @@ def load_custom_tools(
             sys.modules.pop(tools_init_module_name, None)
             raise RuntimeError(
                 f"Failed to execute tools/__init__.py at {tools_init!r}: {e}"
+            ) from e
+
+    # Load optional _exclude_builtin_tools.py from the tools dir root.
+    custom_exclusions: dict = {}
+    exclude_file = os.path.join(tools_dir, "_exclude_builtin_tools.py")
+    if os.path.isfile(exclude_file):
+        excl_module_name = f"_slbp_{session_prefix}_exclude_builtin_tools"
+        try:
+            excl_spec = importlib.util.spec_from_file_location(excl_module_name, exclude_file)
+            excl_module = importlib.util.module_from_spec(excl_spec)
+            excl_spec.loader.exec_module(excl_module)
+            loaded = getattr(excl_module, "EXCLUDE", {})
+            if not isinstance(loaded, dict):
+                raise RuntimeError(
+                    f"_exclude_builtin_tools.py at {exclude_file!r} must define EXCLUDE as a dict."
+                )
+            custom_exclusions = loaded
+        except RuntimeError:
+            raise
+        except Exception as e:
+            raise RuntimeError(
+                f"Failed to load _exclude_builtin_tools.py at {exclude_file!r}: {e}"
             ) from e
 
     try:
@@ -495,4 +518,4 @@ def load_custom_tools(
             }
         )
 
-    return extra_defs, extra_map, plugins
+    return extra_defs, extra_map, plugins, custom_exclusions

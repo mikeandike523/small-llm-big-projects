@@ -67,13 +67,16 @@ def _init_session_caches(session: Session, session_id: str) -> None:
     if session_id not in _state._session_tool_sets:
         if session.custom_tools_path:
             try:
-                extra_defs, extra_map, plugins = load_custom_tools(
+                extra_defs, extra_map, plugins, custom_exclusions = load_custom_tools(
                     tools_dir=session.custom_tools_path,
                     workspace_root=session.initial_cwd or None,
                     session_prefix=session_id[:8],
                 )
-                tool_defs = list(ALL_TOOL_DEFINITIONS) + extra_defs
-                tool_map = {**_TOOL_MAP, **extra_map}
+                _excl_load = {n for n, f in custom_exclusions.items() if f.get("loading")}
+                base_defs = [d for d in ALL_TOOL_DEFINITIONS if d.get("function", {}).get("name") not in _excl_load]
+                base_map = {k: v for k, v in _TOOL_MAP.items() if k not in _excl_load}
+                tool_defs = base_defs + extra_defs
+                tool_map = {**base_map, **extra_map}
             except RuntimeError as exc:
                 logger.error(
                     "Custom tool loading failed for session %s: %s", session_id, exc

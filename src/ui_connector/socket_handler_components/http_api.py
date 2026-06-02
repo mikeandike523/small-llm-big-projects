@@ -145,14 +145,17 @@ def api_create_session():
     # Pre-validate and cache custom tools so errors surface at creation time.
     if custom_tools_path:
         try:
-            extra_defs, extra_map, plugins = load_custom_tools(
+            extra_defs, extra_map, plugins, custom_exclusions = load_custom_tools(
                 tools_dir=custom_tools_path,
                 workspace_root=initial_cwd or None,
                 session_prefix=session_id[:8],
             )
+            _excl_load = {n for n, f in custom_exclusions.items() if f.get("loading")}
+            base_defs = [d for d in ALL_TOOL_DEFINITIONS if d.get("function", {}).get("name") not in _excl_load]
+            base_map = {k: v for k, v in _TOOL_MAP.items() if k not in _excl_load}
             _state._session_tool_sets[session_id] = (
-                list(ALL_TOOL_DEFINITIONS) + extra_defs,
-                {**_TOOL_MAP, **extra_map},
+                base_defs + extra_defs,
+                {**base_map, **extra_map},
                 plugins,
             )
         except RuntimeError as exc:
