@@ -70,6 +70,62 @@ def test_custom_skill_cannot_override_builtin(tmp_path: Path) -> None:
         build_skill_registry(str(tmp_path))
 
 
+def test_exclude_builtin_skills_removes_them_from_registry(tmp_path: Path) -> None:
+    _write(
+        tmp_path / "skills.json",
+        '{"excludeBuiltinSkills": ["coding"]}',
+    )
+
+    registry = build_skill_registry(str(tmp_path))
+    ids = {e["id"] for e in registry}
+    assert "coding" not in ids
+    assert "web_browsing" in ids
+
+
+def test_exclude_builtin_skills_alongside_custom_skills(tmp_path: Path) -> None:
+    _write(tmp_path / "my_tool.md", "# My Tool\n\nDoes things.\n")
+    _write(
+        tmp_path / "skills.json",
+        """{
+  "excludeBuiltinSkills": ["coding"],
+  "my_tool": {
+    "name": "My Tool",
+    "blurb": "Does things.",
+    "dependencies": [],
+    "autoload": false
+  }
+}""",
+    )
+
+    registry = build_skill_registry(str(tmp_path))
+    ids = {e["id"] for e in registry}
+    assert "coding" not in ids
+    assert "web_browsing" in ids
+    assert "my_tool" in ids
+
+
+def test_exclude_builtin_skills_unknown_id_is_silently_ignored(tmp_path: Path) -> None:
+    _write(
+        tmp_path / "skills.json",
+        '{"excludeBuiltinSkills": ["nonexistent_skill"]}',
+    )
+
+    registry = build_skill_registry(str(tmp_path))
+    ids = {e["id"] for e in registry}
+    assert "coding" in ids
+    assert "web_browsing" in ids
+
+
+def test_exclude_builtin_skills_invalid_type_raises(tmp_path: Path) -> None:
+    _write(
+        tmp_path / "skills.json",
+        '{"excludeBuiltinSkills": "coding"}',
+    )
+
+    with pytest.raises(SkillManifestError, match="must be a list of strings"):
+        build_skill_registry(str(tmp_path))
+
+
 def test_autoload_and_cycles_resolve_without_recursing_forever() -> None:
     registry = [
         {

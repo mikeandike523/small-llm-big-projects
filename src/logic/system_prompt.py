@@ -100,6 +100,9 @@ def _load_manifest_entries(manifest_path: str) -> dict[str, dict]:
     if isinstance(raw, dict) and "skills" in raw:
         raw = raw["skills"]
 
+    if isinstance(raw, dict):
+        raw = {k: v for k, v in raw.items() if k != "excludeBuiltinSkills"}
+
     if not isinstance(raw, dict):
         raise SkillManifestError(
             f"skills.json at {manifest_path} must be an object mapping skill ids to metadata."
@@ -256,6 +259,25 @@ def _validate_registry_entries(registry: list[dict]) -> None:
             )
 
 
+def _read_excluded_builtin_skill_ids(custom_skills_path: str) -> list[str]:
+    manifest_path = os.path.join(custom_skills_path, "skills.json")
+    if not os.path.isfile(manifest_path):
+        return []
+    try:
+        with open(manifest_path, encoding="utf-8") as fh:
+            raw = json.load(fh)
+    except (OSError, json.JSONDecodeError):
+        return []
+    if not isinstance(raw, dict):
+        return []
+    excluded = raw.get("excludeBuiltinSkills", [])
+    if not isinstance(excluded, list) or not all(isinstance(x, str) for x in excluded):
+        raise SkillManifestError(
+            f"excludeBuiltinSkills in {manifest_path} must be a list of strings."
+        )
+    return excluded
+
+
 def build_skill_registry(custom_skills_path: str | None = None) -> list[dict]:
     """Return the manifest-backed built-in/custom skill registry."""
     builtin_registry = _load_skill_tree(
@@ -263,6 +285,12 @@ def build_skill_registry(custom_skills_path: str | None = None) -> list[dict]:
     )
     custom_registry: list[dict] = []
     if custom_skills_path:
+        excluded_ids = set(_read_excluded_builtin_skill_ids(custom_skills_path))
+        if excluded_ids:
+            builtin_registry = [
+                e for e in builtin_registry if e["id"] not in excluded_ids
+            ]
+
         custom_registry = _load_skill_tree(
             custom_skills_path, source="custom", recursive_subdirs=True
         )
