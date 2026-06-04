@@ -312,7 +312,8 @@ def execute_tool(
         return result
 
     from src.redaction.core import redact as _redact
-    file_path = args.get("path") or args.get("filepath") or None
+    _fp = args.get("path") or args.get("filepath") or None
+    file_path = _fp if isinstance(_fp, str) else None
     return _redact(file_path, result)
 
 
