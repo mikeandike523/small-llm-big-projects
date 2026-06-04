@@ -668,6 +668,7 @@ def handle_user_message(data: dict):
         "return_value_max_chars"
     )
     blank_response_retries: int = llm_config["system_params"].get("blank_response_retries") or 0
+    strict_dirty: bool = llm_config["system_params"].get("strict_dirty", True)
     model_temperature: float | None = (llm_config.get("model_params") or {}).get("temperature")
     watchdog_params: dict = llm_config.get("watchdog_params") or {}
     summarizer_params: dict = llm_config.get("summarizer_params") or {}
@@ -804,6 +805,7 @@ def handle_user_message(data: dict):
                 patchrewriter_params=llm_config.get("patchrewriter_params") or {},
                 blank_response_retries=blank_response_retries,
                 model_temperature=model_temperature,
+                strict_dirty=strict_dirty,
             )
             if _had_tool_calls and not current_turn.task_title:
                 await _fetch_and_store_title()
@@ -871,6 +873,7 @@ def handle_force_continuation(data: dict):
         "return_value_max_chars"
     )
     blank_response_retries: int = llm_config["system_params"].get("blank_response_retries") or 0
+    strict_dirty: bool = llm_config["system_params"].get("strict_dirty", True)
     model_temperature: float | None = (llm_config.get("model_params") or {}).get("temperature")
     watchdog_params: dict = llm_config.get("watchdog_params") or {}
     summarizer_params: dict = llm_config.get("summarizer_params") or {}
@@ -948,6 +951,7 @@ def handle_force_continuation(data: dict):
                 patchrewriter_params=llm_config.get("patchrewriter_params") or {},
                 blank_response_retries=blank_response_retries,
                 model_temperature=model_temperature,
+                strict_dirty=strict_dirty,
             )
         except asyncio.CancelledError:
             cancel_event.set()

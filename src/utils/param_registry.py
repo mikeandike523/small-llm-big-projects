@@ -26,6 +26,7 @@ ALLOWED_PARAMS: frozenset[str] = frozenset(
         # System / infra
         "system.return_value_max_chars",
         "system.blank_response_retries",
+        "system.strict_dirty",
     }
     | {f"{ns}.{s}" for ns in _SAMPLER_NAMESPACES for s in _SAMPLER_SUFFIXES}
 )

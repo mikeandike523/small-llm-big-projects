@@ -62,6 +62,7 @@ def _execute_tools(
     subturn_id: str = "",
     summarizer_params: dict | None = None,
     patchrewriter_params: dict | None = None,
+    strict_dirty: bool = True,
 ) -> LLMExchange:
     """
     Execute all tool calls in result, emit events, and build an LLMExchange record.
@@ -137,6 +138,7 @@ def _execute_tools(
             _dirty_error = _dirty_cache.check_requires_clean(
                 session_id, _effects, tc.name,
                 cwd=_state._session_current_cwd.get(session_id),
+                strict=strict_dirty,
             )
             if _dirty_error:
                 tool_record.result = _dirty_error

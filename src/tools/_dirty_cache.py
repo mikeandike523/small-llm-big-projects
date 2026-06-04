@@ -102,26 +102,44 @@ def _display_path(norm_path: str, cwd: str | None) -> str:
     return norm_path
 
 
-def check_requires_clean(session_id: str, effects: dict, tool_name: str, cwd: str | None = None) -> str | None:
-    """Return an error string if any required-clean resource is unseen or dirty, else None."""
+def check_requires_clean(
+    session_id: str,
+    effects: dict,
+    tool_name: str,
+    cwd: str | None = None,
+    strict: bool = True,
+) -> str | None:
+    """Return an error string if any required-clean resource is unseen or dirty, else None.
+
+    When strict=False, only resources that have never been read are blocked;
+    resources that are dirty (modified since last read) are allowed through.
+    """
     unseen_files = [
         _norm(p)
         for p in effects.get("requires_clean_files", [])
         if not has_file_been_seen(session_id, p)
     ]
-    dirty_files = [
-        _norm(p)
-        for p in effects.get("requires_clean_files", [])
-        if has_file_been_seen(session_id, p) and is_file_dirty(session_id, p)
-    ]
+    dirty_files = (
+        [
+            _norm(p)
+            for p in effects.get("requires_clean_files", [])
+            if has_file_been_seen(session_id, p) and is_file_dirty(session_id, p)
+        ]
+        if strict
+        else []
+    )
     unseen_mem = [
         k for k in effects.get("requires_clean_mem", [])
         if not has_mem_been_seen(session_id, k)
     ]
-    dirty_mem = [
-        k for k in effects.get("requires_clean_mem", [])
-        if has_mem_been_seen(session_id, k) and is_mem_dirty(session_id, k)
-    ]
+    dirty_mem = (
+        [
+            k for k in effects.get("requires_clean_mem", [])
+            if has_mem_been_seen(session_id, k) and is_mem_dirty(session_id, k)
+        ]
+        if strict
+        else []
+    )
 
     if not unseen_files and not dirty_files and not unseen_mem and not dirty_mem:
         return None

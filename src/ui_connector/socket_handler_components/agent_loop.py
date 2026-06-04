@@ -64,6 +64,7 @@ async def _async_agent_loop(
     patchrewriter_params: dict | None = None,
     blank_response_retries: int = 0,
     model_temperature: float | None = None,
+    strict_dirty: bool = True,
 ) -> None:
     """
     Main agentic loop. Runs inside a private asyncio event loop in the SocketIO thread.
@@ -247,6 +248,7 @@ async def _async_agent_loop(
                         current_subturn.id,
                         summarizer_params or {},
                         patchrewriter_params or {},
+                        strict_dirty,
                     )
                 except asyncio.CancelledError:
                     cancel_event.set()

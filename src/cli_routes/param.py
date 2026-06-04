@@ -87,6 +87,17 @@ _PARAM_DOCS["system.blank_response_retries"] = {
         "Typical useful range: 1-2."
     ),
 }
+_PARAM_DOCS["system.strict_dirty"] = {
+    "type": "bool (true/false)",
+    "description": (
+        "Controls how strictly the dirty-file cache blocks tool calls. "
+        "true (default): block if the file has never been read OR has been modified since last read. "
+        "false: only block if the file has never been read. "
+        "Modifications since last read are allowed through to the approval step. "
+        "Useful for models that prefer calling apply_patch multiple times "
+        "rather than writing multi-hunk patches, avoiding unnecessary re-read round trips."
+    ),
+}
 _PARAM_DOCS["system.return_value_max_chars"] = {
     "type": "integer > 0",
     "description": (
