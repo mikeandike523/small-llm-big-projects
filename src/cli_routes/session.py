@@ -137,12 +137,6 @@ def session_new(
             session_cwd, "startup_tool_calls.json"
         )
 
-    # SSL_CERT_FILE may point to a missing file (e.g. stale conda env).
-    # httpx raises FileNotFoundError before even connecting, so scrub it.
-    ssl_cert = os.environ.get("SSL_CERT_FILE")
-    if ssl_cert and not os.path.exists(ssl_cert):
-        os.environ.pop("SSL_CERT_FILE", None)
-
     try:
         response = httpx.post(
             f"http://localhost:{flask_port}/api/sessions",
