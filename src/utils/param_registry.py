@@ -1,12 +1,16 @@
 """
-Single source of truth for all valid slbp param names.
-Imported by both the CLI (param.py) and the LLM factory to filter DB keys.
+Single source of truth for all slbp parameter definitions.
+Includes names, value types, descriptions, min/max constraints, and Pydantic-based validation.
 """
+from __future__ import annotations
 
-# All four sampler namespaces share the same five per-model param suffixes.
-_SAMPLER_SUFFIXES: frozenset[str] = frozenset(
-    {"temperature", "top_p", "top_k", "max_tokens", "request_extra_params"}
-)
+import json
+import math
+from typing import Annotated, Any, Literal
+
+from pydantic import BaseModel, Field, PrivateAttr, TypeAdapter, ValidationError
+
+ValueType = Literal["boolean", "float", "integer", "object", "string"]
 
 _SAMPLER_NAMESPACES: tuple[str, ...] = (
     "watchdog.model",
@@ -14,22 +18,236 @@ _SAMPLER_NAMESPACES: tuple[str, ...] = (
     "patchrewriter.model",
 )
 
-ALLOWED_PARAMS: frozenset[str] = frozenset(
-    {
-        # Main agentic loop
-        "model.temperature",
-        "model.top_p",
-        "model.top_k",
-        "model.max_tokens",
-        "model.request_extra_params",
-        "model.irat",
-        # System / infra
-        "system.return_value_max_chars",
-        "system.blank_response_retries",
-        "system.strict_dirty",
-    }
-    | {f"{ns}.{s}" for ns in _SAMPLER_NAMESPACES for s in _SAMPLER_SUFFIXES}
+
+class ParamSpec(BaseModel):
+    """Full specification for one slbp parameter."""
+
+    name: str
+    value_type: ValueType
+    description: str
+    system_only: bool = False  # never forwarded to any LLM request
+    min: float | None = None
+    max: float | None = None
+
+    _adapter: Any = PrivateAttr(default=None)
+
+    def model_post_init(self, __context: Any) -> None:
+        """Build and cache a pydantic TypeAdapter for numeric types."""
+        if self.value_type == "integer":
+            kw: dict[str, Any] = {}
+            if self.min is not None:
+                kw["ge"] = int(self.min)
+            if self.max is not None:
+                kw["le"] = int(self.max)
+            ann = Annotated[int, Field(**kw)] if kw else int
+            self._adapter = TypeAdapter(ann)
+        elif self.value_type == "float":
+            kw = {}
+            if self.min is not None:
+                kw["ge"] = self.min
+            if self.max is not None:
+                kw["le"] = self.max
+            ann = Annotated[float, Field(**kw)] if kw else float
+            self._adapter = TypeAdapter(ann)
+
+    def parse_value(self, raw: Any) -> Any:
+        """Parse and validate a raw value. Raises ValueError with a human-readable message."""
+        if self.value_type == "boolean":
+            if isinstance(raw, bool):
+                return raw
+            if isinstance(raw, str) and raw.lower() in ("true", "false"):
+                return raw.lower() == "true"
+            raise ValueError(f"'{self.name}' must be 'true' or 'false'")
+
+        if self.value_type == "object":
+            if isinstance(raw, str):
+                try:
+                    raw = json.loads(raw)
+                except json.JSONDecodeError as exc:
+                    raise ValueError(f"'{self.name}' must be valid JSON: {exc}") from exc
+            if not isinstance(raw, dict):
+                raise ValueError(f"'{self.name}' must be a JSON object")
+            return raw
+
+        if self.value_type == "integer":
+            try:
+                coerced = int(raw)
+            except (TypeError, ValueError):
+                raise ValueError(f"'{self.name}' must be an integer{self._bounds_str()}")
+            try:
+                return self._adapter.validate_python(coerced)
+            except ValidationError:
+                raise ValueError(f"'{self.name}' must be an integer{self._bounds_str()}")
+
+        if self.value_type == "float":
+            try:
+                coerced = float(raw)
+            except (TypeError, ValueError):
+                raise ValueError(f"'{self.name}' must be a number{self._bounds_str()}")
+            if math.isnan(coerced) or math.isinf(coerced):
+                raise ValueError(f"'{self.name}' must be a finite number")
+            try:
+                return self._adapter.validate_python(coerced)
+            except ValidationError:
+                raise ValueError(f"'{self.name}' must be a finite number{self._bounds_str()}")
+
+        return str(raw)
+
+    def _bounds_str(self) -> str:
+        if self.min is not None and self.max is not None:
+            lo: Any = int(self.min) if self.value_type == "integer" else self.min
+            hi: Any = int(self.max) if self.value_type == "integer" else self.max
+            return f" between {lo} and {hi}"
+        if self.min is not None:
+            v: Any = int(self.min) if self.value_type == "integer" else self.min
+            return f" >= {v}"
+        if self.max is not None:
+            v = int(self.max) if self.value_type == "integer" else self.max
+            return f" <= {v}"
+        return ""
+
+    def display_type(self) -> str:
+        """Human-readable type string for CLI display."""
+        if self.min is not None and self.max is not None:
+            lo: Any = int(self.min) if self.value_type == "integer" else self.min
+            hi: Any = int(self.max) if self.value_type == "integer" else self.max
+            return f"{self.value_type} ({lo} - {hi})"
+        if self.min is not None:
+            v: Any = int(self.min) if self.value_type == "integer" else self.min
+            return f"{self.value_type} >= {v}"
+        if self.max is not None:
+            v = int(self.max) if self.value_type == "integer" else self.max
+            return f"{self.value_type} <= {v}"
+        return self.value_type
+
+    def to_api_dict(self) -> dict[str, Any]:
+        """Serialize for the frontend API."""
+        d: dict[str, Any] = {
+            "name": self.name,
+            "value_type": self.value_type,
+            "description": self.description,
+        }
+        if self.min is not None:
+            d["min"] = self.min
+        if self.max is not None:
+            d["max"] = self.max
+        return d
+
+
+# ---------------------------------------------------------------------------
+# Shared sampler suffix specs (temperature / top_p / top_k / max_tokens / extras)
+# ---------------------------------------------------------------------------
+
+_SAMPLER_SUFFIX_KWARGS: dict[str, dict[str, Any]] = {
+    "temperature": {
+        "value_type": "float",
+        "min": 0.0,
+        "max": 2.0,
+        "description": (
+            "Controls randomness. 0.0 is fully deterministic; 2.0 is very random. "
+            "Typical values: 0.2 - 0.8."
+        ),
+    },
+    "top_p": {
+        "value_type": "float",
+        "min": 0.0,
+        "max": 1.0,
+        "description": (
+            "Nucleus sampling. Only the smallest set of tokens whose cumulative probability "
+            "<= top_p are considered. 1.0 disables nucleus sampling."
+        ),
+    },
+    "top_k": {
+        "value_type": "integer",
+        "min": 1,
+        "description": "Limits the token candidate pool to the K most probable tokens at each step.",
+    },
+    "max_tokens": {
+        "value_type": "integer",
+        "min": 1,
+        "description": "Maximum number of tokens to generate in a single response.",
+    },
+    "request_extra_params": {
+        "value_type": "object",
+        "description": (
+            "Extra parameters merged into every API request for this call type. "
+            'Must be a valid JSON object, e.g. {"reasoning":{"effort":"low"}}. '
+            "Applies ONLY to this namespace -- never merged with other namespaces."
+        ),
+    },
+}
+
+# ---------------------------------------------------------------------------
+# Registry: single dict from param name -> ParamSpec
+# ---------------------------------------------------------------------------
+
+REGISTRY: dict[str, ParamSpec] = {}
+
+# Sampler params across all four namespaces
+for _ns in ("model", *_SAMPLER_NAMESPACES):
+    for _suffix, _kwargs in _SAMPLER_SUFFIX_KWARGS.items():
+        _name = f"{_ns}.{_suffix}"
+        REGISTRY[_name] = ParamSpec(name=_name, **_kwargs)
+
+# model.* extras (system-only flags, not forwarded to the LLM API)
+REGISTRY["model.irat"] = ParamSpec(
+    name="model.irat",
+    value_type="boolean",
+    system_only=True,
+    description=(
+        "Enable interim-response-as-thinking for new sessions. "
+        "When true, interim assistant content between tool calls is shown in the thinking "
+        "panel instead of a char-count bubble. Useful for non-thinking models that narrate "
+        "reasoning as text."
+    ),
 )
 
-# model.irat is a session flag, not an API param — never forwarded to any LLM request.
-SYSTEM_ONLY_PARAMS: frozenset[str] = frozenset({"model.irat"})
+# system.* params
+REGISTRY["system.return_value_max_chars"] = ParamSpec(
+    name="system.return_value_max_chars",
+    value_type="integer",
+    min=1,
+    description=(
+        "Maximum inline tool return characters before stubbing. "
+        "When a tool result exceeds this, it is truncated to a preview and the full "
+        "content stored under a session memory key (stubs.*) for chunk retrieval."
+    ),
+)
+REGISTRY["system.blank_response_retries"] = ParamSpec(
+    name="system.blank_response_retries",
+    value_type="integer",
+    min=0,
+    description=(
+        "Silent LLM retries before injecting a todo-nudge when the model emits a blank "
+        "response with no tool calls. 0 = nudge immediately (default). "
+        "Skipped when model.temperature is 0 (deterministic). Typical useful range: 1-2."
+    ),
+)
+REGISTRY["system.strict_dirty"] = ParamSpec(
+    name="system.strict_dirty",
+    value_type="boolean",
+    description=(
+        "Controls how strictly the dirty-file cache blocks tool calls. "
+        "true (default): block if the file has never been read OR has been modified since "
+        "last read. false: only block if never read -- useful for models that prefer "
+        "calling apply_patch multiple times over writing multi-hunk patches."
+    ),
+)
+
+# ---------------------------------------------------------------------------
+# Derived sets (backward-compatible exports)
+# ---------------------------------------------------------------------------
+
+ALLOWED_PARAMS: frozenset[str] = frozenset(REGISTRY)
+SYSTEM_ONLY_PARAMS: frozenset[str] = frozenset(
+    name for name, spec in REGISTRY.items() if spec.system_only
+)
+
+
+def parse_param_value(name: str, raw: Any) -> Any:
+    """Parse and validate a param value by name. Raises ValueError on failure."""
+    if name not in REGISTRY:
+        raise ValueError(
+            f"Unknown param '{name}'. Allowed: {', '.join(sorted(ALLOWED_PARAMS))}"
+        )
+    return REGISTRY[name].parse_value(raw)

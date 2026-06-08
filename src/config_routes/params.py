@@ -6,8 +6,7 @@ from src.ui_connector.app import app
 from src.data import get_pool
 from src.utils.sql.kv_manager import KVManager
 from src.utils.profile_utils import get_active_profile, _kv_prefix
-from src.utils.param_registry import ALLOWED_PARAMS
-from src.cli_routes.param import _parse_and_validate
+from src.utils.param_registry import ALLOWED_PARAMS, parse_param_value as _parse_and_validate
 
 _NAMESPACES = ("model", "watchdog.model", "summarizer.model", "patchrewriter.model")
 _SYSTEM_KEYS = ("system.return_value_max_chars", "system.blank_response_retries")

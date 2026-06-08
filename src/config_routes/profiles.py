@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from typing import Any
 
 from flask import jsonify, request
@@ -8,6 +7,8 @@ from flask import jsonify, request
 from src.data import get_pool
 from src.ui_connector.app import app
 from src.utils.param_registry import ALLOWED_PARAMS as _ALLOWED_PARAMS
+from src.utils.param_registry import REGISTRY as _REGISTRY
+from src.utils.param_registry import parse_param_value as _parse_param_value
 from src.utils.profile_utils import (
     _kv_prefix,
     get_active_profile,
@@ -16,108 +17,8 @@ from src.utils.profile_utils import (
 from src.utils.sql.kv_manager import KVManager
 
 
-_PARAM_SPECS: dict[str, dict[str, Any]] = {
-    "model.temperature": {
-        "value_type": "float",
-        "min": 0.0,
-        "max": 2.0,
-        "description": "Controls generation randomness.",
-    },
-    "model.top_p": {
-        "value_type": "float",
-        "min": 0.0,
-        "max": 1.0,
-        "description": "Nucleus sampling threshold.",
-    },
-    "model.top_k": {
-        "value_type": "integer",
-        "min": 1,
-        "description": "Limits token candidates to the top K choices.",
-    },
-    "model.max_tokens": {
-        "value_type": "integer",
-        "min": 1,
-        "description": "Maximum generated tokens for the main model response.",
-    },
-    "model.request_extra_params": {
-        "value_type": "object",
-        "description": "JSON object merged into every model request payload.",
-    },
-    "model.irat": {
-        "value_type": "boolean",
-        "description": "Treat interim response content as thinking in new sessions.",
-    },
-    "system.return_value_max_chars": {
-        "value_type": "integer",
-        "min": 1,
-        "description": "Maximum inline tool return characters before stubbing.",
-    },
-    "system.blank_response_retries": {
-        "value_type": "integer",
-        "min": 0,
-        "description": "Silent LLM retries on blank response before injecting a todo nudge.",
-    },
-}
-
-# Auto-generate specs for the three sampler namespaces from the model.* specs.
-for _ns in ("watchdog.model", "summarizer.model", "patchrewriter.model"):
-    for _suffix in ("temperature", "top_p", "top_k", "max_tokens", "request_extra_params"):
-        _src_key = f"model.{_suffix}"
-        if _src_key in _PARAM_SPECS:
-            _PARAM_SPECS[f"{_ns}.{_suffix}"] = dict(_PARAM_SPECS[_src_key])
-
-
 def _param_specs_payload() -> list[dict[str, Any]]:
-    return [
-        {"name": name, **_PARAM_SPECS.get(name, {"value_type": "string"})}
-        for name in sorted(_ALLOWED_PARAMS)
-    ]
-
-
-def _parse_param_value(name: str, raw_value: Any) -> Any:
-    if name not in _ALLOWED_PARAMS:
-        raise ValueError(f"Unknown param '{name}'.")
-
-    spec = _PARAM_SPECS.get(name, {"value_type": "string"})
-    value_type = spec["value_type"]
-    if value_type == "boolean":
-        if isinstance(raw_value, bool):
-            return raw_value
-        if isinstance(raw_value, str) and raw_value.lower() in ("true", "false"):
-            return raw_value.lower() == "true"
-        raise ValueError(f"{name} must be true or false.")
-
-    if value_type == "object":
-        value = raw_value
-        if isinstance(raw_value, str):
-            try:
-                value = json.loads(raw_value)
-            except json.JSONDecodeError as exc:
-                raise ValueError(f"{name} must be valid JSON: {exc}") from exc
-        if not isinstance(value, dict):
-            raise ValueError(f"{name} must be a JSON object.")
-        return value
-
-    if value_type == "integer":
-        try:
-            value = int(raw_value)
-        except (TypeError, ValueError) as exc:
-            raise ValueError(f"{name} must be an integer.") from exc
-    elif value_type == "float":
-        try:
-            value = float(raw_value)
-        except (TypeError, ValueError) as exc:
-            raise ValueError(f"{name} must be a number.") from exc
-    else:
-        return str(raw_value)
-
-    min_value = spec.get("min")
-    max_value = spec.get("max")
-    if min_value is not None and value < min_value:
-        raise ValueError(f"{name} must be >= {min_value}.")
-    if max_value is not None and value > max_value:
-        raise ValueError(f"{name} must be <= {max_value}.")
-    return value
+    return [_REGISTRY[name].to_api_dict() for name in sorted(_REGISTRY)]
 
 
 def _profile_exists(cursor, name: str) -> bool:

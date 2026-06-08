@@ -1,7 +1,7 @@
 import click
 
 from src.cli_obj import cli
-from src.cli_routes.param import _ALLOWED_PARAMS
+from src.utils.param_registry import ALLOWED_PARAMS as _ALLOWED_PARAMS
 from src.data import get_pool
 from src.utils.sql.kv_manager import KVManager
 from src.utils.profile_utils import (
