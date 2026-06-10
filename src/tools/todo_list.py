@@ -343,8 +343,7 @@ def _fmt_item(items: list, idx: int, path_prefix: list[int] | None = None) -> di
 
 def _format_tree(
     items: list, indent: str = "", path_prefix: list[int] | None = None
-) -> list[str]:
-    """Recursively format the todo tree as human-readable lines."""
+) -> str:
     lines = []
     for i, item in enumerate(items):
         current_path = (path_prefix or []) + [i + 1]
@@ -353,8 +352,15 @@ def _format_tree(
         lines.append(f"{indent}{checkbox} {path_str}. {item['text']}")
         sub = item.get("sub_list")
         if sub:
-            lines.extend(_format_tree(sub, indent + "    ", current_path))
-    return lines
+            lines.append(_format_tree(sub, indent + "    ", current_path))
+    return "\n".join(lines)
+
+
+def format_todo_tree(items: list) -> str:
+    """Return the full todo tree as a human-readable string."""
+    if not items:
+        return "(empty todo list)"
+    return _format_tree(items)
 
 
 def execute(args: dict, session_data: dict | None = None) -> str:
@@ -427,10 +433,10 @@ def execute(args: dict, session_data: dict | None = None) -> str:
                         )
                     }
                 )
-            return "\n".join(_format_tree(sub, "", segs))
+            return _format_tree(sub, "", segs)
         if not root_items:
             return "(empty todo list)"
-        return "\n".join(_format_tree(root_items))
+        return _format_tree(root_items)
 
     # ---- get_item ----
     if action == "get_item":

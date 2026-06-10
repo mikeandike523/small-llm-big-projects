@@ -45,6 +45,7 @@ from src.utils.llm.streaming import StreamingLLM
 from src.utils.request_error_formatting import format_http_error
 from src.utils.session_model import Session, Turn, Subturn, LLMExchange
 from src.tools.todo_list import format_items_for_ui as _todo_format_items_for_ui
+from src.tools.todo_list import format_todo_tree as _todo_format_tree
 
 logger = logging.getLogger(__name__)
 
@@ -376,10 +377,8 @@ async def _async_agent_loop(
             # Hard block: todos must be closed before the turn can end.
             unclosed = _get_open_items(session.session_data.get("todo_list") or [])
             if unclosed:
-                items_text = "\n".join(
-                    f"  {i + 1}. {item}" for i, item in enumerate(unclosed)
-                )
-                continuation = f"You still have {len(unclosed)} unclosed todo item(s). Please continue:\n{items_text}"
+                tree_text = _todo_format_tree(session.session_data.get("todo_list") or [])
+                continuation = f"You still have unclosed todo items. Here is the formatted list:\n\n{tree_text}"
                 interim_exchange = LLMExchange(
                     assistant_content=content_for_history,
                     reasoning=reasoning,
