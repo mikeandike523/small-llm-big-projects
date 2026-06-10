@@ -170,8 +170,12 @@ def _execute_tools(
                 and tc.arguments.get("action") == "apply_patch"
             ):
                 _patch = tc.arguments.get("patch")
-                _filepath = tc.arguments.get("filepath")
+                _raw_filepath = tc.arguments.get("filepath")
                 _key = tc.arguments.get("key")
+                _filepath = None
+                if _raw_filepath:
+                    from src.tools._path_utils import _resolve_path as _rp
+                    _filepath = _rp(_raw_filepath, special_resources.get("session_cwd"))
                 if _patch and isinstance(_patch, str) and (_filepath or _key):
                     # Read the target contents for dry-run and watchdog use.
                     _contents: str | None = None

@@ -39,12 +39,12 @@ def mark_file_clean(session_id: str, path: str) -> None:
     _seen_f(session_id).add(n)
 
 
-def is_file_dirty(session_id: str, path: str) -> bool:
-    return _norm(path) in _files(session_id)
+def is_file_dirty(session_id: str, path: str, cwd: str | None = None) -> bool:
+    return _norm(path, cwd) in _files(session_id)
 
 
-def has_file_been_seen(session_id: str, path: str) -> bool:
-    return _norm(path) in _seen_f(session_id)
+def has_file_been_seen(session_id: str, path: str, cwd: str | None = None) -> bool:
+    return _norm(path, cwd) in _seen_f(session_id)
 
 
 def mark_mem_dirty(session_id: str, key: str) -> None:
@@ -119,13 +119,13 @@ def check_requires_clean(
     unseen_files = [
         _norm(p, cwd)
         for p in effects.get("requires_clean_files", [])
-        if not has_file_been_seen(session_id, p)
+        if not has_file_been_seen(session_id, p, cwd)
     ]
     dirty_files = (
         [
             _norm(p, cwd)
             for p in effects.get("requires_clean_files", [])
-            if has_file_been_seen(session_id, p) and is_file_dirty(session_id, p)
+            if has_file_been_seen(session_id, p, cwd) and is_file_dirty(session_id, p, cwd)
         ]
         if strict
         else []
