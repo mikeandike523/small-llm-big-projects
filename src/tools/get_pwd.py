@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import os
-
 DEFINITION: dict = {
     "type": "function",
     "function": {
@@ -41,11 +39,12 @@ def needs_approval(args: dict) -> bool:
     return False
 
 
-def execute(args: dict, session_data: dict | None = None) -> str:
+def execute(args: dict, session_data: dict | None = None, special_resources: dict | None = None) -> str:
     from src.tools._memory import ensure_session_memory
 
+    sr = special_resources or {}
     target: str = args.get("target", "return_value")
-    cwd: str = os.getcwd().replace("\\", "/")
+    cwd: str = (sr.get("session_cwd") or "").replace("\\", "/")
 
     if target == "return_value":
         return cwd

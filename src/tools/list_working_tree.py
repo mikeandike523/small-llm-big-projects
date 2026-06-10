@@ -44,14 +44,16 @@ def needs_approval(args: dict) -> bool:
     return not is_path_in_scope(raw)
 
 
-def execute(args: dict, _session_data={}) -> str:
+def execute(args: dict, _session_data={}, special_resources: dict | None = None) -> str:
+    sr = special_resources or {}
+    session_cwd: str | None = sr.get("session_cwd")
     path: str | None = args.get("path")
     cmd = ["git", "ls-files", "--cached", "--others", "--exclude-standard"]
     if path is not None:
-        resolved = os.path.abspath(path)
+        resolved = path if os.path.isabs(path) else os.path.normpath(os.path.join(session_cwd or "", path))
         cmd += ["--", resolved]
     try:
-        result = run_command(cmd, timeout=DEFAULT_TIMEOUT)
+        result = run_command(cmd, timeout=DEFAULT_TIMEOUT, cwd=session_cwd)
     except subprocess.TimeoutExpired:
         from src.utils.exceptions import ToolTimeoutError
 
@@ -64,6 +66,6 @@ def execute(args: dict, _session_data={}) -> str:
             fallback_args: dict = {"use_gitignore": True, "recursive": True}
             if path is not None:
                 fallback_args["path"] = path
-            return _list_dir.execute(fallback_args, _session_data)
+            return _list_dir.execute(fallback_args, _session_data, special_resources)
         return f"Error (exit {result.returncode}): {result.stderr.strip()}"
     return result.stdout.strip()

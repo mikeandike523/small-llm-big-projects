@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
+from src.tools._path_utils import _resolve_path
 
 DEFINITION: dict = {
     "type": "function",
@@ -56,8 +58,9 @@ def needs_approval(args: dict) -> bool:
     return True
 
 
-def execute(args: dict, session_data: dict) -> str:
-    path = args["path"]
+def execute(args: dict, session_data: dict, special_resources: dict | None = None) -> str:
+    sr = special_resources or {}
+    path = _resolve_path(args["path"], sr.get("session_cwd"))
     content: str | None = args.get("content")
     session_memory_key: str | None = args.get("session_memory_key")
     create_parents: bool = args.get("create_parents", False)

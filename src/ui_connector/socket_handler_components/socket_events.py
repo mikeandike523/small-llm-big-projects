@@ -564,20 +564,19 @@ def handle_run_startup_tool_calls():
         return
 
     _startup_cwd = _state._session_current_cwd.get(session_id) or session.initial_cwd
-    if _startup_cwd:
-        try:
-            os.chdir(_startup_cwd)
-        except OSError as _chdir_err:
-            socketio.emit(
-                "backend_log",
-                {"text": f"Warning: could not chdir to {_startup_cwd!r}: {_chdir_err}"},
-                room=session_id,
-            )
-
-    special_resources = {
+    special_resources: dict = {
         "on_log": lambda msg: _emit_backend_log(session_id, msg),
         "initial_cwd": session.initial_cwd,
+        "session_cwd": _startup_cwd,
+        "on_cwd_change": None,
     }
+
+    def _on_startup_cwd_change(new_path: str) -> None:
+        _state._session_current_cwd[session_id] = new_path
+        special_resources["session_cwd"] = new_path
+        socketio.emit("pwd_update", {"path": new_path.replace("\\", "/")}, room=session_id)
+
+    special_resources["on_cwd_change"] = _on_startup_cwd_change
     from src.ui_connector.socket_handler_components.session_store import (
         _get_session_tool_map,
     )
@@ -609,12 +608,6 @@ def handle_run_startup_tool_calls():
         socketio.emit(
             "startup_tool_result", {"id": tc_id, "result": result}, room=session_id
         )
-
-        if name == "change_pwd":
-            _state._session_current_cwd[session_id] = os.getcwd()
-            socketio.emit(
-                "pwd_update", {"path": os.getcwd().replace("\\", "/")}, room=session_id
-            )
 
     session.startup_done = True
     _save_session(session_id, session)
@@ -672,16 +665,6 @@ def handle_user_message(data: dict):
     model_temperature: float | None = (llm_config.get("model_params") or {}).get("temperature")
     watchdog_params: dict = llm_config.get("watchdog_params") or {}
     summarizer_params: dict = llm_config.get("summarizer_params") or {}
-
-    _effective_cwd = _state._session_current_cwd.get(session_id) or session.initial_cwd
-    if _effective_cwd:
-        try:
-            os.chdir(_effective_cwd)
-        except OSError as _chdir_err:
-            _emit_backend_log(
-                session_id,
-                f"Warning: could not chdir to {_effective_cwd!r}: {_chdir_err}",
-            )
 
     user_text_with_context = text
 
@@ -877,16 +860,6 @@ def handle_force_continuation(data: dict):
     model_temperature: float | None = (llm_config.get("model_params") or {}).get("temperature")
     watchdog_params: dict = llm_config.get("watchdog_params") or {}
     summarizer_params: dict = llm_config.get("summarizer_params") or {}
-
-    _effective_cwd = _state._session_current_cwd.get(session_id) or session.initial_cwd
-    if _effective_cwd:
-        try:
-            os.chdir(_effective_cwd)
-        except OSError as _chdir_err:
-            _emit_backend_log(
-                session_id,
-                f"Warning: could not chdir to {_effective_cwd!r}: {_chdir_err}",
-            )
 
     current_turn = session.completed_turns.pop()
     current_turn.completed = False

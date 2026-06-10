@@ -28,6 +28,7 @@ def run_command(
     cmd: list[str],
     timeout: int | None = None,
     cancel_event: threading.Event | None = None,
+    cwd: str | None = None,
 ) -> SubprocessResult:
     """
     Run a command synchronously. Supports cancellation via cancel_event.
@@ -41,6 +42,7 @@ def run_command(
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
+        cwd=cwd,
     )
 
     stdout_chunks: list[str] = []

@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import os
-
 from src.tools._memory import ensure_session_memory
 from src.utils.env_info import format_environment_info
 
@@ -47,12 +45,10 @@ def execute(
     session_data: dict | None = None,
     special_resources: dict | None = None,
 ) -> str:
+    sr = special_resources or {}
     target: str = args.get("target", "return_value")
-    current_cwd = os.getcwd().replace("\\", "/")
-
-    initial_cwd = ""
-    if special_resources is not None:
-        initial_cwd = (special_resources.get("initial_cwd") or "").replace("\\", "/")
+    current_cwd = (sr.get("session_cwd") or "").replace("\\", "/")
+    initial_cwd = (sr.get("initial_cwd") or "").replace("\\", "/")
 
     result = format_environment_info(current_cwd=current_cwd, initial_cwd=initial_cwd)
 

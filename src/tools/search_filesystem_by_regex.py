@@ -131,17 +131,18 @@ def _apply_bold(line: str, pattern: str) -> str:
     return result
 
 
-def execute(args: dict, _session_data: dict | None = None) -> str:
+def execute(args: dict, _session_data: dict | None = None, special_resources: dict | None = None) -> str:
+    sr = special_resources or {}
+    session_cwd: str | None = sr.get("session_cwd")
     pattern: str = args.get("pattern", "")
     raw_path: str = args.get("path", "")
     use_gitignore: bool = args.get("use_gitignore", True)
 
     display_path: str = raw_path if raw_path else "."
-    path: str = raw_path or os.getcwd()
+    path: str = raw_path or session_cwd or ""
 
-    # Resolve relative paths against cwd
-    if not os.path.isabs(path):
-        path = os.path.join(os.getcwd(), path)
+    if path and not os.path.isabs(path):
+        path = os.path.join(session_cwd or "", path)
 
     if not os.path.exists(path):
         return f"Error: path does not exist: {path!r}"

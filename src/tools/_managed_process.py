@@ -42,6 +42,7 @@ def run_command_streaming(
     tool_name: str = "host_shell",
     timeout_hint: str | None = None,
     cancel_event: threading.Event | None = None,
+    cwd: str | None = None,
 ) -> SubprocessResult:
     """
     Run a command and stream its output via on_chunk as it arrives.
@@ -87,6 +88,7 @@ def run_command_streaming(
         stderr=subprocess.PIPE,
         stdin=subprocess.PIPE,
         bufsize=0,  # raw binary: read() returns immediately with available bytes
+        cwd=cwd,
     )
 
     stdout_parts: list[str] = []

@@ -31,16 +31,23 @@ def needs_approval(args: dict) -> bool:
     return file_needs_approval(args)
 
 
-def execute(args: dict, session_data: dict) -> str:
-    path = args["path"]
+def execute(args: dict, session_data: dict, special_resources: dict | None = None) -> str:
+    sr = special_resources or {}
+    session_cwd: str | None = sr.get("session_cwd")
+    on_cwd_change = sr.get("on_cwd_change")
+    path: str = args["path"]
+
+    if not os.path.isabs(path):
+        if not session_cwd:
+            return "Error: cannot resolve relative path — session CWD is unknown."
+        path = os.path.normpath(os.path.join(session_cwd, path))
 
     if not os.path.exists(path):
         return f"Error: path does not exist: {path}"
     if not os.path.isdir(path):
         return f"Error: path is not a directory: {path}"
 
-    try:
-        os.chdir(path)
-        return f"Working directory changed to: {os.getcwd().replace(chr(92), '/')}"
-    except OSError as e:
-        return f"Error: {e}"
+    new_path = path.replace("\\", "/")
+    if on_cwd_change:
+        on_cwd_change(path)
+    return f"Working directory changed to: {new_path}"

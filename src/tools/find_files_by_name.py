@@ -15,6 +15,7 @@ import subprocess
 import time
 
 from src.tools._subprocess import run_command
+from src.tools._path_utils import _effective_cwd
 from src.utils.exceptions import ToolTimeoutError
 
 from src.tools._list_dir_utils import (
@@ -131,7 +132,7 @@ def needs_approval(args: dict) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def _collect_files_git(root: str) -> list[str] | None:
+def _collect_files_git(root: str, session_cwd: str | None = None) -> list[str] | None:
     """
     Return absolute paths of all files under root via git ls-files.
     Returns None if root is not inside a git repository.
@@ -139,7 +140,7 @@ def _collect_files_git(root: str) -> list[str] | None:
     """
     cmd = ["git", "ls-files", "--cached", "--others", "--exclude-standard", "--", root]
     try:
-        result = run_command(cmd, timeout=DEFAULT_TIMEOUT)
+        result = run_command(cmd, timeout=DEFAULT_TIMEOUT, cwd=session_cwd)
     except subprocess.TimeoutExpired:
         raise ToolTimeoutError("find_files_by_name", DEFAULT_TIMEOUT)
 
@@ -148,11 +149,11 @@ def _collect_files_git(root: str) -> list[str] | None:
             return None
         return None  # any other git error — fall back to traverse
 
-    cwd = os.getcwd()
+    base = _effective_cwd(session_cwd)
     abs_paths: list[str] = []
     for line in result.stdout.splitlines():
         if line:
-            abs_paths.append(os.path.normpath(os.path.join(cwd, line)))
+            abs_paths.append(os.path.normpath(os.path.join(base, line)))
     return abs_paths
 
 
@@ -261,9 +262,11 @@ def _segment_matches_regex(
 # ---------------------------------------------------------------------------
 
 
-def execute(args: dict, _session_data: dict = {}) -> str:
+def execute(args: dict, _session_data: dict = {}, special_resources: dict | None = None) -> str:
+    sr = special_resources or {}
+    session_cwd: str | None = sr.get("session_cwd")
     raw_patterns: list[str] = args.get("patterns") or []
-    path: str = args.get("path") or os.getcwd()
+    raw_path: str = args.get("path") or session_cwd or ""
     use_gitignore: bool = bool(args.get("use_gitignore", True))
     partial_match: bool = bool(args.get("partial_match", False))
     case_sensitive: bool = bool(args.get("case_sensitive", False))
@@ -273,7 +276,7 @@ def execute(args: dict, _session_data: dict = {}) -> str:
     if not raw_patterns:
         return "Error: at least one pattern is required."
 
-    root = os.path.abspath(path)
+    root = raw_path if os.path.isabs(raw_path) else os.path.normpath(os.path.join(session_cwd or "", raw_path))
     if not os.path.isdir(root):
         return f"Error: {root!r} is not a directory."
 
@@ -294,7 +297,7 @@ def execute(args: dict, _session_data: dict = {}) -> str:
 
     # Collect candidate file paths
     if use_gitignore:
-        abs_files = _collect_files_git(root)
+        abs_files = _collect_files_git(root, session_cwd)
         if abs_files is None:
             abs_files = _collect_files_traverse(root, use_gitignore=True)
     else:

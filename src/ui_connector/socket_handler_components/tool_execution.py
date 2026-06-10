@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import time
 import threading
 from typing import Any
@@ -69,10 +68,13 @@ def _execute_tools(
     Returns the exchange.
     """
     turn_id = current_turn.id
-    special_resources = {
+    _current_cwd = _state._session_current_cwd.get(session_id) or session.initial_cwd
+    special_resources: dict = {
         "on_log": lambda msg: _emit_backend_log(session_id, msg),
         "session_id": session_id,
         "initial_cwd": session.initial_cwd,
+        "session_cwd": _current_cwd,
+        "on_cwd_change": None,
         "cancel_event": cancel_event,
         "create_terminal": lambda cmd, tab_name: _launch_terminal_for_session(
             session_id, cmd, tab_name
@@ -87,6 +89,13 @@ def _execute_tools(
         "on_sampler_request_log": _make_sampler_request_logger(session_id, "tool"),
         "on_sampler_reasoning_detected": _make_sampler_reasoning_detector(session_id, "tool"),
     }
+
+    def _on_cwd_change(new_path: str) -> None:
+        _state._session_current_cwd[session_id] = new_path
+        special_resources["session_cwd"] = new_path
+        _emit_and_log(session_id, "pwd_update", {"path": new_path.replace("\\", "/")})
+
+    special_resources["on_cwd_change"] = _on_cwd_change
 
     actual_tool_map = tool_map if tool_map is not None else _TOOL_MAP
     if _state._hotfix_bad_parser:
@@ -321,9 +330,10 @@ def _execute_tools(
             special_resources["on_chunk"] = _on_chunk
 
             # Auto-snapshot: capture original file state before the first write this session.
+            _snap_cwd = special_resources.get("session_cwd")
             for _snap_path in _effects.get("dirties_files", []):
                 try:
-                    _file_snapshot.auto_snapshot_if_first_write(session_id, _snap_path)
+                    _file_snapshot.auto_snapshot_if_first_write(session_id, _snap_path, cwd=_snap_cwd)
                 except Exception:
                     pass
 
@@ -373,7 +383,7 @@ def _execute_tools(
 
             # Apply dirty effects only when the tool did not return an error.
             if _effects and not tool_result.startswith("Error"):
-                if _dirty_cache.apply_effects(session_id, _effects):
+                if _dirty_cache.apply_effects(session_id, _effects, cwd=special_resources.get("session_cwd")):
                     _emit_and_log(
                         session_id,
                         "dirty_cache_update",
@@ -391,11 +401,6 @@ def _execute_tools(
                     "finished_at": finished_at,
                 },
             )
-            if tc.name == "change_pwd":
-                _state._session_current_cwd[session_id] = os.getcwd()
-                _emit_and_log(
-                    session_id, "pwd_update", {"path": os.getcwd().replace("\\", "/")}
-                )
             if tc.name == "todo_list":
                 _raw = session.session_data.get("todo_list") or []
                 _emit_and_log(

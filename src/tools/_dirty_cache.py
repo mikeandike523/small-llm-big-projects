@@ -7,7 +7,9 @@ _seen_files: dict[str, set[str]] = {}   # session_id -> set[normalized abs path]
 _seen_mem: dict[str, set[str]] = {}     # session_id -> set[mem key] (read at least once)
 
 
-def _norm(path: str) -> str:
+def _norm(path: str, cwd: str | None = None) -> str:
+    if not os.path.isabs(path) and cwd:
+        path = os.path.join(cwd, path)
     return os.path.normcase(os.path.normpath(os.path.abspath(path)))
 
 
@@ -115,13 +117,13 @@ def check_requires_clean(
     resources that are dirty (modified since last read) are allowed through.
     """
     unseen_files = [
-        _norm(p)
+        _norm(p, cwd)
         for p in effects.get("requires_clean_files", [])
         if not has_file_been_seen(session_id, p)
     ]
     dirty_files = (
         [
-            _norm(p)
+            _norm(p, cwd)
             for p in effects.get("requires_clean_files", [])
             if has_file_been_seen(session_id, p) and is_file_dirty(session_id, p)
         ]
@@ -162,11 +164,11 @@ def check_requires_clean(
     return "\n".join(lines)
 
 
-def apply_effects(session_id: str, effects: dict) -> bool:
+def apply_effects(session_id: str, effects: dict, cwd: str | None = None) -> bool:
     """Apply dirty/clean/seen effects. Returns True if any state changed."""
     changed = False
     for p in effects.get("cleans_files", []):
-        n = _norm(p)
+        n = _norm(p, cwd)
         if n in _files(session_id):
             _files(session_id).discard(n)
             changed = True
@@ -174,7 +176,7 @@ def apply_effects(session_id: str, effects: dict) -> bool:
             _seen_f(session_id).add(n)
             changed = True
     for p in effects.get("dirties_files", []):
-        n = _norm(p)
+        n = _norm(p, cwd)
         if n not in _files(session_id):
             _files(session_id).add(n)
             changed = True

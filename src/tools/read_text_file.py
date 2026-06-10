@@ -4,6 +4,8 @@ import os
 
 ALLOW_REQUEST_UNREDACTED = True
 
+from src.tools._path_utils import _resolve_path
+
 from src.utils.git_heuristic_is_binary import git_heuristic_is_binary
 
 DEFINITION: dict = {
@@ -59,8 +61,9 @@ def needs_approval(args: dict) -> bool:
     return needs_path_approval(args.get("path"))
 
 
-def execute(args: dict, session_data: dict) -> str:
-    path = args["path"]
+def execute(args: dict, session_data: dict, special_resources: dict | None = None) -> str:
+    sr = special_resources or {}
+    path = _resolve_path(args["path"], sr.get("session_cwd"))
     session_memory_key: str | None = args.get("session_memory_key")
 
     if session_memory_key is not None:

@@ -215,10 +215,12 @@ def _ensure_session_memory(session_data: dict) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def execute(args: dict, session_data: dict) -> str:
+def execute(args: dict, session_data: dict, special_resources: dict | None = None) -> str:
     # --- Parse args ---
-    raw_path = args.get("path", os.getcwd())
-    path = os.path.abspath(raw_path)
+    sr = special_resources or {}
+    session_cwd = sr.get("session_cwd")
+    raw_path = args.get("path") or session_cwd or ""
+    path = raw_path if os.path.isabs(raw_path) else os.path.normpath(os.path.join(session_cwd or "", raw_path))
 
     recursive = bool(args.get("recursive", False))
     follow_folder_symlinks = bool(args.get("follow_folder_symlinks", False))

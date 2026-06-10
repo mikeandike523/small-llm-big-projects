@@ -154,6 +154,7 @@ def execute(
     on_sampler_reasoning_detected = sr.get("on_sampler_reasoning_detected")
     cancel_event: threading.Event | None = sr.get("cancel_event")
     session_id: str | None = sr.get("session_id")
+    session_cwd: str | None = sr.get("session_cwd")
 
     try:
         cmd = _resolve_cmd(command, command_args)
@@ -196,13 +197,14 @@ def execute(
                     tool_name="host_shell",
                     timeout_hint=TIMEOUT_HINT,
                     cancel_event=cancel_event,
+                    cwd=session_cwd,
                 )
             finally:
                 if session_id:
                     with _active_outputs_lock:
                         _active_outputs.pop(session_id, None)
         else:
-            result = run_command(cmd, timeout, cancel_event=cancel_event)
+            result = run_command(cmd, timeout, cancel_event=cancel_event, cwd=session_cwd)
     except subprocess.TimeoutExpired:
         # Non-streaming path timeout (run_command); no partial output available.
         raise ToolTimeoutError("host_shell", timeout, hint=TIMEOUT_HINT)

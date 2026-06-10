@@ -20,6 +20,7 @@ from src.tools._text_editor_utils import (
     _parse_patch_file,
 )
 from src.utils.text.line_numbers import add_line_numbers
+from src.tools._path_utils import _resolve_path
 
 DEFINITION: dict = {
     "type": "function",
@@ -372,12 +373,15 @@ _WRITE_ACTIONS = {
 # ---------------------------------------------------------------------------
 
 
-def execute(args: dict, session_data: dict | None = None) -> str:
+def execute(args: dict, session_data: dict | None = None, special_resources: dict | None = None) -> str:
     if session_data is None:
         session_data = {}
 
+    sr = special_resources or {}
+    session_cwd: str | None = sr.get("session_cwd")
     key = args.get("key")
-    filepath = args.get("filepath")
+    raw_filepath = args.get("filepath")
+    filepath = _resolve_path(raw_filepath, session_cwd) if raw_filepath else None
     action = args.get("action")
 
     if key and filepath:

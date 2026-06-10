@@ -3,6 +3,8 @@ from __future__ import annotations
 import os
 from io import StringIO
 
+from src.tools._path_utils import _resolve_path
+
 ALLOW_REQUEST_UNREDACTED = True
 
 from src.tools._memory import ensure_session_memory
@@ -123,28 +125,29 @@ def needs_approval(args: dict) -> bool:
     return False
 
 
-def _load_text(args: dict, session_data: dict) -> tuple[str, str | None]:
+def _load_text(args: dict, session_data: dict, session_cwd: str | None = None) -> tuple[str, str | None]:
     """Return (text, error_string). Exactly one of path/session_memory_key must be set."""
-    path = args.get("path")
+    raw_path = args.get("path")
     key = args.get("session_memory_key")
 
-    if path and key:
+    if raw_path and key:
         return (
             "",
             "Error: provide exactly one of 'path' or 'session_memory_key', not both.",
         )
-    if not path and not key:
+    if not raw_path and not key:
         return "", "Error: one of 'path' or 'session_memory_key' is required."
 
-    if path:
+    if raw_path:
+        path = _resolve_path(raw_path, session_cwd)
         try:
             resolved = os.path.realpath(path)
             with open(resolved, "r", encoding="utf-8") as fh:
                 return fh.read(), None
         except FileNotFoundError:
-            return "", f"Error: file not found: {path}"
+            return "", f"Error: file not found: {raw_path}"
         except IsADirectoryError:
-            return "", f"Error: path is a directory: {path}"
+            return "", f"Error: path is a directory: {raw_path}"
         except UnicodeDecodeError as e:
             return "", f"Error: file is not valid UTF-8: {e}"
         except OSError as e:
@@ -180,10 +183,11 @@ def _read_lines_range(text: str, start_line: int | None, end_line: int | None) -
     return "".join(selected)
 
 
-def execute(args: dict, session_data: dict) -> str:
+def execute(args: dict, session_data: dict, special_resources: dict | None = None) -> str:
+    sr = special_resources or {}
     action = args.get("action")
 
-    text, error = _load_text(args, session_data)
+    text, error = _load_text(args, session_data, session_cwd=sr.get("session_cwd"))
     if error:
         return error
 

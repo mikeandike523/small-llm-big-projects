@@ -7,7 +7,9 @@ import os
 _processed: dict[str, set[str]] = {}  # session_id -> set[norm_path]
 
 
-def _norm(path: str) -> str:
+def _norm(path: str, cwd: str | None = None) -> str:
+    if not os.path.isabs(path) and cwd:
+        path = os.path.join(cwd, path)
     return os.path.normcase(os.path.normpath(os.path.abspath(path)))
 
 
@@ -48,9 +50,9 @@ def take_snapshot(session_id: str, path: str, content: str) -> int:
         conn.close()
 
 
-def auto_snapshot_if_first_write(session_id: str, path: str) -> None:
+def auto_snapshot_if_first_write(session_id: str, path: str, cwd: str | None = None) -> None:
     """Take a snapshot of path before its first write this session, if file exists."""
-    norm = _norm(path)
+    norm = _norm(path, cwd)
     session_processed = _processed.setdefault(session_id, set())
     if norm in session_processed:
         return
