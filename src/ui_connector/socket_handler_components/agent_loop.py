@@ -31,7 +31,7 @@ from src.ui_connector.socket_handler_components.llm import (
 from src.ui_connector.socket_handler_components.watchdogs import (
     _get_open_items,
     _get_closed_items,
-    _is_sufficient_final_answer,
+    _select_best_final_answer,
     _generate_and_store_compaction,
     _select_skills_for_turn,
 )
@@ -73,8 +73,10 @@ async def _async_agent_loop(
     had_tool_calls = False
     had_todo_items = False
     final_summary_reprompt_sent = False
-    pending_final_candidate: tuple[str, str] | None = None
-    irat_candidate_exchange: tuple[str, int] | None = None
+    # Every non-blank, no-tool response is collected here; the selector picks the
+    # best one when the turn is ready to end. Each entry:
+    #   {content, reasoning, subturn_id, exchange_idx, was_irat}
+    final_answer_candidates: list[dict] = []
     blank_nudge_sent = False
     was_cancelled = False
     last_assistant_content = ""
@@ -88,49 +90,51 @@ async def _async_agent_loop(
     baseline_skills = _get_autoloaded_session_skills(session_id)
     baseline_skill_ids = {entry["id"] for entry in baseline_skills}
 
-    # Skill selection: run once on the first subturn and borrow for continuations.
-    if current_subturn.is_continuation and current_turn.selected_skill_ids:
-        entries_by_id = {e["id"]: e for e in skill_registry}
-        selected_skills = [
-            entries_by_id[sid]
-            for sid in current_turn.selected_skill_ids
-            if sid in entries_by_id
-        ]
-    else:
-        selected_skills = await _select_skills_for_turn(
-            streaming_llm,
-            session,
-            current_subturn.user_text,
-            skill_registry,
-            watchdog_params or {},
-            on_usage=_make_sampler_usage_tracker(session_id, "skill_selector"),
-            on_request_log=_make_sampler_request_logger(session_id, "skill_selector"),
-            on_reasoning_detected=_make_sampler_reasoning_detector(session_id, "skill_selector"),
-        )
-        current_turn.selected_skill_ids = [e["id"] for e in selected_skills]
-
-    turn_resolved_skills = resolve_skill_dependency_closure(
-        skill_registry,
-        [entry["id"] for entry in selected_skills],
-    )
-    turn_only_skills = [
-        entry for entry in turn_resolved_skills if entry["id"] not in baseline_skill_ids
-    ]
-    loaded_skills = baseline_skills + turn_only_skills
-    if loaded_skills and not current_subturn.is_continuation:
-        _emit_and_log(
-            session_id,
-            "skills_loaded",
-            {
-                "turn_id": turn_id,
-                "skill_names": [entry["name"] for entry in loaded_skills],
-            },
-        )
-    active_skills_section = (
-        build_injected_skills_section(turn_only_skills) if turn_only_skills else ""
-    )
-
+    # The try spans skill selection too: the skill selector is a load-bearing
+    # watchdog, so its failures must reach the finally's error-emit path below.
     try:
+        # Skill selection: run once on the first subturn and borrow for continuations.
+        if current_subturn.is_continuation and current_turn.selected_skill_ids:
+            entries_by_id = {e["id"]: e for e in skill_registry}
+            selected_skills = [
+                entries_by_id[sid]
+                for sid in current_turn.selected_skill_ids
+                if sid in entries_by_id
+            ]
+        else:
+            selected_skills = await _select_skills_for_turn(
+                streaming_llm,
+                session,
+                current_subturn.user_text,
+                skill_registry,
+                watchdog_params or {},
+                on_usage=_make_sampler_usage_tracker(session_id, "skill_selector"),
+                on_request_log=_make_sampler_request_logger(session_id, "skill_selector"),
+                on_reasoning_detected=_make_sampler_reasoning_detector(session_id, "skill_selector"),
+            )
+            current_turn.selected_skill_ids = [e["id"] for e in selected_skills]
+
+        turn_resolved_skills = resolve_skill_dependency_closure(
+            skill_registry,
+            [entry["id"] for entry in selected_skills],
+        )
+        turn_only_skills = [
+            entry for entry in turn_resolved_skills if entry["id"] not in baseline_skill_ids
+        ]
+        loaded_skills = baseline_skills + turn_only_skills
+        if loaded_skills and not current_subturn.is_continuation:
+            _emit_and_log(
+                session_id,
+                "skills_loaded",
+                {
+                    "turn_id": turn_id,
+                    "skill_names": [entry["name"] for entry in loaded_skills],
+                },
+            )
+        active_skills_section = (
+            build_injected_skills_section(turn_only_skills) if turn_only_skills else ""
+        )
+
         while True:
             if cancel_event.is_set():
                 was_cancelled = True
@@ -357,22 +361,19 @@ async def _async_agent_loop(
                 blank_retry_count = 0
             blank_nudge_sent = False
             blank_retry_count = 0
-            is_candidate = False
+            # Collect this response as a final-answer candidate. Every non-blank,
+            # no-tool emission counts — including interim ones produced while todos
+            # are still open — and the selector chooses the best one at the end.
             if content_for_history and content_for_history.strip():
-                is_candidate = await _is_sufficient_final_answer(
-                    streaming_llm,
-                    session,
-                    current_turn,
-                    current_subturn,
-                    content_for_history,
-                    watchdog_params or {},
-                    on_usage=_make_sampler_usage_tracker(session_id, "final_answer"),
-                    on_request_log=_make_sampler_request_logger(session_id, "final_answer"),
-                    on_reasoning_detected=_make_sampler_reasoning_detector(session_id, "final_answer"),
+                final_answer_candidates.append(
+                    {
+                        "content": content_for_history,
+                        "reasoning": reasoning,
+                        "subturn_id": current_subturn.id,
+                        "exchange_idx": exchange_idx,
+                        "was_irat": was_irat_call,
+                    }
                 )
-                if is_candidate:
-                    pending_final_candidate = (content_for_history, reasoning)
-                    irat_candidate_exchange = (current_subturn.id, exchange_idx) if was_irat_call else None
 
             # Hard block: todos must be closed before the turn can end.
             unclosed = _get_open_items(session.session_data.get("todo_list") or [])
@@ -389,20 +390,39 @@ async def _async_agent_loop(
                 _save_session(session_id, session)
                 continue
 
-            if is_candidate:
-                if was_irat_call:
+            # Todos are closed → the turn is ready to end. If any candidates were
+            # collected, finalize with the best one (selector only runs when >1).
+            if final_answer_candidates:
+                if len(final_answer_candidates) == 1:
+                    winner = final_answer_candidates[0]
+                else:
+                    best_idx = await _select_best_final_answer(
+                        streaming_llm,
+                        current_subturn.user_text,
+                        [c["content"] for c in final_answer_candidates],
+                        watchdog_params or {},
+                        on_usage=_make_sampler_usage_tracker(session_id, "final_answer"),
+                        on_request_log=_make_sampler_request_logger(session_id, "final_answer"),
+                        on_reasoning_detected=_make_sampler_reasoning_detector(session_id, "final_answer"),
+                    )
+                    winner = final_answer_candidates[best_idx]
+
+                # If the winner was streamed as IRAT "thinking", clear that panel so
+                # the frontend promotes it from thinking to the real final answer.
+                if winner["was_irat"]:
                     _emit_and_log(
                         session_id,
                         "irat_thinking_clear",
                         {
                             "turn_id": turn_id,
-                            "subturn_id": current_subturn.id,
-                            "exchange_idx": exchange_idx,
+                            "subturn_id": winner["subturn_id"],
+                            "exchange_idx": winner["exchange_idx"],
                         },
                     )
+
                 final_exchange = LLMExchange(
-                    assistant_content=content_for_history,
-                    reasoning=reasoning,
+                    assistant_content=winner["content"],
+                    reasoning=winner["reasoning"],
                     is_final=True,
                 )
                 current_subturn.exchanges.append(final_exchange)
@@ -412,7 +432,7 @@ async def _async_agent_loop(
                         session_id,
                         turn_id,
                         current_subturn,
-                        content_for_history,
+                        winner["content"],
                         summarizer_params or {},
                         on_request_log=_make_sampler_request_logger(session_id, "summarizer"),
                         on_reasoning_detected=_make_sampler_reasoning_detector(session_id, "summarizer"),
@@ -421,53 +441,14 @@ async def _async_agent_loop(
                     session_id,
                     "message_done",
                     {
-                        "content": content_for_history,
+                        "content": winner["content"],
                         "turn_id": turn_id,
                     },
                 )
                 turn_completed = True
                 break
 
-            if pending_final_candidate is not None:
-                cand_content, cand_reasoning = pending_final_candidate
-                if irat_candidate_exchange is not None:
-                    _emit_and_log(
-                        session_id,
-                        "irat_thinking_clear",
-                        {
-                            "turn_id": turn_id,
-                            "subturn_id": irat_candidate_exchange[0],
-                            "exchange_idx": irat_candidate_exchange[1],
-                        },
-                    )
-                final_exchange = LLMExchange(
-                    assistant_content=cand_content,
-                    reasoning=cand_reasoning,
-                    is_final=True,
-                )
-                current_subturn.exchanges.append(final_exchange)
-                if current_subturn.count_tool_calls() > 0:
-                    await _generate_and_store_compaction(
-                        streaming_llm,
-                        session_id,
-                        turn_id,
-                        current_subturn,
-                        cand_content,
-                        summarizer_params or {},
-                        on_request_log=_make_sampler_request_logger(session_id, "summarizer"),
-                        on_reasoning_detected=_make_sampler_reasoning_detector(session_id, "summarizer"),
-                    )
-                _emit_and_log(
-                    session_id,
-                    "message_done",
-                    {
-                        "content": cand_content,
-                        "turn_id": turn_id,
-                    },
-                )
-                turn_completed = True
-                break
-
+            # No candidates collected (only blank no-tool responses) — rare case.
             if had_tool_calls and not final_summary_reprompt_sent:
                 final_summary_reprompt_sent = True
                 continuation = (
@@ -560,9 +541,11 @@ async def _async_agent_loop(
                 exc_info=True,
             )
             exc_type, exc_val, exc_tb = sys.exc_info()
+            err_msg = "Agent loop failed."
             if exc_val is not None:
                 tb_str = "".join(traceback.format_exception(exc_type, exc_val, exc_tb))
                 _emit_backend_log(session_id, f"[SERVER ERROR] Agent loop crashed:\n{tb_str}")
+                err_msg = f"Agent loop failed: {exc_val}"
             current_turn.completed = True
             current_turn.todo_snapshot = _todo_format_items_for_ui(
                 session.session_data.get("todo_list") or []
@@ -572,10 +555,12 @@ async def _async_agent_loop(
             )
             session.completed_turns.append(current_turn)
             session.current_turn = None
+            # Load-bearing failures (e.g. watchdogs) surface as a real UI error,
+            # not a silent blank completion.
             _emit_and_log(
                 session_id,
-                "message_done",
-                {"content": last_assistant_content or None, "turn_id": turn_id},
+                "error",
+                {"message": err_msg, "turn_id": turn_id},
             )
 
         _save_session(session_id, session)

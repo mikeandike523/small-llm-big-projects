@@ -689,8 +689,24 @@ def handle_user_message(data: dict):
                 )
             )
         except Exception as _wdog_exc:
-            logger.warning("Continuation watchdog error: %s", _wdog_exc)
-            _is_cont = False
+            # Load-bearing watchdog: surface the failure to the UI and abort the
+            # turn rather than silently guessing new-task vs follow-up.
+            logger.exception("Continuation watchdog failed for session %s", session_id)
+            _err_subturn_id = str(_uuid_module.uuid4())
+            _emit_and_log(
+                session_id,
+                "turn_start",
+                {"turn_id": turn_id, "user_text": text, "subturn_id": _err_subturn_id},
+            )
+            _emit_and_log(
+                session_id,
+                "error",
+                {
+                    "message": f"Continuation watchdog failed: {_wdog_exc}",
+                    "turn_id": turn_id,
+                },
+            )
+            return
         finally:
             _loop_for_watchdog.close()
 

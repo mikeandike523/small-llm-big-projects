@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 from typing import Any
 
 import src.ui_connector.socket_handler_components.state as _state
@@ -11,7 +12,6 @@ from src.ui_connector.socket_handler_components.emit import (
     _make_sampler_usage_tracker,
 )
 from src.ui_connector.socket_handler_components.llm import (
-    _build_llm_payload,
     _subturn_final_response,
 )
 from src.logic.system_prompt import get_selector_candidate_entries
@@ -99,106 +99,77 @@ async def _fetch_task_title(
 
 
 # ---------------------------------------------------------------------------
-# Final-answer watchdog
+# Final-answer selector
 # ---------------------------------------------------------------------------
 
 
-def _messages_to_watchdog_transcript(messages: list[dict]) -> str:
-    """Render stripped messages into plain text for the final-answer watchdog."""
-    lines: list[str] = []
-    for idx, msg in enumerate(messages, start=1):
-        role = msg.get("role", "?")
-        lines.append(f"[Message {idx}] {role.upper()}")
-
-        content = _truncate_watchdog_text(msg.get("content") or "", 700).strip()
-        if content:
-            lines.append(content)
-
-        if role == "assistant":
-            for tc in msg.get("tool_calls") or []:
-                name = tc.get("function", {}).get("name", "")
-                args = _truncate_watchdog_text(
-                    tc.get("function", {}).get("arguments", "") or "", 400
-                )
-                lines.append(f"Tool Call: {name}")
-                if args:
-                    lines.append(f"Args: {args}")
-        elif role == "tool":
-            tc_id = msg.get("tool_call_id", "")
-            if tc_id:
-                lines.append(f"Tool Call ID: {tc_id}")
-
-        lines.append("")
-
-    return "\n".join(lines).strip()
-
-
-async def _is_sufficient_final_answer(
+async def _select_best_final_answer(
     streaming_llm: StreamingLLM,
-    session: Session,
-    current_turn: Turn,
-    current_subturn: Subturn,
-    candidate_text: str,
+    user_text: str,
+    candidates: list[str],
     watchdog_params: dict,
     on_usage=None,
     on_request_log=None,
     on_reasoning_detected=None,
-) -> bool:
-    """Ask a small out-of-band evaluator whether candidate_text is a sufficient final answer."""
-    payload = _build_llm_payload(session, current_turn)
-    transcript = _messages_to_watchdog_transcript(payload)
+) -> int:
+    """Pick the best final answer among candidate responses.
 
-    todo_list = session.session_data.get("todo_list") or []
-    open_items = _get_open_items(todo_list)
-    closed_items = _get_closed_items(todo_list)
-    todo_status = (
-        f"todo_items_created={len(todo_list)}, "
-        f"todo_items_closed={len(closed_items)}, "
-        f"todo_items_open={len(open_items)}"
-    )
-    subturn_had_tool_calls = current_subturn.count_tool_calls() > 0
+    Returns a 0-based index into ``candidates``. Callers should skip this call
+    entirely when there is only one candidate. Falls back to the last candidate
+    on any error or unparseable response (mirrors the old "use the most recent
+    acceptable response" bias).
+    """
+    if not candidates:
+        return 0
+    if len(candidates) == 1:
+        return 0
+
+    numbered = [
+        f"[Response {i}]:\n{_truncate_watchdog_text(text, 1500).strip()}"
+        for i, text in enumerate(candidates, start=1)
+    ]
+    responses_block = "\n\n".join(numbered)
 
     messages = [
         {
             "role": "system",
             "content": (
-                "You are evaluating whether an assistant's latest reply is a valid final response "
-                "that ends the current subturn.\n"
-                "\n"
-                "Reply with exactly one word: YES or NO.\n"
-                "\n"
-                "Reply YES if the latest reply is any of the following:\n"
-                "  - A direct final answer or summary of completed work.\n"
-                "  - A question or request for clarification directed at the user.\n"
-                "  - A statement that the task cannot be completed, with a clear explanation.\n"
-                "\n"
-                "Reply NO if the reply is only a partial status update, reasoning fragment, "
-                "or interim step that does not resolve the subturn."
+                "You are selecting the single best final reply to send to a user, chosen "
+                "from several candidate responses an assistant produced while working on "
+                "the task.\n\n"
+                "Pick the response that most completely and clearly answers the user's "
+                "request as a standalone final reply. Prefer a finished answer or summary "
+                "over an interim status update, a reasoning fragment, or a note about work "
+                "still in progress.\n\n"
+                f"The candidates are numbered 1 to {len(candidates)}.\n"
+                "Output ONLY the number of the best response. Nothing else."
             ),
         },
         {
             "role": "user",
             "content": (
-                f"User request:\n{current_subturn.user_text}\n\n"
-                f"Turn facts:\n"
-                f"- had_tool_calls: {subturn_had_tool_calls}\n"
-                f"- {todo_status}\n\n"
-                f"Prior conversation transcript (already stripped/truncated for evaluator use):\n"
-                f"{transcript or '(empty)'}\n\n"
-                f"Latest assistant reply to evaluate:\n{candidate_text}"
+                f"User request:\n{user_text}\n\n"
+                f"Candidate responses:\n{responses_block}"
             ),
         },
     ]
-    try:
-        result = await asyncio.to_thread(
-            _call_sampler, streaming_llm, messages, watchdog_params, on_usage,
-            on_request_log, on_reasoning_detected,
-        )
-        decision = (result.content or "").strip().upper()
-        return decision == "YES"
-    except Exception as exc:
-        logger.warning("Final-answer watchdog LLM call failed: %s", exc)
-        return False
+    # NOTE: this is a load-bearing watchdog. A failed LLM call must propagate so
+    # the agent loop surfaces it as a UI error rather than silently degrading.
+    # Only an unparseable-but-successful response falls back to the last candidate.
+    result = await asyncio.to_thread(
+        _call_sampler, streaming_llm, messages, watchdog_params, on_usage,
+        on_request_log, on_reasoning_detected,
+    )
+    raw = (result.content or "").strip()
+    match = re.search(r"\d+", raw)
+    if match:
+        idx = int(match.group()) - 1
+        if 0 <= idx < len(candidates):
+            return idx
+    logger.warning(
+        "Final-answer selector returned unparseable result %r — using last candidate", raw
+    )
+    return len(candidates) - 1
 
 
 # ---------------------------------------------------------------------------
@@ -355,16 +326,14 @@ async def _is_continuation(
             ),
         },
     ]
-    try:
-        result = await asyncio.to_thread(
-            _call_sampler, streaming_llm, messages, watchdog_params, on_usage,
-            on_request_log, on_reasoning_detected,
-        )
-        decision = (result.content or "").strip().upper()
-        return decision != "YES"
-    except Exception as exc:
-        logger.warning("Continuation watchdog LLM call failed: %s", exc)
-        return False
+    # Load-bearing: a failed LLM call must propagate so the caller can surface it
+    # as a UI error and abort the turn rather than silently treating it as new-task.
+    result = await asyncio.to_thread(
+        _call_sampler, streaming_llm, messages, watchdog_params, on_usage,
+        on_request_log, on_reasoning_detected,
+    )
+    decision = (result.content or "").strip().upper()
+    return decision != "YES"
 
 
 # ---------------------------------------------------------------------------
@@ -435,16 +404,14 @@ async def _select_skills_for_turn(
         },
     ]
 
-    try:
-        result = await asyncio.to_thread(
-            _call_sampler, streaming_llm, messages, watchdog_params, on_usage,
-            on_request_log, on_reasoning_detected,
-        )
-        response = (result.content or "").strip().lower()
-        if not response or response == "none":
-            return []
-        selected_ids = {f.strip() for f in response.split(",") if f.strip()}
-        return [e for e in selector_candidates if e["id"] in selected_ids]
-    except Exception as exc:
-        logger.warning("Skill selector watchdog failed: %s", exc)
+    # Load-bearing: a failed LLM call must propagate so the agent loop surfaces it
+    # as a UI error rather than silently running the turn with no skills loaded.
+    result = await asyncio.to_thread(
+        _call_sampler, streaming_llm, messages, watchdog_params, on_usage,
+        on_request_log, on_reasoning_detected,
+    )
+    response = (result.content or "").strip().lower()
+    if not response or response == "none":
         return []
+    selected_ids = {f.strip() for f in response.split(",") if f.strip()}
+    return [e for e in selector_candidates if e["id"] in selected_ids]
