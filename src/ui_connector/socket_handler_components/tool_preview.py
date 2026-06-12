@@ -5,12 +5,30 @@ from flask import jsonify, request
 import src.ui_connector.socket_handler_components.state as _state
 from src.ui_connector.app import app
 from src.tools._text_editor_utils import _apply_edits, _parse_patch_file
+from src.tools._path_utils import _resolve_path
 
 
 def _read_redis_memory(session_id: str, key: str) -> str | None:
     """Return the session memory value for key, or None if absent."""
     r = _state._get_redis()
     return r.hget(f"session:{session_id}:memory", key)
+
+
+def _session_cwd_for(session_id: str | None) -> str | None:
+    """Best-effort lookup of the session's effective CWD for path resolution.
+
+    Mirrors the resolution the real tool/approval flow uses: the session's
+    current CWD (post-change_pwd) if known, else its initial CWD. Returns None
+    when nothing is known, in which case _resolve_path falls back to the process
+    CWD (preserving prior behaviour for absolute paths and unknown sessions).
+    """
+    if not session_id:
+        return None
+    cwd = _state._session_current_cwd.get(session_id)
+    if cwd:
+        return cwd
+    cfg = _state._session_project_config.get(session_id) or {}
+    return cfg.get("initial_cwd") or None
 
 
 @app.route("/api/tool-preview/text-editor", methods=["POST"])
@@ -38,8 +56,13 @@ def api_text_editor_preview():
         return jsonify({"error": "filepath or key is required"}), 400
 
     if filepath:
+        # Resolve relative paths against the session CWD, exactly as the real
+        # text_editor tool and approval flow do. Without this a relative path
+        # resolves against the server process CWD, the file is "not found", and
+        # the UI shows no diff for what is actually an edit to an existing file.
+        resolved = _resolve_path(filepath, _session_cwd_for(session_id))
         try:
-            with open(filepath, "r", encoding="utf-8", errors="replace") as fh:
+            with open(resolved, "r", encoding="utf-8", errors="replace") as fh:
                 before = fh.read()
         except FileNotFoundError:
             return jsonify({"exists": False})
@@ -82,8 +105,13 @@ def api_write_text_file_preview():
     if not path:
         return jsonify({"error": "path is required"}), 400
 
+    # Resolve relative paths against the session CWD, matching write_text_file's
+    # own resolution. Otherwise a relative path to an existing file resolves
+    # against the server process CWD, is reported missing, and the UI suppresses
+    # the diff for what is really a wholesale rewrite of an existing file.
+    resolved = _resolve_path(path, _session_cwd_for(session_id))
     try:
-        with open(path, "r", encoding="utf-8", errors="replace") as fh:
+        with open(resolved, "r", encoding="utf-8", errors="replace") as fh:
             before = fh.read()
     except FileNotFoundError:
         return jsonify({"exists": False})
