@@ -2,8 +2,8 @@
 
 ### Using hierarchical todo lists
 
-It is recommended to use a hierarchical todo list, particuarly, by starting with tasks such as
-"Explore the Codebase" and "Implement Requested Feature", and then adding subtasks as you explroe the codebase, begin working on a feature and more.
+It is recommended to use a hierarchical todo list, particularly, by starting with tasks such as
+"Explore the Codebase" and "Implement Requested Feature", and then adding subtasks as you explore the codebase, begin working on a feature and more.
 
 Read the state of the todo list frequently using `todo_list(action="list_formatted")` to help stay on track
 as you complete tasks and subtasks.
