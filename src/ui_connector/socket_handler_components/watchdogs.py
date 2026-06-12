@@ -111,12 +111,14 @@ async def _select_best_final_answer(
     on_usage=None,
     on_request_log=None,
     on_reasoning_detected=None,
-) -> int:
+) -> int | None:
     """Pick the best final answer among candidate responses.
 
-    Returns a 0-based index into ``candidates``. Callers should skip this call
-    entirely when there is only one candidate. Falls back to the last candidate
-    on any error or unparseable response (mirrors the old "use the most recent
+    Returns a 0-based index into ``candidates``, or ``None`` if the selector
+    judged that none of the candidates is a viable final answer (the caller
+    then forces a summary reprompt). Callers should skip this call entirely
+    when there is only one candidate. Falls back to the last candidate on an
+    unparseable-but-successful response (mirrors the old "use the most recent
     acceptable response" bias).
     """
     if not candidates:
@@ -141,8 +143,12 @@ async def _select_best_final_answer(
                 "request as a standalone final reply. Prefer a finished answer or summary "
                 "over an interim status update, a reasoning fragment, or a note about work "
                 "still in progress.\n\n"
+                "If NONE of the candidates is an acceptable standalone final answer "
+                "(e.g. they are all interim status updates, reasoning fragments, or "
+                "notes about work still in progress), output 0.\n\n"
                 f"The candidates are numbered 1 to {len(candidates)}.\n"
-                "Output ONLY the number of the best response. Nothing else."
+                "Output ONLY a single number: the best response's number, or 0 if "
+                "none are acceptable. Nothing else."
             ),
         },
         {
@@ -163,7 +169,10 @@ async def _select_best_final_answer(
     raw = (result.content or "").strip()
     match = re.search(r"\d+", raw)
     if match:
-        idx = int(match.group()) - 1
+        num = int(match.group())
+        if num == 0:
+            return None  # selector judged none of the candidates viable
+        idx = num - 1
         if 0 <= idx < len(candidates):
             return idx
     logger.warning(

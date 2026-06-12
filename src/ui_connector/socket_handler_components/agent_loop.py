@@ -405,7 +405,33 @@ async def _async_agent_loop(
                         on_request_log=_make_sampler_request_logger(session_id, "final_answer"),
                         on_reasoning_detected=_make_sampler_reasoning_detector(session_id, "final_answer"),
                     )
-                    winner = final_answer_candidates[best_idx]
+                    if best_idx is None:
+                        # Selector judged none of the candidates a viable final
+                        # answer. Force one summary reprompt to elicit a clean
+                        # answer; if we already did that, fall back to the last
+                        # candidate rather than looping.
+                        if not final_summary_reprompt_sent:
+                            final_summary_reprompt_sent = True
+                            current_subturn.exchanges.append(
+                                LLMExchange(
+                                    assistant_content=content_for_history,
+                                    reasoning=reasoning,
+                                    is_final=False,
+                                    user_continuation=(
+                                        "None of your responses so far is a complete final "
+                                        "answer. Please provide your final summary or answer "
+                                        "based on the steps you took, the tool results, and "
+                                        "the previous context."
+                                    ),
+                                )
+                            )
+                            _emit_and_log(session_id, "final_reprompt", {"turn_id": turn_id})
+                            _emit_and_log(session_id, "begin_final_summary", {"turn_id": turn_id})
+                            _save_session(session_id, session)
+                            continue
+                        winner = final_answer_candidates[-1]
+                    else:
+                        winner = final_answer_candidates[best_idx]
 
                 # If the winner was streamed as IRAT "thinking", clear that panel so
                 # the frontend promotes it from thinking to the real final answer.

@@ -177,7 +177,7 @@ def needs_approval(args: dict) -> bool:
         if filepath is None:
             return False  # session memory key only — no file write
 
-        from src.tools._approval import needs_path_approval
+        from src.tools._approval import needs_path_approval, _resolve
 
         # Outside approved roots: always require approval regardless of outcome.
         if needs_path_approval(filepath):
@@ -191,18 +191,39 @@ def needs_approval(args: dict) -> bool:
         if not patch or not isinstance(patch, str):
             return False  # bad args — tool will fail anyway
 
+        # Resolve against the session CWD (held in approval thread-locals), not
+        # the server process CWD. A relative filepath would otherwise miss the
+        # file here and raise.
+        resolved_filepath = _resolve(filepath)
+
+        # Read the target. Benign, expected failures (missing file, no
+        # permission) mean the write can't happen, so don't prompt — the agent
+        # will see the tool's own clear error. Any OTHER read failure is
+        # unexpected: fail safe and require approval rather than waving the
+        # write through.
+        try:
+            with open(resolved_filepath, "r", encoding="utf-8", newline="") as fh:
+                value = fh.read()
+        except (FileNotFoundError, PermissionError):
+            return False
+        except Exception:
+            return True
+
+        # Dry-run the patch. A patch that legitimately won't apply raises
+        # ValueError/RuntimeError (same as _do_apply_patch) — no write, no
+        # prompt. Anything else unexpected: fail safe and require approval.
         try:
             from src.tools._text_editor_utils import _parse_patch_file, _apply_edits
 
             hunks = _parse_patch_file(patch)
             if not hunks:
                 return False  # no hunks parsed — tool will fail
-            with open(filepath, "r", encoding="utf-8", newline="") as fh:
-                value = fh.read()
             _apply_edits(value, hunks)
             return True  # patch would apply — require approval before writing
+        except (ValueError, RuntimeError):
+            return False  # patch won't apply — tool will error, no prompt needed
         except Exception:
-            return False  # any failure means no file will be written
+            return True  # unexpected — fail safe
 
     if action in _WRITE_ACTIONS_SET:
         # Other write actions (normalize_eol, convert_indentation) on files
@@ -397,6 +418,8 @@ def execute(args: dict, session_data: dict | None = None, special_resources: dic
                 value = fh.read()
         except FileNotFoundError:
             return f"Error: file not found: {filepath}"
+        except PermissionError as e:
+            return f"Error: permission denied reading file: {e}"
         except OSError as e:
             return f"Error reading file: {e}"
     else:
