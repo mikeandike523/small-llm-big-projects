@@ -62,6 +62,7 @@ def _execute_tools(
     summarizer_params: dict | None = None,
     patchrewriter_params: dict | None = None,
     strict_dirty: bool = True,
+    create_file_auto_eol: str | None = None,
 ) -> LLMExchange:
     """
     Execute all tool calls in result, emit events, and build an LLMExchange record.
@@ -74,6 +75,7 @@ def _execute_tools(
         "session_id": session_id,
         "initial_cwd": session.initial_cwd,
         "session_cwd": _current_cwd,
+        "create_file_auto_eol": create_file_auto_eol,
         "on_cwd_change": None,
         "cancel_event": cancel_event,
         "create_terminal": lambda cmd, tab_name: _launch_terminal_for_session(

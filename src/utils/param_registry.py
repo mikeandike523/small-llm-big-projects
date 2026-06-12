@@ -28,6 +28,7 @@ class ParamSpec(BaseModel):
     system_only: bool = False  # never forwarded to any LLM request
     min: float | None = None
     max: float | None = None
+    choices: list[str] | None = None  # for value_type "string": allowed values (enum)
 
     _adapter: Any = PrivateAttr(default=None)
 
@@ -91,7 +92,13 @@ class ParamSpec(BaseModel):
             except ValidationError:
                 raise ValueError(f"'{self.name}' must be a finite number{self._bounds_str()}")
 
-        return str(raw)
+        # string (optionally constrained to an enum via choices)
+        val = str(raw)
+        if self.choices is not None and val not in self.choices:
+            raise ValueError(
+                f"'{self.name}' must be one of: {', '.join(self.choices)}"
+            )
+        return val
 
     def _bounds_str(self) -> str:
         if self.min is not None and self.max is not None:
@@ -108,6 +115,8 @@ class ParamSpec(BaseModel):
 
     def display_type(self) -> str:
         """Human-readable type string for CLI display."""
+        if self.choices is not None:
+            return f"{self.value_type} ({' | '.join(self.choices)})"
         if self.min is not None and self.max is not None:
             lo: Any = int(self.min) if self.value_type == "integer" else self.min
             hi: Any = int(self.max) if self.value_type == "integer" else self.max
@@ -131,6 +140,8 @@ class ParamSpec(BaseModel):
             d["min"] = self.min
         if self.max is not None:
             d["max"] = self.max
+        if self.choices is not None:
+            d["choices"] = list(self.choices)
         return d
 
 
@@ -231,6 +242,21 @@ REGISTRY["system.strict_dirty"] = ParamSpec(
         "true (default): block if the file has never been read OR has been modified since "
         "last read. false: only block if never read -- useful for models that prefer "
         "calling apply_patch multiple times over writing multi-hunk patches."
+    ),
+)
+REGISTRY["system.create_file_auto_eol"] = ParamSpec(
+    name="system.create_file_auto_eol",
+    value_type="string",
+    choices=["enabled", "enabled_silent", "disabled"],
+    description=(
+        "Auto-normalize line endings of newly created files (create_text_file, or "
+        "write_text_file to a path that did not previously exist). The target EOL is "
+        "detected from the session's INITIAL cwd: a .gitattributes 'eol=lf'/'eol=crlf' "
+        "directive wins first, then a *.code-workspace 'files.eol' setting (JSONC), else "
+        "the host platform default (CRLF on Windows, LF on mac/Linux). "
+        "enabled_silent (default): convert but do not mention it in the tool result. "
+        "enabled: convert and note the conversion in the tool result. "
+        "disabled: never auto-convert."
     ),
 )
 

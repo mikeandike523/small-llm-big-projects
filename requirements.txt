@@ -24,6 +24,7 @@ tqdm
 numpy
 beautifulsoup4
 lxml
+json5
 
 # Dev dependencies
 black

@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from src.tools._path_utils import _resolve_path
+from src.tools._auto_eol import maybe_apply_auto_eol
 
 DEFINITION: dict = {
     "type": "function",
@@ -51,16 +52,30 @@ def execute(args: dict, session_data: dict, special_resources: dict | None = Non
     # Resolve relative paths against the session CWD, not the server process
     # CWD. Without this a relative path would land in the server's working
     # directory instead of the agent's project.
-    session_cwd = (special_resources or {}).get("session_cwd")
+    sr = special_resources or {}
+    session_cwd = sr.get("session_cwd")
     target = Path(_resolve_path(path, session_cwd))
+
+    # Auto-EOL: normalize line endings of the new file based on the session's
+    # INITIAL cwd (gated by the system.create_file_auto_eol param).
+    initial_content, eol_note = maybe_apply_auto_eol(
+        initial_content,
+        sr.get("create_file_auto_eol"),
+        sr.get("initial_cwd"),
+    )
 
     try:
         if create_parents:
             target.parent.mkdir(parents=True, exist_ok=True)
         if target.exists():
             return f"Error: file already exists: {path}"
-        target.write_text(initial_content, encoding="utf-8")
-        return f"File created: {path}"
+        # newline="" prevents Python from rewriting the EOL style we just applied.
+        with open(target, "w", encoding="utf-8", newline="") as fh:
+            fh.write(initial_content)
+        msg = f"File created: {path}"
+        if eol_note:
+            msg += f" ({eol_note})"
+        return msg
     except FileNotFoundError:
         return f"Error: parent directory does not exist: {target.parent}"
     except OSError as e:

@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 from src.tools._path_utils import _resolve_path
+from src.tools._auto_eol import maybe_apply_auto_eol
 
 DEFINITION: dict = {
     "type": "function",
@@ -84,12 +85,28 @@ def execute(args: dict, session_data: dict, special_resources: dict | None = Non
         content = value
 
     target = Path(path)
+
+    # Auto-EOL applies ONLY when creating a file that did not previously exist
+    # (a wholesale overwrite of an existing file leaves its EOL policy alone).
+    # Capture existence before any write so create_parents can't affect it.
+    is_new_file = not target.exists()
+    eol_note: str | None = None
+    if is_new_file:
+        content, eol_note = maybe_apply_auto_eol(
+            content,
+            sr.get("create_file_auto_eol"),
+            sr.get("initial_cwd"),
+        )
+
     try:
         if create_parents:
             target.parent.mkdir(parents=True, exist_ok=True)
         with open(target, "w", encoding="utf-8", newline="") as fh:
             fh.write(content)
-        return f"File written: {path} ({len(content)} chars)"
+        msg = f"File written: {path} ({len(content)} chars)"
+        if eol_note:
+            msg += f" ({eol_note})"
+        return msg
     except FileNotFoundError:
         return f"Error: parent directory does not exist: {target.parent}"
     except OSError as e:

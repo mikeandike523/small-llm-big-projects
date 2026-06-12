@@ -564,10 +564,16 @@ def handle_run_startup_tool_calls():
         return
 
     _startup_cwd = _state._session_current_cwd.get(session_id) or session.initial_cwd
+    _startup_cfg = _load_llm_config(session.profile_name) or {}
+    _startup_auto_eol = (
+        (_startup_cfg.get("system_params") or {}).get("create_file_auto_eol")
+        or "enabled_silent"
+    )
     special_resources: dict = {
         "on_log": lambda msg: _emit_backend_log(session_id, msg),
         "initial_cwd": session.initial_cwd,
         "session_cwd": _startup_cwd,
+        "create_file_auto_eol": _startup_auto_eol,
         "on_cwd_change": None,
     }
 
@@ -662,6 +668,9 @@ def handle_user_message(data: dict):
     )
     blank_response_retries: int = llm_config["system_params"].get("blank_response_retries") or 0
     strict_dirty: bool = llm_config["system_params"].get("strict_dirty", True)
+    create_file_auto_eol: str = (
+        llm_config["system_params"].get("create_file_auto_eol") or "enabled_silent"
+    )
     model_temperature: float | None = (llm_config.get("model_params") or {}).get("temperature")
     watchdog_params: dict = llm_config.get("watchdog_params") or {}
     summarizer_params: dict = llm_config.get("summarizer_params") or {}
@@ -805,6 +814,7 @@ def handle_user_message(data: dict):
                 blank_response_retries=blank_response_retries,
                 model_temperature=model_temperature,
                 strict_dirty=strict_dirty,
+                create_file_auto_eol=create_file_auto_eol,
             )
             if _had_tool_calls and not current_turn.task_title:
                 await _fetch_and_store_title()
@@ -873,6 +883,9 @@ def handle_force_continuation(data: dict):
     )
     blank_response_retries: int = llm_config["system_params"].get("blank_response_retries") or 0
     strict_dirty: bool = llm_config["system_params"].get("strict_dirty", True)
+    create_file_auto_eol: str = (
+        llm_config["system_params"].get("create_file_auto_eol") or "enabled_silent"
+    )
     model_temperature: float | None = (llm_config.get("model_params") or {}).get("temperature")
     watchdog_params: dict = llm_config.get("watchdog_params") or {}
     summarizer_params: dict = llm_config.get("summarizer_params") or {}
@@ -941,6 +954,7 @@ def handle_force_continuation(data: dict):
                 blank_response_retries=blank_response_retries,
                 model_temperature=model_temperature,
                 strict_dirty=strict_dirty,
+                create_file_auto_eol=create_file_auto_eol,
             )
         except asyncio.CancelledError:
             cancel_event.set()

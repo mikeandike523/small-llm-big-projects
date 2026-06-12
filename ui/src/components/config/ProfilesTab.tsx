@@ -31,6 +31,7 @@ type ParamSpec = {
   value_type: "boolean" | "float" | "integer" | "object" | "string";
   min?: number;
   max?: number;
+  choices?: string[];
   description?: string;
 };
 
@@ -525,7 +526,25 @@ export default function ProfilesTab() {
                               {spec.name}
                             </td>
                             <td css={tdCss}>
-                              {spec.value_type === "boolean" ? (
+                              {spec.choices ? (
+                                <select
+                                  css={selectCss}
+                                  value={value}
+                                  onChange={(e) =>
+                                    setParamDrafts((drafts) => ({
+                                      ...drafts,
+                                      [key]: e.target.value,
+                                    }))
+                                  }
+                                >
+                                  <option value="">Unset</option>
+                                  {spec.choices.map((choice) => (
+                                    <option key={choice} value={choice}>
+                                      {choice}
+                                    </option>
+                                  ))}
+                                </select>
+                              ) : spec.value_type === "boolean" ? (
                                 <select
                                   css={selectCss}
                                   value={value}
@@ -572,6 +591,7 @@ export default function ProfilesTab() {
                             <td css={tdCss}>
                               <span css={hintCss}>
                                 {spec.value_type}
+                                {spec.choices ? ` (${spec.choices.join(" | ")})` : ""}
                                 {spec.min !== undefined ? ` >= ${spec.min}` : ""}
                                 {spec.max !== undefined ? ` <= ${spec.max}` : ""}
                               </span>
