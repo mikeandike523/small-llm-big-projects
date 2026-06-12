@@ -3,6 +3,8 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
+from src.tools._path_utils import _resolve_path
+
 DEFINITION: dict = {
     "type": "function",
     "function": {
@@ -34,8 +36,11 @@ def needs_approval(args: dict) -> bool:
     return True
 
 
-def execute(args: dict, session_data: dict) -> str:
-    path = args["path"]
+def execute(args: dict, session_data: dict, special_resources: dict | None = None) -> str:
+    # Resolve relative paths against the session CWD, not the server process
+    # CWD — critical here since this is a destructive (rmtree) operation.
+    session_cwd = (special_resources or {}).get("session_cwd")
+    path = _resolve_path(args["path"], session_cwd)
     recursive = bool(args.get("recursive", False))
 
     target = Path(path)

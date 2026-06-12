@@ -181,6 +181,7 @@ def _collect_files_traverse(root: str, use_gitignore: bool) -> list[str]:
         use_gitignore=use_gitignore,
         start_time=start,
         timeout=DEFAULT_TIMEOUT,
+        timeout_hint=TIMEOUT_HINT,
     )
 
     flat: list = []

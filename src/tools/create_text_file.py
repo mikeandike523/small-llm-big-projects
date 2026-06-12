@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from src.tools._path_utils import _resolve_path
+
 DEFINITION: dict = {
     "type": "function",
     "function": {
@@ -41,12 +43,16 @@ def needs_approval(args: dict) -> bool:
     return True
 
 
-def execute(args: dict, session_data: dict) -> str:
+def execute(args: dict, session_data: dict, special_resources: dict | None = None) -> str:
     path = args["path"]
     create_parents: bool = args.get("create_parents", False)
     initial_content: str = args.get("initial_content", "")
 
-    target = Path(path)
+    # Resolve relative paths against the session CWD, not the server process
+    # CWD. Without this a relative path would land in the server's working
+    # directory instead of the agent's project.
+    session_cwd = (special_resources or {}).get("session_cwd")
+    target = Path(_resolve_path(path, session_cwd))
 
     try:
         if create_parents:
