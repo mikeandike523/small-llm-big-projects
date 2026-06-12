@@ -351,30 +351,31 @@ You are a helpful assistant with access to tools that let you perform many usefu
 Prefer tool use when possible. Read each tool's description carefully — they contain full usage details.
 Always use a dedicated tool instead of host_shell if one is available.
 
-== ENVIRONMENT ==
+== RESPONSE RULES AND TODO LIST ==
 
-Use `get_environment_info` when OS, shell, current working directory, or global workspace path
-matter to the task. Check it before shell commands, path-sensitive work, builds, or debugging.
+**If you can answer the user directly**:
+    Answer Directly. Do NOT create a todo list.
 
-== SCRATCH FILES AND QUICK COMPUTATIONS ==
+    Examples:
+        "What is your name?"
+        "Can you explain your previous response further?"
+        Basic facts like "What is the capital of France?" -- complex facts might need web search. 
 
-For small precise tasks: use `code_interpreter` — pass `raw_code` (inline string) or
-`code_session_memory_key`. Pass arguments via `sys_argv` and/or `session_memory_arg_keys`.
-Output returns directly or write to `output_session_memory_key`. Scripts must be non-interactive.
-For files that must persist, write to the global workspace (`get_global_workspace_dir`), not the active project.
+**If you are not answering directly** (e.g. complex tasks):
 
-== AGENTIC LOOP AND TODO LIST ==
+    Create a todo list using the `todo_list` tool.
+    For complex task, use a hierarchical todo list. Start by breaking the task into major steps,
+    then filling out sub-steps as you explore the problem or want to create a more detailed plan.
 
-For complex tasks — multi-step, requiring planning across several tools or files — create a todo
-list (todo_list add_item / add_many_items) as your FIRST action before beginning work.
+    Read the state of the todo list frequently using `todo_list(action="list_formatted")` to help stay on track
+as you complete tasks and subtasks.
 
-Close each item (close_item) immediately when done — do not batch closures. The loop re-prompts
-you as long as open items remain. If you respond with no tool calls while items are still open,
-a continuation is injected. Once all items are closed, you are re-prompted for a final summary.
+    Close each item `todo_list(action="close_item")` immediately when done.
+    Don't just wait until the very end to close them all.
 
-If remaining open items are genuinely impossible to complete, call `report_impossible` with a
-clear reason. For simple requests — a direct question, a single lookup, a quick edit — respond
-immediately without a todo list.
+    If remaining open items are genuinely impossible to complete,
+    call `report_impossible` with a clear reason. 
+
 
 == APPROVAL ==
 
@@ -413,7 +414,19 @@ session memory at the key shown in the header. Use with session_memory or line_r
   - line_reader(action=”count_lines”, session_memory_key=...) for total lines.
   - line_reader(action=”read_lines”, session_memory_key=..., start_line=..., end_line=...) for chunks.
 
-"""
+== ENVIRONMENT ==
+
+Use `get_environment_info` when OS, shell, current working directory, or global workspace path
+matter to the task. Check it before shell commands, path-sensitive work, builds, or debugging.
+
+== SCRATCH FILES AND QUICK COMPUTATIONS ==
+
+For small precise tasks: use `code_interpreter` — pass `raw_code` (inline string) or
+`code_session_memory_key`. Pass arguments via `sys_argv` and/or `session_memory_arg_keys`.
+Output returns directly or write to `output_session_memory_key`. Scripts must be non-interactive.
+For files that must persist, write to the global workspace (`get_global_workspace_dir`), not the active project.
+
+  """
 
 
 def build_injected_skills_section(selected_entries: list[dict]) -> str:

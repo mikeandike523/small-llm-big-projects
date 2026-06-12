@@ -1,15 +1,26 @@
 ## Skill: Writing Code
 
-### Exploring the Codebase
+### Using hierarchical todo lists
 
-For complex coding tasks, add each area or file group you need to understand as a todo item — check them off as you go so nothing gets skipped. For simple tasks, skip the list and work directly.
+It is recommended to use a hierarchical todo list, particuarly, by starting with tasks such as
+"Explore the Codebase" and "Implement Requested Feature", and then adding subtasks as you explroe the codebase, begin working on a feature and more.
+
+Read the state of the todo list frequently using `todo_list(action="list_formatted")` to help stay on track
+as you complete tasks and subtasks.
+
+Close each item `todo_list(action="close_item")` immediately when done.
+Don't just wait until the very end to close them all.
+
+If remaining open items are genuinely impossible to complete,
+call `report_impossible` with a clear reason. The user will likely provide a new message with clarification or
+direction, so you can continue working.
+
+### Exploring the Codebase
 
 - **`list_working_tree`** — List all tracked/untracked (non-ignored) files in a git repo. Prefer this over `list_dir` for code repos.
 - **`list_dir`** — List directory contents with recursion, depth, and filter controls. Use when you need fine-grained traversal (e.g., `depth=1` for a quick overview).
 - **`find_files_by_name`** — Search for files by name pattern (glob or regex) across the tree. Prefer this over `host_shell` with `find` — on some systems (e.g. Git Bash on Windows) the `find` command is not available.
 - **`search_filesystem_by_regex`** — Search file *contents* by regex. Use to find where a function, class, variable, or string is defined or used.
-
-As you explore, write your key findings to session memory so you can reference them throughout the task.
 
 ### Reading and Editing Files
 
