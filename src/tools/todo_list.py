@@ -29,6 +29,7 @@ DEFINITION: dict = {
                         "add_many_items",
                         "update_item",
                         "delete_item",
+                        "delete_many_items",
                         "close_item",
                         "close_many_items",
                         "reopen_item",
@@ -52,6 +53,11 @@ DEFINITION: dict = {
                         "Works on leaf items and sub-list parents (renames the group).\n"
                         "delete_item: remove item at item_path. "
                         "Errors if item has children unless cascade_delete=true.\n"
+                        "delete_many_items: remove multiple items in one call. "
+                        "Requires item_paths (array of path strings) that ALL share the same "
+                        "parent path; deleting across different parents is not allowed (do that "
+                        "in separate calls). Same cascade_delete rules as delete_item; validated "
+                        "atomically — if any path is invalid nothing is deleted.\n"
                         "close_item: mark a single leaf item as done. "
                         "Sub-list parents close automatically when all descendants are closed "
                         "and cannot be closed directly.\n"
@@ -60,7 +66,10 @@ DEFINITION: dict = {
                         "Each path is attempted independently; errors are reported per-item.\n"
                         "reopen_item: mark a leaf item as open again. "
                         "Sub-list parents have no direct open/closed state — reopen a child instead.\n"
-                        "clear: delete all items from the list, leaving it empty."
+                        "clear: delete all items from the list, leaving it empty.\n"
+                        "Note: actions that change the list structure (add_item, add_many_items, "
+                        "delete_item, delete_many_items, clear) append the resulting list as a "
+                        "reminder to their result. Closing/reopening items does not."
                     ),
                 },
                 "item_path": {
@@ -74,7 +83,10 @@ DEFINITION: dict = {
                 "item_paths": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "Array of item paths to close. Required for: close_many_items.",
+                    "description": (
+                        "Array of item paths. Required for: close_many_items (paths to close) "
+                        "and delete_many_items (paths to delete — all must share the same parent)."
+                    ),
                 },
                 "parent_path": {
                     "type": "string",
@@ -363,6 +375,26 @@ def format_todo_tree(items: list) -> str:
     return _format_tree(items)
 
 
+# Marker that begins the structure-change reminder appended to a tool result.
+# Kept stable so callers/tests can split the JSON result from the reminder.
+_REMINDER_MARKER = "\n\n<system-reminder>\n"
+
+
+def _append_list_reminder(result: str, root_items: list) -> str:
+    """Append the current full todo list to a result string as a reminder.
+
+    Used by structure-changing actions (add/delete/clear) so the model always
+    sees the resulting list after it changes shape. Read-only actions and
+    status-only actions (close/reopen) do not append this.
+    """
+    return (
+        f"{result}{_REMINDER_MARKER}"
+        "The todo list structure changed. Resulting list:\n"
+        f"{format_todo_tree(root_items)}\n"
+        "</system-reminder>"
+    )
+
+
 def execute(args: dict, session_data: dict | None = None) -> str:
     if session_data is None:
         session_data = {}
@@ -521,13 +553,14 @@ def execute(args: dict, session_data: dict | None = None) -> str:
         if action == "add_item":
             target_list.insert(insert_idx, {"text": text, "status": "open"})
             path_str = _compute_path(parent_segs, insert_idx + 1)
-            return json.dumps(
+            result = json.dumps(
                 {
                     "item_path": path_str,
                     "text": text,
                     "message": f"Added item '{path_str}': \"{text}\"",
                 }
             )
+            return _append_list_reminder(result, root_items)
         else:  # add_many_items
             new_items = [{"text": t, "status": "open"} for t in texts]
             target_list[insert_idx:insert_idx] = new_items
@@ -535,7 +568,7 @@ def execute(args: dict, session_data: dict | None = None) -> str:
                 _compute_path(parent_segs, insert_idx + 1 + i)
                 for i in range(len(texts))
             ]
-            return json.dumps(
+            result = json.dumps(
                 {
                     "items": [
                         {"item_path": p, "text": t} for p, t in zip(paths, texts)
@@ -543,6 +576,7 @@ def execute(args: dict, session_data: dict | None = None) -> str:
                     "message": f"Added {len(texts)} item(s): {', '.join(paths)}",
                 }
             )
+            return _append_list_reminder(result, root_items)
 
     # ---- update_item ----
     if action == "update_item":
@@ -602,13 +636,109 @@ def execute(args: dict, session_data: dict | None = None) -> str:
             owner_item.pop("sub_list", None)
             owner_item["status"] = captured_status
 
-        return json.dumps(
+        result = json.dumps(
             {
                 "item_path": item_path_str,
                 "text": removed["text"],
                 "message": f"Deleted item '{item_path_str}': \"{removed['text']}\"",
             }
         )
+        return _append_list_reminder(result, root_items)
+
+    # ---- delete_many_items ----
+    if action == "delete_many_items":
+        if not item_paths:
+            return json.dumps(
+                {
+                    "error": "delete_many_items requires item_paths (a non-empty array of path strings)."
+                }
+            )
+
+        # Parse all paths and require they share a single parent.
+        parent_ref: list[int] | None = None
+        seen_idx: set[int] = set()
+        children: list[tuple[int, str]] = []
+        for path_str in item_paths:
+            segs, err = _parse_path(path_str)
+            if err:
+                return json.dumps({"error": f"'{path_str}': {err}"})
+            if not segs:
+                return json.dumps(
+                    {"error": "delete_many_items item paths must be non-empty."}
+                )
+            this_parent = segs[:-1]
+            if parent_ref is None:
+                parent_ref = this_parent
+            elif this_parent != parent_ref:
+                return json.dumps(
+                    {
+                        "error": (
+                            "delete_many_items requires all item_paths to share the same "
+                            f"parent. '{path_str}' has a different parent than the first path. "
+                            "Delete items under different parents in separate calls."
+                        )
+                    }
+                )
+            if segs[-1] in seen_idx:
+                return json.dumps(
+                    {"error": f"Duplicate item_path '{path_str}' in delete_many_items."}
+                )
+            seen_idx.add(segs[-1])
+            children.append((segs[-1], path_str))
+
+        # Resolve and validate every target before deleting anything.
+        parent_list: list | None = None
+        to_delete: list[tuple[int, dict, str]] = []
+        for child_idx, path_str in children:
+            segs, _ = _parse_path(path_str)
+            plist, last, err = _resolve_item(root_items, segs)
+            if err:
+                return json.dumps({"error": f"'{path_str}': {err}"})
+            parent_list = plist
+            item = plist[last - 1]
+            if _is_promoted(item) and not cascade_delete:
+                return json.dumps(
+                    {
+                        "error": (
+                            f"Item '{path_str}' has children and cannot be deleted without "
+                            "cascade. Delete its children first, or retry with "
+                            "cascade_delete=true. Nothing was deleted."
+                        )
+                    }
+                )
+            to_delete.append((last, item, path_str))
+
+        assert parent_list is not None  # children is non-empty
+
+        # Demotion: if we are removing every child of a promoted parent, capture
+        # its derived status now then demote it back to a leaf after deletion.
+        owner_item = None
+        captured_status = None
+        if parent_ref and len(parent_list) == len(to_delete):
+            owner_parent, owner_last, owner_err = _resolve_item(root_items, parent_ref)
+            if not owner_err:
+                owner_item = owner_parent[owner_last - 1]
+                captured_status = _effective_status(owner_item)
+
+        # Delete high-index-first so earlier indices stay valid.
+        for last, _item, _path in sorted(to_delete, key=lambda t: t[0], reverse=True):
+            parent_list.pop(last - 1)
+
+        if owner_item is not None:
+            owner_item.pop("sub_list", None)
+            owner_item["status"] = captured_status
+
+        deleted = [{"item_path": p, "text": it["text"]} for _l, it, p in to_delete]
+        result = json.dumps(
+            {
+                "deleted": deleted,
+                "message": (
+                    f"Deleted {len(deleted)} item(s): "
+                    f"{', '.join(d['item_path'] for d in deleted)}"
+                ),
+            }
+        )
+        return _append_list_reminder(result, root_items)
 
     # ---- close_item ----
     if action == "close_item":
@@ -725,6 +855,7 @@ def execute(args: dict, session_data: dict | None = None) -> str:
     if action == "clear":
         count = len(root_items)
         root_items.clear()
-        return json.dumps({"message": f"Cleared {count} top-level item(s)."})
+        result = json.dumps({"message": f"Cleared {count} top-level item(s)."})
+        return _append_list_reminder(result, root_items)
 
     return json.dumps({"error": f"Unknown action '{action}'."})

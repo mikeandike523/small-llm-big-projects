@@ -6,6 +6,11 @@ from src.tools import execute_tool
 
 
 def _j(r: str) -> dict:
+    # Structure-changing actions append a reminder block after the JSON;
+    # strip it before parsing the JSON portion of the result.
+    marker = "\n\n<system-reminder>"
+    if marker in r:
+        r = r.split(marker, 1)[0]
     try:
         return json.loads(r)
     except Exception:
