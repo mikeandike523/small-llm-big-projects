@@ -42,6 +42,7 @@ def run(env: TestEnv, server: MicroServer | None = None):
             cl.skip("No MicroServer provided for scrape_web_page extraction checks")
             return cl.result()
 
+        # Default format is 'raw' — returns the original response body.
         r = execute_tool(
             "scrape_web_page",
             {
@@ -52,38 +53,39 @@ def run(env: TestEnv, server: MicroServer | None = None):
             env.session_data,
         )
         cl.check(
-            "default xml format status",
+            "default format status",
             "Default scrape result includes HTTP status line",
             r.startswith("HTTP 200"),
             f"got: {r!r}",
         )
         cl.check(
-            "default xml format readable",
-            "Default format extracts readable article content",
-            "Example Article" in r and "exercise readable extraction" in r,
-            f"got: {r!r}",
-        )
-        cl.check(
-            "default xml format strips raw html",
-            "Default xml format should not contain raw <html> or <body> wrapper tags",
-            "<html>" not in r and "<body>" not in r,
+            "default format is raw html",
+            "Default (raw) format returns the original response body with wrapper tags",
+            "<main>" in r and "<html>" in r,
             f"got: {r!r}",
         )
 
+        # Explicit xml format extracts readable content and strips wrapper tags.
         r = execute_tool(
             "scrape_web_page",
             {
                 "url": f"{server.base_url}/article",
                 "check_robots": False,
                 "min_delay_seconds": 0,
-                "format": "raw",
+                "format": "xml",
             },
             env.session_data,
         )
         cl.check(
-            "raw format preserves html",
-            "Raw format returns the original response body",
-            "<main>" in r and "<html>" in r,
+            "xml format readable",
+            "xml format extracts readable article content",
+            "Example Article" in r and "exercise readable extraction" in r,
+            f"got: {r!r}",
+        )
+        cl.check(
+            "xml format strips raw html",
+            "xml format should not contain raw <html> or <body> wrapper tags",
+            "<html>" not in r and "<body>" not in r,
             f"got: {r!r}",
         )
 

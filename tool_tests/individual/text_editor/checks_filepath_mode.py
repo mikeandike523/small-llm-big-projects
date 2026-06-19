@@ -49,14 +49,14 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
         {
             "action": "apply_patch",
             "filepath": path,
-            "edits": [{"text": " line1\n-line2\n+LINE2\n line3"}],
+            "patch": "@@ -1,3 +1,3 @@\n line1\n-line2\n+LINE2\n line3",
         },
         env.session_data,
     )
     cl.check(
         "filepath apply_patch result",
         "apply_patch via filepath reports success",
-        "patch applied" in r.lower(),
+        "applied" in r.lower(),
         f"got: {r!r}",
     )
 

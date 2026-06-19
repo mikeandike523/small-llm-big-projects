@@ -12,14 +12,14 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
         {
             "action": "apply_patch",
             "key": "ap_basic",
-            "edits": [{"text": " alpha\n-beta\n+BETA\n gamma"}],
+            "patch": "@@ -1,3 +1,3 @@\n alpha\n-beta\n+BETA\n gamma",
         },
         env.session_data,
     )
     cl.check(
         "replace result message",
         "apply_patch reports success",
-        "patch applied" in r.lower(),
+        "applied" in r.lower(),
         f"got: {r!r}",
     )
     stored = env.session_data["memory"].get("ap_basic")
@@ -30,28 +30,28 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
         f"got: {stored!r}",
     )
 
-    # Add context-only line (no net change) — idempotent
+    # Context-only hunk → error (nothing to change), content unchanged
     env.session_data["memory"]["ap_noop"] = "foo\nbar\n"
-    execute_tool(
+    r = execute_tool(
         "text_editor",
-        {"action": "apply_patch", "key": "ap_noop", "edits": [{"text": " foo\n bar"}]},
+        {"action": "apply_patch", "key": "ap_noop", "patch": "@@ -1,2 +1,2 @@\n foo\n bar"},
         env.session_data,
     )
     cl.check(
-        "noop patch",
-        "Patch with only context lines leaves content unchanged",
-        env.session_data["memory"].get("ap_noop") == "foo\nbar\n",
-        "content changed unexpectedly",
+        "context-only hunk error",
+        "Patch with only context lines (no +/-) returns an error and leaves content unchanged",
+        r.startswith("Error:") and env.session_data["memory"].get("ap_noop") == "foo\nbar\n",
+        f"got: {r!r}",
     )
 
-    # Pure insertion at a position
+    # Pure insertion at a position (anchored by @@ header line number)
     env.session_data["memory"]["ap_insert"] = "line1\nline2\nline3\n"
     execute_tool(
         "text_editor",
         {
             "action": "apply_patch",
             "key": "ap_insert",
-            "edits": [{"text": "+inserted", "position": 2}],
+            "patch": "@@ -1,3 +2,4 @@\n+inserted",
         },
         env.session_data,
     )
@@ -63,23 +63,20 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
         f"got: {stored2!r}",
     )
 
-    # Multiple edits applied sequentially
+    # Multiple hunks applied sequentially
     env.session_data["memory"]["ap_multi"] = "a\nb\nc\n"
     execute_tool(
         "text_editor",
         {
             "action": "apply_patch",
             "key": "ap_multi",
-            "edits": [
-                {"text": " a\n-b\n+B"},
-                {"text": " B\n-c\n+C"},
-            ],
+            "patch": "@@ -1,2 +1,2 @@\n a\n-b\n+B\n@@ -2,2 +2,2 @@\n B\n-c\n+C",
         },
         env.session_data,
     )
     cl.check(
-        "multiple edits",
-        "Multiple edits applied in sequence",
+        "multiple hunks",
+        "Multiple hunks applied in sequence",
         env.session_data["memory"].get("ap_multi") == "a\nB\nC\n",
         f"got: {env.session_data['memory'].get('ap_multi')!r}",
     )
@@ -91,14 +88,14 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
         {
             "action": "apply_patch",
             "key": "ap_nomatch",
-            "edits": [{"text": " no_such_line\n-beta"}],
+            "patch": "@@ -1,2 +1,2 @@\n no_such_line\n-beta",
         },
         env.session_data,
     )
     cl.check(
         "no match error",
         "Returns error when context does not match",
-        r.startswith("Error:") and "did not match" in r,
+        r.startswith("Error:") and "context not found" in r.lower(),
         f"got: {r!r}",
     )
 
@@ -109,43 +106,43 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
         {
             "action": "apply_patch",
             "key": "ap_ambig",
-            "edits": [{"text": " foo\n-bar\n+BAR"}],
+            "patch": "@@ -1,2 +1,2 @@\n foo\n-bar\n+BAR",
         },
         env.session_data,
     )
     cl.check(
         "ambiguous match error",
         "Returns error when context matches multiple locations",
-        r.startswith("Error:") and "ambiguous" in r.lower(),
+        r.startswith("Error:") and "matches" in r.lower() and "location" in r.lower(),
         f"got: {r!r}",
     )
 
-    # Missing edits arg
-    env.session_data["memory"]["ap_noedits"] = "x\n"
+    # Missing patch arg
+    env.session_data["memory"]["ap_nopatch"] = "x\n"
     r = execute_tool(
-        "text_editor", {"action": "apply_patch", "key": "ap_noedits"}, env.session_data
+        "text_editor", {"action": "apply_patch", "key": "ap_nopatch"}, env.session_data
     )
     cl.check(
-        "missing edits error",
-        "Returns error when edits arg is missing",
-        r.startswith("Error:"),
+        "missing patch error",
+        "Returns error when patch arg is missing",
+        r.startswith("Error:") and "patch" in r.lower(),
         f"got: {r!r}",
     )
 
-    # Pure insertion without position → error
+    # Pure insertion without position anchor (no @@ header) → error
     env.session_data["memory"]["ap_nopos"] = "x\n"
     r = execute_tool(
         "text_editor",
         {
             "action": "apply_patch",
             "key": "ap_nopos",
-            "edits": [{"text": "+orphan_line"}],
+            "patch": "+orphan_line",
         },
         env.session_data,
     )
     cl.check(
         "no context no position error",
-        "Returns error for pure insertion without a position",
+        "Returns error for pure insertion without a position anchor",
         r.startswith("Error:") and "position" in r.lower(),
         f"got: {r!r}",
     )
@@ -157,7 +154,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
         {
             "action": "apply_patch",
             "key": "ap_crlf",
-            "edits": [{"text": " alpha\n-beta\n+BETA\n gamma"}],
+            "patch": "@@ -1,3 +1,3 @@\n alpha\n-beta\n+BETA\n gamma",
         },
         env.session_data,
     )

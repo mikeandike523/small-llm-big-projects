@@ -8,14 +8,17 @@ from src.tools import execute_tool
 
 def run(env: TestEnv, server: MicroServer | None = None):
     cl = CheckList("get_pwd")
+    # get_pwd reports the session CWD supplied via special_resources.
+    sr = {"session_cwd": env.tmp_dir}
+    expected = env.tmp_dir.replace("\\", "/")
     try:
-        # basic call — should return a non-empty string
-        r = execute_tool("get_pwd", {}, env.session_data)
+        # basic call — should return the session cwd (forward-slash form)
+        r = execute_tool("get_pwd", {}, env.session_data, sr)
         cl.check(
-            "returns non-empty",
-            "Returns a non-empty string for the cwd",
-            isinstance(r, str) and len(r) > 0,
-            f"got: {r!r}",
+            "returns session cwd",
+            "Returns the session cwd as a forward-slash path",
+            isinstance(r, str) and r == expected,
+            f"got: {r!r} (expected {expected!r})",
         )
 
         # target=session_memory stores result in memory
@@ -23,6 +26,7 @@ def run(env: TestEnv, server: MicroServer | None = None):
             "get_pwd",
             {"target": "session_memory", "memory_key": "pwd_result"},
             env.session_data,
+            sr,
         )
         cl.check(
             "session_memory result mentions session memory",
