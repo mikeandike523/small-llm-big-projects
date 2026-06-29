@@ -402,6 +402,18 @@ Do not give up to avoid difficult steps — try alternatives first.
 Results beginning with “TIMEOUT:” or “HANG:” indicate the tool timed out or hung. Try a different
 approach before giving up. Keep the todo item open until the step actually succeeds.
 
+== OUTPUT TRUNCATION ==
+
+Every tool result has each line capped at 500 characters. When a line is longer, it is cut and a
+marker like “[... N more bytes]” is appended showing how many bytes were dropped. 500 columns is
+already far wider than normal text, so a truncated line almost always means the content is not
+meant to be read inline — minified or compiled code, base64/binary blobs, data URLs, etc.
+
+There is no way to raise this limit. If a result is truncated and you still need the dropped
+content, adapt instead: read the file a different way (e.g. line_reader for a specific range),
+narrow your tool arguments (a tighter regex, a more specific path), or fetch a different resource
+or webpage. Do not keep re-running the same call expecting more.
+
 == MEMORY ==
 
 Use session_memory for scratchpads, working buffers, and intermediate data. Values are plain text.

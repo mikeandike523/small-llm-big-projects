@@ -40,6 +40,20 @@ from src.tools import todo_list
 from src.tools import wikipedia
 from src.tools import write_text_file
 from src.utils.tool_calling.arguments import validate_tool_args
+from src.tools.config import TOOL_OUTPUT_MAX_COLUMNS
+from src.utils.text_truncation import truncate_long_lines
+
+
+def _truncate_columns(text: str) -> str:
+    """Cap every line of a tool result at TOOL_OUTPUT_MAX_COLUMNS characters.
+
+    Applied to every tool result in execute_tool so no single line of output
+    (e.g. minified/compiled content) can flood the context window. See
+    src/tools/config.py for the rationale and the no-escape-hatch policy.
+    """
+    if not isinstance(text, str):
+        return text
+    return truncate_long_lines(text, TOOL_OUTPUT_MAX_COLUMNS)
 
 # ---------------------------------------------------------------------------
 # Framework-injected parameters — reserved names no tool may declare itself
@@ -308,13 +322,16 @@ def execute_tool(
         else:
             result = f"Failed to execute tool {name}:\n{e}"
 
+    # Column truncation is applied last, AFTER redaction, so that secrets are
+    # detected/replaced against the full text and truncation can never split a
+    # secret and leak a partial value.
     if bypass_redaction:
-        return result
+        return _truncate_columns(result)
 
     from src.redaction.core import redact as _redact
     _fp = args.get("path") or args.get("filepath") or None
     file_path = _fp if isinstance(_fp, str) else None
-    return _redact(file_path, result)
+    return _truncate_columns(_redact(file_path, result))
 
 
 # ---------------------------------------------------------------------------
