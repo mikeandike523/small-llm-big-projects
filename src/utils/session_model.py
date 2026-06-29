@@ -322,6 +322,74 @@ def session_to_dict(session: Session) -> dict:
     }
 
 
+_INTERRUPTED_TOOL_RESULT = "[Tool result unavailable - interrupted by server restart]"
+_INTERRUPTED_ANSWER_MARKER = "[answer incomplete]"
+
+
+def repair_incomplete_turn(session: Session) -> bool:
+    """Repair an orphaned in-progress turn after a cold load (e.g. server restart).
+
+    A session reconstructed from durable storage may carry a `current_turn` that
+    was interrupted mid-flight: assistant exchanges with `tool_calls` whose
+    results never came back, or a trailing assistant exchange with no content.
+    Left as-is, `Turn.to_messages()` would emit an assistant `tool_calls`
+    message with no matching `tool` results, which breaks the next LLM call.
+
+    This:
+      1. Fills any missing tool-call results with an interrupted-marker string so
+         every tool_call stays paired with a tool message and user/assistant/tool
+         ordering remains valid.
+      2. Finalizes the orphaned turn: ensures a final assistant content, marks it
+         cancelled, builds condensed strings (with an `[answer incomplete]`
+         marker), moves it into `completed_turns`, and clears `current_turn`.
+
+    Caller MUST gate this on the turn being orphaned (no live task owns it) — a
+    genuinely active turn in the current process must not be touched.
+
+    Returns True if a repair was performed.
+    """
+    turn = session.current_turn
+    if turn is None:
+        return False
+
+    # 1. Pair up any dangling tool calls (defensively across all subturns).
+    for subturn in turn.subturns:
+        for exchange in subturn.exchanges:
+            for tc in exchange.tool_calls:
+                if tc.result is None:
+                    tc.result = _INTERRUPTED_TOOL_RESULT
+
+    # 2. Ensure the turn ends on an assistant message with some content.
+    last_exchange = None
+    for subturn in turn.subturns:
+        if subturn.exchanges:
+            last_exchange = subturn.exchanges[-1]
+    if last_exchange is None or last_exchange.tool_calls or not (
+        last_exchange.assistant_content or ""
+    ).strip():
+        # Either no exchanges, or the last action was a tool call / empty answer:
+        # append a synthetic final response so the thread reads coherently.
+        if turn.subturns:
+            turn.subturns[-1].exchanges.append(
+                LLMExchange(
+                    assistant_content=_INTERRUPTED_ANSWER_MARKER,
+                    is_final=True,
+                )
+            )
+            final_content = _INTERRUPTED_ANSWER_MARKER
+        else:
+            final_content = _INTERRUPTED_ANSWER_MARKER
+    else:
+        final_content = f"{last_exchange.assistant_content} {_INTERRUPTED_ANSWER_MARKER}"
+
+    turn.was_cancelled = True
+    turn.completed = True
+    turn.finalize(session.session_data, final_content, had_todo_items=False)
+    session.completed_turns.append(turn)
+    session.current_turn = None
+    return True
+
+
 def session_from_dict(d: dict) -> Session:
     return Session(
         session_id=d.get("session_id", ""),

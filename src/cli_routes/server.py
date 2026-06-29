@@ -10,7 +10,7 @@ from termcolor import colored
 from src.cli_obj import cli
 from src.utils.docker_compose import _find_docker_compose, get_service_port
 from src.utils.env_info import get_default_workspace_dir
-from src.utils.free_port import find_free_port
+from src.utils.free_port import find_free_port, find_preferred_port
 from src.utils.process import ManagedProcess, find_bash, run_processes
 from src.utils.server_state import clear_state, write_state
 from src.data import get_pool
@@ -131,8 +131,10 @@ def server():
     default=None,
     type=int,
     help=(
-        "Port for the gateway proxy (single public entry point). Defaults to a random free port. "
-        "Useful for VM/containerized deployments where a fixed entry point is required."
+        "Port for the gateway proxy (single public entry point). Defaults to the first free "
+        "port from a preferred list (so a restarted server tends to reuse the same entry point), "
+        "falling back to a random free port. Useful for VM/containerized deployments where a "
+        "fixed entry point is required."
     ),
 )
 def server_run(
@@ -205,7 +207,7 @@ def server_run(
 
     flask_port = find_free_port()
     ui_port = dashboard_port if dashboard_port is not None else find_free_port()
-    gw_port = proxy_port if proxy_port is not None else find_free_port()
+    gw_port = proxy_port if proxy_port is not None else find_preferred_port()
 
     write_state(flask_port=flask_port, ui_port=ui_port, proxy_port=gw_port)
     click.echo(

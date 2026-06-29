@@ -16,7 +16,9 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 
 from src.ui_connector.app import app, socketio  # noqa: E402
-from src.ui_connector.socket_handlers import clear_all_sessions_on_startup  # noqa: E402
+from src.ui_connector.socket_handlers import (  # noqa: E402
+    invalidate_redis_session_cache_on_startup,
+)
 
 
 def _configure_logging() -> None:
@@ -29,7 +31,7 @@ def _configure_logging() -> None:
 
 if __name__ == "__main__":
     _configure_logging()
-    clear_all_sessions_on_startup()
+    invalidate_redis_session_cache_on_startup()
     port = int(os.environ.get("FLASK_PORT", 5000))
     logging.getLogger("slbp.ui_connector").info("Starting on port %s", port)
     socketio.run(app, host="0.0.0.0", port=port, allow_unsafe_werkzeug=True)

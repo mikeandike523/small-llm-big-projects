@@ -23,3 +23,6 @@ test_results/
 .claude
 
 node_modules
+
+.pytest_cache
+.ruff_cache

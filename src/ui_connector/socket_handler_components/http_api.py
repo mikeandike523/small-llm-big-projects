@@ -23,6 +23,7 @@ from src.ui_connector.socket_handler_components.session_store import (
 from src.ui_connector.socket_handler_components.terminal import (
     _build_starting_environment_info,
 )
+from src.utils.sql.session_store_db import list_session_rows
 from src.data import get_pool
 from src.tools import ALL_TOOL_DEFINITIONS, _TOOL_MAP, load_custom_tools, validate_no_reserved_params
 from src.logic.system_prompt import (
@@ -190,22 +191,16 @@ def api_list_sessions():
     List all persisted sessions with lightweight metadata.
     Returns a JSON array sorted by created_at descending.
     """
-    r = _state._get_redis()
+    try:
+        rows = list_session_rows()
+    except Exception as exc:
+        logger.warning("Failed to list sessions from DB: %s", exc)
+        return jsonify({"error": f"Failed to list sessions: {exc}"}), 500
+
     results = []
-    for raw_key in r.scan_iter("session:*"):
-        key = raw_key.decode() if isinstance(raw_key, bytes) else raw_key
-        # Skip sub-keys like session:{id}:events, session:{id}:memory
-        parts = key.split(":")
-        if len(parts) != 2:
-            continue
-        session_id = parts[1]
-        raw = r.get(key)
-        if not raw:
-            continue
-        try:
-            d = json.loads(raw)
-        except Exception:
-            continue
+    for row in rows:
+        session_id = row["session_id"]
+        d = row.get("data") or {}
         completed_turns = d.get("completed_turns") or []
         current_turn = d.get("current_turn")
         turn_count = len(completed_turns) + (1 if current_turn else 0)
@@ -217,6 +212,7 @@ def api_list_sessions():
                 "session_id": session_id,
                 "initial_cwd": d.get("initial_cwd", ""),
                 "current_cwd": _state._session_current_cwd.get(session_id)
+                or row.get("current_cwd")
                 or d.get("initial_cwd", ""),
                 "created_at": d.get("created_at", 0.0),
                 "turn_count": turn_count,
@@ -231,6 +227,8 @@ def api_list_sessions():
                 "profile_name": d.get("profile_name") or None,
             }
         )
+    # Already ordered by created_at DESC from SQL, but data.created_at (the
+    # authoritative wall-clock) may differ from the row default; re-sort on it.
     results.sort(key=lambda s: s["created_at"], reverse=True)
     return jsonify(results)
 

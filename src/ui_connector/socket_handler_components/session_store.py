@@ -21,7 +21,13 @@ from src.utils.session_model import (
     Session,
     session_to_dict,
     session_from_dict,
+    repair_incomplete_turn,
     CURRENT_SCHEMA_VERSION,
+)
+from src.utils.sql.session_store_db import (
+    upsert_session,
+    load_session_row,
+    delete_session_row,
 )
 
 logger = logging.getLogger(__name__)
@@ -124,9 +130,51 @@ def _init_session_caches(session: Session, session_id: str) -> None:
 # ---------------------------------------------------------------------------
 
 
+def _session_from_db(session_id: str) -> Session | None:
+    """Load a session from the durable MySQL store (cache miss path).
+
+    Rehydrates the Redis memory hash and restores the Python-memory state
+    (current cwd, accumulated cost) that lives only in `state.py`. Returns None
+    if there is no durable row (caller then creates a fresh Session).
+    """
+    try:
+        row = load_session_row(session_id)
+    except Exception as exc:
+        logger.warning("DB load failed for session %s: %s", session_id, exc)
+        return None
+    if row is None:
+        return None
+
+    if row.get("schema_version", 0) != CURRENT_SCHEMA_VERSION:
+        return Session(session_id=session_id)
+
+    try:
+        session = session_from_dict(row["data"])
+    except Exception as exc:
+        logger.warning("Could not deserialize DB session %s: %s", session_id, exc)
+        return Session(session_id=session_id)
+
+    # Rehydrate the session_memory hash into Redis so the RedisDict sees it.
+    r = _state._get_redis()
+    mem_hash_key = f"session:{session_id}:memory"
+    memory = row.get("memory") or {}
+    r.delete(mem_hash_key)
+    if memory:
+        r.hset(mem_hash_key, mapping=memory)
+
+    # Restore Python-memory-only state.
+    if row.get("current_cwd"):
+        _state._session_current_cwd[session_id] = row["current_cwd"]
+    if row.get("total_cost_usd"):
+        _state._session_costs[session_id] = float(row["total_cost_usd"])
+
+    return session
+
+
 def _load_session(session_id: str) -> Session:
     r = _state._get_redis()
     raw = r.get(f"session:{session_id}")
+    cold = False
     if raw:
         try:
             d = json.loads(raw)
@@ -137,7 +185,9 @@ def _load_session(session_id: str) -> Session:
         except Exception:
             session = Session(session_id=session_id)
     else:
-        session = Session(session_id=session_id)
+        # Redis cache miss -> durable load from MySQL (e.g. after a restart).
+        cold = True
+        session = _session_from_db(session_id) or Session(session_id=session_id)
 
     mem_hash_key = f"session:{session_id}:memory"
 
@@ -162,19 +212,57 @@ def _load_session(session_id: str) -> Session:
         r, mem_hash_key, on_change=_on_memory_change
     )
     _init_session_caches(session, session_id)
+
+    # Repair a turn orphaned by a previous restart/crash — but only when no live
+    # asyncio task owns this session (an active turn must be left untouched).
+    needs_persist = False
+    if session.current_turn is not None and session_id not in _state._cancel_tasks:
+        needs_persist = repair_incomplete_turn(session)
+
+    # A cold (DB) load must warm the Redis cache; a repair must be persisted.
+    if cold or needs_persist:
+        _save_session(session_id, session)
+
     return session
 
 
 def _save_session(session_id: str, session: Session) -> None:
+    """Persist a session: MySQL first (durable), then warm the Redis cache.
+
+    Writing MySQL first keeps the durable copy authoritative if the process
+    dies mid-save; the stale Redis cache is flushed and rehydrated on boot.
+    """
     r = _state._get_redis()
     blob = session_to_dict(session)
+
+    # Durable write to MySQL (source of truth).
+    try:
+        memory_snapshot = r.hgetall(f"session:{session_id}:memory") or {}
+        upsert_session(
+            session_id,
+            data=blob,
+            memory=memory_snapshot,
+            schema_version=session.schema_version,
+            profile_name=session.profile_name,
+            initial_cwd=session.initial_cwd or "",
+            current_cwd=_state._session_current_cwd.get(session_id),
+            total_cost_usd=float(_state._session_costs.get(session_id) or 0.0),
+        )
+    except Exception as exc:
+        logger.warning("DB save failed for session %s: %s", session_id, exc)
+
+    # Warm Redis cache (TTL is now just eviction; data survives in MySQL).
     r.setex(f"session:{session_id}", _state._SESSION_TTL, json.dumps(blob))
     r.expire(f"session:{session_id}:memory", _state._SESSION_TTL)
     r.expire(f"session:{session_id}:events", _state._SESSION_TTL)
 
 
 def _delete_session(session_id: str) -> None:
-    """Delete all data for a session from Redis and in-memory caches."""
+    """Delete all data for a session from MySQL, Redis and in-memory caches."""
+    try:
+        delete_session_row(session_id)
+    except Exception as exc:
+        logger.warning("DB delete failed for session %s: %s", session_id, exc)
     r = _state._get_redis()
     r.delete(f"session:{session_id}")
     r.delete(f"session:{session_id}:memory")
@@ -188,15 +276,22 @@ def _delete_session(session_id: str) -> None:
     _state._session_costs.pop(session_id, None)
 
 
-def clear_all_sessions_on_startup() -> None:
-    """Delete every session:* key from Redis at server startup to avoid stale data."""
+def invalidate_redis_session_cache_on_startup() -> None:
+    """Flush the Redis session cache at boot so it rehydrates from MySQL.
+
+    Sessions are now durable in MySQL (the `sessions` table); Redis only acts as
+    a hot write-through cache plus the live event/memory stores. Flushing the
+    cache on boot avoids serving a stale blob that may be inconsistent with the
+    durable copy (e.g. if the process died between the MySQL and Redis writes).
+    Durable session data is NOT deleted.
+    """
     try:
         r = _state._get_redis()
         keys = list(r.scan_iter("session:*"))
         if keys:
             r.delete(*keys)
-            logger.info("Cleared %s stale session key(s) from Redis.", len(keys))
+            logger.info("Flushed %s Redis session cache key(s) on startup.", len(keys))
         else:
-            logger.info("No stale sessions to clear.")
+            logger.info("No Redis session cache to flush.")
     except Exception as exc:
-        logger.warning("Could not clear sessions on startup: %s", exc)
+        logger.warning("Could not flush Redis session cache on startup: %s", exc)
