@@ -2,7 +2,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import json
 import logging
-import time
 from numbers import Number
 from typing import Callable, Optional, Any
 
@@ -15,29 +14,9 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass
-class TraceEntry:
-    """Captured input/output of a single LLM completion. Only populated when record=True."""
-
-    request_payload: (
-        dict  # full JSON body sent to the endpoint (model, messages, tools, etc.)
-    )
-    content: str
-    reasoning: str
-    tool_calls: list[ToolCall]
-    usage: dict | None = None
-    captured_at: float = field(
-        default_factory=time.time
-    )  # unix timestamp, set when stream() completes
-    # Set by the caller (socket_handlers) after stream() returns:
-    turn_id: str = ""
-    exchange_idx: int = 0
-
-
-@dataclass
 class StreamResult:
     tool_calls: list[ToolCall] = field(default_factory=list)
     usage: dict | None = None
-    trace: TraceEntry | None = None
     stop_reason: str | None = None
 
     @property
@@ -139,7 +118,6 @@ class StreamingLLM:
         max_tokens=None,
         parameters={},
         tools: Optional[list[dict]] = None,
-        record: bool = False,
     ) -> StreamResult:
         """Async streaming LLM call. Cancellable via asyncio task cancellation."""
         self._refresh()
@@ -155,19 +133,6 @@ class StreamingLLM:
         _pending_tool_calls: dict[int, dict] = {}
         _last_usage: dict | None = None
         _stop_reason: str | None = None
-        _trace_acc: dict[str, str] | None = (
-            {"content": "", "reasoning": ""} if record else None
-        )
-
-        if _trace_acc is not None:
-            _original_on_data = on_data
-
-            def on_data(chunk: dict) -> None:
-                if chunk.get("content"):
-                    _trace_acc["content"] += chunk["content"]
-                if chunk.get("reasoning"):
-                    _trace_acc["reasoning"] += chunk["reasoning"]
-                _original_on_data(chunk)
 
         async with httpx.AsyncClient() as client:
             async with client.stream(
@@ -238,17 +203,9 @@ class StreamingLLM:
                 ToolCall(id=entry["id"], name=entry["name"], arguments=arguments)
             )
 
-        trace: TraceEntry | None = None
-        if _trace_acc is not None:
-            trace = TraceEntry(
-                request_payload=payload,
-                content=_trace_acc["content"],
-                reasoning=_trace_acc["reasoning"],
-                tool_calls=tool_calls,
-                usage=_last_usage,
-            )
-
-        return StreamResult(tool_calls=tool_calls, usage=_last_usage, trace=trace, stop_reason=_stop_reason)
+        return StreamResult(
+            tool_calls=tool_calls, usage=_last_usage, stop_reason=_stop_reason
+        )
 
     def fetch(
         self,

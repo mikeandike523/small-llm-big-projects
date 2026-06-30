@@ -111,16 +111,6 @@ def server():
     ),
 )
 @click.option(
-    "--trace-folder-max-gb",
-    default=None,
-    type=float,
-    help=(
-        "Maximum size in GB for the .slbp-traces folder. When saving traces would "
-        "exceed this limit, oldest trace files are deleted until under the limit. "
-        "Defaults to no limit."
-    ),
-)
-@click.option(
     "--dashboard-port",
     default=None,
     type=int,
@@ -142,7 +132,6 @@ def server_run(
     hotfix_gpt_oss_20b_bad_parser,
     hotfix_gpt_oss_20b_bad_void_call,
     hotfix_suite_gpt_oss_20b,
-    trace_folder_max_gb,
     dashboard_port,
     proxy_port,
 ):
@@ -227,8 +216,6 @@ def server_run(
         flask_env["SLBP_HOTFIX_GPT_OSS_20B_BAD_PARSER"] = "1"
     if hotfix_gpt_oss_20b_bad_void_call or hotfix_suite_gpt_oss_20b:
         flask_env["SLBP_HOTFIX_GPT_OSS_20B_BAD_VOID_CALL"] = "1"
-    if trace_folder_max_gb is not None:
-        flask_env["SLBP_TRACE_FOLDER_MAX_GB"] = str(trace_folder_max_gb)
 
     processes = [
         ManagedProcess(

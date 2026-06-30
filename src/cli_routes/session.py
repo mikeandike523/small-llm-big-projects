@@ -44,17 +44,6 @@ def session():
     help="Working directory for this session. Defaults to the current directory.",
 )
 @click.option(
-    "--enable-trace-recording",
-    "--etr",
-    is_flag=True,
-    default=False,
-    help=(
-        "Record every LLM completion (full request payload + response) in memory "
-        'for this session. Use the "Save fine-tuning traces" button in the UI to '
-        "flush the buffer to disk as an XML file."
-    ),
-)
-@click.option(
     "--starting-profile",
     default=None,
     help=(
@@ -67,7 +56,6 @@ def session_new(
     load_tools,
     load_startup_tool_calls,
     cwd,
-    enable_trace_recording,
     starting_profile,
 ):
     """
@@ -125,7 +113,6 @@ def session_new(
     payload: dict = {
         "initial_cwd": session_cwd,
         "interim_response_as_thinking": interim_response_as_thinking,
-        "record_traces": enable_trace_recording,
         "profile_name": starting_profile,
     }
     if load_skills:

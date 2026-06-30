@@ -7,7 +7,6 @@ import pathlib
 import subprocess
 import sys
 import uuid as _uuid_module
-from collections import deque
 
 from flask import request, jsonify
 
@@ -23,7 +22,7 @@ from src.ui_connector.socket_handler_components.session_store import (
 from src.ui_connector.socket_handler_components.terminal import (
     _build_starting_environment_info,
 )
-from src.utils.sql.session_store_db import list_session_rows
+from src.utils.sql.session_store_db import list_session_meta
 from src.data import get_pool
 from src.tools import ALL_TOOL_DEFINITIONS, _TOOL_MAP, load_custom_tools, validate_no_reserved_params
 from src.logic.system_prompt import (
@@ -73,7 +72,6 @@ def api_create_session():
     custom_tools_path = data.get("custom_tools_path") or None
     startup_tool_calls_path = data.get("startup_tool_calls_path") or None
     interim_response_as_thinking = bool(data.get("interim_response_as_thinking", False))
-    record_traces = bool(data.get("record_traces", False))
 
     # Resolve starting profile: explicit override or system default.
     raw_profile = (data.get("profile_name") or "").strip() or None
@@ -128,19 +126,13 @@ def api_create_session():
         custom_tools_path=custom_tools_path,
         startup_tool_calls=startup_tool_calls,
         interim_response_as_thinking=interim_response_as_thinking,
-        record_traces=record_traces,
         profile_name=profile_name,
     )
-
-    if record_traces:
-        _state._session_trace_buffers[session_id] = deque()
 
     # Validate builtin tools for reserved parameter names before touching session state.
     # Custom tools are validated inside load_custom_tools (raises RuntimeError on violation).
     _builtin_err = validate_no_reserved_params(_TOOL_MAP)
     if _builtin_err:
-        if record_traces:
-            _state._session_trace_buffers.pop(session_id, None)
         return jsonify({"error": _builtin_err}), 400
 
     # Pre-validate and cache custom tools so errors surface at creation time.
@@ -192,44 +184,37 @@ def api_list_sessions():
     Returns a JSON array sorted by created_at descending.
     """
     try:
-        rows = list_session_rows()
+        rows = list_session_meta()
     except Exception as exc:
         logger.warning("Failed to list sessions from DB: %s", exc)
         return jsonify({"error": f"Failed to list sessions: {exc}"}), 500
 
+    # session_meta rows already carry the denormalized list metadata (turn_count,
+    # task_titles, created_at, ...) and arrive ordered by created_at DESC, so no
+    # blob parsing or re-sort is needed here.
     results = []
     for row in rows:
         session_id = row["session_id"]
-        d = row.get("data") or {}
-        completed_turns = d.get("completed_turns") or []
-        current_turn = d.get("current_turn")
-        turn_count = len(completed_turns) + (1 if current_turn else 0)
-        task_titles = [t["task_title"] for t in completed_turns if t.get("task_title")]
-        if current_turn and current_turn.get("task_title"):
-            task_titles.append(current_turn["task_title"])
         results.append(
             {
                 "session_id": session_id,
-                "initial_cwd": d.get("initial_cwd", ""),
+                "initial_cwd": row.get("initial_cwd", ""),
                 "current_cwd": _state._session_current_cwd.get(session_id)
                 or row.get("current_cwd")
-                or d.get("initial_cwd", ""),
-                "created_at": d.get("created_at", 0.0),
-                "turn_count": turn_count,
+                or row.get("initial_cwd", ""),
+                "created_at": row.get("created_at", 0.0),
+                "turn_count": row.get("turn_count", 0),
                 "active_turn": session_id in _state._session_active_turns,
-                "task_titles": task_titles,
-                "interim_response_as_thinking": d.get(
+                "task_titles": row.get("task_titles", []),
+                "interim_response_as_thinking": row.get(
                     "interim_response_as_thinking", False
                 ),
-                "record_traces": d.get("record_traces", False),
-                "skills_path": d.get("skills_path") or None,
-                "custom_tools_path": d.get("custom_tools_path") or None,
-                "profile_name": d.get("profile_name") or None,
+                "skills_path": row.get("skills_path") or None,
+                "custom_tools_path": row.get("custom_tools_path") or None,
+                "profile_name": row.get("profile_name") or None,
+                "corrupt": row.get("corrupt", False),
             }
         )
-    # Already ordered by created_at DESC from SQL, but data.created_at (the
-    # authoritative wall-clock) may differ from the row default; re-sort on it.
-    results.sort(key=lambda s: s["created_at"], reverse=True)
     return jsonify(results)
 
 

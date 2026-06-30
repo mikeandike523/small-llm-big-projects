@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-from collections import deque
 
 import src.ui_connector.socket_handler_components.state as _state
 from src.ui_connector.app import socketio
@@ -24,10 +23,20 @@ from src.utils.session_model import (
     repair_incomplete_turn,
     CURRENT_SCHEMA_VERSION,
 )
+from src.utils.session_events import derive_meta, replay_events
 from src.utils.sql.session_store_db import (
-    upsert_session,
-    load_session_row,
-    delete_session_row,
+    append_events,
+    delete_session,
+    load_session_events,
+    load_session_meta,
+    mark_session_corrupt,
+    upsert_session_meta,
+)
+from src.ui_connector.socket_handler_components._session_event_emit import (
+    build_cursor,
+    compute_events,
+    load_cursor,
+    save_cursor,
 )
 
 logger = logging.getLogger(__name__)
@@ -120,10 +129,6 @@ def _init_session_caches(session: Session, session_id: str) -> None:
     if session_id not in _state._session_current_cwd:
         _state._session_current_cwd[session_id] = session.initial_cwd
 
-    # Re-create the trace buffer if the session was loaded from Redis after a restart.
-    if session.record_traces and session_id not in _state._session_trace_buffers:
-        _state._session_trace_buffers[session_id] = deque()
-
 
 # ---------------------------------------------------------------------------
 # Redis helpers
@@ -133,40 +138,49 @@ def _init_session_caches(session: Session, session_id: str) -> None:
 def _session_from_db(session_id: str) -> Session | None:
     """Load a session from the durable MySQL store (cache miss path).
 
-    Rehydrates the Redis memory hash and restores the Python-memory state
-    (current cwd, accumulated cost) that lives only in `state.py`. Returns None
-    if there is no durable row (caller then creates a fresh Session).
+    Reconstructs the Session by replaying its event log, rehydrates the Redis
+    memory hash from the metadata row, restores the Python-memory state (current
+    cwd, accumulated cost), and resyncs the persist cursor so the next save emits
+    only genuine deltas (the Redis cursor is gone on a cold load). Returns None if
+    there is no durable session (caller then creates a fresh Session).
     """
     try:
-        row = load_session_row(session_id)
+        meta = load_session_meta(session_id)
     except Exception as exc:
         logger.warning("DB load failed for session %s: %s", session_id, exc)
         return None
-    if row is None:
+    if meta is None:
         return None
 
-    if row.get("schema_version", 0) != CURRENT_SCHEMA_VERSION:
+    if meta.get("schema_version", 0) != CURRENT_SCHEMA_VERSION:
         return Session(session_id=session_id)
 
+    r = _state._get_redis()
     try:
-        session = session_from_dict(row["data"])
+        rows = load_session_events(session_id)
+        session = replay_events(session_id, rows)
+        # Resync the cursor with the durable log (prevents duplicate re-emits).
+        save_cursor(r, session_id, build_cursor(session), _state._SESSION_TTL)
     except Exception as exc:
-        logger.warning("Could not deserialize DB session %s: %s", session_id, exc)
+        logger.warning("Could not replay DB session %s: %s", session_id, exc)
+        try:
+            mark_session_corrupt(session_id)
+        except Exception:
+            pass
         return Session(session_id=session_id)
 
     # Rehydrate the session_memory hash into Redis so the RedisDict sees it.
-    r = _state._get_redis()
     mem_hash_key = f"session:{session_id}:memory"
-    memory = row.get("memory") or {}
+    memory = meta.get("memory") or {}
     r.delete(mem_hash_key)
     if memory:
         r.hset(mem_hash_key, mapping=memory)
 
     # Restore Python-memory-only state.
-    if row.get("current_cwd"):
-        _state._session_current_cwd[session_id] = row["current_cwd"]
-    if row.get("total_cost_usd"):
-        _state._session_costs[session_id] = float(row["total_cost_usd"])
+    if meta.get("current_cwd"):
+        _state._session_current_cwd[session_id] = meta["current_cwd"]
+    if meta.get("total_cost_usd"):
+        _state._session_costs[session_id] = float(meta["total_cost_usd"])
 
     return session
 
@@ -184,6 +198,10 @@ def _load_session(session_id: str) -> Session:
                 session = session_from_dict(d)
         except Exception:
             session = Session(session_id=session_id)
+        # The warm blob reflects the last save; if the persist cursor was evicted
+        # independently, rebuild it so the next save doesn't re-emit every event.
+        if not load_cursor(r, session_id):
+            save_cursor(r, session_id, build_cursor(session), _state._SESSION_TTL)
     else:
         # Redis cache miss -> durable load from MySQL (e.g. after a restart).
         cold = True
@@ -227,10 +245,13 @@ def _load_session(session_id: str) -> Session:
 
 
 def _save_session(session_id: str, session: Session) -> None:
-    """Persist a session: MySQL first (durable), then warm the Redis cache.
+    """Persist a session: append new events + upsert metadata (MySQL, durable),
+    then warm the Redis cache.
 
-    Writing MySQL first keeps the durable copy authoritative if the process
-    dies mid-save; the stale Redis cache is flushed and rehydrated on boot.
+    Events are derived by diffing the in-memory Session against the persist
+    cursor, so only new/changed state is appended. Writing MySQL first keeps the
+    durable copy authoritative if the process dies mid-save; the Redis blob is
+    just a hot cache (flushed and rebuilt from the event log on boot).
     """
     r = _state._get_redis()
     blob = session_to_dict(session)
@@ -238,15 +259,27 @@ def _save_session(session_id: str, session: Session) -> None:
     # Durable write to MySQL (source of truth).
     try:
         memory_snapshot = r.hgetall(f"session:{session_id}:memory") or {}
-        upsert_session(
+        cursor = load_cursor(r, session_id)
+        events = compute_events(session, cursor)
+        if events:
+            append_events(session_id, events)
+        save_cursor(r, session_id, cursor, _state._SESSION_TTL)
+
+        meta = derive_meta(session)
+        upsert_session_meta(
             session_id,
-            data=blob,
-            memory=memory_snapshot,
+            created_at=session.created_at,
             schema_version=session.schema_version,
             profile_name=session.profile_name,
             initial_cwd=session.initial_cwd or "",
             current_cwd=_state._session_current_cwd.get(session_id),
             total_cost_usd=float(_state._session_costs.get(session_id) or 0.0),
+            turn_count=meta["turn_count"],
+            task_titles=meta["task_titles"],
+            interim_response_as_thinking=session.interim_response_as_thinking,
+            skills_path=session.skills_path,
+            custom_tools_path=session.custom_tools_path,
+            memory=memory_snapshot,
         )
     except Exception as exc:
         logger.warning("DB save failed for session %s: %s", session_id, exc)
@@ -260,19 +293,19 @@ def _save_session(session_id: str, session: Session) -> None:
 def _delete_session(session_id: str) -> None:
     """Delete all data for a session from MySQL, Redis and in-memory caches."""
     try:
-        delete_session_row(session_id)
+        delete_session(session_id)
     except Exception as exc:
         logger.warning("DB delete failed for session %s: %s", session_id, exc)
     r = _state._get_redis()
     r.delete(f"session:{session_id}")
     r.delete(f"session:{session_id}:memory")
     r.delete(f"session:{session_id}:events")
+    r.delete(f"session:{session_id}:persist_state")
     _state._session_tool_sets.pop(session_id, None)
     _state._session_system_prompts.pop(session_id, None)
     _state._session_skill_registries.pop(session_id, None)
     _state._session_project_config.pop(session_id, None)
     _state._session_current_cwd.pop(session_id, None)
-    _state._session_trace_buffers.pop(session_id, None)
     _state._session_costs.pop(session_id, None)
 
 

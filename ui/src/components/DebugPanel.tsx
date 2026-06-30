@@ -22,10 +22,6 @@ import {
   panelCss,
   placeholderCss,
   promptPanelCss,
-  refreshSpinnerCss,
-  rowCss,
-  saveTracesBtnCss,
-  saveTracesStatusCss,
   tabBarCss,
   tabButtonCss,
   tabContentAreaCss,
@@ -86,11 +82,6 @@ export function DebugPanel({
   const [lastSessionMemEvent, setLastSessionMemEvent] =
     useState<MemKeyEvent | null>(null);
   const [memModal, setMemModal] = useState<MemModal | null>(null);
-  const [savingTraces, setSavingTraces] = useState(false);
-  const [traceSaveStatus, setTraceSaveStatus] = useState<{
-    ok: boolean;
-    message: string;
-  } | null>(null);
   const [dirtyFiles, setDirtyFiles] = useState<string[]>([]);
   const [seenFiles, setSeenFiles] = useState<string[]>([]);
   const [dirtyMemKeys, setDirtyMemKeys] = useState<string[]>([]);
@@ -136,27 +127,6 @@ export function DebugPanel({
         return { ...prev, notification: type };
       });
     }
-    function onTracesSaved({
-      count,
-      filename,
-    }: {
-      count: number;
-      filename: string | null;
-    }) {
-      setSavingTraces(false);
-      if (count === 0) {
-        setTraceSaveStatus({ ok: true, message: "No buffered traces." });
-      } else {
-        setTraceSaveStatus({
-          ok: true,
-          message: `Saved ${count} trace${count !== 1 ? "s" : ""} → ${filename}`,
-        });
-      }
-    }
-    function onTracesSaveError({ message }: { message: string }) {
-      setSavingTraces(false);
-      setTraceSaveStatus({ ok: false, message: `Error: ${message}` });
-    }
     function onDirtyCacheUpdate({
       files,
       seen_files,
@@ -177,16 +147,12 @@ export function DebugPanel({
     socket.on("session_memory_keys_update", onSessionMemoryKeys);
     socket.on("session_memory_value", onSessionMemoryValue);
     socket.on("session_memory_key_event", onSessionMemoryKeyEvent);
-    socket.on("traces_saved", onTracesSaved);
-    socket.on("traces_save_error", onTracesSaveError);
     socket.on("dirty_cache_update", onDirtyCacheUpdate);
     socket.emit("get_dirty_cache");
     return () => {
       socket.off("session_memory_keys_update", onSessionMemoryKeys);
       socket.off("session_memory_value", onSessionMemoryValue);
       socket.off("session_memory_key_event", onSessionMemoryKeyEvent);
-      socket.off("traces_saved", onTracesSaved);
-      socket.off("traces_save_error", onTracesSaveError);
       socket.off("dirty_cache_update", onDirtyCacheUpdate);
     };
   }, []);
@@ -207,12 +173,6 @@ export function DebugPanel({
   function viewMemoryValue(key: string) {
     setMemModal({ key, value: "", loading: true, notification: null });
     socket.emit("get_session_memory_value", { key });
-  }
-
-  function saveTraces() {
-    setSavingTraces(true);
-    setTraceSaveStatus(null);
-    socket.emit("save_traces");
   }
 
   if (!open) {
@@ -315,21 +275,6 @@ export function DebugPanel({
               skillsInfo={skillsInfo}
               toolsInfo={toolsInfo}
             />
-            <div css={rowCss}>
-              <button
-                css={saveTracesBtnCss}
-                onClick={saveTraces}
-                disabled={savingTraces}
-              >
-                {savingTraces && <span css={refreshSpinnerCss} />}
-                Save Fine-Tuning Traces
-              </button>
-              {traceSaveStatus && (
-                <span css={saveTracesStatusCss(traceSaveStatus.ok)}>
-                  {traceSaveStatus.message}
-                </span>
-              )}
-            </div>
           </div>
 
           {/* Session memory tab: flex column with scrollable content + fixed footer */}

@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import os
 import threading
-from collections import deque
 
 import redis
 
@@ -30,15 +29,6 @@ _env_shell = get_shell()
 _hotfix_bad_parser: bool = os.environ.get("SLBP_HOTFIX_GPT_OSS_20B_BAD_PARSER") == "1"
 _hotfix_void_call: bool = os.environ.get("SLBP_HOTFIX_GPT_OSS_20B_BAD_VOID_CALL") == "1"
 
-# Trace recording config (set by slbp server run)
-_server_cwd: str = os.environ.get("SLBP_SERVER_CWD", os.getcwd())
-_traces_dir: str = os.path.join(_server_cwd, ".slbp-traces")
-_trace_folder_max_bytes: int | None = (
-    int(float(os.environ["SLBP_TRACE_FOLDER_MAX_GB"]) * 1024**3)
-    if "SLBP_TRACE_FOLDER_MAX_GB" in os.environ
-    else None
-)
-
 # ---------------------------------------------------------------------------
 # Per-session state caches (rebuilt from session data on load)
 # ---------------------------------------------------------------------------
@@ -53,8 +43,6 @@ _session_skill_registries: dict[str, list[dict]] = {}
 _session_project_config: dict[str, dict] = {}
 # session_id -> current working directory for this session (updated by change_pwd tool)
 _session_current_cwd: dict[str, str] = {}
-# session_id -> deque of TraceEntry objects (only populated when session.record_traces=True)
-_session_trace_buffers: dict[str, deque] = {}
 # session_id -> accumulated cost in USD for this session
 _session_costs: dict[str, float] = {}
 # Set of session_ids that are currently executing a turn
@@ -123,7 +111,6 @@ def _get_redis() -> redis.Redis:
 
 _SESSION_DEFAULTS_HARDCODED: dict = {
     "interim_response_as_thinking": False,
-    "record_traces": False,
     "load_skills": False,
     "load_tools": False,
     "load_startup_tool_calls": False,

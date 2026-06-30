@@ -142,7 +142,6 @@ async def _async_run_llm_call(
     exchange_idx: int,
     tool_defs: list[dict] | None = None,
     suppress_content_streaming: bool = False,
-    record: bool = False,
 ) -> tuple[object, str, str]:
     """
     Run one async LLM call (streaming) and emit token events.
@@ -209,7 +208,6 @@ async def _async_run_llm_call(
         sanitize_messages_for_llm(payload),
         on_data,
         tools=(tool_defs if tool_defs is not None else ALL_TOOL_DEFINITIONS),
-        record=record,
     )
 
     if acc["reasoning"]:
@@ -223,13 +221,6 @@ async def _async_run_llm_call(
         session_id, turn_id, subturn_id, exchange_idx, acc["content"], acc["reasoning"]
     )
 
-    if result.trace is not None:
-        result.trace.turn_id = turn_id
-        result.trace.exchange_idx = exchange_idx
-        buf = _state._session_trace_buffers.get(session_id)
-        if buf is not None:
-            buf.append(result.trace)
-
     return result, acc["content"], acc["reasoning"]
 
 
@@ -242,7 +233,6 @@ async def _async_run_llm_call_with_retry(
     exchange_idx: int,
     tool_defs: list[dict] | None = None,
     suppress_content_streaming: bool = False,
-    record: bool = False,
 ) -> tuple[object, str, str]:
     """Run an async LLM call; surfaces a user-friendly error on context-limit."""
     try:
@@ -255,7 +245,6 @@ async def _async_run_llm_call_with_retry(
             exchange_idx,
             tool_defs,
             suppress_content_streaming,
-            record=record,
         )
     except Exception as exc:
         if _is_context_limit_error(exc):
@@ -264,67 +253,3 @@ async def _async_run_llm_call_with_retry(
                 "Please start a new session or shorten the conversation."
             ) from exc
         raise
-
-
-# ---------------------------------------------------------------------------
-# Trace save helpers
-# ---------------------------------------------------------------------------
-
-
-def _build_traces_xml(session_id: str, entries: list) -> str:
-    """Serialize a list of TraceEntry objects to an XML string."""
-    import xml.etree.ElementTree as ET
-    from datetime import datetime, timezone
-
-    root = ET.Element("traces")
-    root.set("session_id", session_id)
-    root.set("saved_at", datetime.now(timezone.utc).isoformat())
-
-    for entry in entries:
-        trace_el = ET.SubElement(root, "trace")
-        trace_el.set("turn_id", entry.turn_id)
-        trace_el.set("exchange_idx", str(entry.exchange_idx))
-        trace_el.set("captured_at", str(entry.captured_at))
-
-        req_el = ET.SubElement(trace_el, "request")
-        req_el.text = json.dumps(entry.request_payload, ensure_ascii=False)
-
-        resp_el = ET.SubElement(trace_el, "response")
-        ET.SubElement(resp_el, "content").text = entry.content
-        ET.SubElement(resp_el, "reasoning").text = entry.reasoning
-
-        tcs_el = ET.SubElement(resp_el, "tool_calls")
-        for tc in entry.tool_calls:
-            tc_el = ET.SubElement(tcs_el, "tool_call")
-            tc_el.set("id", tc.id)
-            tc_el.set("name", tc.name)
-            ET.SubElement(tc_el, "arguments").text = json.dumps(
-                tc.arguments, ensure_ascii=False
-            )
-
-        if entry.usage is not None:
-            ET.SubElement(resp_el, "usage").text = json.dumps(
-                entry.usage, ensure_ascii=False
-            )
-
-    ET.indent(root, space="  ")
-    return '<?xml version="1.0" encoding="utf-8"?>\n' + ET.tostring(
-        root, encoding="unicode"
-    )
-
-
-def _rotate_traces_folder() -> None:
-    """Delete oldest trace files until the folder is within _trace_folder_max_bytes."""
-    if _state._trace_folder_max_bytes is None:
-        return
-    from pathlib import Path
-
-    files = sorted(
-        Path(_state._traces_dir).glob("*.xml"),
-        key=lambda p: p.stat().st_mtime,
-    )
-    total = sum(f.stat().st_size for f in files)
-    while total > _state._trace_folder_max_bytes and files:
-        oldest = files.pop(0)
-        total -= oldest.stat().st_size
-        oldest.unlink(missing_ok=True)

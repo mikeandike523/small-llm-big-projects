@@ -257,42 +257,6 @@ export const memTabFooterCss = css`
   background: #0a0a0a;
 `;
 
-export const saveTracesBtnCss = css`
-  background: transparent;
-  border: 1px solid #2a2a2a;
-  color: #555;
-  cursor: pointer;
-  font-family: "Consolas", monospace;
-  font-size: 9px;
-  padding: 3px 10px;
-  border-radius: 3px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  &:hover {
-    color: #aaa;
-    border-color: #444;
-  }
-  &:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-  &:disabled:hover {
-    color: #555;
-    border-color: #2a2a2a;
-  }
-`;
-
-export const saveTracesStatusCss = (ok: boolean) => css`
-  font-family: "Consolas", monospace;
-  font-size: 9px;
-  color: ${ok ? "#5a8a5a" : "#8a3535"};
-  margin-top: 4px;
-  word-break: break-all;
-`;
-
 export const modalOverlayCss = css`
   position: fixed;
   inset: 0;

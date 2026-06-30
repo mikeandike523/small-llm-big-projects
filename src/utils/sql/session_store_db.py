@@ -1,18 +1,23 @@
-"""Durable session persistence in MySQL (the `sessions` table, migration v10).
+"""Durable session persistence in MySQL (event-sourced, migration v11).
 
-MySQL is the source of truth for sessions; Redis is a hot write-through cache.
+MySQL is the source of truth; Redis is a hot write-through cache. Sessions are
+stored as two tables:
+
+  session_meta    one slim row per session (drives the cheap dashboard list and
+                  holds per-session state: cwd, cost, schema, the session_memory
+                  hash snapshot, and denormalized list metadata).
+  session_events  append-only semantic event log; a Session is reconstructed by
+                  selecting its events in `id` order and replaying them.
+
 These helpers each acquire their own pooled connection and commit writes, so
-callers (session_store.py) don't have to manage transactions.
-
-JSON columns (`data`, `memory_json`) are stored as json.dumps strings and may
-come back from the driver as either str or already-decoded objects, so reads
-normalize both (mirrors KVManager._normalize_json).
+callers don't manage transactions. JSON columns may come back from the driver as
+either str or already-decoded objects, so reads normalize both.
 """
 
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, Sequence
 
 from src.data import get_pool
 
@@ -30,123 +35,198 @@ def _normalize_json(value: object) -> Any:
     return value
 
 
-def upsert_session(
+# ---------------------------------------------------------------------------
+# session_events (append-only log)
+# ---------------------------------------------------------------------------
+
+
+def append_events(session_id: str, events: Sequence[tuple[str, dict]]) -> None:
+    """Append (event_type, payload) tuples to the session's event log."""
+    if not events:
+        return
+    rows = [
+        (session_id, event_type, json.dumps(payload, ensure_ascii=False))
+        for event_type, payload in events
+    ]
+    pool = get_pool()
+    with pool.get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.executemany(
+                "INSERT INTO session_events (session_id, event_type, payload) "
+                "VALUES (%s, %s, %s)",
+                rows,
+            )
+        conn.commit()
+
+
+def load_session_events(session_id: str) -> list[dict]:
+    """Return all events for a session in replay order (each: type + payload)."""
+    pool = get_pool()
+    with pool.get_connection() as conn:
+        with conn.cursor(dictionary=True) as cur:
+            cur.execute(
+                "SELECT event_type, payload FROM session_events "
+                "WHERE session_id = %s ORDER BY id",
+                (session_id,),
+            )
+            rows = cur.fetchall()
+    return [
+        {"event_type": r["event_type"], "payload": _normalize_json(r["payload"])}
+        for r in rows
+    ]
+
+
+# ---------------------------------------------------------------------------
+# session_meta (slim per-session row)
+# ---------------------------------------------------------------------------
+
+
+def upsert_session_meta(
     session_id: str,
     *,
-    data: dict,
-    memory: dict,
+    created_at: float,
     schema_version: int,
     profile_name: str | None,
     initial_cwd: str,
     current_cwd: str | None,
     total_cost_usd: float,
+    turn_count: int,
+    task_titles: list,
+    interim_response_as_thinking: bool,
+    skills_path: str | None,
+    custom_tools_path: str | None,
+    memory: dict,
 ) -> None:
-    """Insert or update the durable row for a session."""
-    data_json = json.dumps(data, ensure_ascii=False)
-    memory_json = json.dumps(memory, ensure_ascii=False)
+    """Insert or update the slim metadata row for a session.
+
+    `created_at` is set only on insert (it's the authoritative session
+    wall-clock); subsequent upserts leave it untouched.
+    """
     pool = get_pool()
     with pool.get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 """
-                INSERT INTO sessions (
-                    session_id, schema_version, profile_name, initial_cwd,
-                    current_cwd, total_cost_usd, data, memory_json
+                INSERT INTO session_meta (
+                    session_id, created_at, schema_version, profile_name,
+                    initial_cwd, current_cwd, total_cost_usd, turn_count,
+                    task_titles, interim_response_as_thinking, skills_path,
+                    custom_tools_path, corrupt, memory_json
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s) AS incoming
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 0, %s)
+                AS incoming
                 ON DUPLICATE KEY UPDATE
-                    schema_version = incoming.schema_version,
-                    profile_name   = incoming.profile_name,
-                    initial_cwd    = incoming.initial_cwd,
-                    current_cwd    = incoming.current_cwd,
-                    total_cost_usd = incoming.total_cost_usd,
-                    data           = incoming.data,
-                    memory_json    = incoming.memory_json
+                    schema_version               = incoming.schema_version,
+                    profile_name                 = incoming.profile_name,
+                    initial_cwd                  = incoming.initial_cwd,
+                    current_cwd                  = incoming.current_cwd,
+                    total_cost_usd               = incoming.total_cost_usd,
+                    turn_count                   = incoming.turn_count,
+                    task_titles                  = incoming.task_titles,
+                    interim_response_as_thinking = incoming.interim_response_as_thinking,
+                    skills_path                  = incoming.skills_path,
+                    custom_tools_path            = incoming.custom_tools_path,
+                    corrupt                      = 0,
+                    memory_json                  = incoming.memory_json
                 """,
                 (
                     session_id,
+                    float(created_at or 0.0),
                     schema_version,
                     profile_name,
                     initial_cwd,
                     current_cwd,
-                    total_cost_usd,
-                    data_json,
-                    memory_json,
+                    float(total_cost_usd or 0.0),
+                    turn_count,
+                    json.dumps(task_titles, ensure_ascii=False),
+                    1 if interim_response_as_thinking else 0,
+                    skills_path,
+                    custom_tools_path,
+                    json.dumps(memory, ensure_ascii=False),
                 ),
             )
         conn.commit()
 
 
-def load_session_row(session_id: str) -> dict | None:
-    """Return the durable row for a session, or None if absent.
+# Columns selected for the dashboard list — deliberately excludes memory_json so
+# the list query stays light and never filesorts over large blobs.
+_META_LIST_COLS = (
+    "session_id, created_at, schema_version, profile_name, initial_cwd, "
+    "current_cwd, total_cost_usd, turn_count, task_titles, "
+    "interim_response_as_thinking, skills_path, custom_tools_path, corrupt"
+)
 
-    `data` and `memory_json` are returned as decoded Python objects under the
-    keys `data` and `memory`.
-    """
+
+def _row_to_meta(row: dict, *, include_memory: bool) -> dict:
+    meta = {
+        "session_id": row["session_id"],
+        "created_at": float(row.get("created_at") or 0.0),
+        "schema_version": row.get("schema_version", 0),
+        "profile_name": row.get("profile_name"),
+        "initial_cwd": row.get("initial_cwd") or "",
+        "current_cwd": row.get("current_cwd"),
+        "total_cost_usd": float(row.get("total_cost_usd") or 0.0),
+        "turn_count": row.get("turn_count", 0),
+        "task_titles": _normalize_json(row.get("task_titles")) or [],
+        "interim_response_as_thinking": bool(row.get("interim_response_as_thinking")),
+        "skills_path": row.get("skills_path") or None,
+        "custom_tools_path": row.get("custom_tools_path") or None,
+        "corrupt": bool(row.get("corrupt")),
+    }
+    if include_memory:
+        meta["memory"] = _normalize_json(row.get("memory_json")) or {}
+    return meta
+
+
+def list_session_meta() -> list[dict]:
+    """Return slim metadata for all sessions, newest first."""
     pool = get_pool()
     with pool.get_connection() as conn:
         with conn.cursor(dictionary=True) as cur:
             cur.execute(
-                """
-                SELECT session_id, schema_version, profile_name, initial_cwd,
-                       current_cwd, total_cost_usd, data, memory_json
-                FROM sessions WHERE session_id = %s
-                """,
+                f"SELECT {_META_LIST_COLS} FROM session_meta ORDER BY created_at DESC"
+            )
+            rows = cur.fetchall()
+    return [_row_to_meta(r, include_memory=False) for r in rows]
+
+
+def load_session_meta(session_id: str) -> dict | None:
+    """Return the metadata row for one session (including the memory snapshot)."""
+    pool = get_pool()
+    with pool.get_connection() as conn:
+        with conn.cursor(dictionary=True) as cur:
+            cur.execute(
+                f"SELECT {_META_LIST_COLS}, memory_json FROM session_meta "
+                "WHERE session_id = %s",
                 (session_id,),
             )
             row = cur.fetchone()
     if not row:
         return None
-    return {
-        "session_id": row["session_id"],
-        "schema_version": row["schema_version"],
-        "profile_name": row["profile_name"],
-        "initial_cwd": row["initial_cwd"],
-        "current_cwd": row["current_cwd"],
-        "total_cost_usd": row["total_cost_usd"],
-        "data": _normalize_json(row["data"]) or {},
-        "memory": _normalize_json(row["memory_json"]) or {},
-    }
+    return _row_to_meta(row, include_memory=True)
 
 
-def list_session_rows() -> list[dict]:
-    """Return all sessions (newest first) with the full `data` blob decoded.
-
-    Used by the dashboard list endpoint; `memory_json` is intentionally not
-    fetched here to keep the payload light.
-    """
-    pool = get_pool()
-    with pool.get_connection() as conn:
-        with conn.cursor(dictionary=True) as cur:
-            cur.execute(
-                """
-                SELECT session_id, schema_version, profile_name, initial_cwd,
-                       current_cwd, total_cost_usd, data, created_at
-                FROM sessions ORDER BY created_at DESC
-                """
-            )
-            rows = cur.fetchall()
-    results = []
-    for row in rows:
-        results.append(
-            {
-                "session_id": row["session_id"],
-                "schema_version": row["schema_version"],
-                "profile_name": row["profile_name"],
-                "initial_cwd": row["initial_cwd"],
-                "current_cwd": row["current_cwd"],
-                "total_cost_usd": row["total_cost_usd"],
-                "created_at": row["created_at"],
-                "data": _normalize_json(row["data"]) or {},
-            }
-        )
-    return results
-
-
-def delete_session_row(session_id: str) -> None:
-    """Delete the durable row for a session (no-op if absent)."""
+def mark_session_corrupt(session_id: str) -> None:
+    """Flag a session whose events failed to replay (best-effort, no-op if absent)."""
     pool = get_pool()
     with pool.get_connection() as conn:
         with conn.cursor() as cur:
-            cur.execute("DELETE FROM sessions WHERE session_id = %s", (session_id,))
+            cur.execute(
+                "UPDATE session_meta SET corrupt = 1 WHERE session_id = %s",
+                (session_id,),
+            )
+        conn.commit()
+
+
+def delete_session(session_id: str) -> None:
+    """Delete a session's metadata row and all of its events (no-op if absent)."""
+    pool = get_pool()
+    with pool.get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM session_events WHERE session_id = %s", (session_id,)
+            )
+            cur.execute(
+                "DELETE FROM session_meta WHERE session_id = %s", (session_id,)
+            )
         conn.commit()

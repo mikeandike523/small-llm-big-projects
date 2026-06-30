@@ -41,10 +41,6 @@ from src.ui_connector.socket_handler_components.watchdogs import (
     _fetch_task_title,
 )
 from src.ui_connector.socket_handler_components.agent_loop import _async_agent_loop
-from src.ui_connector.socket_handler_components.llm import (
-    _build_traces_xml,
-    _rotate_traces_folder,
-)
 from src.tools import execute_tool, _TOOL_MAP
 from src.tools import _dirty_cache
 from src.tools.todo_list import format_items_for_ui as _todo_format_items_for_ui
@@ -497,50 +493,6 @@ def handle_approval_response(data: dict):
             },
         )
         pending["event"].set()
-
-
-@socketio.on("save_traces")
-def handle_save_traces():
-    """Flush the session trace buffer to an XML file in _traces_dir."""
-    from datetime import datetime, timezone
-    import uuid as _uuid
-
-    sid = request.sid
-    session_id = _state._sid_to_session_id.get(sid)
-    if not session_id:
-        emit("traces_saved", {"count": 0, "filename": None})
-        return
-
-    buf = _state._session_trace_buffers.get(session_id)
-    if not buf:
-        emit("traces_saved", {"count": 0, "filename": None})
-        return
-
-    entries = []
-    while buf:
-        entries.append(buf.popleft())
-
-    if not entries:
-        emit("traces_saved", {"count": 0, "filename": None})
-        return
-
-    try:
-        os.makedirs(_state._traces_dir, exist_ok=True)
-        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-        short_id = str(_uuid.uuid4())[:8]
-        filename = f"{timestamp}_{short_id}.xml"
-        filepath = os.path.join(_state._traces_dir, filename)
-
-        xml = _build_traces_xml(session_id, entries)
-        with open(filepath, "w", encoding="utf-8") as fh:
-            fh.write(xml)
-
-        _rotate_traces_folder()
-
-        emit("traces_saved", {"count": len(entries), "filename": filename})
-    except Exception as exc:
-        logger.warning("Failed to save traces: %s", exc)
-        emit("traces_save_error", {"message": str(exc)})
 
 
 @socketio.on("run_startup_tool_calls")

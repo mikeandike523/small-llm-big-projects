@@ -172,7 +172,6 @@ async def _async_agent_loop(
                         tool_defs=session_tool_defs,
                         suppress_content_streaming=session.interim_response_as_thinking
                         and is_interim_call,
-                        record=session.record_traces,
                     )
                 )
             except asyncio.CancelledError:

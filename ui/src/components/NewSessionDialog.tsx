@@ -8,7 +8,6 @@ import { useEffect, useState } from "react";
 
 export interface SessionDefaults {
   interim_response_as_thinking: boolean;
-  record_traces: boolean;
   load_skills: boolean;
   load_tools: boolean;
   load_startup_tool_calls: boolean;
@@ -236,12 +235,6 @@ interface CheckOption {
 
 const OPTIONS: CheckOption[] = [
   {
-    key: "record_traces",
-    label: "Enable trace recording",
-    flag: "--etr",
-    desc: "Record every LLM completion for fine-tuning export.",
-  },
-  {
     key: "load_skills",
     label: "Load skills",
     flag: "--load-skills",
@@ -332,7 +325,6 @@ export default function NewSessionDialog({
       initial_cwd: cwd,
       interim_response_as_thinking:
         sessionDefaults.interim_response_as_thinking,
-      record_traces: flags.record_traces,
       profile_name: selectedProfile || null,
     };
     if (flags.load_skills) payload.skills_path = `${cwd}/skills`;

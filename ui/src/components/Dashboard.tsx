@@ -16,7 +16,6 @@ interface SessionSummary {
   turn_count: number;
   active_turn: boolean;
   interim_response_as_thinking: boolean;
-  record_traces: boolean;
   task_titles: string[];
   skills_path: string | null;
   custom_tools_path: string | null;
@@ -794,7 +793,6 @@ function SessionCard({
         {session.interim_response_as_thinking && (
           <span css={metaBadgeCss}>irat</span>
         )}
-        {session.record_traces && <span css={metaBadgeCss}>traces</span>}
         {session.skills_path && (
           <span css={metaBadgeCss} title={session.skills_path}>
             skills
