@@ -49,9 +49,15 @@ def _reconstruct(lines: list[str], newline: str, trailing_nl: bool) -> str:
 
 # Lenient markers: models sometimes vary the fence-character count or omit the
 # SEARCH/REPLACE words.  We only require the recognizable fence shape.
-_SR_START_RE = re.compile(r"^<{3,}\s*(?:SEARCH)?\s*$")
-_SR_DIVIDER_RE = re.compile(r"^={3,}\s*$")
-_SR_END_RE = re.compile(r"^>{3,}\s*(?:REPLACE)?\s*$")
+#
+# The canonical AIDER fence is 7 characters ("<<<<<<< SEARCH" / "=======" /
+# ">>>>>>> REPLACE").  AIDER's own parser accepts a range of 5-9 ({5,9}); we
+# adopt the same minimum of 5 but leave the upper bound open, so a rare
+# extra-character hallucination (8, 9, 10, ... in a row) still parses instead
+# of failing the whole edit.
+_SR_START_RE = re.compile(r"^<{5,}\s*(?:SEARCH)?\s*$")
+_SR_DIVIDER_RE = re.compile(r"^={5,}\s*$")
+_SR_END_RE = re.compile(r"^>{5,}\s*(?:REPLACE)?\s*$")
 
 
 def _parse_search_replace(text: str) -> list[tuple[list[str], list[str]]]:

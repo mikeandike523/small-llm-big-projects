@@ -2,6 +2,8 @@ from __future__ import annotations
 
 ALLOW_REQUEST_UNREDACTED = True
 
+from textwrap import dedent
+
 from src.tools._eol import EOL_CHOICES
 from src.tools._indentation import (
     INDENT_TARGET_CHOICES,
@@ -15,22 +17,24 @@ DEFINITION: dict = {
     "type": "function",
     "function": {
         "name": "text_editor",
-        "description": (
-            "Structural text-editor operations on a session memory string value OR directly on a file on disk. "
-            "Provide exactly one of: 'key' (session memory key) or 'filepath' (path to a file on disk). "
-            "When 'filepath' is given the file is read into a temporary buffer, the operation is applied, "
-            "and (for write actions) the result is written back atomically. "
-            "\n\n"
-            "LINE ENDING RULES:\n"
-            "Only LF (\\n) and CRLF (\\r\\n) are recognised as line terminators. "
-            "Bare \\r is treated as a regular character and is never split on or converted. "
-            "Write actions always re-encode the result to match the existing EOL style "
-            "(CRLF if any CRLF present, else LF). "
-            "\n\n"
-            "Actions: read_lines, search_by_regex, count_lines, "
-            "check_eol, normalize_eol, check_indentation, convert_indentation, apply_patch, "
-            "search_replace, regex_replace, insert_lines, delete_lines, append_lines, prepend_lines."
-        ),
+        "description": dedent(
+            """
+            Structural text-editor operations on a session memory string value OR directly on a file on disk.
+            Provide exactly one of: 'key' (session memory key) or 'filepath' (path to a file on disk).
+            When 'filepath' is given the file is read into a temporary buffer, the operation is applied,
+            and (for write actions) the result is written back atomically.
+
+            LINE ENDING RULES:
+            Only LF (\\n) and CRLF (\\r\\n) are recognised as line terminators.
+            Bare \\r is treated as a regular character and is never split on or converted.
+            Write actions always re-encode the result to match the existing EOL style
+            (CRLF if any CRLF present, else LF).
+
+            Actions: read_lines, search_by_regex, count_lines, check_eol, normalize_eol,
+            check_indentation, convert_indentation, apply_patch, search_replace, regex_replace,
+            insert_lines, delete_lines, append_lines, prepend_lines.
+            """
+        ).strip(),
         "parameters": {
             "type": "object",
             "properties": {
@@ -52,64 +56,43 @@ DEFINITION: dict = {
                         "append_lines",
                         "prepend_lines",
                     ],
-                    "description": (
-                        "The operation to perform:\n"
-                        "  read_lines          -- read all or a line range (1-based inclusive).\n"
-                        "  search_by_regex     -- search for lines matching a regex; returns matching lines with line numbers.\n"
-                        "  count_lines         -- count total lines.\n"
-                        "  check_eol           -- report line-ending style statistics.\n"
-                        "  normalize_eol       -- normalize all line endings to a single style.\n"
-                        "  check_indentation   -- report indentation style statistics.\n"
-                        "  convert_indentation -- convert leading-whitespace indentation style.\n"
-                        "  apply_patch         -- apply a unified diff patch string ('patch' param). "
-                        "Hunks locate themselves by content search; @@ line numbers are used only "
-                        "for pure-insertion anchoring. Always matches the target file's EOL style.\n"
-                        "  search_replace      -- apply one or more AIDER-style SEARCH/REPLACE blocks "
-                        "('patch' param). Skips hunk-header parsing: each block's SEARCH text is located "
-                        "by the same fuzzy, single-location, line-count-preserving matching as apply_patch, "
-                        "then replaced with the REPLACE text. Each block must match exactly one location; "
-                        "use regex_replace to change many locations at once.\n"
-                        "  regex_replace       -- replace ALL (or 'count') matches of a Python regex "
-                        "('pattern') with 'replacement' (supports \\1 backreferences). Applied with "
-                        "re.MULTILINE over the whole content.\n"
-                        "  insert_lines        -- insert 'content' before line 'start_line' (1-based).\n"
-                        "  delete_lines        -- delete lines 'start_line'..'end_line' (1-based inclusive; "
-                        "end_line defaults to start_line).\n"
-                        "  append_lines        -- append 'content' to the end.\n"
-                        "  prepend_lines       -- prepend 'content' to the beginning."
-                    ),
+                    "description": dedent(
+                        """
+                        The operation to perform:
+                          read_lines          -- read all or a line range (1-based inclusive).
+                          search_by_regex     -- search for lines matching a regex; returns matching lines with line numbers.
+                          count_lines         -- count total lines.
+                          check_eol           -- report line-ending style statistics.
+                          normalize_eol       -- normalize all line endings to a single style.
+                          check_indentation   -- report indentation style statistics.
+                          convert_indentation -- convert leading-whitespace indentation style.
+                          apply_patch         -- apply a unified diff patch string ('patch' param). Hunks locate themselves by content search; @@ line numbers are used only for pure-insertion anchoring. Always matches the target file's EOL style.
+                          search_replace      -- apply one or more AIDER-style SEARCH/REPLACE blocks ('patch' param). Skips hunk-header parsing: each block's SEARCH text is located by the same fuzzy, single-location, line-count-preserving matching as apply_patch, then replaced with the REPLACE text. Each block must match exactly one location; use regex_replace to change many locations at once.
+                          regex_replace       -- replace ALL (or 'count') matches of a Python regex ('pattern') with 'replacement' (supports \\1 backreferences). Applied with re.MULTILINE over the whole content.
+                          insert_lines        -- insert 'content' before line 'start_line' (1-based).
+                          delete_lines        -- delete lines 'start_line'..'end_line' (1-based inclusive; end_line defaults to start_line).
+                          append_lines        -- append 'content' to the end.
+                          prepend_lines       -- prepend 'content' to the beginning.
+                        """
+                    ).strip(),
                 },
                 "key": {
                     "type": "string",
-                    "description": (
-                        "Session memory key. Must hold a text value. "
-                        "Mutually exclusive with 'filepath'. Provide exactly one."
-                    ),
+                    "description": "Session memory key. Must hold a text value. Mutually exclusive with 'filepath'. Provide exactly one.",
                 },
                 "filepath": {
                     "type": "string",
-                    "description": (
-                        "Path to a file on disk (relative or absolute). "
-                        "The file is read, the operation is applied, and (for write actions) the result is written back. "
-                        "Mutually exclusive with 'key'. Provide exactly one."
-                    ),
+                    "description": "Path to a file on disk (relative or absolute). The file is read, the operation is applied, and (for write actions) the result is written back. Mutually exclusive with 'key'. Provide exactly one.",
                 },
                 "start_line": {
                     "type": "integer",
                     "minimum": 1,
-                    "description": (
-                        "1-based start line (inclusive). Used by: read_lines, delete_lines; "
-                        "for insert_lines it is the line before which 'content' is inserted "
-                        "(1..count+1)."
-                    ),
+                    "description": "1-based start line (inclusive). Used by: read_lines, delete_lines; for insert_lines it is the line before which 'content' is inserted (1..count+1).",
                 },
                 "end_line": {
                     "type": "integer",
                     "minimum": 1,
-                    "description": (
-                        "1-based end line (inclusive). Used by: read_lines, delete_lines "
-                        "(defaults to start_line when omitted)."
-                    ),
+                    "description": "1-based end line (inclusive). Used by: read_lines, delete_lines (defaults to start_line when omitted).",
                 },
                 "number_lines": {
                     "type": "boolean",
@@ -117,18 +100,12 @@ DEFINITION: dict = {
                 },
                 "delimiter": {
                     "type": "string",
-                    "description": (
-                        "Separator between line number and content when number_lines is true. "
-                        "Defaults to ' | '. Used by: read_lines."
-                    ),
+                    "description": "Separator between line number and content when number_lines is true. Defaults to ' | '. Used by: read_lines.",
                 },
                 "eol": {
                     "type": "string",
                     "enum": EOL_CHOICES,
-                    "description": (
-                        "Target line-ending style: 'lf' (\\n), 'crlf' (\\r\\n), or 'cr' (\\r). "
-                        "Used by: normalize_eol."
-                    ),
+                    "description": "Target line-ending style: 'lf' (\\n), 'crlf' (\\r\\n), or 'cr' (\\r). Used by: normalize_eol.",
                 },
                 "to": {
                     "type": "string",
@@ -138,47 +115,38 @@ DEFINITION: dict = {
                 "spaces_per_tab": {
                     "type": "integer",
                     "minimum": 1,
-                    "description": (
-                        f"Number of spaces per tab stop (used in both directions). "
-                        f"Default: {DEFAULT_SPACES_PER_TAB}. Used by: convert_indentation."
-                    ),
+                    "description": f"Number of spaces per tab stop (used in both directions). Default: {DEFAULT_SPACES_PER_TAB}. Used by: convert_indentation.",
                 },
                 "pattern": {
                     "type": "string",
-                    "description": (
-                        "Python regular expression. Used by: search_by_regex (line search) and "
-                        "regex_replace (matched against the whole content with re.MULTILINE)."
-                    ),
+                    "description": "Python regular expression. Used by: search_by_regex (line search) and regex_replace (matched against the whole content with re.MULTILINE).",
                 },
                 "patch": {
                     "type": "string",
-                    "description": (
-                        "For apply_patch: a unidiff/git-diff style patch. "
-                        "For search_replace: one or more AIDER-style blocks of the form "
-                        "'<<<<<<< SEARCH' / old lines / '=======' / new lines / '>>>>>>> REPLACE'."
-                    ),
+                    "description": dedent(
+                        """
+                        For apply_patch: a unidiff/git-diff style patch.
+                        For search_replace: one or more AIDER-style blocks of the form
+                        '<<<<<<< SEARCH' / old lines / '=======' / new lines / '>>>>>>> REPLACE'.
+                        Each fence marker uses SEVEN characters: seven '<' before SEARCH, seven '='
+                        for the divider, and seven '>' before REPLACE. Parsing is lenient and accepts
+                        any run of 5 or more of the marker character, so an extra hallucinated '<', '='
+                        or '>' is tolerated; the words SEARCH and REPLACE are optional.
+                        """
+                    ).strip(),
                 },
                 "content": {
                     "type": "string",
-                    "description": (
-                        "Literal text (one or more lines) to add. "
-                        "Used by: insert_lines, append_lines, prepend_lines."
-                    ),
+                    "description": "Literal text (one or more lines) to add. Used by: insert_lines, append_lines, prepend_lines.",
                 },
                 "replacement": {
                     "type": "string",
-                    "description": (
-                        "Replacement template for regex_replace. Supports backreferences "
-                        "(e.g. \\1, \\g<name>). Used by: regex_replace."
-                    ),
+                    "description": "Replacement template for regex_replace. Supports backreferences (e.g. \\1, \\g<name>). Used by: regex_replace.",
                 },
                 "count": {
                     "type": "integer",
                     "minimum": 0,
-                    "description": (
-                        "Maximum number of replacements (0 = replace all). "
-                        "Default 0. Used by: regex_replace."
-                    ),
+                    "description": "Maximum number of replacements (0 = replace all). Default 0. Used by: regex_replace.",
                 },
             },
             "required": ["action"],
