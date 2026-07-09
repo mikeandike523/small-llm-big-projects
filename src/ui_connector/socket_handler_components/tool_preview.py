@@ -31,6 +31,46 @@ def _session_cwd_for(session_id: str | None) -> str | None:
     return cfg.get("initial_cwd") or None
 
 
+@app.route("/api/tool-preview/config", methods=["GET"])
+def api_tool_preview_config():
+    """Descriptors telling the UI which tool/action approvals get a before/after
+    diff-preview widget, and which endpoint computes it.
+
+    Fetched once when the session page loads so the front-end holds no hard-coded
+    list to keep in sync with the tools. Shape::
+
+        { "previews": [ { tool_name, actions, endpoint, label_arg }, ... ] }
+
+    - ``actions``: action names that trigger the widget, or ``null`` for "every
+      invocation of this tool" (e.g. write_text_file has no sub-action).
+    - ``endpoint``: POST route the UI calls (with the full arg set + session_id)
+      to compute the before/after preview.
+    - ``label_arg``: which arg holds the path shown in the "Preview for: File(…)"
+      label.
+
+    The text_editor action list is derived from ``_WRITE_ACTIONS`` so adding a
+    write action automatically enables its preview with no front-end change.
+    """
+    return jsonify(
+        {
+            "previews": [
+                {
+                    "tool_name": "text_editor",
+                    "actions": list(_WRITE_ACTIONS.keys()),
+                    "endpoint": "/api/tool-preview/text-editor",
+                    "label_arg": "filepath",
+                },
+                {
+                    "tool_name": "write_text_file",
+                    "actions": None,
+                    "endpoint": "/api/tool-preview/write-text-file",
+                    "label_arg": "path",
+                },
+            ]
+        }
+    )
+
+
 @app.route("/api/tool-preview/text-editor", methods=["POST"])
 def api_text_editor_preview():
     """

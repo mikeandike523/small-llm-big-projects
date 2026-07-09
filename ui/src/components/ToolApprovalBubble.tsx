@@ -1,8 +1,9 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { ApprovalItem } from "../types";
 import { css } from "@emotion/react";
 import JsonArgsViewer from "./JsonArgsViewer";
 import DiffViewer from "../subcomponents/Chat/DiffViewer";
+import { useToolPreviewConfig } from "../api/toolPreviewConfig";
 
 const approvalResolvedBubbleCss = (approved: boolean) => css`
   font-family: "Consolas", monospace;
@@ -220,20 +221,6 @@ const redirectCancelButtonCss = css`
 
 type DiffStatus = "idle" | "loading" | "loaded" | "error";
 
-// text_editor write actions that support a before/after diff preview. Must
-// stay in sync with _WRITE_ACTIONS in src/tools/_text_editor_actions.py.
-const TEXT_EDITOR_WRITE_ACTIONS = new Set([
-  "apply_patch",
-  "search_replace",
-  "regex_replace",
-  "insert_lines",
-  "delete_lines",
-  "append_lines",
-  "prepend_lines",
-  "normalize_eol",
-  "convert_indentation",
-]);
-
 function getSessionId(): string {
   return (
     new URLSearchParams(window.location.search).get("sessionId") ||
@@ -260,48 +247,38 @@ export default function ToolApprovalBubble({
   const [diffStatus, setDiffStatus] = useState<DiffStatus>("idle");
   const [diffData, setDiffData] = useState<{ before: string; after: string } | null>(null);
 
-  const isTextEditorWrite =
-    item.tool_name === "text_editor" &&
-    TEXT_EDITOR_WRITE_ACTIONS.has(item.args.action as string);
-  const isWriteTextFile = item.tool_name === "write_text_file";
-  const wantsDiffPreview = isTextEditorWrite || isWriteTextFile;
+  // Which tools/actions render a diff preview (and where to compute it) is served
+  // by the backend and fetched once on session load — no hard-coded list here.
+  const previewConfig = useToolPreviewConfig();
+  const descriptor = useMemo(() => {
+    if (!previewConfig) return null;
+    return (
+      previewConfig.find(
+        (d) =>
+          d.tool_name === item.tool_name &&
+          (d.actions === null || d.actions.includes(item.args.action as string)),
+      ) ?? null
+    );
+  }, [previewConfig, item.tool_name, item.args.action]);
 
-  const diffLabel: string | null = (() => {
-    if (isTextEditorWrite) return `File(${item.args.filepath as string})`;
-    if (isWriteTextFile) return `File(${item.args.path as string})`;
-    return null;
-  })();
+  const wantsDiffPreview = descriptor !== null;
+  const previewEndpoint = descriptor ? descriptor.endpoint : null;
+
+  const diffLabel: string | null = descriptor
+    ? `File(${item.args[descriptor.label_arg] as string})`
+    : null;
 
   useEffect(() => {
-    if (!wantsDiffPreview || item.resolved) return;
+    if (!descriptor || item.resolved) return;
     setDiffStatus("loading");
     const sessionId = getSessionId();
 
-    let url: string;
-    let body: Record<string, unknown>;
-
-    if (isTextEditorWrite) {
-      url = `${window.location.origin}/api/tool-preview/text-editor`;
-      // Forward the full arg set so the backend can run whichever write action
-      // was requested (apply_patch, search_replace, insert_lines, …).
-      body = {
-        ...item.args,
-        session_id: sessionId,
-      };
-    } else {
-      url = `${window.location.origin}/api/tool-preview/write-text-file`;
-      body = {
-        path: item.args.path as string,
-        content: item.args.content as string | undefined,
-        session_memory_key: item.args.session_memory_key as string | undefined,
-        session_id: sessionId,
-      };
-    }
-
-    fetch(url, {
+    // Forward the full arg set (plus session_id) so the endpoint can run whichever
+    // action was requested; each endpoint reads only the args it needs.
+    fetch(`${window.location.origin}${descriptor.endpoint}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
+      body: JSON.stringify({ ...item.args, session_id: sessionId }),
     })
       .then((r) => r.json())
       .then((data) => {
@@ -316,7 +293,7 @@ export default function ToolApprovalBubble({
         }
       })
       .catch(() => setDiffStatus("error"));
-  }, [item.id]);  // eslint-disable-line react-hooks/exhaustive-deps
+  }, [item.id, previewEndpoint]);  // eslint-disable-line react-hooks/exhaustive-deps
 
   if (item.resolved) {
     return (

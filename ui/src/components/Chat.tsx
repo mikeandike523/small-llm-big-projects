@@ -1,5 +1,5 @@
 import { css } from "@emotion/react";
-import React, { useCallback, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { type Socket } from "socket.io-client";
 import { useStickToBottom } from "use-stick-to-bottom";
@@ -25,6 +25,7 @@ import {
   threadCss,
 } from "../css/Chat";
 import useSocketWiring from "../hooks/useSocketWiring";
+import { fetchToolPreviewConfig } from "../api/toolPreviewConfig";
 import { createSocket } from "../socket";
 import LoadingBackdrop from "../subcomponents/Chat/LoadingBackdrop";
 import ToolModal from "../subcomponents/Chat/ToolModal";
@@ -53,6 +54,12 @@ export default function Chat() {
     }
     return id;
   });
+
+  // Prime the tool-preview widget config once on session-page load, so approval
+  // bubbles know which tools/actions render a diff preview (no hard-coded list).
+  useEffect(() => {
+    fetchToolPreviewConfig();
+  }, []);
 
   // Socket: created once per component instance with the stable sessionId.
   // autoConnect:false means it does not connect until socket.connect() is called.
