@@ -623,6 +623,9 @@ def handle_user_message(data: dict):
     create_file_auto_eol: str = (
         llm_config["system_params"].get("create_file_auto_eol") or "enabled_silent"
     )
+    enable_patch_rewriter: bool = llm_config["system_params"].get(
+        "enable_patch_rewriter", False
+    )
     model_temperature: float | None = (llm_config.get("model_params") or {}).get("temperature")
     watchdog_params: dict = llm_config.get("watchdog_params") or {}
     summarizer_params: dict = llm_config.get("summarizer_params") or {}
@@ -767,6 +770,7 @@ def handle_user_message(data: dict):
                 model_temperature=model_temperature,
                 strict_dirty=strict_dirty,
                 create_file_auto_eol=create_file_auto_eol,
+                enable_patch_rewriter=enable_patch_rewriter,
             )
             if _had_tool_calls and not current_turn.task_title:
                 await _fetch_and_store_title()
@@ -838,6 +842,9 @@ def handle_force_continuation(data: dict):
     create_file_auto_eol: str = (
         llm_config["system_params"].get("create_file_auto_eol") or "enabled_silent"
     )
+    enable_patch_rewriter: bool = llm_config["system_params"].get(
+        "enable_patch_rewriter", False
+    )
     model_temperature: float | None = (llm_config.get("model_params") or {}).get("temperature")
     watchdog_params: dict = llm_config.get("watchdog_params") or {}
     summarizer_params: dict = llm_config.get("summarizer_params") or {}
@@ -907,6 +914,7 @@ def handle_force_continuation(data: dict):
                 model_temperature=model_temperature,
                 strict_dirty=strict_dirty,
                 create_file_auto_eol=create_file_auto_eol,
+                enable_patch_rewriter=enable_patch_rewriter,
             )
         except asyncio.CancelledError:
             cancel_event.set()

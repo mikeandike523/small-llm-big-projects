@@ -63,6 +63,7 @@ def _execute_tools(
     patchrewriter_params: dict | None = None,
     strict_dirty: bool = True,
     create_file_auto_eol: str | None = None,
+    enable_patch_rewriter: bool = False,
 ) -> LLMExchange:
     """
     Execute all tool calls in result, emit events, and build an LLMExchange record.
@@ -167,8 +168,12 @@ def _execute_tools(
 
             # Patch rewrite watchdog: before the approval check, attempt to fix a
             # failing apply_patch call so the agent never sees the error.
+            # Gated by system.enable_patch_rewriter (default off): smarter models
+            # tend to self-correct from the "patch failed" feedback, so we only
+            # rewrite when explicitly enabled.
             if (
-                tc.name == "text_editor"
+                enable_patch_rewriter
+                and tc.name == "text_editor"
                 and tc.arguments.get("action") == "apply_patch"
             ):
                 _patch = tc.arguments.get("patch")

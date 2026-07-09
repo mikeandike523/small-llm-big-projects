@@ -67,6 +67,7 @@ async def _async_agent_loop(
     model_temperature: float | None = None,
     strict_dirty: bool = True,
     create_file_auto_eol: str | None = None,
+    enable_patch_rewriter: bool = False,
 ) -> None:
     """
     Main agentic loop. Runs inside a private asyncio event loop in the SocketIO thread.
@@ -255,6 +256,7 @@ async def _async_agent_loop(
                         patchrewriter_params or {},
                         strict_dirty,
                         create_file_auto_eol,
+                        enable_patch_rewriter,
                     )
                 except asyncio.CancelledError:
                     cancel_event.set()

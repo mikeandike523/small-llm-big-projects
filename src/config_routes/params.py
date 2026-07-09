@@ -14,6 +14,7 @@ _SYSTEM_KEYS = (
     "system.blank_response_retries",
     "system.strict_dirty",
     "system.create_file_auto_eol",
+    "system.enable_patch_rewriter",
 )
 _MODEL_EXTRA = ("model.irat",)
 

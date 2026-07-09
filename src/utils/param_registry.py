@@ -244,6 +244,20 @@ REGISTRY["system.strict_dirty"] = ParamSpec(
         "calling apply_patch multiple times over writing multi-hunk patches."
     ),
 )
+REGISTRY["system.enable_patch_rewriter"] = ParamSpec(
+    name="system.enable_patch_rewriter",
+    value_type="boolean",
+    description=(
+        "Enable the patch-rewriter watchdog for failing apply_patch calls. "
+        "false (default): a patch that does not apply cleanly is passed through to "
+        "the tool and the failure is surfaced to the agent -- smarter models often "
+        "use the 'patch failed' feedback (and surrounding conversation context) to "
+        "self-correct whitespace/context errors on the next turn. "
+        "true: an out-of-band patchrewriter.model sampler silently attempts to repair "
+        "the patch before it runs, so the agent never sees the failure. Useful for "
+        "less capable models that do not recover well from patch errors on their own."
+    ),
+)
 REGISTRY["system.create_file_auto_eol"] = ParamSpec(
     name="system.create_file_auto_eol",
     value_type="string",
