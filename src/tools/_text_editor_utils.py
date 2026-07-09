@@ -479,7 +479,9 @@ _MATCH_LABEL = {
 # ---------------------------------------------------------------------------
 
 
-def _apply_edits(original_text: str, hunks: list[ParsedHunk]) -> str:
+def _apply_edits(
+    original_text: str, hunks: list[ParsedHunk], unit: str = "Hunk"
+) -> str:
     """Apply a list of parsed hunks to original_text.
 
     Context lines are taken from the actual file via a file pointer, never
@@ -490,6 +492,9 @@ def _apply_edits(original_text: str, hunks: list[ParsedHunk]) -> str:
     EOL style of the result always matches the original file.
     has_trailing_newline for the result is taken from the last hunk that
     touches the end of the file; otherwise the original file's state is kept.
+
+    *unit* is the noun used in status/error messages ("Hunk" for apply_patch,
+    "Block" for search_replace) — the matching and application logic is shared.
     """
     newline = _detect_newline_style(original_text)
     file_lines, had_trailing_nl = _split_lines_preserve(original_text)
@@ -504,8 +509,8 @@ def _apply_edits(original_text: str, hunks: list[ParsedHunk]) -> str:
         has_failure = True
         hunk_repr = "\n".join(p + c for p, c in hunk.group.tagged)
         statuses.append(
-            f"Hunk #{n} of {total} Failed — {reason}\n"
-            f"Detected hunk text:\n{hunk_repr}"
+            f"{unit} #{n} of {total} Failed — {reason}\n"
+            f"Detected {unit.lower()} text:\n{hunk_repr}"
         )
 
     for n, hunk in enumerate(hunks, start=1):
@@ -541,7 +546,7 @@ def _apply_edits(original_text: str, hunks: list[ParsedHunk]) -> str:
                 final_trailing_nl = group.new_has_trailing_newline
             file_lines = file_lines[:apply_at] + additions + file_lines[apply_at:]
             statuses.append(
-                f"Hunk #{n} of {total}: Valid (pure insertion at line {hunk.start})."
+                f"{unit} #{n} of {total}: Valid (pure insertion at line {hunk.start})."
             )
             continue
 
@@ -580,14 +585,14 @@ def _apply_edits(original_text: str, hunks: list[ParsedHunk]) -> str:
             final_trailing_nl = group.new_has_trailing_newline
 
         file_lines = file_lines[:apply_at] + result_lines + file_lines[file_ptr:]
-        statuses.append(f"Hunk #{n} of {total}: Valid ({match_method} match).")
+        statuses.append(f"{unit} #{n} of {total}: Valid ({match_method} match).")
 
     if has_failure:
         status_lines = "\n\n".join(
             s.replace(": Valid", ": Valid, not applied") for s in statuses
         )
         raise ValueError(
-            f"At least one hunk is invalid; no changes applied.\n\n{status_lines}"
+            f"At least one {unit.lower()} is invalid; no changes applied.\n\n{status_lines}"
         )
 
     result = newline.join(file_lines)

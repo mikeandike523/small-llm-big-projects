@@ -4,7 +4,7 @@ from flask import jsonify, request
 
 import src.ui_connector.socket_handler_components.state as _state
 from src.ui_connector.app import app
-from src.tools._text_editor_utils import _apply_edits, _parse_patch_file
+from src.tools._text_editor_actions import _WRITE_ACTIONS
 from src.tools._path_utils import _resolve_path
 
 
@@ -34,7 +34,7 @@ def _session_cwd_for(session_id: str | None) -> str | None:
 @app.route("/api/tool-preview/text-editor", methods=["POST"])
 def api_text_editor_preview():
     """
-    Compute a before/after preview for a text_editor apply_patch call.
+    Compute a before/after preview for a text_editor write action.
     Returns {exists: false} when the source does not exist (file missing or
     memory key absent) — the real tool would error in those cases too.
 
@@ -42,16 +42,20 @@ def api_text_editor_preview():
       filepath    str?  — path on disk (mutually exclusive with key)
       key         str?  — session memory key (requires session_id)
       session_id  str?  — required when key is provided
-      patch       str   — unified diff string
+      action      str?  — write action (defaults to "apply_patch")
+      patch       str?  — patch text (apply_patch / search_replace)
+      ...plus any other args the chosen action reads (content, pattern,
+         replacement, count, start_line, end_line, eol, to, spaces_per_tab).
     """
     data = request.get_json(force=True, silent=True) or {}
     filepath = data.get("filepath") or None
     key = data.get("key") or None
     session_id = data.get("session_id") or None
-    patch = data.get("patch") or ""
+    action = data.get("action") or "apply_patch"
 
-    if not patch:
-        return jsonify({"error": "patch is required"}), 400
+    transform = _WRITE_ACTIONS.get(action)
+    if transform is None:
+        return jsonify({"error": f"unsupported preview action {action!r}"}), 400
     if not filepath and not key:
         return jsonify({"error": "filepath or key is required"}), 400
 
@@ -76,10 +80,11 @@ def api_text_editor_preview():
             return jsonify({"exists": False})
 
     try:
-        hunks = _parse_patch_file(patch)
-        after = _apply_edits(before, hunks)
+        message, after = transform(data, before, filepath or key or "")
     except Exception as exc:
-        return jsonify({"error": f"Failed to apply patch: {exc}"}), 422
+        return jsonify({"error": f"Failed to compute preview: {exc}"}), 422
+    if isinstance(message, str) and message.startswith("Error"):
+        return jsonify({"error": message}), 422
 
     return jsonify({"exists": True, "before": before, "after": after})
 

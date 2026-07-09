@@ -220,6 +220,20 @@ const redirectCancelButtonCss = css`
 
 type DiffStatus = "idle" | "loading" | "loaded" | "error";
 
+// text_editor write actions that support a before/after diff preview. Must
+// stay in sync with _WRITE_ACTIONS in src/tools/_text_editor_actions.py.
+const TEXT_EDITOR_WRITE_ACTIONS = new Set([
+  "apply_patch",
+  "search_replace",
+  "regex_replace",
+  "insert_lines",
+  "delete_lines",
+  "append_lines",
+  "prepend_lines",
+  "normalize_eol",
+  "convert_indentation",
+]);
+
 function getSessionId(): string {
   return (
     new URLSearchParams(window.location.search).get("sessionId") ||
@@ -246,13 +260,14 @@ export default function ToolApprovalBubble({
   const [diffStatus, setDiffStatus] = useState<DiffStatus>("idle");
   const [diffData, setDiffData] = useState<{ before: string; after: string } | null>(null);
 
-  const isTextEditorPatch =
-    item.tool_name === "text_editor" && item.args.action === "apply_patch";
+  const isTextEditorWrite =
+    item.tool_name === "text_editor" &&
+    TEXT_EDITOR_WRITE_ACTIONS.has(item.args.action as string);
   const isWriteTextFile = item.tool_name === "write_text_file";
-  const wantsDiffPreview = isTextEditorPatch || isWriteTextFile;
+  const wantsDiffPreview = isTextEditorWrite || isWriteTextFile;
 
   const diffLabel: string | null = (() => {
-    if (isTextEditorPatch) return `File(${item.args.filepath as string})`;
+    if (isTextEditorWrite) return `File(${item.args.filepath as string})`;
     if (isWriteTextFile) return `File(${item.args.path as string})`;
     return null;
   })();
@@ -265,12 +280,12 @@ export default function ToolApprovalBubble({
     let url: string;
     let body: Record<string, unknown>;
 
-    if (isTextEditorPatch) {
+    if (isTextEditorWrite) {
       url = `${window.location.origin}/api/tool-preview/text-editor`;
+      // Forward the full arg set so the backend can run whichever write action
+      // was requested (apply_patch, search_replace, insert_lines, …).
       body = {
-        filepath: item.args.filepath as string | undefined,
-        key: item.args.key as string | undefined,
-        patch: item.args.patch as string,
+        ...item.args,
         session_id: sessionId,
       };
     } else {
