@@ -33,7 +33,6 @@ For example, "insert_lines", "delete_lines", "append_lines", "prepend_lines", "a
 "apply_patch" is preferred to "search_replace", but you can use "search_replace" if patches fail repeatedly.
 Only if all editing methods fail, write the whole file anew as a last resort.
 
-Start by use `text_editor(filepath=..., action="apply_patch", patch=...)` — anchors by content search, no line numbers required; the returned diff confirms what changed.
 - **Writing new files or complete rewrites**: use `write_text_file(path=..., content=...)`.
 
 Do NOT use `host_shell` with cat, sed, awk, or echo redirects for file writing.
