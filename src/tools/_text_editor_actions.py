@@ -35,6 +35,16 @@ from src.utils.text.line_numbers import add_line_numbers
 # ---------------------------------------------------------------------------
 
 
+def _pluralize(n: int, noun: str) -> str:
+    """Format a count with its noun, appending a conditional 's'.
+
+    e.g. ``_pluralize(1, "hunk") == "1 hunk"`` and
+    ``_pluralize(3, "hunk") == "3 hunks"``.  Keeps success messages uniform
+    across the write actions without per-call ``hunk(s)`` awkwardness.
+    """
+    return f"{n} {noun}{'' if n == 1 else 's'}"
+
+
 def _reconstruct(lines: list[str], newline: str, trailing_nl: bool) -> str:
     """Join *lines* with *newline*, adding a trailing newline when requested."""
     result = newline.join(lines)
@@ -118,7 +128,7 @@ def _parse_search_replace(text: str) -> list[tuple[list[str], list[str]]]:
     return blocks
 
 
-def apply_search_replace(original_text: str, text: str) -> str:
+def apply_search_replace(original_text: str, text: str) -> tuple[str, int]:
     """Apply AIDER-style SEARCH/REPLACE blocks to *original_text*.
 
     Each block's SEARCH lines are located with the same fuzzy, single-location,
@@ -126,6 +136,8 @@ def apply_search_replace(original_text: str, text: str) -> str:
     to parse — the SEARCH side is the match target and the REPLACE side is the
     replacement).  A block whose SEARCH matches zero or more than one location
     fails the whole operation with a descriptive error; no changes are applied.
+
+    Returns ``(result_text, block_count)``.
     """
     blocks = _parse_search_replace(text)
     if not blocks:
@@ -144,7 +156,7 @@ def apply_search_replace(original_text: str, text: str) -> str:
         tagged = [("-", s) for s in search] + [("+", r) for r in replace]
         hunks.append(ParsedHunk(start=None, group=LineGroup(tagged=tagged)))
 
-    return _apply_edits(original_text, hunks, unit="Block")
+    return _apply_edits(original_text, hunks, unit="Block"), len(blocks)
 
 # ---------------------------------------------------------------------------
 # Read-only action implementations — return str
@@ -274,7 +286,7 @@ def _do_apply_patch(args: dict, value: str, label: str) -> tuple[str, str]:
         return f"Error applying patch: {exc}", value
 
     n = len(hunks)
-    summary = f"Success: ({n}) {'hunk' if n == 1 else 'hunks'} applied to {label!r}."
+    summary = f"Success: {_pluralize(n, 'hunk')} applied to {label!r}."
     return f"{summary}\n\n{_make_diff(value, result)}", result
 
 
@@ -290,13 +302,14 @@ def _do_search_replace(args: dict, value: str, label: str) -> tuple[str, str]:
         return "Error: 'patch' must be a string.", value
 
     try:
-        result = apply_search_replace(value, patch)
+        result, n = apply_search_replace(value, patch)
     except (ValueError, RuntimeError) as exc:
         return f"Error: {exc}", value
     except Exception as exc:
         return f"Error applying search_replace: {exc}", value
 
-    return f"Success: search/replace applied to {label!r}.\n\n{_make_diff(value, result)}", result
+    summary = f"Success: {_pluralize(n, 'search/replace block')} applied to {label!r}."
+    return f"{summary}\n\n{_make_diff(value, result)}", result
 
 
 def _do_regex_replace(args: dict, value: str, label: str) -> tuple[str, str]:
@@ -333,8 +346,8 @@ def _do_regex_replace(args: dict, value: str, label: str) -> tuple[str, str]:
         return "Error: pattern matched nothing; no changes made.", value
 
     result = new_work.replace("\n", newline) if newline == "\r\n" else new_work
-    plural = "replacement" if n == 1 else "replacements"
-    return f"Success: {n} {plural} applied to {label!r}.\n\n{_make_diff(value, result)}", result
+    summary = f"Success: {_pluralize(n, 'replacement')} applied to {label!r}."
+    return f"{summary}\n\n{_make_diff(value, result)}", result
 
 
 def _do_insert_lines(args: dict, value: str, label: str) -> tuple[str, str]:
