@@ -1,0 +1,84 @@
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overflow: hidden;
+  font-family:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial,
+    sans-serif;
+  background: #1e1f24;
+  color: #e8e8ec;
+}
+
+.titlebar {
+  display: flex;
+  align-items: stretch;
+  height: 40px;
+  background: #26272e;
+  -webkit-app-region: drag;
+  border-bottom: 1px solid #34353d;
+}
+
+.tab-strip {
+  flex: 1;
+  display: flex;
+  align-items: stretch;
+  overflow-x: auto;
+  -webkit-app-region: no-drag;
+}
+
+.tab {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  max-width: 200px;
+  border-right: 1px solid #34353d;
+  cursor: pointer;
+  font-size: 13px;
+  color: #b7b8c2;
+}
+
+.tab-active {
+  background: #1e1f24;
+  color: #ffffff;
+}
+
+.tab-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tab-close {
+  opacity: 0.6;
+  padding: 0 2px;
+}
+
+.tab-close:hover {
+  opacity: 1;
+}
+
+.window-controls {
+  display: flex;
+  -webkit-app-region: no-drag;
+}
+
+.win-btn {
+  width: 46px;
+  border: none;
+  background: transparent;
+  color: #b7b8c2;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.win-btn:hover {
+  background: #34353d;
+}
+
+.win-btn-close:hover {
+  background: #e5484d;
+  color: #fff;
+}

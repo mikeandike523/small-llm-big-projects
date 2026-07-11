@@ -1,0 +1,52 @@
+{
+  "name": "slbp-desktop",
+  "productName": "SLBP",
+  "version": "1.0.0",
+  "description": "Desktop shell for small-llm-big-projects: custom tab strip over the SLBP web UI.",
+  "main": ".vite/build/main.js",
+  "private": true,
+  "scripts": {
+    "start": "electron-forge start",
+    "build-icons": "node scripts/build-icons.mjs",
+    "package": "pnpm run build-icons && electron-forge package",
+    "make": "electron-forge make",
+    "publish": "electron-forge publish",
+    "lint": "eslint --ext .ts,.tsx ."
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "electron",
+      "esbuild",
+      "electron-winstaller",
+      "sharp"
+    ]
+  },
+  "keywords": [],
+  "author": {
+    "name": "Michael Sohnen",
+    "email": "michaelsohnenacademic@gmail.com"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "@electron-forge/cli": "^7.11.2",
+    "@electron-forge/plugin-auto-unpack-natives": "^7.11.2",
+    "@electron-forge/plugin-fuses": "^7.11.2",
+    "@electron-forge/plugin-vite": "^7.11.2",
+    "@electron-forge/shared-types": "^7.11.2",
+    "@electron/fuses": "^1.8.0",
+    "@types/electron-squirrel-startup": "^1.0.2",
+    "@types/node": "25.7.0",
+    "@typescript-eslint/eslint-plugin": "^5.62.0",
+    "@typescript-eslint/parser": "^5.62.0",
+    "electron": "43.1.0",
+    "eslint": "^8.57.1",
+    "eslint-plugin-import": "^2.32.0",
+    "png2icons": "^2.0.1",
+    "sharp": "^0.35.3",
+    "typescript": "~5.7.3",
+    "vite": "^5.4.21"
+  },
+  "dependencies": {
+    "electron-squirrel-startup": "^1.0.1"
+  }
+}

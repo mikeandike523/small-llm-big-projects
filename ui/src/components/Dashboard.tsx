@@ -493,6 +493,11 @@ export default function Dashboard() {
     string | null
   >(null);
 
+  // Drives the Electron tab strip's label via the native page-title-updated event.
+  useEffect(() => {
+    document.title = "Dashboard";
+  }, []);
+
   useEffect(() => {
     fetch("/api/session-defaults")
       .then((r) => {

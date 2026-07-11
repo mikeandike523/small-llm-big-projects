@@ -1,16 +1,15 @@
 from __future__ import annotations
 
-import webbrowser
-
 import click
 
 from src.cli_obj import cli
+from src.utils.app_launcher import open_dashboard
 from src.utils.server_state import read_state
 
 
 @cli.command(name="dashboard")
 def dashboard_open():
-    """Open the SLBP dashboard in the default web browser."""
+    """Open the SLBP dashboard in the desktop app."""
     state = read_state()
     if state is None:
         raise click.ClickException(
@@ -21,6 +20,5 @@ def dashboard_open():
         raise click.ClickException(
             ".slbp-server.json is missing port info. Re-run `slbp server run`."
         )
-    url = f"http://localhost:{proxy_port}/"
-    click.echo(f"[slbp] Opening dashboard: {url}")
-    webbrowser.open(url, new=0, autoraise=True)
+    click.echo("[slbp] Opening dashboard")
+    open_dashboard(proxy_port)

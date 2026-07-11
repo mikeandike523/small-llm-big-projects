@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import os
-import webbrowser
 
 import click
 import httpx
 
 from src.cli_obj import cli
 from src.data import get_pool
+from src.utils.app_launcher import open_session
 from src.utils.server_state import read_state
 from src.utils.sql.kv_manager import KVManager
 from src.utils.profile_utils import get_active_profile, require_active_profile, _kv_prefix
@@ -145,9 +145,7 @@ def session_new(
     if not session_id:
         raise click.ClickException("Server did not return a session_id.")
 
-    url = f"http://localhost:{proxy_port}/session?sessionId={session_id}"
     click.echo(f"[slbp] Session created: {session_id}")
     click.echo(f"[slbp] Profile: {starting_profile or effective_profile}")
     click.echo(f"[slbp] CWD: {session_cwd}")
-    click.echo(f"[slbp] Opening {url}")
-    webbrowser.open(url, new=0, autoraise=True)
+    open_session(session_id, proxy_port)

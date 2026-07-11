@@ -105,6 +105,14 @@ export default function Chat() {
     setTerminalOpen,
   } = useSocketWiring(socket, scrollToBottom);
 
+  // Electron's tab strip has no browser chrome to read a title from, so it
+  // listens for the native page-title-updated event -- setting document.title
+  // is the only hook needed to drive it (no custom IPC).
+  useEffect(() => {
+    const latestTitle = [...thread].reverse().find((t) => t.taskTitle)?.taskTitle;
+    document.title = latestTitle ?? "New Session";
+  }, [thread]);
+
   const [profiles, setProfiles] = useState<string[]>([]);
   const [profileChanging, setProfileChanging] = useState(false);
 
