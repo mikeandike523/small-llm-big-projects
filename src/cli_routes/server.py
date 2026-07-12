@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import os
 import subprocess
+import time
 from pathlib import Path
 
 import click
 from termcolor import colored
 
 from src.cli_obj import cli
+from src.cli_routes.server_task import task as _task_group
 from src.utils.docker_compose import _find_docker_compose, get_service_port
 from src.utils.env_info import get_default_workspace_dir
 from src.utils.free_port import find_free_port, find_preferred_port
@@ -68,10 +70,40 @@ def _run_preflight_checks() -> None:
             _fail(f"{service} service running", str(exc))
 
 
+def _preflight_ok() -> bool:
+    """Quiet, non-raising version of the checks in _run_preflight_checks."""
+    try:
+        _find_docker_compose()
+        r = subprocess.run(["docker", "info"], capture_output=True, timeout=10)
+        if r.returncode != 0:
+            return False
+        for service, port in _DOCKER_SERVICES:
+            get_service_port(service, port)
+        return True
+    except Exception:
+        return False
+
+
+def _wait_for_preflight(timeout_seconds: int, poll_interval: int = 5) -> None:
+    """
+    Poll the preflight checks quietly until they pass or the timeout elapses,
+    then run them once more verbosely (which exits with an error if still
+    failing). Useful when starting at login, before Docker Desktop is ready.
+    """
+    click.echo(f"[slbp] Waiting up to {timeout_seconds}s for Docker services...")
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline and not _preflight_ok():
+        time.sleep(poll_interval)
+    _run_preflight_checks()
+
+
 @cli.group()
 def server():
     """Commands for the backend server."""
     ...
+
+
+server.add_command(_task_group)
 
 
 @server.command(name="run")
@@ -127,6 +159,16 @@ def server():
         "fixed entry point is required."
     ),
 )
+@click.option(
+    "--wait-for-docker",
+    default=0,
+    type=int,
+    help=(
+        "Instead of failing immediately when Docker services aren't up yet, poll for up to "
+        "this many seconds before running the normal pre-flight checks. Useful when launched "
+        "automatically at login, before Docker Desktop has finished starting."
+    ),
+)
 def server_run(
     tool_tracebacks,
     hotfix_gpt_oss_20b_bad_parser,
@@ -134,6 +176,7 @@ def server_run(
     hotfix_suite_gpt_oss_20b,
     dashboard_port,
     proxy_port,
+    wait_for_docker,
 ):
     """
     Start the server: launches the static UI server, gateway proxy, and the
@@ -147,7 +190,10 @@ def server_run(
       - Docker Compose services (MySQL, Redis, Piston) are running
       - .env exists at the project root (copy from .env.example)
     """
-    _run_preflight_checks()
+    if wait_for_docker > 0:
+        _wait_for_preflight(wait_for_docker)
+    else:
+        _run_preflight_checks()
 
     # Lightweight pre-flight config advisory (non-fatal).
     try:

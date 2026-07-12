@@ -19,6 +19,7 @@ test_results/
 
 .slbp-server.json
 .slbp-app-server.json
+.slbp-task
 
 .claude
 

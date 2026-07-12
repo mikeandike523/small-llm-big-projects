@@ -10,9 +10,11 @@ signal, since a stale/orphaned port file just fails the health-check cleanly.
 
 from __future__ import annotations
 
+import os
 import platform
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -107,6 +109,57 @@ def _ensure_build_is_fresh(exe_path: Path) -> None:
             "The SLBP desktop app build is older than its source.\n"
             f"Rebuild it: {_rebuild_command_hint()}"
         )
+
+
+def install_start_menu_shortcut() -> Path:
+    """
+    (Idempotently) create/overwrite a Start Menu shortcut for the desktop
+    app, launching it the same way `_spawn_app` does. Windows only — there's
+    no reliable, non-hacky way to also pin it to the taskbar (Windows 11
+    blocks programmatic taskbar pinning); the user can do that themselves
+    with a right-click on the Start Menu entry.
+    """
+    if sys.platform != "win32":
+        raise click.ClickException("Start Menu shortcuts are only supported on Windows.")
+
+    exe_path = _executable_path()
+    _ensure_build_is_fresh(exe_path)
+
+    start_menu_programs = (
+        Path(os.environ["APPDATA"]) / "Microsoft" / "Windows" / "Start Menu" / "Programs"
+    )
+    shortcut_path = start_menu_programs / f"{_PRODUCT_NAME}.lnk"
+
+    # WScript.Shell's CreateShortcut is the standard, dependency-free way to
+    # write a .lnk file on Windows (no need for pywin32).
+    vbs = (
+        'Set oWS = CreateObject("WScript.Shell")\n'
+        f'Set oLink = oWS.CreateShortcut("{shortcut_path}")\n'
+        f'oLink.TargetPath = "{exe_path}"\n'
+        f'oLink.Arguments = "--repo-root " & Chr(34) & "{_PROJECT_ROOT}" & Chr(34)\n'
+        f'oLink.WorkingDirectory = "{exe_path.parent}"\n'
+        f'oLink.IconLocation = "{exe_path}, 0"\n'
+        'oLink.Description = "SLBP"\n'
+        "oLink.Save()\n"
+    )
+
+    fd, vbs_path = tempfile.mkstemp(suffix=".vbs")
+    try:
+        with os.fdopen(fd, "w") as f:
+            f.write(vbs)
+        r = subprocess.run(
+            ["cscript.exe", "//nologo", "//B", vbs_path],
+            capture_output=True,
+            text=True,
+        )
+        if r.returncode != 0:
+            raise RuntimeError(
+                f"Failed to create Start Menu shortcut: {r.stderr.strip() or r.stdout.strip()}"
+            )
+    finally:
+        Path(vbs_path).unlink(missing_ok=True)
+
+    return shortcut_path
 
 
 def _spawn_app(exe_path: Path) -> None:
