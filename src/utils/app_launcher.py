@@ -10,6 +10,8 @@ signal, since a stale/orphaned port file just fails the health-check cleanly.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 import platform
 import subprocess
@@ -25,6 +27,8 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 _APP_STATE_FILE = _PROJECT_ROOT / ".slbp-app-server.json"
 _DESKTOP_DIR = _PROJECT_ROOT / "desktop"
 _PRODUCT_NAME = "SLBP"
+_ICON_PATH = _DESKTOP_DIR / "assets" / "icons" / "icon.ico"
+_INSTALL_STATE_FILE = _PROJECT_ROOT / ".slbp-desktop-install.json"
 
 _HEALTH_TIMEOUT = 1.0
 _POLL_INTERVAL_SECONDS = 0.3
@@ -160,6 +164,46 @@ def install_start_menu_shortcut() -> Path:
         Path(vbs_path).unlink(missing_ok=True)
 
     return shortcut_path
+
+
+def _icon_sha256() -> str | None:
+    if not _ICON_PATH.exists():
+        return None
+    return hashlib.sha256(_ICON_PATH.read_bytes()).hexdigest()
+
+
+def icon_changed_since_last_install() -> bool:
+    """
+    Compare the packaged Windows icon's hash against the one recorded by the
+    previous `slbp desktop install` run, then persist the current hash for
+    next time.
+
+    Returns True only when a previous hash was recorded AND it differs —
+    i.e. never on the first install, and never when nothing changed. Windows
+    caches shortcut/taskbar icons per-file and doesn't reliably notice an
+    in-place icon change, so this is what drives the "restart Explorer?"
+    prompt in the CLI layer.
+    """
+    current = _icon_sha256()
+    if current is None:
+        return False
+
+    previous = None
+    if _INSTALL_STATE_FILE.exists():
+        try:
+            previous = json.loads(_INSTALL_STATE_FILE.read_text()).get("icon_sha256")
+        except (OSError, ValueError):
+            previous = None
+
+    _INSTALL_STATE_FILE.write_text(json.dumps({"icon_sha256": current}))
+
+    return previous is not None and previous != current
+
+
+def restart_explorer() -> None:
+    """Kill and relaunch explorer.exe, forcing Windows to refresh its icon cache."""
+    subprocess.run(["taskkill", "/f", "/im", "explorer.exe"], capture_output=True)
+    subprocess.Popen(["explorer.exe"])
 
 
 def _spawn_app(exe_path: Path) -> None:
