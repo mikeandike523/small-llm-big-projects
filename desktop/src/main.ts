@@ -4,6 +4,7 @@ import started from 'electron-squirrel-startup';
 import { resolveRepoRoot } from './main/repoRoot';
 import { startControlServer, type ControlServerHandle } from './main/controlServer';
 import { TabManager } from './main/tabManager';
+import { startServerLifecycle, type HealthStatus, type ServerLifecycleHandle } from './main/serverLauncher';
 
 if (started) {
   app.quit();
@@ -20,6 +21,8 @@ if (!gotLock) {
 let currentWindow: BrowserWindow | null = null;
 let tabManager: TabManager | null = null;
 let controlServerHandle: ControlServerHandle | null = null;
+let serverLifecycleHandle: ServerLifecycleHandle | null = null;
+let currentProxyOrigin: string | null = null;
 
 // Registered once at module scope (not inside createWindow) so a macOS
 // activate-with-no-windows recreate doesn't try to register the same
@@ -31,6 +34,12 @@ ipcMain.handle('window:toggle-maximize', () =>
 ipcMain.handle('window:close', () => currentWindow?.close());
 ipcMain.handle('tabs:switch', (_event, id: string) => tabManager?.switchTo(id));
 ipcMain.handle('tabs:close', (_event, id: string) => tabManager?.closeTabById(id));
+ipcMain.handle('health:get-snapshot', () => serverLifecycleHandle?.getSnapshot());
+ipcMain.handle('health:open-dashboard', () => {
+  if (currentProxyOrigin) {
+    tabManager?.openDashboard(currentProxyOrigin);
+  }
+});
 
 const createWindow = () => {
   const mainWindow = new BrowserWindow({
@@ -42,6 +51,7 @@ const createWindow = () => {
     },
   });
   currentWindow = mainWindow;
+  console.log(`[DEBUG] window created at ${Date.now()}`);
 
   if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
     mainWindow.loadURL(MAIN_WINDOW_VITE_DEV_SERVER_URL);
@@ -54,6 +64,20 @@ const createWindow = () => {
   tabManager = new TabManager(mainWindow);
 
   const repoRoot = resolveRepoRoot();
+
+  serverLifecycleHandle = startServerLifecycle(repoRoot, {
+    onStatus: (status: HealthStatus) => {
+      console.log(`[DEBUG] health status: ${status.kind}${status.detail ? ` (${status.detail})` : ''} at ${Date.now()}`);
+      if (status.state) {
+        currentProxyOrigin = `http://localhost:${status.state.proxy_port}`;
+      }
+      mainWindow.webContents.send('health:status', status);
+    },
+    onLog: (lines: string[]) => {
+      mainWindow.webContents.send('health:log-lines', lines);
+    },
+  });
+
   controlServerHandle = startControlServer(repoRoot, (payload) => {
     mainWindow.show();
     mainWindow.focus();

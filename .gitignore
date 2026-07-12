@@ -18,6 +18,7 @@ scratchpad
 test_results/
 
 .slbp-server.json
+.slbp-server.log
 .slbp-app-server.json
 .slbp-task
 .slbp-desktop-install.json

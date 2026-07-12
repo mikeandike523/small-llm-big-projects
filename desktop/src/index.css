@@ -82,3 +82,93 @@ body {
   background: #e5484d;
   color: #fff;
 }
+
+.health-panel {
+  position: absolute;
+  top: 40px;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  background: #1e1f24;
+}
+
+.health-panel.hidden {
+  display: none;
+}
+
+.health-status-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  border-bottom: 1px solid #34353d;
+}
+
+.health-badge {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 999px;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.health-badge-checking,
+.health-badge-starting {
+  background: #3a3420;
+  color: #e0c34a;
+}
+
+.health-badge-running {
+  background: #1f3a26;
+  color: #5fd987;
+}
+
+.health-badge-unreachable,
+.health-badge-failed {
+  background: #3a2020;
+  color: #e5686d;
+}
+
+.health-detail {
+  flex: 1;
+  font-size: 13px;
+  color: #b7b8c2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.health-open-dashboard {
+  border: 1px solid #34353d;
+  background: #26272e;
+  color: #e8e8ec;
+  font-size: 13px;
+  padding: 6px 14px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.health-open-dashboard:hover:not(:disabled) {
+  background: #34353d;
+}
+
+.health-open-dashboard:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.health-log {
+  flex: 1;
+  margin: 0;
+  padding: 12px 16px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: Consolas, 'Courier New', monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #c7c8d1;
+}

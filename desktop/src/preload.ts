@@ -1,9 +1,15 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type { TabDescriptor } from './main/tabManager';
+import type { HealthStatus } from './main/serverLauncher';
 
 export interface TabsUpdatePayload {
   tabs: TabDescriptor[];
   activeId: string | null;
+}
+
+export interface HealthSnapshot {
+  status: HealthStatus;
+  lines: string[];
 }
 
 contextBridge.exposeInMainWorld('tabsAPI', {
@@ -14,6 +20,17 @@ contextBridge.exposeInMainWorld('tabsAPI', {
   },
   switchTab: (id: string) => ipcRenderer.invoke('tabs:switch', id),
   closeTab: (id: string) => ipcRenderer.invoke('tabs:close', id),
+});
+
+contextBridge.exposeInMainWorld('healthAPI', {
+  onStatus: (callback: (status: HealthStatus) => void) => {
+    ipcRenderer.on('health:status', (_event, status: HealthStatus) => callback(status));
+  },
+  onLogLines: (callback: (lines: string[]) => void) => {
+    ipcRenderer.on('health:log-lines', (_event, lines: string[]) => callback(lines));
+  },
+  getSnapshot: (): Promise<HealthSnapshot> => ipcRenderer.invoke('health:get-snapshot'),
+  openDashboard: () => ipcRenderer.invoke('health:open-dashboard'),
 });
 
 // frame: false removes the native titlebar (and its minimize/maximize/close

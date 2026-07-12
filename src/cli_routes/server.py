@@ -14,7 +14,7 @@ from src.utils.docker_compose import _find_docker_compose, get_service_port
 from src.utils.env_info import get_default_workspace_dir
 from src.utils.free_port import find_free_port, find_preferred_port
 from src.utils.process import ManagedProcess, find_bash, run_processes
-from src.utils.server_state import clear_state, write_state
+from src.utils.server_state import clear_state, get_running_server_state, write_state
 from src.data import get_pool
 from src.utils.sql.kv_manager import KVManager
 from src.utils.profile_utils import get_active_profile, _kv_prefix
@@ -32,69 +32,74 @@ def _ok(label: str) -> None:
     click.echo(colored(f"  ✅ {label}", "green"))
 
 
+class _PreflightFailed(Exception):
+    """Raised internally by _fail() to short-circuit one preflight attempt."""
+
+
 def _fail(label: str, detail: str) -> None:
     click.echo(colored(f"  ❌ {label}: {detail}", "red"))
-    raise SystemExit(1)
+    raise _PreflightFailed()
 
 
-def _run_preflight_checks() -> None:
-    click.echo("[slbp] Pre-flight checks:")
-
-    # 1. docker compose CLI available
+def _run_preflight_checks_once() -> bool:
+    """Run the pre-flight checks once, echoing ✅/❌ per item. Returns True iff all passed."""
     try:
-        _find_docker_compose()
-        _ok("docker compose available")
-    except RuntimeError as exc:
-        _fail("docker compose available", str(exc))
-
-    # 2. Docker daemon reachable
-    try:
-        r = subprocess.run(["docker", "info"], capture_output=True, timeout=10)
-        if r.returncode != 0:
-            _fail(
-                "docker daemon running",
-                "docker info returned non-zero — is Docker Desktop running?",
-            )
-        _ok("docker daemon running")
-    except FileNotFoundError:
-        _fail("docker daemon running", "docker not found in PATH")
-    except subprocess.TimeoutExpired:
-        _fail("docker daemon running", "docker info timed out")
-
-    # 3. Each compose service
-    for service, port in _DOCKER_SERVICES:
+        # 1. docker compose CLI available
         try:
-            get_service_port(service, port)
-            _ok(f"{service} service running (port {port})")
-        except Exception as exc:
-            _fail(f"{service} service running", str(exc))
+            _find_docker_compose()
+            _ok("docker compose available")
+        except RuntimeError as exc:
+            _fail("docker compose available", str(exc))
 
+        # 2. Docker daemon reachable
+        try:
+            r = subprocess.run(["docker", "info"], capture_output=True, timeout=10)
+            if r.returncode != 0:
+                _fail(
+                    "docker daemon running",
+                    "docker info returned non-zero — is Docker Desktop running?",
+                )
+            _ok("docker daemon running")
+        except FileNotFoundError:
+            _fail("docker daemon running", "docker not found in PATH")
+        except subprocess.TimeoutExpired:
+            _fail("docker daemon running", "docker info timed out")
 
-def _preflight_ok() -> bool:
-    """Quiet, non-raising version of the checks in _run_preflight_checks."""
-    try:
-        _find_docker_compose()
-        r = subprocess.run(["docker", "info"], capture_output=True, timeout=10)
-        if r.returncode != 0:
-            return False
+        # 3. Each compose service
         for service, port in _DOCKER_SERVICES:
-            get_service_port(service, port)
-        return True
-    except Exception:
+            try:
+                get_service_port(service, port)
+                _ok(f"{service} service running (port {port})")
+            except Exception as exc:
+                _fail(f"{service} service running", str(exc))
+    except _PreflightFailed:
         return False
+    return True
 
 
-def _wait_for_preflight(timeout_seconds: int, poll_interval: int = 5) -> None:
+def _run_preflight_checks(retry_interval: int = 10) -> None:
     """
-    Poll the preflight checks quietly until they pass or the timeout elapses,
-    then run them once more verbosely (which exits with an error if still
-    failing). Useful when starting at login, before Docker Desktop is ready.
+    Run pre-flight checks (Docker Compose CLI, Docker daemon, each compose
+    service), retrying every `retry_interval` seconds -- printing a fresh
+    ✅/❌ block on every attempt -- until they all pass.
+
+    Waiting is unconditional rather than opt-in: Docker Desktop is often
+    still starting up right after login (e.g. when the desktop app launches
+    the server automatically), and failing fast there just means the same
+    manual retry every time. Ctrl+C aborts, same as any other point here.
     """
-    click.echo(f"[slbp] Waiting up to {timeout_seconds}s for Docker services...")
-    deadline = time.monotonic() + timeout_seconds
-    while time.monotonic() < deadline and not _preflight_ok():
-        time.sleep(poll_interval)
-    _run_preflight_checks()
+    attempt = 1
+    while True:
+        click.echo(
+            f"[slbp] Pre-flight checks (attempt {attempt}):"
+            if attempt > 1
+            else "[slbp] Pre-flight checks:"
+        )
+        if _run_preflight_checks_once():
+            return
+        click.echo(colored(f"[slbp] Not ready yet — retrying in {retry_interval}s...", "yellow"))
+        time.sleep(retry_interval)
+        attempt += 1
 
 
 @cli.group()
@@ -159,16 +164,6 @@ server.add_command(_task_group)
         "fixed entry point is required."
     ),
 )
-@click.option(
-    "--wait-for-docker",
-    default=0,
-    type=int,
-    help=(
-        "Instead of failing immediately when Docker services aren't up yet, poll for up to "
-        "this many seconds before running the normal pre-flight checks. Useful when launched "
-        "automatically at login, before Docker Desktop has finished starting."
-    ),
-)
 def server_run(
     tool_tracebacks,
     hotfix_gpt_oss_20b_bad_parser,
@@ -176,7 +171,6 @@ def server_run(
     hotfix_suite_gpt_oss_20b,
     dashboard_port,
     proxy_port,
-    wait_for_docker,
 ):
     """
     Start the server: launches the static UI server, gateway proxy, and the
@@ -190,10 +184,18 @@ def server_run(
       - Docker Compose services (MySQL, Redis, Piston) are running
       - .env exists at the project root (copy from .env.example)
     """
-    if wait_for_docker > 0:
-        _wait_for_preflight(wait_for_docker)
-    else:
-        _run_preflight_checks()
+    running = get_running_server_state()
+    if running is not None:
+        click.echo(
+            colored(
+                f"[slbp] Server already running (proxy port {running['proxy_port']}, "
+                f"pid {running.get('pid', 'unknown')}). Not starting a new instance.",
+                "yellow",
+            )
+        )
+        raise SystemExit(1)
+
+    _run_preflight_checks()
 
     # Lightweight pre-flight config advisory (non-fatal).
     try:

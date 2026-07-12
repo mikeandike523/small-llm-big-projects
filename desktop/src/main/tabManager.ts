@@ -5,7 +5,7 @@ import { app } from 'electron';
 
 export const TAB_STRIP_HEIGHT = 40;
 
-export type TabKind = 'session' | 'dashboard';
+export type TabKind = 'session' | 'dashboard' | 'health';
 
 interface TabRecord {
   id: string;
@@ -13,7 +13,9 @@ interface TabRecord {
   sessionId?: string;
   proxyOrigin: string;
   label: string;
-  view: WebContentsView;
+  // null only for the health tab, which is rendered by the base window's own
+  // page rather than a WebContentsView (the backend may not exist yet).
+  view: WebContentsView | null;
 }
 
 export interface TabDescriptor {
@@ -58,6 +60,21 @@ export class TabManager {
     this.win = win;
     this.persistFile = path.join(app.getPath('userData'), 'tabs.json');
     this.win.on('resize', () => this.layoutActive());
+    this.initHealthTab();
+  }
+
+  /** Always tab[0], permanent, unclosable, never persisted -- synthesized fresh on every launch. */
+  private initHealthTab(): void {
+    const record: TabRecord = {
+      id: 'health',
+      kind: 'health',
+      proxyOrigin: '',
+      label: 'Health',
+      view: null,
+    };
+    this.tabs.set(record.id, record);
+    this.order.push(record.id);
+    this.activeId = record.id;
   }
 
   // Public entry points, called from ipcMain handlers registered once in main.ts.
@@ -100,15 +117,18 @@ export class TabManager {
       state = null;
     }
 
-    if (!state || state.tabs.length === 0) {
-      return;
+    if (state) {
+      for (const t of state.tabs) {
+        this.createTab(t.kind, t.proxyOrigin, t.sessionId);
+      }
+      if (state.activeId && this.tabs.has(state.activeId)) {
+        this.doSwitchTo(state.activeId);
+        return;
+      }
     }
-    for (const t of state.tabs) {
-      this.createTab(t.kind, t.proxyOrigin, t.sessionId);
-    }
-    if (state.activeId && this.tabs.has(state.activeId)) {
-      this.doSwitchTo(state.activeId);
-    }
+    // Nothing persisted (or nothing restorable) -- still push the initial
+    // tab list so the health tab shows up in the strip right away.
+    this.doSwitchTo('health');
   }
 
   private createTab(kind: TabKind, proxyOrigin: string, sessionId?: string): string {
@@ -181,26 +201,28 @@ export class TabManager {
 
     if (this.activeId && this.activeId !== id) {
       const prev = this.tabs.get(this.activeId);
-      if (prev) this.win.contentView.removeChildView(prev.view);
+      if (prev?.view) this.win.contentView.removeChildView(prev.view);
     }
     this.activeId = id;
-    this.win.contentView.addChildView(record.view);
-    this.layoutActive();
+    if (record.view) {
+      this.win.contentView.addChildView(record.view);
+      this.layoutActive();
+    }
     this.pushTabList();
     this.persist();
   }
 
   private doCloseTab(id: string): void {
     const record = this.tabs.get(id);
-    if (!record) return;
+    if (!record || record.kind === 'health') return;
 
     if (this.activeId === id) {
-      this.win.contentView.removeChildView(record.view);
+      if (record.view) this.win.contentView.removeChildView(record.view);
       this.activeId = null;
     }
     this.tabs.delete(id);
     this.order = this.order.filter((t) => t !== id);
-    record.view.webContents.close();
+    record.view?.webContents.close();
 
     if (!this.activeId && this.order.length > 0) {
       this.doSwitchTo(this.order[this.order.length - 1]);
@@ -213,7 +235,7 @@ export class TabManager {
   private layoutActive(): void {
     if (!this.activeId) return;
     const record = this.tabs.get(this.activeId);
-    if (!record) return;
+    if (!record || !record.view) return;
     const bounds = this.win.getContentBounds();
     record.view.setBounds({
       x: 0,
@@ -233,10 +255,13 @@ export class TabManager {
 
   private persist(): void {
     const data: PersistedState = {
-      tabs: this.order.map((id) => {
-        const t = this.tabs.get(id)!;
-        return { kind: t.kind, sessionId: t.sessionId, proxyOrigin: t.proxyOrigin };
-      }),
+      // The health tab is synthesized fresh on every launch, never restored.
+      tabs: this.order
+        .filter((id) => this.tabs.get(id)!.kind !== 'health')
+        .map((id) => {
+          const t = this.tabs.get(id)!;
+          return { kind: t.kind, sessionId: t.sessionId, proxyOrigin: t.proxyOrigin };
+        }),
       activeId: this.activeId ?? undefined,
     };
     fs.writeFileSync(this.persistFile, JSON.stringify(data, null, 2));

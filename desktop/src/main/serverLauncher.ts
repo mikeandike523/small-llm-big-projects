@@ -1,0 +1,214 @@
+import { spawn, type ChildProcess } from 'node:child_process';
+import fs from 'node:fs';
+import path from 'node:path';
+import { checkServerRunning, type ServerState } from './serverState';
+
+/** Caps the in-memory log buffer kept for the Health tab so a long-lived app doesn't grow unbounded. */
+export const MAX_LOG_LINES = 5000;
+
+export type HealthStatusKind = 'checking' | 'starting' | 'running' | 'unreachable' | 'failed';
+
+export interface HealthStatus {
+  kind: HealthStatusKind;
+  state?: ServerState;
+  detail?: string;
+}
+
+export interface ServerLifecycleCallbacks {
+  onStatus: (status: HealthStatus) => void;
+  onLog: (lines: string[]) => void;
+}
+
+export interface ServerLifecycleHandle {
+  getSnapshot: () => { status: HealthStatus; lines: string[] };
+}
+
+const HEALTH_POLL_INTERVAL_MS = 500;
+const RUNNING_RECHECK_INTERVAL_MS = 5000;
+const LOG_TAIL_POLL_INTERVAL_MS = 500;
+
+function logFilePath(repoRoot: string): string {
+  return path.join(repoRoot, '.slbp-server.log');
+}
+
+// Mirrors find_bash() in src/utils/process.py.
+const BASH_CANDIDATES = [
+  'C:\\Program Files\\Git\\bin\\bash.exe',
+  'C:\\Program Files (x86)\\Git\\bin\\bash.exe',
+];
+
+function findBashExe(): string {
+  for (const candidate of BASH_CANDIDATES) {
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  return 'bash';
+}
+
+function slbpScriptPath(repoRoot: string): string {
+  return path.join(repoRoot, 'slbp');
+}
+
+/**
+ * Command to launch `slbp server run`, platform-specific. On Windows this
+ * invokes bash.exe directly instead of going through slbp.cmd with
+ * `shell: true` -- bash.exe pops its own visible console window unless
+ * `windowsHide` is applied to the exact process that spawns it, and routing
+ * through an extra cmd.exe hop left that unreliable.
+ */
+function serverCommand(repoRoot: string): { cmd: string; args: string[] } {
+  if (process.platform === 'win32') {
+    return { cmd: findBashExe(), args: [slbpScriptPath(repoRoot), 'server', 'run'] };
+  }
+  return { cmd: slbpScriptPath(repoRoot), args: ['server', 'run'] };
+}
+
+/**
+ * Poll-tails a growing file from a byte offset, forwarding complete lines.
+ * Polling instead of fs.watch because fs.watch's behavior is inconsistent
+ * across filesystems/platforms; a ~500ms lag here is invisible to a human
+ * reading a log view.
+ */
+function tailLogFile(filePath: string, onLines: (lines: string[]) => void): () => void {
+  let offset = 0;
+  try {
+    offset = fs.statSync(filePath).size;
+  } catch {
+    offset = 0;
+  }
+  let partial = '';
+
+  const poll = () => {
+    let size: number;
+    try {
+      size = fs.statSync(filePath).size;
+    } catch {
+      return;
+    }
+    if (size <= offset) return;
+
+    const fd = fs.openSync(filePath, 'r');
+    try {
+      const length = size - offset;
+      const buf = Buffer.alloc(length);
+      fs.readSync(fd, buf, 0, length, offset);
+      offset = size;
+      const text = partial + buf.toString('utf-8');
+      const lines = text.split('\n');
+      partial = lines.pop() ?? '';
+      const clean = lines.map((l) => l.replace(/\r$/, '')).filter((l) => l.length > 0);
+      if (clean.length > 0) onLines(clean);
+    } finally {
+      fs.closeSync(fd);
+    }
+  };
+
+  const interval = setInterval(poll, LOG_TAIL_POLL_INTERVAL_MS);
+  return () => clearInterval(interval);
+}
+
+/**
+ * Locates the repo's server, starting it if needed, and keeps the caller
+ * informed via onStatus/onLog for the Health tab. The server is spawned
+ * detached with stdout/stderr redirected to .slbp-server.log rather than
+ * piped in-memory: a detached child whose pipe-reading parent later exits
+ * can block/error on write, whereas a file survives this Electron process
+ * restarting, so reopening the app can resume tailing the same server.
+ * Closing the app does NOT stop the server -- it's a persistent backend,
+ * not something tied to a window's lifecycle.
+ */
+export function startServerLifecycle(
+  repoRoot: string,
+  callbacks: ServerLifecycleCallbacks,
+): ServerLifecycleHandle {
+  const logLines: string[] = [];
+  let status: HealthStatus = { kind: 'checking' };
+
+  const setStatus = (next: HealthStatus) => {
+    status = next;
+    callbacks.onStatus(next);
+  };
+
+  const pushLines = (lines: string[]) => {
+    logLines.push(...lines);
+    if (logLines.length > MAX_LOG_LINES) {
+      logLines.splice(0, logLines.length - MAX_LOG_LINES);
+    }
+    callbacks.onLog(lines);
+  };
+
+  const watchRunningForever = () => {
+    setInterval(async () => {
+      const state = await checkServerRunning(repoRoot);
+      if (!state) {
+        if (status.kind !== 'unreachable') {
+          setStatus({ kind: 'unreachable', detail: 'The server stopped responding.' });
+        }
+      } else if (status.kind !== 'running') {
+        setStatus({ kind: 'running', state });
+      }
+    }, RUNNING_RECHECK_INTERVAL_MS);
+  };
+
+  const spawnServer = () => {
+    setStatus({ kind: 'starting' });
+
+    const logPath = logFilePath(repoRoot);
+    const fd = fs.openSync(logPath, 'a');
+    const { cmd, args } = serverCommand(repoRoot);
+    const child: ChildProcess = spawn(cmd, args, {
+      cwd: repoRoot,
+      detached: true,
+      windowsHide: true,
+      stdio: ['ignore', fd, fd],
+    });
+    fs.closeSync(fd);
+    child.unref();
+
+    tailLogFile(logPath, pushLines);
+
+    let settled = false;
+    child.once('exit', (code) => {
+      if (settled) return;
+      settled = true;
+      const tail = logLines.slice(-10).join('\n');
+      setStatus({
+        kind: 'failed',
+        detail:
+          `slbp server run exited (code ${code ?? 'unknown'}) before becoming healthy.` +
+          (tail ? `\n${tail}` : ''),
+      });
+    });
+
+    // No fixed timeout here -- the subprocess's own pre-flight checks retry
+    // every 10s until Docker is ready, which can legitimately take minutes
+    // right after login. The child's 'exit' handler above catches real
+    // failures instead.
+    const poll = setInterval(async () => {
+      const state = await checkServerRunning(repoRoot);
+      if (state) {
+        settled = true;
+        clearInterval(poll);
+        setStatus({ kind: 'running', state });
+        watchRunningForever();
+      }
+    }, HEALTH_POLL_INTERVAL_MS);
+  };
+
+  // Fire-and-forget: intentionally not awaited. The caller (main.ts) gets its
+  // handle back immediately and creates/shows the window without waiting on
+  // this at all -- the server may still be starting minutes later.
+  callbacks.onStatus(status);
+  void checkServerRunning(repoRoot).then((state) => {
+    if (state) {
+      setStatus({ kind: 'running', state });
+      tailLogFile(logFilePath(repoRoot), pushLines);
+      watchRunningForever();
+      return;
+    }
+    spawnServer();
+  });
+
+  return {
+    getSnapshot: () => ({ status, lines: logLines }),
+  };
+}

@@ -44,6 +44,15 @@ def run_processes(processes: list[ManagedProcess]) -> None:
     procs: list[subprocess.Popen] = []
     threads: list[threading.Thread] = []
 
+    # On Windows, bash.exe (used for the "flask" process below) allocates its
+    # own visible console window unless explicitly told not to -- same fix as
+    # _spawn_app() in app_launcher.py. Harmless for the node-based processes too.
+    creationflags = (
+        subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
+        if sys.platform == "win32"
+        else 0
+    )
+
     for mp in processes:
         proc_env = {**os.environ, **mp.env} if mp.env else None
         proc = subprocess.Popen(
@@ -53,6 +62,7 @@ def run_processes(processes: list[ManagedProcess]) -> None:
             stderr=subprocess.STDOUT,  # merge stderr into stdout
             bufsize=0,  # unbuffered — get lines as they arrive
             env=proc_env,
+            creationflags=creationflags,
         )
         procs.append(proc)
 

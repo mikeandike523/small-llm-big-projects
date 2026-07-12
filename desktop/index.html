@@ -13,6 +13,14 @@
         <button id="win-close" class="win-btn win-btn-close" title="Close">&#215;</button>
       </div>
     </div>
+    <div id="health-panel" class="health-panel hidden">
+      <div class="health-status-row">
+        <span id="health-status-badge" class="health-badge health-badge-checking">Checking&hellip;</span>
+        <span id="health-status-detail" class="health-detail"></span>
+        <button id="health-open-dashboard" class="health-open-dashboard" disabled>Open Dashboard</button>
+      </div>
+      <pre id="health-log" class="health-log"></pre>
+    </div>
     <script type="module" src="/src/renderer.ts"></script>
   </body>
 </html>
