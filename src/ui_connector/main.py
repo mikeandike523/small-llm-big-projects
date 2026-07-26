@@ -19,6 +19,7 @@ from src.ui_connector.app import app, socketio  # noqa: E402
 from src.ui_connector.socket_handlers import (  # noqa: E402
     invalidate_redis_session_cache_on_startup,
 )
+from src.channels.slack import startup_slack  # noqa: E402
 
 
 def _configure_logging() -> None:
@@ -32,6 +33,7 @@ def _configure_logging() -> None:
 if __name__ == "__main__":
     _configure_logging()
     invalidate_redis_session_cache_on_startup()
+    startup_slack()
     port = int(os.environ.get("FLASK_PORT", 5000))
     logging.getLogger("slbp.ui_connector").info("Starting on port %s", port)
     socketio.run(app, host="0.0.0.0", port=port, allow_unsafe_werkzeug=True)
