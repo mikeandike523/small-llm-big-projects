@@ -20,6 +20,16 @@ export function readServerState(repoRoot: string): ServerState | null {
   }
 }
 
+/** Best-effort removal of .slbp-server.json, mirroring clear_state() on the Python side. */
+export function clearServerState(repoRoot: string): void {
+  const stateFile = path.join(repoRoot, '.slbp-server.json');
+  try {
+    fs.unlinkSync(stateFile);
+  } catch {
+    // Already gone, or never existed -- fine either way.
+  }
+}
+
 /**
  * Mirrors src/utils/server_state.py's get_running_server_state(): a present
  * .slbp-server.json only means *some* run wrote it (an unclean exit leaves

@@ -25,7 +25,11 @@ body {
   display: flex;
   align-items: stretch;
   overflow-x: auto;
-  -webkit-app-region: no-drag;
+  /* Intentionally NOT no-drag here: this container spans nearly the entire
+     titlebar width (flex: 1), so marking it no-drag made almost the whole
+     bar undraggable, including empty space with no tab under the cursor.
+     Only the individual .tab elements below opt out, so empty strip space
+     still inherits "drag" from .titlebar. */
 }
 
 .tab {
@@ -38,6 +42,7 @@ body {
   cursor: pointer;
   font-size: 13px;
   color: #b7b8c2;
+  -webkit-app-region: no-drag;
 }
 
 .tab-active {
@@ -156,6 +161,25 @@ body {
 }
 
 .health-open-dashboard:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.health-restart-server {
+  border: 1px solid #4a3f22;
+  background: #26272e;
+  color: #e0c34a;
+  font-size: 13px;
+  padding: 6px 14px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.health-restart-server:hover:not(:disabled) {
+  background: #3a3420;
+}
+
+.health-restart-server:disabled {
   opacity: 0.5;
   cursor: default;
 }

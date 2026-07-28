@@ -12,9 +12,17 @@ if _ssl_cert and not _os.path.exists(_ssl_cert):
 # attached to a real console (piped, or redirected to a log file by a
 # scheduled task) — click.echo() of the ✅/❌ etc. used throughout the CLI
 # then crashes with UnicodeEncodeError instead of printing.
+#
+# The same "not a real console" case (e.g. Git Bash/MinTTY, which presents
+# stdout as a pipe rather than a Win32 console handle) also makes Python
+# fall back to full block buffering instead of line buffering. Output then
+# sits in an internal buffer until it fills or the interpreter shuts down,
+# so it can visibly land after the shell has already reclaimed the terminal
+# and drawn its next prompt — forcing line_buffering=True here flushes each
+# click.echo() line as it's written instead.
 for _stream in (_sys.stdout, _sys.stderr):
     if hasattr(_stream, "reconfigure"):
-        _stream.reconfigure(encoding="utf-8", errors="replace")
+        _stream.reconfigure(encoding="utf-8", errors="replace", line_buffering=True)
 
 importlib.import_module("src.cli_routes.endpoint")
 importlib.import_module("src.cli_routes.model")

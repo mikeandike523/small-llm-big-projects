@@ -18,6 +18,25 @@ if (!gotLock) {
   app.quit();
 }
 
+/**
+ * Bring an already-running app's window to the foreground. Windows'
+ * foreground-lock can silently swallow a plain show()+focus() call when it
+ * comes from a background process (this app reacting to an HTTP request
+ * from the CLI, not real user input) rather than raising an error -- the
+ * window just stays behind whatever currently has focus. Briefly toggling
+ * alwaysOnTop forces a SetWindowPos(HWND_TOPMOST), which isn't subject to
+ * that restriction, so show()/focus() reliably take effect afterward.
+ */
+function bringToFront(win: BrowserWindow): void {
+  if (win.isMinimized()) {
+    win.restore();
+  }
+  win.setAlwaysOnTop(true);
+  win.show();
+  win.focus();
+  win.setAlwaysOnTop(false);
+}
+
 let currentWindow: BrowserWindow | null = null;
 let tabManager: TabManager | null = null;
 let controlServerHandle: ControlServerHandle | null = null;
@@ -35,6 +54,7 @@ ipcMain.handle('window:close', () => currentWindow?.close());
 ipcMain.handle('tabs:switch', (_event, id: string) => tabManager?.switchTo(id));
 ipcMain.handle('tabs:close', (_event, id: string) => tabManager?.closeTabById(id));
 ipcMain.handle('health:get-snapshot', () => serverLifecycleHandle?.getSnapshot());
+ipcMain.handle('health:restart-server', () => serverLifecycleHandle?.restart());
 ipcMain.handle('health:open-dashboard', () => {
   if (currentProxyOrigin) {
     tabManager?.openDashboard(currentProxyOrigin);
@@ -79,8 +99,7 @@ const createWindow = () => {
   });
 
   controlServerHandle = startControlServer(repoRoot, (payload) => {
-    mainWindow.show();
-    mainWindow.focus();
+    bringToFront(mainWindow);
     if (payload.dashboard) {
       tabManager?.openDashboard(payload.proxyOrigin);
     } else if (payload.sessionId) {

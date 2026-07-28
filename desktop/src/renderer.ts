@@ -19,6 +19,7 @@ declare global {
       onLogLines: (callback: (lines: string[]) => void) => void;
       getSnapshot: () => Promise<HealthSnapshot>;
       openDashboard: () => Promise<void>;
+      restartServer: () => Promise<void>;
     };
   }
 }
@@ -32,6 +33,7 @@ const healthPanelEl = document.getElementById('health-panel')!;
 const statusBadgeEl = document.getElementById('health-status-badge')!;
 const statusDetailEl = document.getElementById('health-status-detail')!;
 const openDashboardBtn = document.getElementById('health-open-dashboard') as HTMLButtonElement;
+const restartServerBtn = document.getElementById('health-restart-server') as HTMLButtonElement;
 const logEl = document.getElementById('health-log')!;
 
 // Mirrors serverLauncher.MAX_LOG_LINES -- kept as a local literal rather than
@@ -92,6 +94,10 @@ function renderStatus(status: HealthStatus) {
   statusDetailEl.textContent = detail;
 
   openDashboardBtn.disabled = status.kind !== 'running';
+  // Disabled only while a (re)start is already in flight -- unlike the
+  // dashboard button, this should stay clickable in 'unreachable'/'failed'
+  // states, since that's exactly when a restart is most likely wanted.
+  restartServerBtn.disabled = status.kind === 'checking' || status.kind === 'starting';
 }
 
 function appendLogLines(lines: string[]) {
@@ -113,6 +119,10 @@ function appendLogLines(lines: string[]) {
 
 openDashboardBtn.addEventListener('click', () => {
   void window.healthAPI.openDashboard();
+});
+
+restartServerBtn.addEventListener('click', () => {
+  void window.healthAPI.restartServer();
 });
 
 window.healthAPI.onStatus(renderStatus);

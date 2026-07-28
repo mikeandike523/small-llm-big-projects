@@ -31,6 +31,7 @@ contextBridge.exposeInMainWorld('healthAPI', {
   },
   getSnapshot: (): Promise<HealthSnapshot> => ipcRenderer.invoke('health:get-snapshot'),
   openDashboard: () => ipcRenderer.invoke('health:open-dashboard'),
+  restartServer: () => ipcRenderer.invoke('health:restart-server'),
 });
 
 // frame: false removes the native titlebar (and its minimize/maximize/close

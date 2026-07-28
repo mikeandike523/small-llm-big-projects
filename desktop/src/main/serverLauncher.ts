@@ -1,7 +1,7 @@
-import { spawn, type ChildProcess } from 'node:child_process';
+import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { checkServerRunning, type ServerState } from './serverState';
+import { checkServerRunning, readServerState, clearServerState, type ServerState } from './serverState';
 
 /** Caps the in-memory log buffer kept for the Health tab so a long-lived app doesn't grow unbounded. */
 export const MAX_LOG_LINES = 5000;
@@ -21,11 +21,16 @@ export interface ServerLifecycleCallbacks {
 
 export interface ServerLifecycleHandle {
   getSnapshot: () => { status: HealthStatus; lines: string[] };
+  restart: () => void;
 }
 
 const HEALTH_POLL_INTERVAL_MS = 500;
 const RUNNING_RECHECK_INTERVAL_MS = 5000;
 const LOG_TAIL_POLL_INTERVAL_MS = 500;
+// Grace period between killing the old process tree and spawning a new one,
+// so the old instance's ports have a moment to actually release before the
+// new `slbp server run` picks free ports.
+const RESTART_RESPAWN_DELAY_MS = 800;
 
 function logFilePath(repoRoot: string): string {
   return path.join(repoRoot, '.slbp-server.log');
@@ -46,6 +51,34 @@ function findBashExe(): string {
 
 function slbpScriptPath(repoRoot: string): string {
   return path.join(repoRoot, 'slbp');
+}
+
+/**
+ * Best-effort termination of whatever server process tree is currently
+ * recorded in .slbp-server.json. `slbp server run` has no stop command --
+ * it's designed to be Ctrl+C'd in a foreground terminal -- so for a
+ * detached, backgrounded instance like the one this app spawns, a forceful
+ * kill by pid is the only mechanism available.
+ *
+ * The recorded pid is the Python process's own (os.getpid() inside
+ * server_run(), written by write_state()) -- a *child* of the bash.exe
+ * process this app originally spawned, not the same pid. Killing it with
+ * /T (tree) takes out Python and everything it spawned (the ui/proxy/flask
+ * subprocesses); the now-parentless bash.exe wrapper has nothing left to
+ * wait on and exits on its own right after.
+ */
+function killExistingServer(repoRoot: string): void {
+  const state = readServerState(repoRoot);
+  if (!state?.pid) return;
+  try {
+    if (process.platform === 'win32') {
+      spawnSync('taskkill', ['/PID', String(state.pid), '/T', '/F']);
+    } else {
+      process.kill(state.pid, 'SIGTERM');
+    }
+  } catch {
+    // Best-effort -- process may already be gone.
+  }
 }
 
 /**
@@ -123,6 +156,13 @@ export function startServerLifecycle(
   const logLines: string[] = [];
   let status: HealthStatus = { kind: 'checking' };
 
+  // Tracks whichever tailLogFile/watchRunningForever intervals are currently
+  // active, so starting a new watch cycle (adopt, respawn, or restart) can
+  // tear down the previous one first. Without this, restart() would leave
+  // the old cycle's intervals running alongside the new ones and every log
+  // line would get reported twice.
+  let stopWatchers: (() => void) | null = null;
+
   const setStatus = (next: HealthStatus) => {
     status = next;
     callbacks.onStatus(next);
@@ -136,8 +176,8 @@ export function startServerLifecycle(
     callbacks.onLog(lines);
   };
 
-  const watchRunningForever = () => {
-    setInterval(async () => {
+  const watchRunningForever = (): (() => void) => {
+    const interval = setInterval(async () => {
       const state = await checkServerRunning(repoRoot);
       if (!state) {
         if (status.kind !== 'unreachable') {
@@ -147,9 +187,12 @@ export function startServerLifecycle(
         setStatus({ kind: 'running', state });
       }
     }, RUNNING_RECHECK_INTERVAL_MS);
+    return () => clearInterval(interval);
   };
 
   const spawnServer = () => {
+    stopWatchers?.();
+    stopWatchers = null;
     setStatus({ kind: 'starting' });
 
     const logPath = logFilePath(repoRoot);
@@ -164,7 +207,8 @@ export function startServerLifecycle(
     fs.closeSync(fd);
     child.unref();
 
-    tailLogFile(logPath, pushLines);
+    const stopTail = tailLogFile(logPath, pushLines);
+    stopWatchers = stopTail;
 
     let settled = false;
     child.once('exit', (code) => {
@@ -188,8 +232,12 @@ export function startServerLifecycle(
       if (state) {
         settled = true;
         clearInterval(poll);
+        const stopRunningWatch = watchRunningForever();
+        stopWatchers = () => {
+          stopTail();
+          stopRunningWatch();
+        };
         setStatus({ kind: 'running', state });
-        watchRunningForever();
       }
     }, HEALTH_POLL_INTERVAL_MS);
   };
@@ -201,14 +249,31 @@ export function startServerLifecycle(
   void checkServerRunning(repoRoot).then((state) => {
     if (state) {
       setStatus({ kind: 'running', state });
-      tailLogFile(logFilePath(repoRoot), pushLines);
-      watchRunningForever();
+      const stopTail = tailLogFile(logFilePath(repoRoot), pushLines);
+      const stopRunningWatch = watchRunningForever();
+      stopWatchers = () => {
+        stopTail();
+        stopRunningWatch();
+      };
       return;
     }
     spawnServer();
   });
 
+  const restart = () => {
+    stopWatchers?.();
+    stopWatchers = null;
+    setStatus({ kind: 'starting', detail: 'Restarting server…' });
+    killExistingServer(repoRoot);
+    clearServerState(repoRoot);
+    // spawnServer() itself is synchronous-looking but the actual OS-level
+    // termination from killExistingServer needs a brief moment to fully
+    // release the old instance's ports before the new one allocates fresh ones.
+    setTimeout(spawnServer, RESTART_RESPAWN_DELAY_MS);
+  };
+
   return {
     getSnapshot: () => ({ status, lines: logLines }),
+    restart,
   };
 }
