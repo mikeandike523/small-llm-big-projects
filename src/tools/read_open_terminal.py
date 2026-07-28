@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-ALLOW_REQUEST_UNREDACTED = True
+ENABLE_REDACTION = True
 
 DEFINITION = {
     "type": "function",

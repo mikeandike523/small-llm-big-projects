@@ -73,11 +73,18 @@ _REQUEST_UNREDACTED_PARAM: dict = {
 def _inject_framework_params(module: object, definition: dict) -> dict:
     """Return a deep copy of definition with framework-managed parameters injected.
 
-    Currently injects 'request_unredacted' for modules that opt in via
-    ALLOW_REQUEST_UNREDACTED = True.
+    Injects 'request_unredacted' only for modules that both opt into redaction
+    (ENABLE_REDACTION = True) and don't explicitly forbid the bypass
+    (ALLOW_REQUEST_UNREDACTED = False, default True). A tool with redaction
+    disabled has nothing to bypass, so the parameter never appears for it. A
+    tool that sets ALLOW_REQUEST_UNREDACTED = False is redacted with no bypass
+    capability at all — the agent has no way to even ask, not merely a denial
+    at approval time.
     """
     result = copy.deepcopy(definition)
-    if getattr(module, "ALLOW_REQUEST_UNREDACTED", False):
+    enable_redaction = getattr(module, "ENABLE_REDACTION", False)
+    allow_unredacted = getattr(module, "ALLOW_REQUEST_UNREDACTED", True)
+    if enable_redaction and allow_unredacted:
         params = result.setdefault("function", {}).setdefault("parameters", {})
         params.setdefault("properties", {})["request_unredacted"] = _REQUEST_UNREDACTED_PARAM
         # Intentionally NOT added to "required" — it is optional, default false.
@@ -296,11 +303,13 @@ def execute_tool(
         session_data = {}
 
     # Determine bypass before stripping args: request_unredacted=True AND the tool
-    # opted in. Both conditions must hold — if the tool did not opt in, bypass is
-    # False and the result still goes through the redactor.
-    bypass_redaction = bool(args.get("request_unredacted")) and bool(
-        getattr(module, "ALLOW_REQUEST_UNREDACTED", False)
-    )
+    # both opted into redaction and allows the bypass. All three conditions must
+    # hold — a tool with ENABLE_REDACTION=False never had anything to bypass, and
+    # ALLOW_REQUEST_UNREDACTED=False means bypass is impossible even if requested.
+    enable_redaction = bool(getattr(module, "ENABLE_REDACTION", False))
+    allow_unredacted = bool(getattr(module, "ALLOW_REQUEST_UNREDACTED", True))
+    requested_unredacted = bool(args.get("request_unredacted"))
+    bypass_redaction = enable_redaction and allow_unredacted and requested_unredacted
 
     # Strip framework-managed params before validation and execution so tool code
     # never sees them and validate_tool_args doesn't reject them as extra properties.
@@ -310,7 +319,15 @@ def execute_tool(
         validate_tool_args(module.DEFINITION, clean_args)
         fn = module.execute
         if special_resources is not None and _accepts_special_resources(fn):
-            result = fn(clean_args, session_data, special_resources)
+            # Pass a fresh copy (never mutate the caller's dict, which is reused
+            # across every tool call in the turn) carrying the resolved bypass
+            # decision. Tools that write raw content into session memory as a
+            # side effect (not via their return value) use this to redact that
+            # write themselves — the central redaction below only ever sees
+            # their return value, not memory side effects.
+            fn_special_resources = dict(special_resources)
+            fn_special_resources["request_unredacted"] = bypass_redaction
+            result = fn(clean_args, session_data, fn_special_resources)
         else:
             result = fn(clean_args, session_data)
     except (ToolHangError, ToolTimeoutError):
@@ -325,7 +342,7 @@ def execute_tool(
     # Column truncation is applied last, AFTER redaction, so that secrets are
     # detected/replaced against the full text and truncation can never split a
     # secret and leak a partial value.
-    if bypass_redaction:
+    if not enable_redaction or bypass_redaction:
         return _truncate_columns(result)
 
     from src.redaction.core import redact as _redact

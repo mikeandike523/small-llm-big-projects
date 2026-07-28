@@ -33,6 +33,11 @@ For example, "insert_lines", "delete_lines", "append_lines", "prepend_lines", "a
 "apply_patch" is preferred to "search_replace", but you can use "search_replace" if patches fail repeatedly.
 Only if all editing methods fail, write the whole file anew as a last resort.
 
+If patches keep failing to match context that you were sure was there, check whether the file read
+contained a “[REDACTED]” marker — the secret redactor occasionally flags ordinary non-secret content,
+and matching against a redacted value will never succeed. Re-read with `request_unredacted=True` to
+confirm before assuming the patch itself is malformed.
+
 - **Writing new files or complete rewrites**: use `write_text_file(path=..., content=...)`.
 
 Do NOT use `host_shell` with cat, sed, awk, or echo redirects for file writing.

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 
-ALLOW_REQUEST_UNREDACTED = True
+ENABLE_REDACTION = True
 
 from src.tools._path_utils import _resolve_path
 
@@ -84,6 +84,14 @@ def execute(args: dict, session_data: dict, special_resources: dict | None = Non
             return f"Error: file is not valid UTF-8: {e}"
         except OSError as e:
             return f"Error: {e}"
+
+        # This write bypasses the central execute_tool() redaction (it only
+        # scans the return value below, not this side effect), so redact here
+        # directly. sr["request_unredacted"] is the framework-resolved bypass
+        # decision (already accounts for approval + ALLOW_REQUEST_UNREDACTED).
+        if not sr.get("request_unredacted"):
+            from src.redaction.core import redact as _redact
+            contents = _redact(path, contents)
 
         memory = session_data.get("memory")
         if not isinstance(memory, dict):

@@ -5,7 +5,7 @@ from io import StringIO
 
 from src.tools._path_utils import _resolve_path
 
-ALLOW_REQUEST_UNREDACTED = True
+ENABLE_REDACTION = True
 
 from src.tools._memory import ensure_session_memory
 from src.utils.text.line_numbers import add_line_numbers

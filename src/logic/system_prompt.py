@@ -414,6 +414,23 @@ content, adapt instead: read the file a different way (e.g. line_reader for a sp
 narrow your tool arguments (a tighter regex, a more specific path), or fetch a different resource
 or webpage. Do not keep re-running the same call expecting more.
 
+== REDACTION ==
+
+Tool results are scanned for likely secrets (API keys, passwords, .env-style values) before you see
+them; matched values are replaced with “[REDACTED]”. This is a heuristic and can occasionally
+false-positive on ordinary, non-secret content that merely looks secret-shaped.
+
+If a file's content looks wrong because of unexpected “[REDACTED]” values — especially somewhere
+you would not expect a secret (e.g. inside a normal source file, not a .env/config file) — re-run
+the read with `request_unredacted=True` (supported by read_text_file, line_reader, text_editor,
+host_shell, read_open_terminal). This requires user approval, so only do it when you have a concrete
+reason to suspect a false positive, not by default.
+
+If apply_patch or search_replace keeps failing against context that should be present, check whether
+the file you last read had any “[REDACTED]” markers before assuming the patch itself is wrong — a
+redacted false positive silently breaks context matching because the text you're matching against
+no longer matches the real file.
+
 == MEMORY ==
 
 Use session_memory for scratchpads, working buffers, and intermediate data. Values are plain text.

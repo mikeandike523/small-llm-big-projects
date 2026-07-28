@@ -18,6 +18,8 @@ import re
 import time
 from pathlib import Path
 
+ENABLE_REDACTION = True
+
 from python_ripgrep import search as _rg_search
 from src.tools._list_dir_utils import (
     _traverse,

@@ -4,7 +4,7 @@ import os
 import subprocess
 import threading
 
-ALLOW_REQUEST_UNREDACTED = True
+ENABLE_REDACTION = True
 
 from src.tools._subprocess import run_command
 from src.tools._managed_process import run_command_streaming
@@ -217,11 +217,20 @@ def execute(
         return output
 
     if target == "session_memory":
+        # This write bypasses the central execute_tool() redaction (it only
+        # scans the return value, not this side effect), so redact here
+        # directly. sr["request_unredacted"] is the framework-resolved bypass
+        # decision (already accounts for approval + ALLOW_REQUEST_UNREDACTED).
+        stored_output = output
+        if not sr.get("request_unredacted"):
+            from src.redaction.core import redact as _redact
+            stored_output = _redact(None, stored_output)
+
         memory = session_data.get("memory")
         if not isinstance(memory, dict):
             memory = {}
             session_data["memory"] = memory
-        memory[memory_key] = output
+        memory[memory_key] = stored_output
         return f"Command output written to session memory key {memory_key!r}."
 
     return output
