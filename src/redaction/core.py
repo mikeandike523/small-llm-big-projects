@@ -39,9 +39,9 @@ class RedactionEngine:
 # ---------------------------------------------------------------------------
 
 from src.redaction.plugins.redaction_plugin_dotenv import DotenvPlugin  # noqa: E402
-from src.redaction.plugins.general_plugin import GeneralPlugin  # noqa: E402
 
-_engine = RedactionEngine([DotenvPlugin(), GeneralPlugin()])
+
+_engine = RedactionEngine([DotenvPlugin()])
 
 
 def redact(path: str | None, content: str) -> str:

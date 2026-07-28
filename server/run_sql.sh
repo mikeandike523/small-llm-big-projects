@@ -64,9 +64,13 @@ fi
 
 COMPOSE_FILE="$SCRIPT_DIR/docker-compose.yml"
 if [[ $BATCH_MODE -eq 1 ]]; then
-	MYSQL_ARGS=(mysql -u "$USER" -p"$PASSWORD" -D "$DB" --batch --raw --skip-column-names --silent)
+	# In batch mode, pass password via MYSQL_PWD env var (through docker -e)
+	# to avoid the "Using a password on the command line" warning in stdout.
+	MYSQL_ARGS=(mysql -u "$USER" -D "$DB" --batch --raw --skip-column-names --silent)
+	DOCKER_MYSQL_ENV=(-e MYSQL_PWD="$PASSWORD")
 else
 	MYSQL_ARGS=(mysql -u "$USER" -p"$PASSWORD" -D "$DB" --show-warnings --verbose)
+	DOCKER_MYSQL_ENV=()
 fi
 
 cleanup() {
@@ -107,7 +111,7 @@ run_mysql_file() {
 		echo "DRY: docker compose -f $COMPOSE_FILE exec -T mysql mysql -u $USER -p*** -D $DB --show-warnings --verbose < $sqlfile"
 		return 0
 	fi
-	docker compose -f "$COMPOSE_FILE" exec -T mysql "${MYSQL_ARGS[@]}" < "$sqlfile"
+	docker compose -f "$COMPOSE_FILE" exec -T "${DOCKER_MYSQL_ENV[@]}" mysql "${MYSQL_ARGS[@]}" < "$sqlfile"
 }
 
 run_mysql_sql() {
@@ -123,7 +127,7 @@ run_mysql_sql() {
 		echo "DRY: docker compose -f $COMPOSE_FILE exec -T mysql mysql -u $USER -p*** -D $DB --show-warnings --verbose -e '<SQL>'"
 		return 0
 	fi
-	docker compose -f "$COMPOSE_FILE" exec -T mysql "${MYSQL_ARGS[@]}" -e "$sql"
+	docker compose -f "$COMPOSE_FILE" exec -T "${DOCKER_MYSQL_ENV[@]}" mysql "${MYSQL_ARGS[@]}" -e "$sql"
 }
 
 run_mysql_stdin() {
@@ -134,7 +138,7 @@ run_mysql_stdin() {
 		echo "DRY: docker compose -f $COMPOSE_FILE exec -T mysql mysql -u $USER -p*** -D $DB --show-warnings --verbose < stdin"
 		return 0
 	fi
-	docker compose -f "$COMPOSE_FILE" exec -T mysql "${MYSQL_ARGS[@]}" < "$STDIN_FILE"
+	docker compose -f "$COMPOSE_FILE" exec -T "${DOCKER_MYSQL_ENV[@]}" mysql "${MYSQL_ARGS[@]}" < "$STDIN_FILE"
 }
 
 if [[ $STDIN_PRESENT -eq 1 ]]; then
