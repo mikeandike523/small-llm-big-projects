@@ -158,43 +158,6 @@ def sub_cmd_set(name, value):
         click.echo(f"Set {name} = {typed_value}  (profile: {profile})")
 
 
-@param.command(name="show")
-def sub_cmd_show():
-    """Show all currently set generation parameters."""
-    pool = get_pool()
-    with pool.get_connection() as conn:
-        kv = KVManager(conn)
-        profile = None
-        try:
-            profile = require_active_profile(kv)
-        except SystemExit:
-            pass  # No active profile — still show global params below
-        prefix = _kv_prefix(profile) if profile else ""
-        set_params = _list_set_params(kv, prefix)
-
-        if not set_params:
-            click.echo(f"No params set.")
-            return
-
-        for name in sorted(set_params):
-            key = set_params[name]
-            val = kv.get_value(key)
-            click.echo(f"{name} = {val}")
-
-    has_profile_params = any(
-        name not in _GLOBAL_PARAMS for name in set_params
-    )
-    has_global_params = any(
-        name in _GLOBAL_PARAMS for name in set_params
-    )
-    scope_parts = []
-    if has_profile_params:
-        scope_parts.append(f"profile: {profile}")
-    if has_global_params:
-        scope_parts.append("global")
-    click.echo(f"({', '.join(scope_parts)})")
-
-
 @param.command(name="unset")
 @click.argument("name", type=str)
 def sub_cmd_unset(name):
