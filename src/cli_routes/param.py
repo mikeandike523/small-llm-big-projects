@@ -9,8 +9,10 @@ from src.utils.sql.kv_manager import KVManager
 from src.utils.profile_utils import require_active_profile, _kv_prefix
 from src.utils.param_registry import (
     ALLOWED_PARAMS as _ALLOWED_PARAMS,
+    GLOBAL_PARAMS as _GLOBAL_PARAMS,
     REGISTRY as _REGISTRY,
     parse_param_value as _parse_param_value_registry,
+    param_storage_key as _param_storage_key,
 )
 
 _NS_LABELS = {
@@ -39,6 +41,28 @@ def _parse_and_validate(name: str, raw_value: str):
         return _parse_param_value_registry(name, raw_value)
     except ValueError as exc:
         raise click.BadParameter(str(exc), param_hint="value") from exc
+
+
+def _list_set_params(kv, prefix: str) -> dict[str, str]:
+    """Return {param_name: param_key} for all set params visible under prefix+profile."""
+    profile_params_prefix = prefix + "params."
+    global_params_prefix = "params."
+
+    result: dict[str, str] = {}
+
+    # Profile-scoped params stored under profiles.<name>.params.*
+    for k in kv.list_keys(prefix=profile_params_prefix):
+        name = k[len(profile_params_prefix):]
+        if name in _ALLOWED_PARAMS and name not in _GLOBAL_PARAMS:
+            result[name] = k
+
+    # Global-scoped params stored under params.*
+    for k in kv.list_keys(prefix=global_params_prefix):
+        name = k[len(global_params_prefix):]
+        if name in _GLOBAL_PARAMS:
+            result[name] = k
+
+    return result
 
 
 @cli.group()
@@ -73,27 +97,41 @@ def sub_cmd_list(available):
     pool = get_pool()
     with pool.get_connection() as conn:
         kv = KVManager(conn)
-        profile = require_active_profile(kv)
-        prefix = _kv_prefix(profile)
-        params_prefix = prefix + "params."
-        keys = [
-            k
-            for k in kv.list_keys(prefix=params_prefix)
-            if k[len(params_prefix):] in _ALLOWED_PARAMS
-        ]
-        if not keys:
-            click.echo(f"No params set.  (profile: {profile})")
-        else:
-            click.echo(f"(profile: {profile})")
-        for i, key in enumerate(keys):
-            is_last = i == len(keys) - 1
-            display_key = key[len(params_prefix):]
+        profile = None
+        try:
+            profile = require_active_profile(kv)
+        except SystemExit:
+            pass  # No active profile — still show global params below
+        prefix = _kv_prefix(profile) if profile else ""
+        set_params = _list_set_params(kv, prefix)
+
+        has_profile_params = any(
+            name not in _GLOBAL_PARAMS for name in set_params
+        )
+        has_global_params = any(
+            name in _GLOBAL_PARAMS for name in set_params
+        )
+
+        if not set_params:
+            click.echo(f"No params set.")
+            return
+
+        scope_parts = []
+        if has_profile_params:
+            scope_parts.append(f"profile: {profile}")
+        if has_global_params:
+            scope_parts.append("global")
+        click.echo(f"({', '.join(scope_parts)})")
+
+        sorted_names = sorted(set_params)
+        for i, name in enumerate(sorted_names):
+            key = set_params[name]
             val = kv.get_value(key)
             print(f"""
-{colored(display_key,'blue')}:
+{colored(name, 'blue')}:
 
 {json.dumps(val, indent=2)}
-""".strip() + ("\n\n" if not is_last else ""))
+""".strip() + ("\n\n" if i < len(sorted_names) - 1 else ""))
 
 
 @param.command(name="set")
@@ -105,11 +143,19 @@ def sub_cmd_set(name, value):
     pool = get_pool()
     with pool.get_connection() as conn:
         kv = KVManager(conn)
-        profile = require_active_profile(kv)
-        prefix = _kv_prefix(profile)
-        kv.set_value(f"{prefix}params.{name}", typed_value)
+        spec = _REGISTRY[name]
+        if spec.scope == "global":
+            key = _param_storage_key(name)  # params.<name>
+        else:
+            profile = require_active_profile(kv)
+            prefix = _kv_prefix(profile)
+            key = _param_storage_key(name, profile_prefix=prefix)  # profiles.<name>.params.<name>
+        kv.set_value(key, typed_value)
         conn.commit()
-    click.echo(f"Set {name} = {typed_value}  (profile: {profile})")
+    if spec.scope == "global":
+        click.echo(f"Set {name} = {typed_value}  (global)")
+    else:
+        click.echo(f"Set {name} = {typed_value}  (profile: {profile})")
 
 
 @param.command(name="show")
@@ -118,22 +164,35 @@ def sub_cmd_show():
     pool = get_pool()
     with pool.get_connection() as conn:
         kv = KVManager(conn)
-        profile = require_active_profile(kv)
-        prefix = _kv_prefix(profile)
-        params_prefix = prefix + "params."
-        keys = [
-            k
-            for k in kv.list_keys(prefix=params_prefix)
-            if k[len(params_prefix):] in _ALLOWED_PARAMS
-        ]
-        if not keys:
-            click.echo(f"No params set.  (profile: {profile})")
+        profile = None
+        try:
+            profile = require_active_profile(kv)
+        except SystemExit:
+            pass  # No active profile — still show global params below
+        prefix = _kv_prefix(profile) if profile else ""
+        set_params = _list_set_params(kv, prefix)
+
+        if not set_params:
+            click.echo(f"No params set.")
             return
-        for key in keys:
-            param_name = key[len(params_prefix):]
+
+        for name in sorted(set_params):
+            key = set_params[name]
             val = kv.get_value(key)
-            click.echo(f"{param_name} = {val}")
-    click.echo(f"(profile: {profile})")
+            click.echo(f"{name} = {val}")
+
+    has_profile_params = any(
+        name not in _GLOBAL_PARAMS for name in set_params
+    )
+    has_global_params = any(
+        name in _GLOBAL_PARAMS for name in set_params
+    )
+    scope_parts = []
+    if has_profile_params:
+        scope_parts.append(f"profile: {profile}")
+    if has_global_params:
+        scope_parts.append("global")
+    click.echo(f"({', '.join(scope_parts)})")
 
 
 @param.command(name="unset")
@@ -143,14 +202,22 @@ def sub_cmd_unset(name):
     pool = get_pool()
     with pool.get_connection() as conn:
         kv = KVManager(conn)
-        profile = require_active_profile(kv)
-        prefix = _kv_prefix(profile)
-        if not kv.exists(f"{prefix}params.{name}"):
-            click.echo(f"{name} is not set.  (profile: {profile})")
+        spec = _REGISTRY[name]
+        if spec.scope == "global":
+            key = _param_storage_key(name)
+        else:
+            profile = require_active_profile(kv)
+            prefix = _kv_prefix(profile)
+            key = _param_storage_key(name, profile_prefix=prefix)
+
+        if not kv.exists(key):
+            profile_display = "global" if spec.scope == "global" else f"profile: {profile}"
+            click.echo(f"{name} is not set.  ({profile_display})")
             return
-        kv.delete_value(f"{prefix}params.{name}")
+        kv.delete_value(key)
         conn.commit()
-    click.echo(f"Unset {name}  (profile: {profile})")
+    profile_display = "global" if spec.scope == "global" else f"profile: {profile}"
+    click.echo(f"Unset {name}  ({profile_display})")
 
 
 @param.command(name="manual")

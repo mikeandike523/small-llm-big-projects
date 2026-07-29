@@ -10,6 +10,7 @@ flask-socketio
 eventlet
 redis
 python-dotenv
+slack_sdk
 gitignore-parser
 python-ripgrep
 httpx

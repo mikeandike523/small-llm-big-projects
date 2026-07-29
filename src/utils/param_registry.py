@@ -19,6 +19,9 @@ _SAMPLER_NAMESPACES: tuple[str, ...] = (
 )
 
 
+Scope = Literal["profile", "global"]
+
+
 class ParamSpec(BaseModel):
     """Full specification for one slbp parameter."""
 
@@ -26,6 +29,7 @@ class ParamSpec(BaseModel):
     value_type: ValueType
     description: str
     system_only: bool = False  # never forwarded to any LLM request
+    scope: Scope = "profile"  # "profile": stored as profiles.<name>.params.* ; "global": stored as params.*
     min: float | None = None
     max: float | None = None
     choices: list[str] | None = None  # for value_type "string": allowed values (enum)
@@ -273,10 +277,41 @@ REGISTRY["system.create_file_auto_eol"] = ParamSpec(
         "disabled: never auto-convert."
     ),
 )
+REGISTRY["system.channels.slack.enabled"] = ParamSpec(
+    name="system.channels.slack.enabled",
+    value_type="boolean",
+    scope="global",
+    description=(
+        "Enable the Slack channel integration. "
+        "When true, the Slack Socket Mode client is started on server boot "
+        "if the required tokens are present. "
+        "When false (default for unset), Slack integration is skipped entirely regardless of token availability."
+    ),
+)
 
 # ---------------------------------------------------------------------------
 # Derived sets (backward-compatible exports)
 # ---------------------------------------------------------------------------
+
+def param_storage_key(name: str, profile_prefix: str | None = None) -> str:
+    """Return the kv_store key where this param's value lives.
+
+    For global-scope params:  ``params.<name>``
+    For profile-scope params: ``<profile_prefix>params.<name>``
+    """
+    if name not in REGISTRY:
+        raise ValueError(f"Unknown param '{name}'")
+    spec = REGISTRY[name]
+    if spec.scope == "global":
+        return f"params.{name}"
+    if profile_prefix is None:
+        raise ValueError(f"Param '{name}' is profile-scoped but no profile_prefix was given")
+    return f"{profile_prefix}params.{name}"
+
+
+GLOBAL_PARAMS: frozenset[str] = frozenset(
+    name for name, spec in REGISTRY.items() if spec.scope == "global"
+)
 
 ALLOWED_PARAMS: frozenset[str] = frozenset(REGISTRY)
 SYSTEM_ONLY_PARAMS: frozenset[str] = frozenset(

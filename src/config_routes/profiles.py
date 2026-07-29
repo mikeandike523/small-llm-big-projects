@@ -7,6 +7,7 @@ from flask import jsonify, request
 from src.data import get_pool
 from src.ui_connector.app import app
 from src.utils.param_registry import ALLOWED_PARAMS as _ALLOWED_PARAMS
+from src.utils.param_registry import GLOBAL_PARAMS as _GLOBAL_PARAMS
 from src.utils.param_registry import REGISTRY as _REGISTRY
 from src.utils.param_registry import parse_param_value as _parse_param_value
 from src.utils.profile_utils import (
@@ -63,7 +64,7 @@ def api_profiles_config():
             params = {}
             for key in kv.list_keys(prefix=params_prefix):
                 param_name = key[len(params_prefix) :]
-                if param_name in _ALLOWED_PARAMS:
+                if param_name in _ALLOWED_PARAMS and param_name not in _GLOBAL_PARAMS:
                     params[param_name] = kv.get_value(key)
             profiles.append(
                 {
@@ -226,6 +227,13 @@ def api_profiles_copy_to(profile_name: str):
 
 @app.route("/api/profiles/<profile_name>/params/<path:param_name>", methods=["PUT"])
 def api_profiles_set_param(profile_name: str, param_name: str):
+    if param_name not in _ALLOWED_PARAMS:
+        return jsonify({"error": f"Unknown param '{param_name}'."}), 400
+    if param_name in _GLOBAL_PARAMS:
+        return jsonify({
+            "error": f"Param '{param_name}' is global-scoped; use /api/params/set instead."
+        }), 400
+
     data = request.get_json(force=True, silent=True) or {}
     try:
         value = _parse_param_value(param_name, data.get("value"))
@@ -248,6 +256,10 @@ def api_profiles_set_param(profile_name: str, param_name: str):
 def api_profiles_unset_param(profile_name: str, param_name: str):
     if param_name not in _ALLOWED_PARAMS:
         return jsonify({"error": f"Unknown param '{param_name}'."}), 400
+    if param_name in _GLOBAL_PARAMS:
+        return jsonify({
+            "error": f"Param '{param_name}' is global-scoped; use /api/params/unset instead."
+        }), 400
 
     pool = get_pool()
     with pool.get_connection() as conn:

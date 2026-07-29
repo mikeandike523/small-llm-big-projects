@@ -9,8 +9,15 @@ continues normally.
 from __future__ import annotations
 
 import logging
+import threading
 from typing import Optional
 
+from slack_sdk.socket_mode import SocketModeClient
+from slack_sdk.socket_mode.request import SocketModeRequest
+from slack_sdk.web import WebClient
+
+from src.utils.param_registry import param_storage_key as _param_storage_key
+from src.utils.sql.kv_manager import KVManager
 logger = logging.getLogger(__name__)
 
 
@@ -65,6 +72,75 @@ def _load_slack_tokens() -> tuple[Optional[str], Optional[str]]:
     return app_token, bot_token
 
 
+def _is_slack_enabled() -> bool:
+    """Return True if the global param ``system.channels.slack.enabled`` is set to true.
+
+    Defaults to False when the param is not set in the kv_store.
+    """
+    from src.data import get_pool
+
+    try:
+        pool = get_pool()
+    except Exception as exc:
+        logger.error("Slack: unable to get DB pool: %s", exc)
+        return False
+
+    with pool.get_connection() as conn:
+        key = _param_storage_key("system.channels.slack.enabled")
+        return bool(KVManager(conn).get_value(key, default=False))
+
+
+def _handle_socket_request(client: SocketModeClient, request: SocketModeRequest) -> None:
+    """Process an incoming Socket Mode request and log DM messages.
+
+    Called by the Slack SDK's event loop for every envelope received
+    over the WebSocket connection.  Non-DM messages are silently
+    ignored.  The acknowledgment is sent automatically after this
+    handler returns.
+    """
+    if request.type == "disconnect":
+        logger.info("Slack: received disconnect request — reconnecting ...")
+        return
+
+    if request.type != "events_api":
+        # Ignore interactive payloads, slash commands, etc. for now.
+        return
+
+    # Acknowledge immediately so Slack doesn't think we timed out.
+    request.ack()
+
+    event: dict = request.payload.get("event", {})
+    event_type: str | None = event.get("type")
+    channel_type: str | None = event.get("channel_type")
+    text: str = event.get("text", "")
+    user: str | None = event.get("user")
+    channel: str | None = event.get("channel")
+
+    # Only handle message events.
+    if event_type != "message":
+        return
+
+    # Reject messages from bots (including ourselves) to avoid echo loops.
+    if event.get("bot_id") is not None:
+        return
+
+    # For now we only handle direct messages (channel_type == "im").
+    if channel_type != "im":
+        logger.info(
+            "Slack: ignoring non-DM message (channel_type=%s, channel=%s, user=%s)",
+            channel_type, channel, user,
+        )
+        return
+
+    user_str = user or "unknown"
+    channel_str = channel or "unknown"
+    logger.info(
+        "Slack DM received | user=%s channel=%s text=%s",
+        user_str, channel_str, text,
+        extra={"slack_user": user_str, "slack_channel": channel_str, "slack_dm_text": text},
+    )
+
+
 def startup_slack() -> None:
     """Bootstrap the Slack Socket Mode client.
 
@@ -72,6 +148,13 @@ def startup_slack() -> None:
     so that a broken Slack configuration never takes down the rest of
     the application.
     """
+    # Check the global feature flag before doing anything else.
+    if not _is_slack_enabled():
+        logger.info(
+            "Slack integration: disabled by system.channels.slack.enabled -- skipping."
+        )
+        return
+
     logger.info("Slack integration: starting up …")
 
     try:
@@ -87,8 +170,28 @@ def startup_slack() -> None:
         return
 
     # ------------------------------------------------------------------
-    # TODO: bootstrap Slack Socket Mode client here using app_token and
-    #       bot_token (future step).
+    # Bootstrap the Socket Mode client in a background daemon thread.
     # ------------------------------------------------------------------
+    try:
+        client = SocketModeClient(
+            app_token=app_token,
+            web_client=WebClient(token=bot_token),
+        )
+    except Exception as exc:
+        logger.error("Slack integration: failed to create SocketModeClient: %s", exc)
+        return
 
-    logger.info("Slack integration: ready (stub -- Socket Mode not yet wired).")
+    client.socket_mode_request_listeners.append(_handle_socket_request)
+
+    try:
+        thread = threading.Thread(
+            target=client.connect,
+            name="slack-socket-mode",
+            daemon=True,
+        )
+        thread.start()
+    except Exception as exc:
+        logger.error("Slack integration: failed to start Socket Mode thread: %s", exc)
+        return
+
+    logger.info("Slack integration: Socket Mode client connected (background thread).")

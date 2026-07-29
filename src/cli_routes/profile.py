@@ -2,6 +2,7 @@ import click
 
 from src.cli_obj import cli
 from src.utils.param_registry import ALLOWED_PARAMS as _ALLOWED_PARAMS
+from src.utils.param_registry import GLOBAL_PARAMS as _GLOBAL_PARAMS
 from src.data import get_pool
 from src.utils.sql.kv_manager import KVManager
 from src.utils.profile_utils import (
@@ -53,7 +54,10 @@ def _profile_verbose_lines(conn, kv, name: str) -> list[str]:
     lines.append(f"  model : {model_name or '(none)'}")
 
     visible_param_keys = [
-        k for k in param_keys if k[len(prefix + "params.") :] in _ALLOWED_PARAMS
+        k
+        for k in param_keys
+        if (name := k[len(prefix + "params.") :]) in _ALLOWED_PARAMS
+        and name not in _GLOBAL_PARAMS
     ]
     if visible_param_keys:
         params_prefix = prefix + "params."
