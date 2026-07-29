@@ -53,17 +53,20 @@ def _profile_verbose_lines(conn, kv, name: str) -> list[str]:
 
     lines.append(f"  model : {model_name or '(none)'}")
 
-    visible_param_keys = [
-        k
-        for k in param_keys
-        if (name := k[len(prefix + "params.") :]) in _ALLOWED_PARAMS
-        and name not in _GLOBAL_PARAMS
-    ]
+    # Only show profile-scoped params — global params are shown in the global section.
+    # The registry is the source of truth: if a param is registered as scope="global",
+    # any stale data stored under the profile prefix is ignored entirely.
+    visible_param_keys = []
+    params_prefix = prefix + "params."
+    for k in param_keys:
+        param_name = k[len(params_prefix):]
+        if param_name in _ALLOWED_PARAMS and param_name not in _GLOBAL_PARAMS:
+            visible_param_keys.append(k)
+
     if visible_param_keys:
-        params_prefix = prefix + "params."
         parts = []
         for key in visible_param_keys:
-            param_name = key[len(params_prefix) :]
+            param_name = key[len(params_prefix):]
             val = kv.get_value(key)
             parts.append(f"{param_name}={val}")
         lines.append(f"  params: {' '.join(parts)}")
@@ -328,6 +331,24 @@ def sub_cmd_list(verbose: bool):
 
         all_profiles = [r[0] for r in rows]
 
+        # --- Global parameters section (verbose only) ---
+        if verbose:
+            global_param_keys = [
+                k
+                for k in kv.list_keys(prefix="params.")
+                if k[len("params."):] in _GLOBAL_PARAMS
+            ]
+            if global_param_keys:
+                click.echo("  Global Parameters:")
+                parts = []
+                for k in sorted(global_param_keys):
+                    param_name = k[len("params."):]
+                    val = kv.get_value(k)
+                    parts.append(f"{param_name}={val}")
+                click.echo(f"    {' '.join(parts)}")
+                click.echo("")
+
+        # --- Profile listing ---
         if not all_profiles:
             click.echo("No profiles. Use 'slbp profile new <name>' to create one.")
             return
