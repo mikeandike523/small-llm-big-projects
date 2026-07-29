@@ -1,4 +1,6 @@
 import json
+import shutil
+
 
 import click
 from termcolor import colored
@@ -85,15 +87,12 @@ def sub_cmd_list(available):
             if ns != current_ns:
                 current_ns = ns
                 label = _NS_LABELS.get(ns, ns)
-                click.echo("")
                 click.echo(colored(f"-- {label} --", "yellow"))
-            click.echo("")
             click.echo(colored(name, "blue") + f"  ({spec.display_type()})")
             for line in spec.description.splitlines():
                 click.echo(f"  {line}")
         return
 
-    click.echo("")
     pool = get_pool()
     with pool.get_connection() as conn:
         kv = KVManager(conn)
@@ -113,7 +112,7 @@ def sub_cmd_list(available):
         )
 
         if not set_params:
-            click.echo(f"No params set.")
+            click.echo("No params set.")
             return
 
         scope_parts = []
@@ -123,15 +122,39 @@ def sub_cmd_list(available):
             scope_parts.append("global")
         click.echo(f"({', '.join(scope_parts)})")
 
-        sorted_names = sorted(set_params)
-        for i, name in enumerate(sorted_names):
+        terminal_width = shutil.get_terminal_size().columns
+
+        for name in sorted(set_params):
             key = set_params[name]
             val = kv.get_value(key)
-            print(f"""
-{colored(name, 'blue')}:
+            spec = _REGISTRY.get(name)
+            typestr = spec.display_type() if spec else type(val).__name__
 
-{json.dumps(val, indent=2)}
-""".strip() + ("\n\n" if i < len(sorted_names) - 1 else ""))
+            name_colored = colored(name, "blue")
+            is_numeric_or_bool = isinstance(val, (int, float, bool))
+            is_str = isinstance(val, str)
+
+            if is_numeric_or_bool:
+                click.echo(f"{name_colored} ({typestr}): {val}")
+            elif is_str:
+                has_multiline = "\n" in val or "\r\n" in val
+                if has_multiline:
+                    click.echo(f"{name_colored} ({typestr}):")
+                    for line in val.splitlines():
+                        click.echo(f"  {line}")
+                else:
+                    label_len = len(name) + len(f" ({typestr}): ")
+                    fits = (label_len + len(val)) <= terminal_width
+                    if fits:
+                        click.echo(f"{name_colored} ({typestr}): {val}")
+                    else:
+                        click.echo(f"{name_colored} ({typestr}):")
+                        click.echo(f"  {val}")
+            else:
+                # object / dict
+                click.echo(f"{name_colored} ({typestr}):")
+                for line in json.dumps(val, indent=2).splitlines():
+                    click.echo(f"  {line}")
 
 
 @param.command(name="set")
