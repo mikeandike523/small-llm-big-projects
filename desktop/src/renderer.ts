@@ -112,10 +112,15 @@ function renderStatus(status: HealthStatus) {
   statusDetailEl.textContent = detail;
 
   openDashboardBtn.disabled = status.kind !== 'running';
-  // Disabled only while a (re)start is already in flight -- unlike the
-  // dashboard button, this should stay clickable in 'unreachable'/'failed'
-  // states, since that's exactly when a restart is most likely wanted.
-  restartServerBtn.disabled = status.kind === 'checking' || status.kind === 'starting';
+  // Disabled only during the brief initial 'checking' probe (nothing to kill
+  // or restart yet). Deliberately stays clickable through 'starting' too --
+  // unlike the dashboard button -- since a hung boot (e.g. preflight checks
+  // retrying forever waiting on Docker) never leaves 'starting' on its own,
+  // and that's exactly when a force-kill-and-restart is most needed. The
+  // main-process restart() call is re-entrancy-guarded (see
+  // `restartInFlight` in serverLauncher.ts) so repeated clicks here can't
+  // race a kill against a not-yet-finished respawn.
+  restartServerBtn.disabled = status.kind === 'checking';
 }
 
 // The renderer holds no line-history logic of its own -- the main process's

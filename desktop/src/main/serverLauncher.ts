@@ -172,6 +172,16 @@ export function startServerLifecycle(
   // line would get reported twice.
   let stopWatchers: (() => void) | null = null;
 
+  // Guards the kill -> respawn gap in restart() below. The renderer now keeps
+  // the restart button clickable through the whole 'starting' state (not just
+  // 'running'/'failed'/'unreachable'), since a hung boot -- e.g. preflight
+  // checks retrying forever waiting on Docker -- never itself transitions out
+  // of 'starting'. That means restart() must tolerate being invoked again
+  // before its own respawn actually lands, or a double-click would kill the
+  // freshly-spawned process out from under the first restart and/or spawn two
+  // server processes racing for the same ports.
+  let restartInFlight = false;
+
   const setStatus = (next: HealthStatus) => {
     status = next;
     callbacks.onStatus(next);
@@ -266,6 +276,13 @@ export function startServerLifecycle(
   });
 
   const restart = () => {
+    // Ignore re-entrant clicks (button is clickable through the entire
+    // 'starting' state, and a kill+respawn cycle sits in that same state for
+    // RESTART_RESPAWN_DELAY_MS) rather than kill the just-spawned process or
+    // schedule a second overlapping spawnServer().
+    if (restartInFlight) return;
+    restartInFlight = true;
+
     stopWatchers?.();
     stopWatchers = null;
     // logHistory is intentionally left alone here -- an ordinary restart
@@ -277,7 +294,10 @@ export function startServerLifecycle(
     // spawnServer() itself is synchronous-looking but the actual OS-level
     // termination from killExistingServer needs a brief moment to fully
     // release the old instance's ports before the new one allocates fresh ones.
-    setTimeout(spawnServer, RESTART_RESPAWN_DELAY_MS);
+    setTimeout(() => {
+      restartInFlight = false;
+      spawnServer();
+    }, RESTART_RESPAWN_DELAY_MS);
   };
 
   return {
