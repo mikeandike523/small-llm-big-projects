@@ -3,10 +3,7 @@ import "@xterm/xterm/css/xterm.css";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   askButtonCss,
-  badgeCss,
   closeTabCss,
-  collapsedLabelCss,
-  collapsedStripCss,
   emptyCss,
   footerCss,
   headerCss,
@@ -30,9 +27,10 @@ import {
   tabNameCss,
   terminalsCss,
   titleCss,
-  toggleButtonCss,
   tooltipCss
 } from "../css/TerminalPanel";
+import { panelRootCss } from "../css/SidePanelTheme";
+import PanelDivider from "./PanelDivider";
 import TerminalTab from "../subcomponents/TerminalPanel/TerminalTab";
 import { Props, TerminalSessionState, TerminalTabState } from "../types/TerminalPanel";
 
@@ -385,170 +383,161 @@ export function TerminalPanel({ open, onToggle, socket, busy }: Props) {
     [socket],
   );
 
-  if (!open) {
-    return (
-      <div css={collapsedStripCss}>
-        <button
-          css={toggleButtonCss}
-          onClick={onToggle}
-          title="Open terminal panel"
-          aria-label="Open terminal panel"
-        >
-          &lt;
-        </button>
-        <span css={collapsedLabelCss}>Terminal</span>
-        {tabs.length > 0 && <span css={badgeCss}>{tabs.length}</span>}
-      </div>
-    );
-  }
-
   const activeTab = tabs[activeTabIdx];
 
   return (
-    <div css={panelCss} ref={panelDivRef}>
-      <div css={headerCss}>
-        <span css={titleCss}>Terminal</span>
-        <button
-          css={toggleButtonCss}
-          onClick={onToggle}
-          title="Close terminal panel"
-          aria-label="Close terminal panel"
-        >
-          &gt;
-        </button>
-      </div>
-      <div css={tabBarCss}>
-        {tabs.map((tab, idx) => (
-          <button
-            key={tab.terminalId}
-            css={tabButtonCss(idx === activeTabIdx, tab.exited)}
-            onClick={() => setActiveTabIdx(idx)}
-            onMouseEnter={(e) => showTooltip(e, tab.cmdDisplay)}
-            onMouseLeave={hideTooltip}
-          >
-            <span css={tabNameCss}>
-              {tab.name || tab.terminalId}
-              {tab.exited ? " (exited)" : ""}
-            </span>
-            <span
-              css={closeTabCss}
-              role="button"
-              aria-label={`Close ${tab.name || tab.terminalId}`}
-              onClick={(event) => {
-                event.stopPropagation();
-                closeTerminal(tab.terminalId);
-              }}
-            >
-              x
-            </span>
-          </button>
-        ))}
-        <button css={newButtonCss} onClick={createTerminal}>
-          + New
-        </button>
-      </div>
-      {activeTab ? (
-        <div css={terminalsCss}>
-          {tabs.map((tab, idx) => (
-            <TerminalTab
-              key={tab.terminalId}
-              tab={tab}
-              active={idx === activeTabIdx}
-              panelOpen={open}
-              socket={socket}
-              updateTab={updateTab}
-              drainBuffer={drainBuffer}
-            />
-          ))}
-        </div>
-      ) : (
-        <div css={emptyCss}>
-          <button css={newButtonCss} onClick={createTerminal}>
-            + New terminal
-          </button>
-        </div>
-      )}
-      {activeTab && (
-        <div css={footerCss}>
-          <button css={askButtonCss} onClick={() => setAskModalOpen(true)}>
-            Ask about this terminal
-          </button>
-        </div>
-      )}
-      {tooltip && (
-        <div
-          css={tooltipCss(tooltip.visible)}
-          style={{ left: tooltip.x, top: tooltip.y }}
-        >
-          {tooltip.text}
-        </div>
-      )}
-      {askModalOpen && (
-        <>
-          <div css={modalBackdropCss} onClick={() => setAskModalOpen(false)} />
-          <div
-            css={modalBoxCss}
-            role="dialog"
-            aria-modal="true"
-            aria-label="Ask about this terminal"
-          >
-            <div css={modalHeaderRowCss}>
-              <span css={modalTitleCss}>Ask about this terminal</span>
-              <button
-                css={modalCloseXCss}
-                onClick={() => setAskModalOpen(false)}
-                aria-label="Close"
-              >
-                ×
-              </button>
-            </div>
-            <div css={modalBodyCss}>
-              <textarea
-                ref={askTextareaRef}
-                css={modalTextareaCss}
-                placeholder="Type your question or request..."
-                value={askModalText}
-                onChange={(e) => setAskModalText(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && (e.ctrlKey || e.metaKey))
-                    submitAskModal();
-                }}
-                rows={4}
-              />
-              <div css={modalFollowupRowCss}>
-                <span css={modalFollowupLabelCss}>Follow-up</span>
-                {(["auto", "follow-up", "new-task"] as const).map((opt) => (
-                  <button
-                    key={opt}
-                    css={modalFollowupPillCss(askModalFollowup === opt)}
-                    onClick={() => setAskModalFollowup(opt)}
-                  >
-                    {opt === "auto"
-                      ? "auto-detect"
-                      : opt === "follow-up"
-                        ? "force-follow-up"
-                        : "force-new-task"}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div css={modalActionsRowCss}>
-              <button
-                css={modalCancelBtnCss}
-                onClick={() => setAskModalOpen(false)}
-              >
-                Cancel
-              </button>
-              <button
-                css={modalSubmitBtnCss(!askModalText.trim() || busy)}
-                disabled={!askModalText.trim() || busy}
-                onClick={submitAskModal}
-              >
-                Send to Agent
-              </button>
-            </div>
+    <div css={panelRootCss} ref={panelDivRef}>
+      <PanelDivider
+        open={open}
+        onToggle={onToggle}
+        label="Terminal"
+        side="right"
+        badge={tabs.length}
+      />
+      {open && (
+        <div css={panelCss}>
+          <div css={headerCss}>
+            <span css={titleCss}>Terminal</span>
           </div>
-        </>
+          <div css={tabBarCss}>
+            {tabs.map((tab, idx) => (
+              <button
+                key={tab.terminalId}
+                css={tabButtonCss(idx === activeTabIdx, tab.exited)}
+                onClick={() => setActiveTabIdx(idx)}
+                onMouseEnter={(e) => showTooltip(e, tab.cmdDisplay)}
+                onMouseLeave={hideTooltip}
+              >
+                <span css={tabNameCss}>
+                  {tab.name || tab.terminalId}
+                  {tab.exited ? " (exited)" : ""}
+                </span>
+                <span
+                  css={closeTabCss}
+                  role="button"
+                  aria-label={`Close ${tab.name || tab.terminalId}`}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    closeTerminal(tab.terminalId);
+                  }}
+                >
+                  x
+                </span>
+              </button>
+            ))}
+            <button css={newButtonCss} onClick={createTerminal}>
+              + New
+            </button>
+          </div>
+          {activeTab ? (
+            <div css={terminalsCss}>
+              {tabs.map((tab, idx) => (
+                <TerminalTab
+                  key={tab.terminalId}
+                  tab={tab}
+                  active={idx === activeTabIdx}
+                  panelOpen={open}
+                  socket={socket}
+                  updateTab={updateTab}
+                  drainBuffer={drainBuffer}
+                />
+              ))}
+            </div>
+          ) : (
+            <div css={emptyCss}>
+              <button css={newButtonCss} onClick={createTerminal}>
+                + New terminal
+              </button>
+            </div>
+          )}
+          {activeTab && (
+            <div css={footerCss}>
+              <button css={askButtonCss} onClick={() => setAskModalOpen(true)}>
+                Ask about this terminal
+              </button>
+            </div>
+          )}
+          {tooltip && (
+            <div
+              css={tooltipCss(tooltip.visible)}
+              style={{ left: tooltip.x, top: tooltip.y }}
+            >
+              {tooltip.text}
+            </div>
+          )}
+          {askModalOpen && (
+            <>
+              <div
+                css={modalBackdropCss}
+                onClick={() => setAskModalOpen(false)}
+              />
+              <div
+                css={modalBoxCss}
+                role="dialog"
+                aria-modal="true"
+                aria-label="Ask about this terminal"
+              >
+                <div css={modalHeaderRowCss}>
+                  <span css={modalTitleCss}>Ask about this terminal</span>
+                  <button
+                    css={modalCloseXCss}
+                    onClick={() => setAskModalOpen(false)}
+                    aria-label="Close"
+                  >
+                    ×
+                  </button>
+                </div>
+                <div css={modalBodyCss}>
+                  <textarea
+                    ref={askTextareaRef}
+                    css={modalTextareaCss}
+                    placeholder="Type your question or request..."
+                    value={askModalText}
+                    onChange={(e) => setAskModalText(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && (e.ctrlKey || e.metaKey))
+                        submitAskModal();
+                    }}
+                    rows={4}
+                  />
+                  <div css={modalFollowupRowCss}>
+                    <span css={modalFollowupLabelCss}>Follow-up</span>
+                    {(["auto", "follow-up", "new-task"] as const).map(
+                      (opt) => (
+                        <button
+                          key={opt}
+                          css={modalFollowupPillCss(askModalFollowup === opt)}
+                          onClick={() => setAskModalFollowup(opt)}
+                        >
+                          {opt === "auto"
+                            ? "auto-detect"
+                            : opt === "follow-up"
+                              ? "force-follow-up"
+                              : "force-new-task"}
+                        </button>
+                      ),
+                    )}
+                  </div>
+                </div>
+                <div css={modalActionsRowCss}>
+                  <button
+                    css={modalCancelBtnCss}
+                    onClick={() => setAskModalOpen(false)}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    css={modalSubmitBtnCss(!askModalText.trim() || busy)}
+                    disabled={!askModalText.trim() || busy}
+                    onClick={submitAskModal}
+                  >
+                    Send to Agent
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
       )}
     </div>
   );

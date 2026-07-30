@@ -1,12 +1,13 @@
 import { css } from "@emotion/react";
 import { placeholderCss } from "../../css/DebugPanel";
+import { fontMono, spTextTitle } from "../../css/SidePanelTheme";
 
 export const dirtySectionLabelCss = css`
-  font-family: "Consolas", monospace;
+  font-family: ${fontMono};
   font-size: 9px;
   text-transform: uppercase;
   letter-spacing: 0.07em;
-  color: #555;
+  color: ${spTextTitle};
   margin-bottom: 4px;
   margin-top: 8px;
   &:first-of-type {
@@ -15,17 +16,17 @@ export const dirtySectionLabelCss = css`
 `;
 
 export const dirtyItemCss = css`
-  font-family: "Consolas", monospace;
+  font-family: ${fontMono};
   font-size: 10px;
-  color: #c07828;
+  color: #d89552;
   word-break: break-all;
   padding: 2px 4px;
 `;
 
 export const seenItemCss = css`
-  font-family: "Consolas", monospace;
+  font-family: ${fontMono};
   font-size: 10px;
-  color: #5a8a6a;
+  color: #74b088;
   word-break: break-all;
   padding: 2px 4px;
 `;

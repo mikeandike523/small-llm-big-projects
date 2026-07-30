@@ -82,6 +82,22 @@ const createWindow = () => {
   }
 
   tabManager = new TabManager(mainWindow);
+  let tabViewsDisposed = false;
+  mainWindow.on('close', (event) => {
+    if (tabViewsDisposed) return;
+    event.preventDefault();
+    const disposeTabs = tabManager?.dispose() ?? Promise.resolve();
+    void disposeTabs.finally(() => {
+      tabViewsDisposed = true;
+      tabManager = null;
+      mainWindow.close();
+    });
+  });
+  mainWindow.on('closed', () => {
+    if (currentWindow === mainWindow) {
+      currentWindow = null;
+    }
+  });
 
   const repoRoot = resolveRepoRoot();
 

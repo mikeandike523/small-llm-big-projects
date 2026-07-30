@@ -1,18 +1,19 @@
 import { css } from "@emotion/react";
 import { rowCss } from "../../css/DebugPanel";
+import { fontMono, spTextMain, spTextTitle } from "../../css/SidePanelTheme";
 
 export const rowLabelCss = css`
-  font-family: "Consolas", monospace;
+  font-family: ${fontMono};
   font-size: 9px;
   text-transform: uppercase;
   letter-spacing: 0.07em;
-  color: #444;
+  color: ${spTextTitle};
 `;
 
 export const rowValueCss = css`
-  font-family: "Consolas", monospace;
+  font-family: ${fontMono};
   font-size: 11px;
-  color: #888;
+  color: ${spTextMain};
   word-break: break-all;
 `;
 

@@ -1,76 +1,56 @@
 import { css } from "@emotion/react";
 import _spin from "./_spin";
 import scrollbarCss from "./scrollBarCss";
+import {
+  fontMono,
+  spAccentBright,
+  spBg,
+  spBorder,
+  spBorderStrong,
+  spBorderSubtle,
+  spHeaderBg,
+  spTabBarBg,
+  spTextDim,
+  spTextMain,
+  spTextMuted,
+  spTextTitle,
+} from "./SidePanelTheme";
 
 export const panelCss = css`
   display: flex;
   flex-direction: column;
   height: 100%;
-  background: #0d0d0d;
-  border-right: 1px solid #1e1e1e;
+  min-width: 0;
+  flex: 1;
+  background: ${spBg};
+  border-right: 1px solid ${spBorder};
   overflow: hidden;
-  flex-shrink: 0;
 `;
 
 export const headerCss = css`
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 6px 10px;
-  border-bottom: 1px solid #1e1e1e;
-  background: #111;
+  padding: 0 10px;
+  height: 34px;
+  border-bottom: 1px solid ${spBorderSubtle};
+  background: ${spHeaderBg};
   flex-shrink: 0;
-  min-height: 32px;
 `;
 
 export const headerTitleCss = css`
-  font-family: "Consolas", monospace;
+  font-family: ${fontMono};
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  color: #555;
-`;
-
-export const toggleButtonCss = css`
-  background: transparent;
-  border: none;
-  color: #555;
-  cursor: pointer;
-  font-size: 13px;
-  padding: 0 2px;
-  line-height: 1;
-  &:hover {
-    color: #aaa;
-  }
-`;
-
-export const collapsedStripCss = css`
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  height: 100%;
-  background: #0d0d0d;
-  border-right: 1px solid #1e1e1e;
-`;
-
-export const collapsedLabelCss = css`
-  writing-mode: vertical-rl;
-  transform: rotate(180deg);
-  font-family: "Consolas", monospace;
-  font-size: 10px;
-  letter-spacing: 0.12em;
-  color: #484848;
-  text-transform: uppercase;
+  color: ${spTextTitle};
 `;
 
 export const tabBarCss = css`
   display: flex;
   flex-direction: row;
   height: 30px;
-  border-bottom: 1px solid #1e1e1e;
-  background: #0d0d0d;
+  border-bottom: 1px solid ${spBorderStrong};
+  background: ${spTabBarBg};
   flex-shrink: 0;
   overflow: hidden;
 `;
@@ -78,12 +58,12 @@ export const tabBarCss = css`
 export const tabButtonCss = (active: boolean) => css`
   flex: 1;
   height: 100%;
-  background: ${active ? "#161616" : "transparent"};
+  background: ${active ? spHeaderBg : "transparent"};
   border: none;
-  border-bottom: 2px solid ${active ? "#2563eb" : "transparent"};
-  color: ${active ? "#b0b0b0" : "#484848"};
+  border-bottom: 2px solid ${active ? spAccentBright : "transparent"};
+  color: ${active ? spTextMain : spTextMuted};
   padding: 0 4px;
-  font-family: "Consolas", monospace;
+  font-family: ${fontMono};
   font-size: 9px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
@@ -96,8 +76,8 @@ export const tabButtonCss = (active: boolean) => css`
   overflow: hidden;
   text-overflow: ellipsis;
   &:hover {
-    color: ${active ? "#c0c0c0" : "#707070"};
-    background: #141414;
+    color: ${spTextMain};
+    background: ${spHeaderBg};
   }
 `;
 
@@ -126,9 +106,9 @@ export const promptPanelCss = (visible: boolean) => css`
   pointer-events: ${visible ? "auto" : "none"};
   transition: opacity 0.18s ease;
   padding: 10px;
-  font-family: "Consolas", monospace;
+  font-family: ${fontMono};
   font-size: 10px;
-  color: #777;
+  color: ${spTextMuted};
   white-space: pre-wrap;
   word-break: break-word;
   line-height: 1.6;
@@ -143,21 +123,21 @@ export const rowCss = css`
 `;
 
 export const skillsCardCss = css`
-  border: 1px solid #1e1e1e;
+  border: 1px solid ${spBorder};
   border-radius: 6px;
   overflow: hidden;
   margin-bottom: 10px;
 `;
 
 export const skillsCardHeaderCss = css`
-  font-family: "Consolas", monospace;
+  font-family: ${fontMono};
   font-size: 9px;
   text-transform: uppercase;
   letter-spacing: 0.07em;
-  color: #555;
+  color: ${spTextTitle};
   padding: 4px 8px;
-  background: #111;
-  border-bottom: 1px solid #1e1e1e;
+  background: ${spHeaderBg};
+  border-bottom: 1px solid ${spBorder};
 `;
 
 export const skillsCardBodyCss = css`
@@ -171,50 +151,50 @@ export const skillsCardBodyCss = css`
 `;
 
 export const skillsCardPathCss = css`
-  font-family: "Consolas", monospace;
+  font-family: ${fontMono};
   font-size: 9px;
-  color: #4a4a4a;
+  color: ${spTextDim};
   word-break: break-all;
   margin-bottom: 3px;
 `;
 
 export const skillsCardFileCss = css`
-  font-family: "Consolas", monospace;
+  font-family: ${fontMono};
   font-size: 10px;
-  color: #777;
+  color: ${spTextMuted};
 `;
 
 export const toolsCardPluginNameCss = css`
-  font-family: "Consolas", monospace;
+  font-family: ${fontMono};
   font-size: 10px;
-  color: #668;
+  color: ${spTextTitle};
   margin-top: 3px;
 `;
 
 export const toolsCardPluginPathCss = css`
-  font-family: "Consolas", monospace;
+  font-family: ${fontMono};
   font-size: 9px;
-  color: #3a3a4a;
+  color: ${spTextDim};
   word-break: break-all;
   margin-bottom: 2px;
 `;
 
 export const toolsCardNameCss = css`
-  font-family: "Consolas", monospace;
+  font-family: ${fontMono};
   font-size: 10px;
-  color: #777;
+  color: ${spTextMuted};
 `;
 
 export const toolsCardDividerCss = css`
   border: none;
-  border-top: 1px solid #1e1e1e;
+  border-top: 1px solid ${spBorder};
   margin: 4px 0;
 `;
 
 export const placeholderCss = css`
-  font-family: "Consolas", monospace;
+  font-family: ${fontMono};
   font-size: 11px;
-  color: #333;
+  color: ${spTextDim};
   font-style: italic;
   padding: 4px 0;
 `;
@@ -223,8 +203,8 @@ export const refreshSpinnerCss = css`
   display: inline-block;
   width: 9px;
   height: 9px;
-  border: 1.5px solid rgba(85, 85, 85, 0.4);
-  border-top-color: #888;
+  border: 1.5px solid rgba(111, 148, 184, 0.35);
+  border-top-color: ${spTextMain};
   border-radius: 50%;
   animation: ${_spin} 0.7s linear infinite;
 `;
@@ -248,13 +228,13 @@ export const memTabScrollCss = css`
 
 export const memTabFooterCss = css`
   flex-shrink: 0;
-  border-top: 1px solid #1a1a1a;
+  border-top: 1px solid ${spBorderSubtle};
   padding: 0 10px;
   height: 20px;
   display: flex;
   align-items: center;
   overflow: hidden;
-  background: #0a0a0a;
+  background: ${spHeaderBg};
 `;
 
 export const modalOverlayCss = css`
@@ -268,8 +248,8 @@ export const modalOverlayCss = css`
 `;
 
 export const modalCardCss = css`
-  background: #111;
-  border: 1px solid #2a2a2a;
+  background: ${spHeaderBg};
+  border: 1px solid ${spBorderStrong};
   border-radius: 6px;
   display: flex;
   flex-direction: column;
@@ -284,15 +264,15 @@ export const modalHeaderCss = css`
   align-items: center;
   justify-content: space-between;
   padding: 8px 12px;
-  border-bottom: 1px solid #1e1e1e;
+  border-bottom: 1px solid ${spBorderSubtle};
   flex-shrink: 0;
   gap: 8px;
 `;
 
 export const modalTitleCss = css`
-  font-family: "Consolas", monospace;
+  font-family: ${fontMono};
   font-size: 11px;
-  color: #888;
+  color: ${spTextTitle};
   word-break: break-all;
   flex: 1;
   min-width: 0;
@@ -301,14 +281,14 @@ export const modalTitleCss = css`
 export const modalCloseButtonCss = css`
   background: transparent;
   border: none;
-  color: #555;
+  color: ${spTextMuted};
   cursor: pointer;
   font-size: 16px;
   padding: 0 2px;
   line-height: 1;
   flex-shrink: 0;
   &:hover {
-    color: #aaa;
+    color: ${spTextMain};
   }
 `;
 
@@ -316,9 +296,9 @@ export const modalBodyCss = css`
   flex: 1;
   overflow-y: auto;
   padding: 10px 12px;
-  font-family: "Consolas", monospace;
+  font-family: ${fontMono};
   font-size: 11px;
-  color: #888;
+  color: ${spTextMain};
   white-space: pre-wrap;
   word-break: break-word;
   line-height: 1.5;
@@ -335,28 +315,28 @@ export const modalLoadingWrapCss = css`
 export const modalSpinnerCss = css`
   width: 18px;
   height: 18px;
-  border: 2px solid rgba(136, 136, 136, 0.2);
-  border-top-color: #777;
+  border: 2px solid rgba(111, 148, 184, 0.25);
+  border-top-color: ${spTextMain};
   border-radius: 50%;
   animation: ${_spin} 0.7s linear infinite;
 `;
 
 export const modalFooterCss = css`
   flex-shrink: 0;
-  border-top: 1px solid #1e1e1e;
+  border-top: 1px solid ${spBorderSubtle};
   padding: 5px 12px;
-  font-family: "Consolas", monospace;
+  font-family: ${fontMono};
   font-size: 10px;
 `;
 
 export const modalFooterModifiedCss = css`
-  color: #9a6020;
+  color: #c9a05a;
   cursor: pointer;
   &:hover {
-    color: #c07828;
+    color: #e0b878;
   }
 `;
 
 export const modalFooterDeletedCss = css`
-  color: #7a3030;
+  color: #c07268;
 `;

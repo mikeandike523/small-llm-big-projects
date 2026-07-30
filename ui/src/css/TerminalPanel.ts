@@ -1,60 +1,30 @@
 import { css, keyframes } from "@emotion/react";
+import {
+  fontMono,
+  spAccent,
+  spAccentBright,
+  spBg,
+  spBorder,
+  spBorderStrong,
+  spBorderSubtle,
+  spHeaderBg,
+  spTabBarBg,
+  spTextDim,
+  spTextMain,
+  spTextMuted,
+  spTextTitle,
+} from "./SidePanelTheme";
 
 export const panelCss = css`
   display: flex;
   flex-direction: column;
   height: 100%;
-  background: #080f18;
-  border-left: 1px solid #1a2a40;
+  min-width: 0;
+  flex: 1;
+  background: ${spBg};
+  border-left: 1px solid ${spBorder};
   overflow: hidden;
   position: relative;
-`;
-
-export const collapsedStripCss = css`
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  height: 100%;
-  background: #080f18;
-`;
-
-export const collapsedLabelCss = css`
-  writing-mode: vertical-rl;
-  transform: rotate(180deg);
-  font-family: "Consolas", monospace;
-  font-size: 10px;
-  letter-spacing: 0.12em;
-  color: #54708f;
-  text-transform: uppercase;
-`;
-
-export const toggleButtonCss = css`
-  background: transparent;
-  border: none;
-  color: #7193b6;
-  cursor: pointer;
-  font-size: 13px;
-  line-height: 1;
-  padding: 2px;
-  &:hover {
-    color: #b9d3ee;
-  }
-`;
-
-export const badgeCss = css`
-  min-width: 16px;
-  height: 16px;
-  border-radius: 8px;
-  background: #14263b;
-  border: 1px solid #294a70;
-  color: #9dbce0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-family: "Consolas", monospace;
-  font-size: 10px;
 `;
 
 export const headerCss = css`
@@ -63,18 +33,18 @@ export const headerCss = css`
   justify-content: space-between;
   gap: 8px;
   height: 34px;
-  padding: 0 8px;
-  background: #0b1521;
-  border-bottom: 1px solid #17283c;
+  padding: 0 10px;
+  background: ${spHeaderBg};
+  border-bottom: 1px solid ${spBorderSubtle};
   flex-shrink: 0;
 `;
 
 export const titleCss = css`
-  font-family: "Consolas", monospace;
+  font-family: ${fontMono};
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  color: #88a8c8;
+  color: ${spTextTitle};
 `;
 
 export const tabBarCss = css`
@@ -83,8 +53,8 @@ export const tabBarCss = css`
   gap: 4px;
   min-height: 36px;
   padding: 5px 8px 0 8px;
-  border-bottom: 1px solid #2a4a6a;
-  background: #09111c;
+  border-bottom: 1px solid ${spBorderStrong};
+  background: ${spTabBarBg};
   overflow-x: auto;
   flex-shrink: 0;
 `;
@@ -98,20 +68,20 @@ export const tabButtonCss = (active: boolean, exited: boolean) => css`
   height: 26px;
   padding: 0 8px;
   border-radius: 4px 4px 0 0;
-  border: 1px solid ${active ? "#3d6b99" : "#1e344d"};
-  border-bottom-color: ${active ? "#0d0d0d" : "#2a4a6a"};
-  background: ${active ? "#0d0d0d" : "#0b1521"};
-  color: ${exited ? "#55697a" : active ? "#d8ecff" : "#7fa0bc"};
-  font-family: "Consolas", monospace;
+  border: 1px solid ${active ? spAccent : spBorder};
+  border-bottom-color: ${active ? spBg : spBorderStrong};
+  background: ${active ? spBg : spHeaderBg};
+  color: ${exited ? spTextDim : active ? spTextMain : spTextMuted};
+  font-family: ${fontMono};
   font-size: 11px;
   cursor: pointer;
   margin-bottom: -1px;
   position: relative;
   z-index: ${active ? 1 : 0};
   &:hover {
-    border-color: #4d7ba8;
-    border-bottom-color: ${active ? "#0d0d0d" : "#2a4a6a"};
-    color: ${exited ? "#55697a" : "#b8d8f4"};
+    border-color: ${spAccentBright};
+    border-bottom-color: ${active ? spBg : spBorderStrong};
+    color: ${exited ? spTextDim : spTextMain};
   }
 `;
 
@@ -139,16 +109,17 @@ export const newButtonCss = css`
   height: 24px;
   padding: 0 10px;
   border-radius: 5px;
-  border: 1px solid #24415f;
-  background: #0c1f32;
-  color: #a9c4df;
-  font-family: "Consolas", monospace;
+  border: 1px solid ${spBorder};
+  background: ${spHeaderBg};
+  color: ${spTextMuted};
+  font-family: ${fontMono};
   font-size: 11px;
   cursor: pointer;
   white-space: nowrap;
   &:hover {
-    background: #14304b;
-    border-color: #477bb0;
+    background: ${spTabBarBg};
+    border-color: ${spAccentBright};
+    color: ${spTextMain};
   }
 `;
 
@@ -177,8 +148,8 @@ export const emptyCss = css`
   justify-content: center;
   flex: 1;
   min-height: 0;
-  color: #4f647b;
-  font-family: "Consolas", monospace;
+  color: ${spTextDim};
+  font-family: ${fontMono};
   font-size: 12px;
 `;
 
@@ -195,11 +166,11 @@ export const tooltipFadeOut = keyframes`
 export const tooltipCss = (visible: boolean) => css`
   position: fixed;
   transform: translate(-50%, calc(-100% - 6px));
-  background: #0e1f33;
-  border: 1px solid #2a4a6a;
+  background: ${spHeaderBg};
+  border: 1px solid ${spBorderStrong};
   border-radius: 4px;
-  color: #a8c8e8;
-  font-family: "Consolas", monospace;
+  color: ${spTextMain};
+  font-family: ${fontMono};
   font-size: 10px;
   padding: 3px 8px;
   white-space: nowrap;
@@ -214,8 +185,8 @@ export const footerCss = css`
   justify-content: center;
   height: 44px;
   padding: 0 12px;
-  background: #091525;
-  border-top: 1px solid #17283c;
+  background: ${spHeaderBg};
+  border-top: 1px solid ${spBorderSubtle};
   flex-shrink: 0;
 `;
 
@@ -223,10 +194,10 @@ export const askButtonCss = css`
   height: 30px;
   padding: 0 18px;
   border-radius: 6px;
-  border: 1px solid #2d5580;
-  background: #0f2540;
-  color: #8fc6f0;
-  font-family: "Consolas", monospace;
+  border: 1px solid ${spAccent};
+  background: ${spTabBarBg};
+  color: ${spTextMain};
+  font-family: ${fontMono};
   font-size: 12px;
   cursor: pointer;
   letter-spacing: 0.03em;
@@ -235,9 +206,9 @@ export const askButtonCss = css`
     border-color 80ms,
     color 80ms;
   &:hover {
-    background: #163353;
-    border-color: #4d86bf;
-    color: #c0dff8;
+    background: ${spHeaderBg};
+    border-color: ${spAccentBright};
+    color: #d8ecff;
   }
 `;
 
@@ -255,8 +226,8 @@ export const modalBoxCss = css`
   transform: translate(-50%, -50%);
   z-index: 101;
   width: min(420px, 90%);
-  background: #0b1b2e;
-  border: 1px solid #2a4a6a;
+  background: ${spHeaderBg};
+  border: 1px solid ${spBorderStrong};
   border-radius: 8px;
   display: flex;
   flex-direction: column;
@@ -269,27 +240,27 @@ export const modalHeaderRowCss = css`
   align-items: center;
   justify-content: space-between;
   padding: 12px 14px 10px 14px;
-  border-bottom: 1px solid #1e3651;
+  border-bottom: 1px solid ${spBorderSubtle};
 `;
 
 export const modalTitleCss = css`
-  font-family: "Consolas", monospace;
+  font-family: ${fontMono};
   font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  color: #88a8c8;
+  color: ${spTextTitle};
 `;
 
 export const modalCloseXCss = css`
   background: transparent;
   border: none;
-  color: #54708f;
+  color: ${spTextMuted};
   font-size: 18px;
   line-height: 1;
   cursor: pointer;
   padding: 0 2px;
   &:hover {
-    color: #b9d3ee;
+    color: ${spTextMain};
   }
 `;
 
@@ -304,20 +275,20 @@ export const modalTextareaCss = css`
   width: 100%;
   min-height: 80px;
   resize: vertical;
-  background: #07111e;
-  border: 1px solid #1e3651;
+  background: ${spBg};
+  border: 1px solid ${spBorderSubtle};
   border-radius: 5px;
-  color: #c8dff0;
-  font-family: "Consolas", monospace;
+  color: ${spTextMain};
+  font-family: ${fontMono};
   font-size: 12px;
   padding: 8px 10px;
   box-sizing: border-box;
   outline: none;
   &:focus {
-    border-color: #3d6b99;
+    border-color: ${spAccent};
   }
   &::placeholder {
-    color: #3f5a72;
+    color: ${spTextDim};
   }
 `;
 
@@ -329,9 +300,9 @@ export const modalFollowupRowCss = css`
 `;
 
 export const modalFollowupLabelCss = css`
-  font-family: "Consolas", monospace;
+  font-family: ${fontMono};
   font-size: 10px;
-  color: #4f6a82;
+  color: ${spTextMuted};
   text-transform: uppercase;
   letter-spacing: 0.06em;
   margin-right: 2px;
@@ -341,15 +312,15 @@ export const modalFollowupPillCss = (active: boolean) => css`
   height: 22px;
   padding: 0 10px;
   border-radius: 11px;
-  border: 1px solid ${active ? "#3d6b99" : "#1e344d"};
-  background: ${active ? "#0f2a48" : "transparent"};
-  color: ${active ? "#a8d0f0" : "#4f6a82"};
-  font-family: "Consolas", monospace;
+  border: 1px solid ${active ? spAccent : spBorder};
+  background: ${active ? spHeaderBg : "transparent"};
+  color: ${active ? spTextMain : spTextMuted};
+  font-family: ${fontMono};
   font-size: 10px;
   cursor: pointer;
   &:hover {
-    border-color: #4d7ba8;
-    color: #8ab8e0;
+    border-color: ${spAccentBright};
+    color: ${spTextMain};
   }
 `;
 
@@ -359,22 +330,22 @@ export const modalActionsRowCss = css`
   justify-content: flex-end;
   gap: 8px;
   padding: 10px 14px 14px 14px;
-  border-top: 1px solid #1e3651;
+  border-top: 1px solid ${spBorderSubtle};
 `;
 
 export const modalCancelBtnCss = css`
   height: 28px;
   padding: 0 14px;
   border-radius: 5px;
-  border: 1px solid #1e344d;
+  border: 1px solid ${spBorder};
   background: transparent;
-  color: #6a8aaa;
-  font-family: "Consolas", monospace;
+  color: ${spTextMuted};
+  font-family: ${fontMono};
   font-size: 11px;
   cursor: pointer;
   &:hover {
-    border-color: #3d6b99;
-    color: #9dbce0;
+    border-color: ${spAccent};
+    color: ${spTextMain};
   }
 `;
 
@@ -382,15 +353,15 @@ export const modalSubmitBtnCss = (disabled: boolean) => css`
   height: 28px;
   padding: 0 16px;
   border-radius: 5px;
-  border: 1px solid ${disabled ? "#1e344d" : "#2d6fa0"};
-  background: ${disabled ? "transparent" : "#0f2f52"};
-  color: ${disabled ? "#3a5570" : "#7fc0f0"};
-  font-family: "Consolas", monospace;
+  border: 1px solid ${disabled ? spBorder : spAccent};
+  background: ${disabled ? "transparent" : spTabBarBg};
+  color: ${disabled ? spTextDim : spTextMain};
+  font-family: ${fontMono};
   font-size: 11px;
   cursor: ${disabled ? "not-allowed" : "pointer"};
   &:hover {
     ${disabled
       ? ""
-      : "background: #163d68; border-color: #4d86c0; color: #aad8ff;"}
+      : `background: ${spHeaderBg}; border-color: ${spAccentBright}; color: #d8ecff;`}
   }
 `;

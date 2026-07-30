@@ -1,11 +1,12 @@
 import { css } from "@emotion/react";
 
 import { MemKeyEvent } from "../../types/DebugPanel";
+import { fontMono, spTextDim } from "../../css/SidePanelTheme";
 
 export const memEventLabelCss = (type: string) => css`
-  font-family: "Consolas", monospace;
+  font-family: ${fontMono};
   font-size: 9px;
-  color: ${type === "deleted" ? "#8a3535" : "#8a6a20"};
+  color: ${type === "deleted" ? "#c07268" : "#c9a05a"};
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -13,9 +14,9 @@ export const memEventLabelCss = (type: string) => css`
 `;
 
 export const memEventEmptyCss = css`
-  font-family: "Consolas", monospace;
+  font-family: ${fontMono};
   font-size: 9px;
-  color: #252525;
+  color: ${spTextDim};
   font-style: italic;
 `;
 

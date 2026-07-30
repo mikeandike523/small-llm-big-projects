@@ -1,7 +1,7 @@
-import { BrowserWindow, WebContentsView, shell } from 'electron';
+import { app, BrowserWindow, WebContentsView, shell } from 'electron';
 import fs from 'node:fs';
+import fsp from 'node:fs/promises';
 import path from 'node:path';
-import { app } from 'electron';
 
 export const TAB_STRIP_HEIGHT = 40;
 
@@ -44,9 +44,9 @@ function urlFor(kind: TabKind, proxyOrigin: string, sessionId?: string): string 
 /**
  * Owns every open tab as a WebContentsView composited into the BrowserWindow's
  * contentView, below a fixed-height strip reserved for our own tab-bar UI.
- * Only the active tab's view is attached at any time (switching detaches/
- * reattaches rather than destroying, so backgrounded tabs keep their socket
- * connections alive). Tabs are persisted to disk so a relaunch can restore them.
+ * Session/dashboard tabs stay attached while inactive and are hidden/shown on
+ * switch, so their renderers stay warm without paying native view attach costs
+ * on every tab change. Tabs are persisted to disk so a relaunch can restore them.
  */
 export class TabManager {
   private win: BrowserWindow;
@@ -55,6 +55,9 @@ export class TabManager {
   private activeId: string | null = null;
   private nextId = 1;
   private persistFile: string;
+  private persistTimer: NodeJS.Timeout | null = null;
+  private pendingPersistJson: string | null = null;
+  private persistWrite: Promise<void> = Promise.resolve();
 
   constructor(win: BrowserWindow) {
     this.win = win;
@@ -119,7 +122,7 @@ export class TabManager {
 
     if (state) {
       for (const t of state.tabs) {
-        this.createTab(t.kind, t.proxyOrigin, t.sessionId);
+        this.createTab(t.kind, t.proxyOrigin, t.sessionId, false);
       }
       if (state.activeId && this.tabs.has(state.activeId)) {
         this.doSwitchTo(state.activeId);
@@ -131,7 +134,12 @@ export class TabManager {
     this.doSwitchTo('health');
   }
 
-  private createTab(kind: TabKind, proxyOrigin: string, sessionId?: string): string {
+  private createTab(
+    kind: TabKind,
+    proxyOrigin: string,
+    sessionId?: string,
+    activate = true,
+  ): string {
     const id = `tab-${this.nextId++}`;
     const view = new WebContentsView({
       webPreferences: {
@@ -150,6 +158,8 @@ export class TabManager {
     };
     this.tabs.set(id, record);
     this.order.push(id);
+    view.setVisible(false);
+    this.win.contentView.addChildView(view);
 
     view.webContents.setWindowOpenHandler(({ url, disposition }) => {
       this.handleWindowOpen(record, url, disposition);
@@ -170,7 +180,11 @@ export class TabManager {
     });
     view.webContents.loadURL(targetUrl);
 
-    this.doSwitchTo(id);
+    if (activate) {
+      this.doSwitchTo(id);
+    } else {
+      this.pushTabList();
+    }
     this.persist();
     return id;
   }
@@ -199,14 +213,15 @@ export class TabManager {
     const record = this.tabs.get(id);
     if (!record) return;
 
-    if (this.activeId && this.activeId !== id) {
-      const prev = this.tabs.get(this.activeId);
-      if (prev?.view) this.win.contentView.removeChildView(prev.view);
+    for (const tab of this.tabs.values()) {
+      tab.view?.setVisible(tab.id === id);
     }
     this.activeId = id;
     if (record.view) {
-      this.win.contentView.addChildView(record.view);
       this.layoutActive();
+      record.view.webContents.focus();
+    } else {
+      this.win.webContents.focus();
     }
     this.pushTabList();
     this.persist();
@@ -217,12 +232,15 @@ export class TabManager {
     if (!record || record.kind === 'health') return;
 
     if (this.activeId === id) {
-      if (record.view) this.win.contentView.removeChildView(record.view);
+      record.view?.setVisible(false);
       this.activeId = null;
     }
     this.tabs.delete(id);
     this.order = this.order.filter((t) => t !== id);
-    record.view?.webContents.close();
+    if (record.view) {
+      this.win.contentView.removeChildView(record.view);
+      record.view.webContents.close();
+    }
 
     if (!this.activeId && this.order.length > 0) {
       this.doSwitchTo(this.order[this.order.length - 1]);
@@ -253,7 +271,19 @@ export class TabManager {
     this.win.webContents.send('tabs:update', { tabs: list, activeId: this.activeId });
   }
 
-  private persist(): void {
+  async dispose(): Promise<void> {
+    await this.flushPersist();
+    for (const tab of this.tabs.values()) {
+      if (!tab.view) continue;
+      this.win.contentView.removeChildView(tab.view);
+      tab.view.webContents.close();
+    }
+    this.tabs.clear();
+    this.order = [];
+    this.activeId = null;
+  }
+
+  private persistedJson(): string {
     const data: PersistedState = {
       // The health tab is synthesized fresh on every launch, never restored.
       tabs: this.order
@@ -264,6 +294,36 @@ export class TabManager {
         }),
       activeId: this.activeId ?? undefined,
     };
-    fs.writeFileSync(this.persistFile, JSON.stringify(data, null, 2));
+    return JSON.stringify(data, null, 2);
+  }
+
+  private persist(): void {
+    this.pendingPersistJson = this.persistedJson();
+    if (this.persistTimer) {
+      clearTimeout(this.persistTimer);
+    }
+    this.persistTimer = setTimeout(() => {
+      this.persistTimer = null;
+      void this.flushPersist();
+    }, 100);
+  }
+
+  private async flushPersist(): Promise<void> {
+    if (this.persistTimer) {
+      clearTimeout(this.persistTimer);
+      this.persistTimer = null;
+    }
+
+    while (this.pendingPersistJson) {
+      const json = this.pendingPersistJson;
+      this.pendingPersistJson = null;
+      this.persistWrite = this.persistWrite
+        .then(() => fsp.writeFile(this.persistFile, json))
+        .catch((error) => {
+          console.error(`[DEBUG] failed to persist tabs: ${String(error)}`);
+        });
+      await this.persistWrite;
+    }
+    await this.persistWrite;
   }
 }

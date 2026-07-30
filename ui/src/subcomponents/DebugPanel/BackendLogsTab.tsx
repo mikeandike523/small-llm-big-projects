@@ -4,9 +4,11 @@ import { placeholderCss } from "../../css/DebugPanel";
 import Ansi from "ansi-to-react";
 import { css } from "@emotion/react";
 import scrollbarCss from "../../css/scrollBarCss";
+import { fontMono, spTextMain } from "../../css/SidePanelTheme";
 
 export const logLineCss = css`
-  font-family: "Consolas", monospace;
+  font-family: ${fontMono};
+  color: ${spTextMain};
   font-size: 10px;
   line-height: 1.5;
   white-space: pre-wrap;

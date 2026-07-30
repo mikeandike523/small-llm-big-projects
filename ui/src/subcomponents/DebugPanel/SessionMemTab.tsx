@@ -1,5 +1,15 @@
 import { css } from "@emotion/react";
 import { refreshSpinnerCss, placeholderCss } from "../../css/DebugPanel";
+import {
+  fontMono,
+  spAccent,
+  spAccentBright,
+  spBorder,
+  spHeaderBg,
+  spTextMain,
+  spTextMuted,
+  spTextTitle,
+} from "../../css/SidePanelTheme";
 
 export const sessionToolbarCss = css`
   display: flex;
@@ -9,19 +19,19 @@ export const sessionToolbarCss = css`
 `;
 
 export const sessionKeyCountCss = css`
-  font-family: "Consolas", monospace;
+  font-family: ${fontMono};
   font-size: 9px;
   text-transform: uppercase;
   letter-spacing: 0.07em;
-  color: #444;
+  color: ${spTextTitle};
 `;
 
 export const refreshButtonCss = css`
   background: transparent;
-  border: 1px solid #2a2a2a;
-  color: #555;
+  border: 1px solid ${spBorder};
+  color: ${spTextMuted};
   cursor: pointer;
-  font-family: "Consolas", monospace;
+  font-family: ${fontMono};
   font-size: 9px;
   padding: 2px 8px;
   border-radius: 3px;
@@ -33,16 +43,16 @@ export const refreshButtonCss = css`
   align-items: center;
   justify-content: center;
   &:hover {
-    color: #aaa;
-    border-color: #444;
+    color: ${spTextMain};
+    border-color: ${spAccentBright};
   }
   &:disabled {
     opacity: 0.55;
     cursor: not-allowed;
   }
   &:disabled:hover {
-    color: #555;
-    border-color: #2a2a2a;
+    color: ${spTextMuted};
+    border-color: ${spBorder};
   }
 `;
 
@@ -57,18 +67,18 @@ export const memKeyRowCss = css`
   align-items: center;
   justify-content: space-between;
   padding: 3px 6px;
-  border: 1px solid #1a1a1a;
+  border: 1px solid ${spBorder};
   border-radius: 3px;
   &:hover {
-    border-color: #2a2a2a;
-    background: #111;
+    border-color: ${spAccent};
+    background: ${spHeaderBg};
   }
 `;
 
 export const memKeyNameCss = css`
-  font-family: "Consolas", monospace;
+  font-family: ${fontMono};
   font-size: 10px;
-  color: #888;
+  color: ${spTextMain};
   word-break: break-all;
   flex: 1;
   min-width: 0;
@@ -76,35 +86,35 @@ export const memKeyNameCss = css`
 
 export const viewButtonCss = css`
   background: transparent;
-  border: 1px solid #2a2a2a;
-  color: #555;
+  border: 1px solid ${spBorder};
+  color: ${spTextMuted};
   cursor: pointer;
-  font-family: "Consolas", monospace;
+  font-family: ${fontMono};
   font-size: 9px;
   padding: 1px 6px;
   border-radius: 3px;
   flex-shrink: 0;
   margin-left: 6px;
   &:hover {
-    color: #aaa;
-    border-color: #444;
+    color: ${spTextMain};
+    border-color: ${spAccentBright};
   }
 `;
 
 export const dirtyTagCss = css`
-  color: #c07828;
+  color: #d89552;
   font-size: 9px;
   margin-left: 5px;
   flex-shrink: 0;
-  font-family: "Consolas", monospace;
+  font-family: ${fontMono};
 `;
 
 export const seenTagCss = css`
-  color: #5a8a6a;
+  color: #74b088;
   font-size: 9px;
   margin-left: 5px;
   flex-shrink: 0;
-  font-family: "Consolas", monospace;
+  font-family: ${fontMono};
 `;
 
 export default function SessionMemTab({
