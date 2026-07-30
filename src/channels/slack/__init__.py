@@ -14,6 +14,7 @@ from typing import Optional
 
 from slack_sdk.socket_mode import SocketModeClient
 from slack_sdk.socket_mode.request import SocketModeRequest
+from slack_sdk.socket_mode.response import SocketModeResponse
 from slack_sdk.web import WebClient
 
 from src.utils.param_registry import param_storage_key as _param_storage_key
@@ -107,7 +108,9 @@ def _handle_socket_request(client: SocketModeClient, request: SocketModeRequest)
         return
 
     # Acknowledge immediately so Slack doesn't think we timed out.
-    request.ack()
+    client.send_socket_mode_response(
+        SocketModeResponse(envelope_id=request.envelope_id)
+    )
 
     event: dict = request.payload.get("event", {})
     event_type: str | None = event.get("type")

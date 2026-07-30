@@ -35,6 +35,8 @@ importlib.import_module("src.cli_routes.dashboard")
 importlib.import_module("src.cli_routes.profile")
 importlib.import_module("src.cli_routes.desktop")
 
+importlib.import_module("src.cli_routes.phpmyadmin")
+
 # Routes with separate subroutes
 importlib.import_module("src.cli_routes.token.subroutes")
 

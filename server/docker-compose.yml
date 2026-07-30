@@ -48,5 +48,19 @@ services:
       retries: 15
     restart: unless-stopped
 
+  phpmyadmin:
+    image: phpmyadmin:5.2
+    environment:
+      PMA_HOST: mysql
+      PMA_PORT: 3306
+      PMA_USER: slbp
+      PMA_PASSWORD: slbp
+    ports:
+      - "127.0.0.1::80"
+    depends_on:
+      mysql:
+        condition: service_healthy
+    restart: unless-stopped
+
 volumes:
   piston_packages:
