@@ -2,9 +2,7 @@ import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { checkServerRunning, readServerState, clearServerState, type ServerState } from './serverState';
-
-/** Caps the in-memory log buffer kept for the Health tab so a long-lived app doesn't grow unbounded. */
-export const MAX_LOG_LINES = 5000;
+import { LogHistory } from '../shared/logHistory';
 
 export type HealthStatusKind = 'checking' | 'starting' | 'running' | 'unreachable' | 'failed';
 
@@ -20,7 +18,7 @@ export interface ServerLifecycleCallbacks {
 }
 
 export interface ServerLifecycleHandle {
-  getSnapshot: () => { status: HealthStatus; lines: string[] };
+  getSnapshot: () => { status: HealthStatus; lines: string[]; logPath: string };
   restart: () => void;
 }
 
@@ -90,25 +88,25 @@ function killExistingServer(repoRoot: string): void {
  */
 function serverCommand(repoRoot: string): { cmd: string; args: string[] } {
   if (process.platform === 'win32') {
-    return { cmd: findBashExe(), args: [slbpScriptPath(repoRoot), 'server', 'run'] };
+    return { cmd: findBashExe(), args: [slbpScriptPath(repoRoot), 'server', 'run', '--desktop'] };
   }
-  return { cmd: slbpScriptPath(repoRoot), args: ['server', 'run'] };
+  return { cmd: slbpScriptPath(repoRoot), args: ['server', 'run', '--desktop'] };
 }
 
 /**
- * Poll-tails a growing file from a byte offset, forwarding complete lines.
- * Polling instead of fs.watch because fs.watch's behavior is inconsistent
- * across filesystems/platforms; a ~500ms lag here is invisible to a human
- * reading a log view.
+ * Poll-tails a growing file from a byte offset, feeding raw text chunks into
+ * `history` and notifying `onChange` whenever it changes. Polling instead of
+ * fs.watch because fs.watch's behavior is inconsistent across
+ * filesystems/platforms; a ~500ms lag here is invisible to a human reading a
+ * log view.
  */
-function tailLogFile(filePath: string, onLines: (lines: string[]) => void): () => void {
+function tailLogFile(filePath: string, history: LogHistory, onChange: () => void): () => void {
   let offset = 0;
   try {
     offset = fs.statSync(filePath).size;
   } catch {
     offset = 0;
   }
-  let partial = '';
 
   const poll = () => {
     let size: number;
@@ -116,6 +114,17 @@ function tailLogFile(filePath: string, onLines: (lines: string[]) => void): () =
       size = fs.statSync(filePath).size;
     } catch {
       return;
+    }
+    if (size < offset) {
+      // The file shrank out from under us -- only possible via an external
+      // truncation (desktop.slbp-process.clear-logs-on-start), since this app
+      // only ever opens the log in append mode. Don't try to figure out which
+      // lines are still valid -- just purge and start over as if this were a
+      // fresh log, and say so immediately rather than leaving stale content
+      // on screen until the next write happens to arrive.
+      offset = 0;
+      history.reset();
+      onChange();
     }
     if (size <= offset) return;
 
@@ -125,11 +134,8 @@ function tailLogFile(filePath: string, onLines: (lines: string[]) => void): () =
       const buf = Buffer.alloc(length);
       fs.readSync(fd, buf, 0, length, offset);
       offset = size;
-      const text = partial + buf.toString('utf-8');
-      const lines = text.split('\n');
-      partial = lines.pop() ?? '';
-      const clean = lines.map((l) => l.replace(/\r$/, '')).filter((l) => l.length > 0);
-      if (clean.length > 0) onLines(clean);
+      history.handleNewText(buf.toString('utf-8'));
+      onChange();
     } finally {
       fs.closeSync(fd);
     }
@@ -153,7 +159,10 @@ export function startServerLifecycle(
   repoRoot: string,
   callbacks: ServerLifecycleCallbacks,
 ): ServerLifecycleHandle {
-  const logLines: string[] = [];
+  // Owns the rotated line history for the lifetime of this app -- persists
+  // across restart() (an ordinary restart keeps scrollback from the previous
+  // run), and is only ever purged by tailLogFile detecting a shrunk file.
+  const logHistory = new LogHistory();
   let status: HealthStatus = { kind: 'checking' };
 
   // Tracks whichever tailLogFile/watchRunningForever intervals are currently
@@ -168,12 +177,8 @@ export function startServerLifecycle(
     callbacks.onStatus(next);
   };
 
-  const pushLines = (lines: string[]) => {
-    logLines.push(...lines);
-    if (logLines.length > MAX_LOG_LINES) {
-      logLines.splice(0, logLines.length - MAX_LOG_LINES);
-    }
-    callbacks.onLog(lines);
+  const notifyLogChange = () => {
+    callbacks.onLog(logHistory.lines);
   };
 
   const watchRunningForever = (): (() => void) => {
@@ -207,14 +212,14 @@ export function startServerLifecycle(
     fs.closeSync(fd);
     child.unref();
 
-    const stopTail = tailLogFile(logPath, pushLines);
+    const stopTail = tailLogFile(logPath, logHistory, notifyLogChange);
     stopWatchers = stopTail;
 
     let settled = false;
     child.once('exit', (code) => {
       if (settled) return;
       settled = true;
-      const tail = logLines.slice(-10).join('\n');
+      const tail = logHistory.lines.slice(-10).join('\n');
       setStatus({
         kind: 'failed',
         detail:
@@ -249,7 +254,7 @@ export function startServerLifecycle(
   void checkServerRunning(repoRoot).then((state) => {
     if (state) {
       setStatus({ kind: 'running', state });
-      const stopTail = tailLogFile(logFilePath(repoRoot), pushLines);
+      const stopTail = tailLogFile(logFilePath(repoRoot), logHistory, notifyLogChange);
       const stopRunningWatch = watchRunningForever();
       stopWatchers = () => {
         stopTail();
@@ -263,6 +268,9 @@ export function startServerLifecycle(
   const restart = () => {
     stopWatchers?.();
     stopWatchers = null;
+    // logHistory is intentionally left alone here -- an ordinary restart
+    // should keep prior scrollback, same as before this refactor. Only a
+    // detected file truncation (tailLogFile noticing size < offset) purges it.
     setStatus({ kind: 'starting', detail: 'Restarting server…' });
     killExistingServer(repoRoot);
     clearServerState(repoRoot);
@@ -273,7 +281,7 @@ export function startServerLifecycle(
   };
 
   return {
-    getSnapshot: () => ({ status, lines: logLines }),
+    getSnapshot: () => ({ status, lines: logHistory.lines, logPath: logFilePath(repoRoot) }),
     restart,
   };
 }

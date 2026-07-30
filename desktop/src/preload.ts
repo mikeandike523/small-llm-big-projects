@@ -10,6 +10,7 @@ export interface TabsUpdatePayload {
 export interface HealthSnapshot {
   status: HealthStatus;
   lines: string[];
+  logPath: string;
 }
 
 contextBridge.exposeInMainWorld('tabsAPI', {

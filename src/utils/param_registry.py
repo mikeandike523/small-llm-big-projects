@@ -288,6 +288,19 @@ REGISTRY["system.channels.slack.enabled"] = ParamSpec(
         "When false (default for unset), Slack integration is skipped entirely regardless of token availability."
     ),
 )
+REGISTRY["desktop.slbp-process.clear-logs-on-start"] = ParamSpec(
+    name="desktop.slbp-process.clear-logs-on-start",
+    value_type="boolean",
+    scope="global",
+    description=(
+        "When true, truncate .slbp-server.log at the start of every server boot launched "
+        "by the desktop app (`slbp server run --desktop`). "
+        "When false (default for unset), the log file keeps growing across restarts. "
+        "Has no effect on a server started directly from a terminal -- that invocation "
+        "never writes to .slbp-server.log in the first place (the desktop app owns the "
+        "redirection to that file)."
+    ),
+)
 
 # ---------------------------------------------------------------------------
 # Derived sets (backward-compatible exports)

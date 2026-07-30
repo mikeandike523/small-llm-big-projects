@@ -35,11 +35,18 @@ const statusDetailEl = document.getElementById('health-status-detail')!;
 const openDashboardBtn = document.getElementById('health-open-dashboard') as HTMLButtonElement;
 const restartServerBtn = document.getElementById('health-restart-server') as HTMLButtonElement;
 const logEl = document.getElementById('health-log')!;
+const logPathEl = document.getElementById('health-log-path')!;
+const copyLogPathBtn = document.getElementById('health-copy-log-path') as HTMLButtonElement;
 
-// Mirrors serverLauncher.MAX_LOG_LINES -- kept as a local literal rather than
-// a cross-process import, since the renderer bundle can't pull in the main
-// process's node-only module (fs/child_process aren't available here).
-const MAX_RENDERED_LOG_LINES = 5000;
+// Whether the log view should auto-follow new lines. Tracked via a live scroll
+// listener rather than recomputed from logEl.scrollTop/scrollHeight at append time --
+// those read as 0 while the Health tab isn't the active tab (display:none collapses
+// layout), which would otherwise make "am I at the bottom?" always true while hidden
+// and then desync once the tab (with real, tall content) is shown again.
+let stickToBottom = true;
+logEl.addEventListener('scroll', () => {
+  stickToBottom = logEl.scrollTop + logEl.clientHeight >= logEl.scrollHeight - 4;
+});
 
 function renderTabs(payload: TabsUpdatePayload) {
   stripEl.innerHTML = '';
@@ -67,7 +74,18 @@ function renderTabs(payload: TabsUpdatePayload) {
     stripEl.appendChild(tabEl);
   }
 
-  healthPanelEl.classList.toggle('hidden', payload.activeId !== 'health');
+  const wasHidden = healthPanelEl.classList.contains('hidden');
+  const isHealthActive = payload.activeId === 'health';
+  healthPanelEl.classList.toggle('hidden', !isHealthActive);
+
+  if (isHealthActive && wasHidden) {
+    // While hidden the panel is display:none, so #health-log's scrollTop/scrollHeight
+    // read as 0 the whole time -- any "stick to bottom" bookkeeping done during that
+    // window is meaningless. Resync to the bottom now that real layout exists, rather
+    // than leaving scrollTop stranded at 0 against the now-tall content.
+    stickToBottom = true;
+    logEl.scrollTop = logEl.scrollHeight;
+  }
 }
 
 window.tabsAPI.onUpdate(renderTabs);
@@ -100,22 +118,34 @@ function renderStatus(status: HealthStatus) {
   restartServerBtn.disabled = status.kind === 'checking' || status.kind === 'starting';
 }
 
-function appendLogLines(lines: string[]) {
-  if (lines.length === 0) return;
-  const atBottom = logEl.scrollTop + logEl.clientHeight >= logEl.scrollHeight - 4;
+// The renderer holds no line-history logic of its own -- the main process's
+// LogHistory (shared/logHistory.ts) is the sole source of truth, rotation
+// included. This is purely a mirror of whatever array it was last handed.
+let historyLines: string[] = [];
 
-  const existing = logEl.textContent ? logEl.textContent.split('\n') : [];
-  const combined = existing.concat(lines);
-  const trimmed =
-    combined.length > MAX_RENDERED_LOG_LINES
-      ? combined.slice(combined.length - MAX_RENDERED_LOG_LINES)
-      : combined;
-  logEl.textContent = trimmed.join('\n');
-
-  if (atBottom) {
+function render() {
+  logEl.textContent = historyLines.join('\n');
+  if (stickToBottom) {
     logEl.scrollTop = logEl.scrollHeight;
   }
 }
+
+function applyLogUpdate(lines: string[]) {
+  historyLines = lines;
+  render();
+}
+
+copyLogPathBtn.addEventListener('click', () => {
+  const path = logPathEl.textContent;
+  if (!path) return;
+  void navigator.clipboard.writeText(path).then(() => {
+    const original = copyLogPathBtn.textContent;
+    copyLogPathBtn.textContent = '✓';
+    setTimeout(() => {
+      copyLogPathBtn.textContent = original;
+    }, 1200);
+  });
+});
 
 openDashboardBtn.addEventListener('click', () => {
   void window.healthAPI.openDashboard();
@@ -126,12 +156,11 @@ restartServerBtn.addEventListener('click', () => {
 });
 
 window.healthAPI.onStatus(renderStatus);
-window.healthAPI.onLogLines(appendLogLines);
+window.healthAPI.onLogLines(applyLogUpdate);
 
 void window.healthAPI.getSnapshot().then((snapshot) => {
   renderStatus(snapshot.status);
-  if (snapshot.lines.length > 0) {
-    logEl.textContent = snapshot.lines.join('\n');
-    logEl.scrollTop = logEl.scrollHeight;
-  }
+  logPathEl.textContent = snapshot.logPath;
+  historyLines = snapshot.lines;
+  render();
 });

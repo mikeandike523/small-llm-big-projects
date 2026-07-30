@@ -14,7 +14,6 @@ from src.utils.param_registry import (
     GLOBAL_PARAMS as _GLOBAL_PARAMS,
     REGISTRY as _REGISTRY,
     parse_param_value as _parse_param_value_registry,
-    param_storage_key as _param_storage_key,
 )
 
 _NS_LABELS = {
@@ -66,33 +65,40 @@ def _list_set_params(kv, prefix: str) -> dict[str, str]:
 
     return result
 
+def _echo_param(name, val, typestr, terminal_width):
+    """Print a single param line with consistent indentation."""
+    name_colored = colored(name, "blue")
+    is_numeric_or_bool = isinstance(val, (int, float, bool))
+    is_str = isinstance(val, str)
+
+    if is_numeric_or_bool:
+        click.echo(f"  {name_colored} ({typestr}): {val}")
+    elif is_str:
+        has_multiline = "\n" in val or "\r\n" in val
+        if has_multiline:
+            click.echo(f"  {name_colored} ({typestr}):")
+            for line in val.splitlines():
+                click.echo(f"    {line}")
+        else:
+            label_len = len(name) + len(f" ({typestr}): ")
+            fits = (label_len + len(val)) <= terminal_width
+            if fits:
+                click.echo(f"  {name_colored} ({typestr}): {val}")
+            else:
+                click.echo(f"  {name_colored} ({typestr}):")
+                click.echo(f"    {val}")
+    else:
+        # object / dict
+        click.echo(f"  {name_colored} ({typestr}):")
+        for line in json.dumps(val, indent=2).splitlines():
+            click.echo(f"    {line}")
 
 @cli.group()
 def param(): ...
 
 
 @param.command("list")
-@click.option(
-    "--available",
-    is_flag=True,
-    default=False,
-    help="List all available params with their types and descriptions.",
-)
-def sub_cmd_list(available):
-    if available:
-        current_ns = None
-        for name in sorted(_REGISTRY):
-            spec = _REGISTRY[name]
-            ns = _param_ns(name)
-            if ns != current_ns:
-                current_ns = ns
-                label = _NS_LABELS.get(ns, ns)
-                click.echo(colored(f"-- {label} --", "yellow"))
-            click.echo(colored(name, "blue") + f"  ({spec.display_type()})")
-            for line in spec.description.splitlines():
-                click.echo(f"  {line}")
-        return
-
+def sub_cmd_list():
     pool = get_pool()
     with pool.get_connection() as conn:
         kv = KVManager(conn)
@@ -104,57 +110,44 @@ def sub_cmd_list(available):
         prefix = _kv_prefix(profile) if profile else ""
         set_params = _list_set_params(kv, prefix)
 
-        has_profile_params = any(
-            name not in _GLOBAL_PARAMS for name in set_params
-        )
-        has_global_params = any(
-            name in _GLOBAL_PARAMS for name in set_params
-        )
-
         if not set_params:
             click.echo("No params set.")
             return
 
-        scope_parts = []
-        if has_profile_params:
-            scope_parts.append(f"profile: {profile}")
-        if has_global_params:
-            scope_parts.append("global")
-        click.echo(f"({', '.join(scope_parts)})")
+        # Separate by registry scope (registry is the source of truth)
+        global_items: dict[str, str] = {}
+        profile_items: dict[str, str] = {}
+        for name, key in set_params.items():
+            spec = _REGISTRY.get(name)
+            if spec and spec.scope == "global":
+                global_items[name] = key
+            else:
+                profile_items[name] = key
 
         terminal_width = shutil.get_terminal_size().columns
 
-        for name in sorted(set_params):
-            key = set_params[name]
-            val = kv.get_value(key)
-            spec = _REGISTRY.get(name)
-            typestr = spec.display_type() if spec else type(val).__name__
+        # --- Global Params section ---
+        if global_items:
+            click.echo(colored("-- Global Params --", "magenta", attrs=["bold"]))
+            for name in sorted(global_items):
+                key = global_items[name]
+                val = kv.get_value(key)
+                spec = _REGISTRY.get(name)
+                typestr = spec.display_type() if spec else type(val).__name__
+                _echo_param(name, val, typestr, terminal_width)
+            if profile_items:
+                click.echo("")
 
-            name_colored = colored(name, "blue")
-            is_numeric_or_bool = isinstance(val, (int, float, bool))
-            is_str = isinstance(val, str)
-
-            if is_numeric_or_bool:
-                click.echo(f"{name_colored} ({typestr}): {val}")
-            elif is_str:
-                has_multiline = "\n" in val or "\r\n" in val
-                if has_multiline:
-                    click.echo(f"{name_colored} ({typestr}):")
-                    for line in val.splitlines():
-                        click.echo(f"  {line}")
-                else:
-                    label_len = len(name) + len(f" ({typestr}): ")
-                    fits = (label_len + len(val)) <= terminal_width
-                    if fits:
-                        click.echo(f"{name_colored} ({typestr}): {val}")
-                    else:
-                        click.echo(f"{name_colored} ({typestr}):")
-                        click.echo(f"  {val}")
-            else:
-                # object / dict
-                click.echo(f"{name_colored} ({typestr}):")
-                for line in json.dumps(val, indent=2).splitlines():
-                    click.echo(f"  {line}")
+        # --- Profile Params section ---
+        if profile_items:
+            label = "Profile Params" if not profile else f"Profile ({profile}) Params"
+            click.echo(colored(f"-- {label} --", "magenta", attrs=["bold"]))
+            for name in sorted(profile_items):
+                key = profile_items[name]
+                val = kv.get_value(key)
+                spec = _REGISTRY.get(name)
+                typestr = spec.display_type() if spec else type(val).__name__
+                _echo_param(name, val, typestr, terminal_width)
 
 
 @param.command(name="set")
@@ -163,56 +156,81 @@ def sub_cmd_list(available):
 def sub_cmd_set(name, value):
     """Set a generation parameter."""
     typed_value = _parse_and_validate(name, value)
+    spec = _REGISTRY[name]
     pool = get_pool()
+
     with pool.get_connection() as conn:
         kv = KVManager(conn)
-        spec = _REGISTRY[name]
+
         if spec.scope == "global":
-            key = _param_storage_key(name)  # params.<name>
+            key = f"params.{name}"
         else:
             profile = require_active_profile(kv)
-            prefix = _kv_prefix(profile)
-            key = _param_storage_key(name, profile_prefix=prefix)  # profiles.<name>.params.<name>
+            key = f"profiles.{profile}.params.{name}"
+
         kv.set_value(key, typed_value)
         conn.commit()
-    if spec.scope == "global":
-        click.echo(f"Set {name} = {typed_value}  (global)")
-    else:
-        click.echo(f"Set {name} = {typed_value}  (profile: {profile})")
+
+    scope_label = "global" if spec.scope == "global" else f"profile ({profile})"
+    click.echo(f"Set '{name}' = {typed_value}  ({scope_label})")
 
 
 @param.command(name="unset")
 @click.argument("name", type=str)
 def sub_cmd_unset(name):
     """Remove a generation parameter."""
+    spec = _REGISTRY[name]
     pool = get_pool()
+
     with pool.get_connection() as conn:
         kv = KVManager(conn)
-        spec = _REGISTRY[name]
+
         if spec.scope == "global":
-            key = _param_storage_key(name)
+            key = f"params.{name}"
         else:
             profile = require_active_profile(kv)
-            prefix = _kv_prefix(profile)
-            key = _param_storage_key(name, profile_prefix=prefix)
+            key = f"profiles.{profile}.params.{name}"
 
         if not kv.exists(key):
-            profile_display = "global" if spec.scope == "global" else f"profile: {profile}"
-            click.echo(f"{name} is not set.  ({profile_display})")
+            scope_label = "global" if spec.scope == "global" else f"profile ({profile})"
+            click.echo(f"'{name}' is not set.  ({scope_label})")
             return
+
         kv.delete_value(key)
         conn.commit()
-    profile_display = "global" if spec.scope == "global" else f"profile: {profile}"
-    click.echo(f"Unset {name}  ({profile_display})")
+
+    scope_label = "global" if spec.scope == "global" else f"profile ({profile})"
+    click.echo(f"Unset '{name}'  ({scope_label})")
 
 
 @param.command(name="manual")
 def sub_cmd_manual():
     """Print documentation for every available parameter."""
-    for i, name in enumerate(sorted(_REGISTRY)):
+    global_params = []
+    profile_params = []
+    for name in sorted(_REGISTRY):
         spec = _REGISTRY[name]
-        if i:
+        if spec.scope == "global":
+            global_params.append((name, spec))
+        else:
+            profile_params.append((name, spec))
+
+    if global_params:
+        click.echo(colored("-- Global Params --", "magenta", attrs=["bold"]))
+        for i, (name, spec) in enumerate(global_params):
+            if i:
+                click.echo("")
+            click.echo(colored(name, "blue") + f"  ({spec.display_type()})")
+            for line in spec.description.splitlines():
+                click.echo(f"  {line}")
+
+    if profile_params:
+        if global_params:
             click.echo("")
-        click.echo(colored(name, "blue") + f"  ({spec.display_type()})")
-        for line in spec.description.splitlines():
-            click.echo(f"  {line}")
+        click.echo(colored("-- Profile Params --", "magenta", attrs=["bold"]))
+        for i, (name, spec) in enumerate(profile_params):
+            if i:
+                click.echo("")
+            click.echo(colored(name, "blue") + f"  ({spec.display_type()})")
+            for line in spec.description.splitlines():
+                click.echo(f"  {line}")

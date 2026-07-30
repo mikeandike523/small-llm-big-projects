@@ -17,6 +17,7 @@ from src.utils.process import ManagedProcess, find_bash, run_processes
 from src.utils.server_state import clear_state, get_running_server_state, write_state
 from src.data import get_pool
 from src.utils.sql.kv_manager import KVManager
+from src.utils.param_registry import param_storage_key
 from src.utils.profile_utils import get_active_profile, _kv_prefix
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -102,6 +103,38 @@ def _run_preflight_checks(retry_interval: int = 10) -> None:
         attempt += 1
 
 
+def _maybe_clear_desktop_log() -> None:
+    """Truncate .slbp-server.log if the desktop app requested it via the global param.
+
+    Called only when --desktop was passed. The desktop app opens this file itself
+    (append mode) before spawning this process and inherits it as our stdout/stderr,
+    so truncating the file's contents here -- rather than deleting/recreating it --
+    is what keeps that inherited handle valid: appended writes always land at the
+    (now zero) end of file.
+    """
+    try:
+        pool = get_pool()
+        with pool.get_connection() as conn:
+            kv = KVManager(conn)
+            key = param_storage_key("desktop.slbp-process.clear-logs-on-start")
+            enabled = bool(kv.get_value(key, default=False))
+    except Exception as exc:
+        click.echo(
+            colored(f"Warning: could not check clear-logs-on-start param: {exc}", "yellow")
+        )
+        return
+    if not enabled:
+        return
+    log_path = PROJECT_ROOT / ".slbp-server.log"
+    try:
+        with open(log_path, "r+b") as f:
+            f.truncate(0)
+    except FileNotFoundError:
+        pass
+    except OSError as exc:
+        click.echo(colored(f"Warning: could not clear {log_path.name}: {exc}", "yellow"))
+
+
 @cli.group()
 def server():
     """Commands for the backend server."""
@@ -164,6 +197,16 @@ server.add_command(_task_group)
         "fixed entry point is required."
     ),
 )
+@click.option(
+    "--desktop",
+    is_flag=True,
+    default=False,
+    help=(
+        "Indicates this process was launched by the desktop app, enabling desktop-only "
+        "behaviors (currently: honoring desktop.slbp-process.clear-logs-on-start). Not "
+        "meant to be passed when starting the server manually from a terminal."
+    ),
+)
 def server_run(
     tool_tracebacks,
     hotfix_gpt_oss_20b_bad_parser,
@@ -171,6 +214,7 @@ def server_run(
     hotfix_suite_gpt_oss_20b,
     dashboard_port,
     proxy_port,
+    desktop,
 ):
     """
     Start the server: launches the static UI server, gateway proxy, and the
@@ -196,6 +240,9 @@ def server_run(
         raise SystemExit(1)
 
     _run_preflight_checks()
+
+    if desktop:
+        _maybe_clear_desktop_log()
 
     # Lightweight pre-flight config advisory (non-fatal).
     try:

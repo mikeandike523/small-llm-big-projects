@@ -196,3 +196,37 @@ body {
   line-height: 1.5;
   color: #c7c8d1;
 }
+
+.health-log-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 16px;
+  border-top: 1px solid #34353d;
+  font-size: 11px;
+  color: #8a8b96;
+}
+
+.health-log-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: Consolas, 'Courier New', monospace;
+}
+
+.health-copy-btn {
+  flex-shrink: 0;
+  border: 1px solid #34353d;
+  background: #26272e;
+  color: #c7c8d1;
+  font-size: 12px;
+  line-height: 1;
+  padding: 3px 7px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.health-copy-btn:hover {
+  background: #34353d;
+}
