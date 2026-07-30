@@ -21,6 +21,8 @@ usage() {
 Usage: $(basename "$0") <subcommand> [args]
 
 Subcommands:
+  show                      Show the current structure_version and seed_version,
+                            alongside the max version available on disk.
   up                        Run all pending migrations (structure then seed,
                             interleaved by version number).
   force-set-version S V     Set the migration version table directly to the
@@ -138,6 +140,24 @@ _print_version_status() {
 	else
 		echo -en "${BOLD_YELLOW}${current}${NC}"
 	fi
+}
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Subcommand: show
+# ═══════════════════════════════════════════════════════════════════════════════
+cmd_show() {
+	ensure_migration_version_table
+
+	local current_structure current_seed
+	get_current_versions current_structure current_seed
+
+	local max_structure max_seed
+	max_structure=$(get_max_version_in_dir "$SCRIPT_DIR/migrations/structure")
+	max_seed=$(get_max_version_in_dir "$SCRIPT_DIR/migrations/seed")
+
+	echo -e "${BOLD_CYAN}Current versions:${NC}"
+	echo -e "  structure_version = $(_print_version_status "$current_structure" "$max_structure") ${NC}(max available: ${max_structure})"
+	echo -e "  seed_version      = $(_print_version_status "$current_seed" "$max_seed") ${NC}(max available: ${max_seed})"
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -297,6 +317,14 @@ SUBCMD="$1"
 shift
 
 case "$SUBCMD" in
+	show)
+		if [[ $# -ne 0 ]]; then
+			echo -e "${BOLD_RED}Error: 'show' takes no arguments.${NC}" >&2
+			usage
+			exit 2
+		fi
+		cmd_show
+		;;
 	up)
 		if [[ $# -ne 0 ]]; then
 			echo -e "${BOLD_RED}Error: 'up' takes no arguments.${NC}" >&2
