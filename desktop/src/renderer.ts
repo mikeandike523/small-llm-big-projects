@@ -34,6 +34,7 @@ const statusBadgeEl = document.getElementById('health-status-badge')!;
 const statusDetailEl = document.getElementById('health-status-detail')!;
 const openDashboardBtn = document.getElementById('health-open-dashboard') as HTMLButtonElement;
 const restartServerBtn = document.getElementById('health-restart-server') as HTMLButtonElement;
+const tabDashboardBtn = document.getElementById('tab-dashboard-btn') as HTMLButtonElement;
 const logEl = document.getElementById('health-log')!;
 const logPathEl = document.getElementById('health-log-path')!;
 const copyLogPathBtn = document.getElementById('health-copy-log-path') as HTMLButtonElement;
@@ -121,6 +122,7 @@ function renderStatus(status: HealthStatus) {
   // `restartInFlight` in serverLauncher.ts) so repeated clicks here can't
   // race a kill against a not-yet-finished respawn.
   restartServerBtn.disabled = status.kind === 'checking';
+  tabDashboardBtn.disabled = status.kind !== 'running';
 }
 
 // The renderer holds no line-history logic of its own -- the main process's
@@ -153,6 +155,10 @@ copyLogPathBtn.addEventListener('click', () => {
 });
 
 openDashboardBtn.addEventListener('click', () => {
+  void window.healthAPI.openDashboard();
+});
+
+tabDashboardBtn.addEventListener('click', () => {
   void window.healthAPI.openDashboard();
 });
 

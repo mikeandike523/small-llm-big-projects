@@ -13,6 +13,10 @@ interface TabRecord {
   sessionId?: string;
   proxyOrigin: string;
   label: string;
+  // For dashboard tabs we persist the exact URL the user is on (e.g. after
+  // starting a session from the dashboard). Session tabs are always resumed at
+  // their canonical session URL.
+  currentUrl?: string;
   // null only for the health tab, which is rendered by the base window's own
   // page rather than a WebContentsView (the backend may not exist yet).
   view: WebContentsView | null;
@@ -28,6 +32,9 @@ interface PersistedTab {
   kind: TabKind;
   sessionId?: string;
   proxyOrigin: string;
+  // Present for dashboard tabs so that e.g. a dashboard that spawned a new
+  // session can be restored to that exact session view.
+  currentUrl?: string;
 }
 
 interface PersistedState {
@@ -102,11 +109,6 @@ export class TabManager {
   }
 
   openDashboard(proxyOrigin: string): string {
-    const existing = this.order.find((id) => this.tabs.get(id)!.kind === 'dashboard');
-    if (existing) {
-      this.doSwitchTo(existing);
-      return existing;
-    }
     return this.createTab('dashboard', proxyOrigin);
   }
 
@@ -122,7 +124,7 @@ export class TabManager {
 
     if (state) {
       for (const t of state.tabs) {
-        this.createTab(t.kind, t.proxyOrigin, t.sessionId, false);
+        this.createTab(t.kind, t.proxyOrigin, t.sessionId, false, t.currentUrl);
       }
       if (state.activeId && this.tabs.has(state.activeId)) {
         this.doSwitchTo(state.activeId);
@@ -139,6 +141,7 @@ export class TabManager {
     proxyOrigin: string,
     sessionId?: string,
     activate = true,
+    initialUrl?: string,
   ): string {
     const id = `tab-${this.nextId++}`;
     const view = new WebContentsView({
@@ -171,7 +174,14 @@ export class TabManager {
       this.pushTabList();
     });
 
-    const targetUrl = urlFor(kind, proxyOrigin, sessionId);
+    view.webContents.on('did-navigate', (_event, url) => {
+      if (record.kind === 'dashboard') {
+        record.currentUrl = url;
+        this.persist();
+      }
+    });
+
+    const targetUrl = initialUrl ?? urlFor(kind, proxyOrigin, sessionId);
     view.webContents.on('did-finish-load', () => {
       console.log(`[DEBUG] tab ${id} finished loading ${targetUrl}`);
     });
@@ -290,7 +300,12 @@ export class TabManager {
         .filter((id) => this.tabs.get(id)!.kind !== 'health')
         .map((id) => {
           const t = this.tabs.get(id)!;
-          return { kind: t.kind, sessionId: t.sessionId, proxyOrigin: t.proxyOrigin };
+          return {
+            kind: t.kind,
+            sessionId: t.sessionId,
+            proxyOrigin: t.proxyOrigin,
+            currentUrl: t.currentUrl,
+          };
         }),
       activeId: this.activeId ?? undefined,
     };

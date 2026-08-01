@@ -13,6 +13,9 @@ from src.tools import brave_web_search
 from src.tools import change_pwd
 from src.tools import create_dir
 from src.tools import create_text_file
+from src.tools import copy_dir
+from src.tools import copy_file
+from src.tools import move_dir_or_file
 from src.tools import delete_file
 from src.tools import find_files_by_name
 from src.tools import line_reader
@@ -99,6 +102,9 @@ ALL_TOOL_DEFINITIONS: list[dict] = [
     _inject_framework_params(change_pwd, change_pwd.DEFINITION),
     _inject_framework_params(create_dir, create_dir.DEFINITION),
     _inject_framework_params(create_text_file, create_text_file.DEFINITION),
+    _inject_framework_params(copy_dir, copy_dir.DEFINITION),
+    _inject_framework_params(copy_file, copy_file.DEFINITION),
+    _inject_framework_params(move_dir_or_file, move_dir_or_file.DEFINITION),
     _inject_framework_params(delete_file, delete_file.DEFINITION),
     _inject_framework_params(find_files_by_name, find_files_by_name.DEFINITION),
     _inject_framework_params(line_reader, line_reader.DEFINITION),
@@ -135,6 +141,9 @@ _TOOL_MAP: dict[str, object] = {
     "change_pwd": change_pwd,
     "create_dir": create_dir,
     "create_text_file": create_text_file,
+    "copy_dir": copy_dir,
+    "copy_file": copy_file,
+    "move_dir_or_file": move_dir_or_file,
     "delete_file": delete_file,
     "find_files_by_name": find_files_by_name,
     "line_reader": line_reader,
