@@ -51,7 +51,6 @@ logger = logging.getLogger(__name__)
 
 
 async def _async_agent_loop(
-    sid: str,
     session_id: str,
     session: Session,
     streaming_llm: StreamingLLM,
@@ -245,7 +244,6 @@ async def _async_agent_loop(
                         result,
                         content_for_history,
                         session,
-                        sid,
                         session_id,
                         current_turn,
                         return_value_max_chars,

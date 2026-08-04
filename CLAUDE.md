@@ -25,6 +25,25 @@ in a browser with the new session id
 - Before each new feature, review your recent memory files to know what is going on in the project at this time
 - Prefer to take more memory notes rather than less. Its good to keep track of what is going on
 
+## Testing
+
+There are two separate, non-overlapping test suites. Know which one you're touching:
+
+- **`tests/` (pytest)** — general/architecture-level testing: socket handler wiring, CLI arg parsing, skill registry logic, terminal PTY behavior, output truncation, etc. Not tied to any one tool. Run with:
+  ```
+  bash python_in_env.sh -m pytest -q tests/
+  ```
+  **Always pass `tests/` explicitly.** There is no `pytest.ini`/`pyproject.toml` configuring `testpaths`, so a bare `pytest` with no path argument walks the whole repo from root — including `server/mysqldata/`, the bind-mounted MySQL Docker data directory. On Windows, `server/mysqldata/mysql.sock` is a Unix-socket symlink that pytest's directory-collection `stat()` call can't handle, raising `OSError: [WinError 1920]` and aborting collection before any real test runs. This is a Windows/pytest quirk, not a project bug — scoping the invocation to `tests/` avoids it entirely.
+
+  `tests/` is populated more ad hoc (by whichever agent/session needed it at the time) and can drift out of date. If a case fails because it references a renamed param or an outdated schema rather than an actual regression, update the test to match current behavior rather than assuming the code is wrong.
+
+- **`tool_tests/` (custom runner)** — tests actual tool *implementations* (the Python functions in `src/tools/`, e.g. `list_dir`, `basic_web_request`, `code_interpreter`). This project doesn't use an MCP server; tools are plain Python modules with a `DEFINITION` schema and a callable, so a generic pytest-style unit test doesn't fit well — `tool_tests/` spins up a real micro HTTP server plus a per-tool sandboxed env and drives each tool end-to-end. Run with:
+  ```
+  ./tool_tests/run_all.sh
+  ./tool_tests/view.sh   # serves the generated test_results/ report in a browser
+  ```
+  `tool_tests/individual/` is generally kept up to date as tools change, more so than `tests/`.
+
 ## File Length Goal: 500 Lines Maximum
 
 All source files in this project should be kept under 500 lines. When a file approaches or exceeds this limit, break it up using imports, helper modules, and good modularity — not just by reorganizing within the file. Prefer extracting cohesive groups of functions or classes into sibling files (e.g., `_helpers.py`, `_types.py`) and re-importing them.

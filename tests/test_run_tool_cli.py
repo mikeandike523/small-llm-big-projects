@@ -4,10 +4,10 @@ from run_tool import parse_tool_cli_args
 
 
 def test_string_and_integer_args_are_coerced_from_raw_strings() -> None:
-    args = parse_tool_cli_args("list_dir", ["--path", "src", "--max_depth", "2"])
+    args = parse_tool_cli_args("list_dir", ["--path", "src", "--depth", "2"])
 
     assert args["path"] == "src"
-    assert args["max_depth"] == 2
+    assert args["depth"] == 2
 
 
 def test_boolean_args_support_bare_flags_and_explicit_values() -> None:
@@ -54,7 +54,7 @@ def test_string_map_object_args_accept_repeated_key_value_entries() -> None:
 
 
 def test_missing_required_args_error() -> None:
-    with pytest.raises(ValueError, match="missing required args: url, method, timeout"):
+    with pytest.raises(ValueError, match="missing required args: url, method"):
         parse_tool_cli_args("basic_web_request", [])
 
 

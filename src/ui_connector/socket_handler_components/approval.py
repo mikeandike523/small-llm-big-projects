@@ -7,7 +7,6 @@ from src.ui_connector.socket_handler_components.emit import _emit_and_log
 
 
 def _request_approval(
-    sid: str,
     session_id: str,
     tool_id: str,
     tool_name: str,
@@ -22,9 +21,13 @@ def _request_approval(
     Polls every 0.5s so cancel_event is checked promptly.
     Returns (approved, redirect_message). redirect_message is set when the user
     chose "Deny & Redirect" and typed a reason/suggestion.
+
+    Keyed by session_id (not the Socket.IO connection sid): the durable session
+    outlives any single connection, so a reconnect (e.g. after the client's
+    machine sleeps) can still resolve an approval that was requested before it.
     """
     ev = threading.Event()
-    _state._pending_approvals[sid] = {
+    _state._pending_approvals[session_id] = {
         "event": ev,
         "approved": None,
         "redirect_message": None,
@@ -48,7 +51,7 @@ def _request_approval(
         if cancel_event is not None and cancel_event.is_set():
             break
 
-    entry = _state._pending_approvals.pop(sid, {})
+    entry = _state._pending_approvals.pop(session_id, {})
 
     if cancel_event is not None and cancel_event.is_set():
         return False, None

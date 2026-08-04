@@ -52,7 +52,6 @@ def _execute_tools(
     result: Any,
     content_for_history: str,
     session: Session,
-    sid: str,
     session_id: str,
     current_turn: Turn,
     return_value_max_chars: int | None = None,
@@ -287,7 +286,6 @@ def _execute_tools(
                 session_data=session.session_data,
             ):
                 approved, redirect_message = _request_approval(
-                    sid,
                     session_id,
                     tc.id,
                     tc.name,

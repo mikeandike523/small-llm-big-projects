@@ -83,7 +83,8 @@ _log_counter_lock = threading.Lock()
 # Approval gate
 # ---------------------------------------------------------------------------
 
-# Maps socket session ID to {"event": threading.Event, "approved": bool | None}
+# Maps session_id (NOT the Socket.IO connection sid — that's transient and
+# changes on every reconnect) to {"event": threading.Event, "approved": bool | None}
 _pending_approvals: dict[str, dict] = {}
 
 # ---------------------------------------------------------------------------
