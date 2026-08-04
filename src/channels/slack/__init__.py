@@ -17,6 +17,7 @@ from slack_sdk.socket_mode.request import SocketModeRequest
 from slack_sdk.socket_mode.response import SocketModeResponse
 from slack_sdk.web import WebClient
 
+from src.channels.slack.session import get_slack_team_id, resolve_slack_session
 from src.utils.param_registry import param_storage_key as _param_storage_key
 from src.utils.sql.kv_manager import KVManager
 logger = logging.getLogger(__name__)
@@ -91,13 +92,18 @@ def _is_slack_enabled() -> bool:
         return bool(KVManager(conn).get_value(key, default=False))
 
 
+_web_client: WebClient | None = None
+
+
 def _handle_socket_request(client: SocketModeClient, request: SocketModeRequest) -> None:
-    """Process an incoming Socket Mode request and log DM messages.
+    """Process an incoming Socket Mode request and handle DM messages.
 
     Called by the Slack SDK's event loop for every envelope received
     over the WebSocket connection.  Non-DM messages are silently
-    ignored.  The acknowledgment is sent automatically after this
-    handler returns.
+    ignored.  For DMs, the handler looks up or creates a backend session
+    and logs the association.
+
+    The acknowledgment is sent automatically after this handler returns.
     """
     if request.type == "disconnect":
         logger.info("Slack: received disconnect request — reconnecting ...")
@@ -137,11 +143,26 @@ def _handle_socket_request(client: SocketModeClient, request: SocketModeRequest)
 
     user_str = user or "unknown"
     channel_str = channel or "unknown"
-    logger.info(
-        "Slack DM received | user=%s channel=%s text=%s",
-        user_str, channel_str, text,
-        extra={"slack_user": user_str, "slack_channel": channel_str, "slack_dm_text": text},
-    )
+
+    # Resolve (look up or create) the session for this Slack user.
+    team_id = get_slack_team_id(request.payload)
+    if team_id and user:
+        session_id = resolve_slack_session(team_id, user)
+        logger.info(
+            "Slack DM | user=%s channel=%s session=%s text=%s",
+            user_str, channel_str, session_id, text,
+            extra={
+                "slack_user": user_str,
+                "slack_channel": channel_str,
+                "slack_session": session_id,
+                "slack_dm_text": text,
+            },
+        )
+    else:
+        logger.warning(
+            "Slack DM | user=%s channel=%s — unable to resolve team_id=%r",
+            user_str, channel_str, team_id,
+        )
 
 
 def startup_slack() -> None:
@@ -172,13 +193,16 @@ def startup_slack() -> None:
         )
         return
 
+    global _web_client
+    _web_client = WebClient(token=bot_token)
+
     # ------------------------------------------------------------------
     # Bootstrap the Socket Mode client in a background daemon thread.
     # ------------------------------------------------------------------
     try:
         client = SocketModeClient(
             app_token=app_token,
-            web_client=WebClient(token=bot_token),
+            web_client=_web_client,
         )
     except Exception as exc:
         logger.error("Slack integration: failed to create SocketModeClient: %s", exc)
