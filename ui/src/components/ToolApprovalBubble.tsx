@@ -4,6 +4,7 @@ import { css } from "@emotion/react";
 import JsonArgsViewer from "./JsonArgsViewer";
 import DiffViewer from "../subcomponents/Chat/DiffViewer";
 import { useToolPreviewConfig } from "../api/toolPreviewConfig";
+import { MAX_APPROVAL_PREVIEW_HEIGHT_PX } from "../constants/tool-ui-constants";
 
 const approvalResolvedBubbleCss = (approved: boolean) => css`
   font-family: "Consolas", monospace;
@@ -39,6 +40,8 @@ const approvalArgsCss = css`
   flex: 1;
   display: flex;
   flex-direction: column;
+  max-height: ${MAX_APPROVAL_PREVIEW_HEIGHT_PX}px;
+  overflow-y: auto;
 `;
 
 const approvalArgsAndDiffContainerCss = css`

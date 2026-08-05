@@ -1,12 +1,14 @@
 import ReactDiffViewer, { DiffMethod } from "react-diff-viewer-continued";
 import { css } from "@emotion/react";
 
+import { MAX_APPROVAL_PREVIEW_HEIGHT_PX } from "../../constants/tool-ui-constants";
+
 const wrapperCss = css`
   font-size: 11px;
   font-family: "Consolas", monospace;
   border-radius: 4px;
   border: 1px solid #2a2a2a;
-  max-height: 400px;
+  max-height: ${MAX_APPROVAL_PREVIEW_HEIGHT_PX}px;
   overflow-x: auto;
   overflow-y: auto;
 `;

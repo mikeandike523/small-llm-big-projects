@@ -1,8 +1,9 @@
-import { useState, Fragment } from "react";
+import { useState, useRef, Fragment } from "react";
 import { css, keyframes } from "@emotion/react";
 
 import { useStickToBottom } from "use-stick-to-bottom";
-import type { TodoItem, Turn } from "../types";
+import { useVirtualizer } from "@tanstack/react-virtual";
+import type { TodoItem, Turn, ToolCallEntry } from "../types";
 
 import scrollbarCss from "../css/scrollBarCss";
 import { TextPresenter } from "./TextPresenter";
@@ -158,13 +159,6 @@ const toolCallsScrollCss = css`
   min-width: 0;
   overflow-y: auto;
   overflow-x: hidden;
-`;
-
-const toolCallsContentCss = css`
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  min-width: 0;
 `;
 
 const todoColumnCss = css`
@@ -463,14 +457,6 @@ const thinkingBubbleLabelCss = css`
   opacity: 0.8;
 `;
 
-// Same layout as toolCallsGroupCss but without its own scroll — for use inside
-// a column that is itself the scroll viewport (see TurnContainer right column).
-const toolCallsGroupInnerCss = css`
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-`;
-
 const subturnDividerCss = css`
   font-size: 10px;
   color: #3a4d6e;
@@ -613,8 +599,7 @@ export default function TurnContainer({
     useStickToBottom();
   const { scrollRef: thinkingScrollRef, contentRef: thinkingContentRef } =
     useStickToBottom();
-  const { scrollRef: toolsScrollRef, contentRef: toolsContentRef } =
-    useStickToBottom();
+  const toolsScrollRef = useRef<HTMLDivElement>(null);
   const { scrollRef: todoScrollRef, contentRef: todoContentRef } =
     useStickToBottom();
   const { scrollRef: outcomesScrollRef, contentRef: outcomesContentRef } =
@@ -639,6 +624,38 @@ export default function TurnContainer({
     (n, g) => n + g.toolCalls.length,
     0,
   );
+
+  // Flatten groups (dividers + cards) into one row list for the virtualizer —
+  // only this column is virtualized: a single turn's tool calls can grow
+  // unbounded across a long agentic loop, whereas the number of turns
+  // themselves is a session-level concern (better solved by compaction than
+  // by nesting a second virtualizer around TurnContainer itself).
+  type ToolCallRow =
+    | { type: "divider"; key: string; subturnIdx: number }
+    | { type: "card"; key: string; tc: ToolCallEntry };
+  const toolCallRows: ToolCallRow[] = [];
+  for (const group of toolCallGroups) {
+    if (hasMultipleToolGroups) {
+      toolCallRows.push({
+        type: "divider",
+        key: `divider:${group.subturnId}`,
+        subturnIdx: group.subturnIdx,
+      });
+    }
+    for (const tc of group.toolCalls) {
+      toolCallRows.push({ type: "card", key: tc.id, tc });
+    }
+  }
+
+  const toolCallsVirtualizer = useVirtualizer({
+    count: toolCallRows.length,
+    getScrollElement: () => toolsScrollRef.current,
+    estimateSize: () => 90,
+    getItemKey: (index) => toolCallRows[index].key,
+    overscan: 5,
+    anchorTo: "end",
+    followOnAppend: true,
+  });
 
   // Display content for the current/last subturn: final exchange or live streaming
   const lastExchange = lastSubturnExchanges[lastSubturnExchanges.length - 1];
@@ -812,28 +829,42 @@ export default function TurnContainer({
           <div css={toolCallsSectionCss}>
             <div css={centerSectionHeaderCss}>Tool Calls</div>
             <div css={toolCallsScrollCss} ref={toolsScrollRef}>
-              <div css={toolCallsContentCss} ref={toolsContentRef}>
-                {totalToolCallCount > 0 && (
-                  <div css={toolCallsGroupInnerCss}>
-                    {toolCallGroups.map((group) => (
-                      <Fragment key={group.subturnId}>
-                        {hasMultipleToolGroups && (
+              {totalToolCallCount > 0 && (
+                <div
+                  style={{
+                    position: "relative",
+                    width: "100%",
+                    height: toolCallsVirtualizer.getTotalSize(),
+                  }}
+                >
+                  {toolCallsVirtualizer.getVirtualItems().map((virtualRow) => {
+                    const row = toolCallRows[virtualRow.index];
+                    return (
+                      <div
+                        key={row.key}
+                        data-index={virtualRow.index}
+                        ref={toolCallsVirtualizer.measureElement}
+                        style={{
+                          position: "absolute",
+                          top: 0,
+                          left: 0,
+                          width: "100%",
+                          paddingBottom: 12,
+                          transform: `translateY(${virtualRow.start}px)`,
+                        }}
+                      >
+                        {row.type === "divider" ? (
                           <div css={subturnDividerCss}>
-                            subturn {group.subturnIdx + 1}
+                            subturn {row.subturnIdx + 1}
                           </div>
+                        ) : (
+                          <ToolCallCard tc={row.tc} onViewFull={onViewFull} />
                         )}
-                        {group.toolCalls.map((tc) => (
-                          <ToolCallCard
-                            key={tc.id}
-                            tc={tc}
-                            onViewFull={onViewFull}
-                          />
-                        ))}
-                      </Fragment>
-                    ))}
-                  </div>
-                )}
-              </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </div>
         </div>
