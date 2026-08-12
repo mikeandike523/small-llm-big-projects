@@ -2,6 +2,7 @@ from __future__ import annotations
 
 ENABLE_REDACTION = True
 
+import textwrap
 from textwrap import dedent
 
 from src.tools._eol import EOL_CHOICES
@@ -13,68 +14,97 @@ from src.tools._memory import ensure_session_memory
 from src.tools._text_editor_actions import _READ_ONLY_ACTIONS, _WRITE_ACTIONS
 from src.tools._path_utils import _resolve_path
 
+# ---------------------------------------------------------------------------
+# Disabled actions
+# ---------------------------------------------------------------------------
+#
+# Actions listed here are fully excluded: from the enum/description offered
+# to the model, from the dispatch tables, and from approval/dirty-effects
+# logic. Kept implemented in _text_editor_actions.py (not deleted) since
+# these are considered temporarily unstable rather than permanently removed.
+_DISABLED_ACTIONS: dict[str, str] = {
+    "insert_lines": "Models hallucinate line numbers too often for this to be safe.",
+    "delete_lines": "Models hallucinate line numbers too often for this to be safe.",
+}
+
+# Ordered action -> one-line description, source of truth for both the enum
+# and the per-action description text below. Filtering _DISABLED_ACTIONS out
+# of this dict is enough to fully unlist an action from the tool schema.
+_ACTION_DESCRIPTIONS: dict[str, str] = {
+    "read_lines": "read all or a line range (1-based inclusive).",
+    "search_by_regex": "search for lines matching a regex; returns matching lines with line numbers.",
+    "count_lines": "count total lines.",
+    "check_eol": "report line-ending style statistics.",
+    "normalize_eol": "normalize all line endings to a single style.",
+    "check_indentation": "report indentation style statistics.",
+    "convert_indentation": "convert leading-whitespace indentation style.",
+    "apply_patch": "apply a unified diff patch string ('patch' param). Hunks locate themselves by content search; @@ line numbers are used only for pure-insertion anchoring. Always matches the target file's EOL style.",
+    "search_replace": "apply one or more AIDER-style SEARCH/REPLACE blocks ('patch' param). Skips hunk-header parsing: each block's SEARCH text is located by the same fuzzy, single-location, line-count-preserving matching as apply_patch, then replaced with the REPLACE text. Each block must match exactly one location; use regex_replace to change many locations at once.",
+    "regex_replace": "replace ALL (or 'count') matches of a Python regex ('pattern') with 'replacement' (supports \\1 backreferences). Applied with re.MULTILINE over the whole content.",
+    "insert_lines": "insert 'content' before line 'start_line' (1-based).",
+    "delete_lines": "delete lines 'start_line'..'end_line' (1-based inclusive; end_line defaults to start_line).",
+    "append_lines": "append 'content' to the end.",
+    "prepend_lines": "prepend 'content' to the beginning.",
+}
+
+_ENABLED_ACTIONS: list[str] = [
+    name for name in _ACTION_DESCRIPTIONS if name not in _DISABLED_ACTIONS
+]
+
+
+def _build_action_summary_line() -> str:
+    """'Actions: a, b, c, ...' summary used in the top-level tool description."""
+    return "Actions: " + ", ".join(_ENABLED_ACTIONS) + "."
+
+
+def _build_action_enum_description() -> str:
+    """Per-action bullet list used as the 'action' parameter's description."""
+    name_width = max(len(name) for name in _ENABLED_ACTIONS)
+    bullets = "\n".join(
+        f"  {name.ljust(name_width)} -- {_ACTION_DESCRIPTIONS[name]}"
+        for name in _ENABLED_ACTIONS
+    )
+    return "The operation to perform:\n" + bullets
+
+
+def _used_by(*actions: str) -> str:
+    """'Used by: a, b, c.' clause, dropping any actions in _DISABLED_ACTIONS."""
+    enabled = [a for a in actions if a in _ENABLED_ACTIONS]
+    return "Used by: " + ", ".join(enabled) + "."
+
+
+_DESCRIPTION_HEADER = dedent(
+    """
+    Structural text-editor operations on a session memory string value OR directly on a file on disk.
+    Provide exactly one of: 'key' (session memory key) or 'filepath' (path to a file on disk).
+    When 'filepath' is given the file is read into a temporary buffer, the operation is applied,
+    and (for write actions) the result is written back atomically.
+
+    LINE ENDING RULES:
+    Only LF (\\n) and CRLF (\\r\\n) are recognised as line terminators.
+    Bare \\r is treated as a regular character and is never split on or converted.
+    Write actions always re-encode the result to match the existing EOL style
+    (CRLF if any CRLF present, else LF).
+    """
+).strip()
+
 DEFINITION: dict = {
     "type": "function",
     "function": {
         "name": "text_editor",
-        "description": dedent(
-            """
-            Structural text-editor operations on a session memory string value OR directly on a file on disk.
-            Provide exactly one of: 'key' (session memory key) or 'filepath' (path to a file on disk).
-            When 'filepath' is given the file is read into a temporary buffer, the operation is applied,
-            and (for write actions) the result is written back atomically.
-
-            LINE ENDING RULES:
-            Only LF (\\n) and CRLF (\\r\\n) are recognised as line terminators.
-            Bare \\r is treated as a regular character and is never split on or converted.
-            Write actions always re-encode the result to match the existing EOL style
-            (CRLF if any CRLF present, else LF).
-
-            Actions: read_lines, search_by_regex, count_lines, check_eol, normalize_eol,
-            check_indentation, convert_indentation, apply_patch, search_replace, regex_replace,
-            insert_lines, delete_lines, append_lines, prepend_lines.
-            """
-        ).strip(),
+        # Built by concatenation, not embedded in the dedent() above: interpolating
+        # textwrap.fill()'s multi-line, zero-indented output into that dedent block
+        # would flatten dedent's common-leading-whitespace detection to nothing.
+        "description": _DESCRIPTION_HEADER
+        + "\n\n"
+        + textwrap.fill(_build_action_summary_line(), width=95),
         "parameters": {
             "type": "object",
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": [
-                        "read_lines",
-                        "search_by_regex",
-                        "count_lines",
-                        "check_eol",
-                        "normalize_eol",
-                        "check_indentation",
-                        "convert_indentation",
-                        "apply_patch",
-                        "search_replace",
-                        "regex_replace",
-                        "insert_lines",
-                        "delete_lines",
-                        "append_lines",
-                        "prepend_lines",
-                    ],
-                    "description": dedent(
-                        """
-                        The operation to perform:
-                          read_lines          -- read all or a line range (1-based inclusive).
-                          search_by_regex     -- search for lines matching a regex; returns matching lines with line numbers.
-                          count_lines         -- count total lines.
-                          check_eol           -- report line-ending style statistics.
-                          normalize_eol       -- normalize all line endings to a single style.
-                          check_indentation   -- report indentation style statistics.
-                          convert_indentation -- convert leading-whitespace indentation style.
-                          apply_patch         -- apply a unified diff patch string ('patch' param). Hunks locate themselves by content search; @@ line numbers are used only for pure-insertion anchoring. Always matches the target file's EOL style.
-                          search_replace      -- apply one or more AIDER-style SEARCH/REPLACE blocks ('patch' param). Skips hunk-header parsing: each block's SEARCH text is located by the same fuzzy, single-location, line-count-preserving matching as apply_patch, then replaced with the REPLACE text. Each block must match exactly one location; use regex_replace to change many locations at once.
-                          regex_replace       -- replace ALL (or 'count') matches of a Python regex ('pattern') with 'replacement' (supports \\1 backreferences). Applied with re.MULTILINE over the whole content.
-                          insert_lines        -- insert 'content' before line 'start_line' (1-based).
-                          delete_lines        -- delete lines 'start_line'..'end_line' (1-based inclusive; end_line defaults to start_line).
-                          append_lines        -- append 'content' to the end.
-                          prepend_lines       -- prepend 'content' to the beginning.
-                        """
-                    ).strip(),
+                    "enum": list(_ENABLED_ACTIONS),
+                    "description": _build_action_enum_description(),
                 },
                 "key": {
                     "type": "string",
@@ -87,12 +117,28 @@ DEFINITION: dict = {
                 "start_line": {
                     "type": "integer",
                     "minimum": 1,
-                    "description": "1-based start line (inclusive). Used by: read_lines, delete_lines; for insert_lines it is the line before which 'content' is inserted (1..count+1).",
+                    "description": (
+                        "1-based start line (inclusive). "
+                        + _used_by("read_lines", "delete_lines")
+                        + (
+                            " For insert_lines it is the line before which 'content' is inserted (1..count+1)."
+                            if "insert_lines" in _ENABLED_ACTIONS
+                            else ""
+                        )
+                    ),
                 },
                 "end_line": {
                     "type": "integer",
                     "minimum": 1,
-                    "description": "1-based end line (inclusive). Used by: read_lines, delete_lines (defaults to start_line when omitted).",
+                    "description": (
+                        "1-based end line (inclusive). "
+                        + _used_by("read_lines", "delete_lines")
+                        + (
+                            " Defaults to start_line when omitted (delete_lines)."
+                            if "delete_lines" in _ENABLED_ACTIONS
+                            else ""
+                        )
+                    ),
                 },
                 "number_lines": {
                     "type": "boolean",
@@ -137,7 +183,8 @@ DEFINITION: dict = {
                 },
                 "content": {
                     "type": "string",
-                    "description": "Literal text (one or more lines) to add. Used by: insert_lines, append_lines, prepend_lines.",
+                    "description": "Literal text (one or more lines) to add. "
+                    + _used_by("insert_lines", "append_lines", "prepend_lines"),
                 },
                 "replacement": {
                     "type": "string",
@@ -159,6 +206,17 @@ DEFINITION: dict = {
 # Approval gating
 # ---------------------------------------------------------------------------
 
+# Strip disabled actions out of the dispatch tables imported from
+# _text_editor_actions.py. Everything downstream (approval, dirty-effects,
+# the diff-preview config route, execute()'s own dispatch) reads these two
+# names, so filtering here is enough to fully unlist an action without
+# touching its implementation.
+_READ_ONLY_ACTIONS = {
+    name: fn for name, fn in _READ_ONLY_ACTIONS.items() if name not in _DISABLED_ACTIONS
+}
+_WRITE_ACTIONS = {
+    name: fn for name, fn in _WRITE_ACTIONS.items() if name not in _DISABLED_ACTIONS
+}
 
 _WRITE_ACTIONS_SET = set(_WRITE_ACTIONS)
 
@@ -173,7 +231,7 @@ _DRYRUN_ACTIONS = {
     "delete_lines",
     "append_lines",
     "prepend_lines",
-}
+} - set(_DISABLED_ACTIONS)
 
 
 def dirty_effects(args: dict, session_data: dict | None = None) -> dict:

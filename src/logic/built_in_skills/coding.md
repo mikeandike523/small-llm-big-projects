@@ -28,7 +28,7 @@ direction, so you can continue working.
 - **Editing existing content**:
 
 Use the `text_editor` tool with one of several `action` parameters to edit file content.
-For example, "insert_lines", "delete_lines", "append_lines", "prepend_lines", "apply_patch", "search_replace" and
+For example, "append_lines", "prepend_lines", "apply_patch", "search_replace" and
 "regex_replace".
 "apply_patch" is preferred to "search_replace", but you can use "search_replace" if patches fail repeatedly.
 Only if all editing methods fail, write the whole file anew as a last resort.
