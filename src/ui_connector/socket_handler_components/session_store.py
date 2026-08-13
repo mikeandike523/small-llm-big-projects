@@ -26,7 +26,7 @@ from src.utils.session_model import (
 from src.utils.session_events import derive_meta, replay_events
 from src.utils.sql.session_store_db import (
     append_events,
-    delete_session,
+    delete_sessions,
     load_session_events,
     load_session_meta,
     mark_session_corrupt,
@@ -87,8 +87,14 @@ def _init_session_caches(session: Session, session_id: str) -> None:
                     workspace_root=session.initial_cwd or None,
                     session_prefix=session_id[:8],
                 )
-                _excl_load = {n for n, f in custom_exclusions.items() if f.get("loading")}
-                base_defs = [d for d in ALL_TOOL_DEFINITIONS if d.get("function", {}).get("name") not in _excl_load]
+                _excl_load = {
+                    n for n, f in custom_exclusions.items() if f.get("loading")
+                }
+                base_defs = [
+                    d
+                    for d in ALL_TOOL_DEFINITIONS
+                    if d.get("function", {}).get("name") not in _excl_load
+                ]
                 base_map = {k: v for k, v in _TOOL_MAP.items() if k not in _excl_load}
                 tool_defs = base_defs + extra_defs
                 tool_map = {**base_map, **extra_map}
@@ -290,23 +296,41 @@ def _save_session(session_id: str, session: Session) -> None:
     r.expire(f"session:{session_id}:events", _state._SESSION_TTL)
 
 
+def _delete_sessions(session_ids: list[str]) -> None:
+    """Delete many sessions from MySQL, Redis and in-memory caches."""
+    if not session_ids:
+        return
+    try:
+        delete_sessions(session_ids)
+    except Exception as exc:
+        logger.warning("DB delete failed for sessions %s: %s", session_ids, exc)
+
+    r = _state._get_redis()
+    keys = []
+    for session_id in session_ids:
+        keys.extend(
+            [
+                f"session:{session_id}",
+                f"session:{session_id}:memory",
+                f"session:{session_id}:events",
+                f"session:{session_id}:persist_state",
+            ]
+        )
+    if keys:
+        r.delete(*keys)
+
+    for session_id in session_ids:
+        _state._session_tool_sets.pop(session_id, None)
+        _state._session_system_prompts.pop(session_id, None)
+        _state._session_skill_registries.pop(session_id, None)
+        _state._session_project_config.pop(session_id, None)
+        _state._session_current_cwd.pop(session_id, None)
+        _state._session_costs.pop(session_id, None)
+
+
 def _delete_session(session_id: str) -> None:
     """Delete all data for a session from MySQL, Redis and in-memory caches."""
-    try:
-        delete_session(session_id)
-    except Exception as exc:
-        logger.warning("DB delete failed for session %s: %s", session_id, exc)
-    r = _state._get_redis()
-    r.delete(f"session:{session_id}")
-    r.delete(f"session:{session_id}:memory")
-    r.delete(f"session:{session_id}:events")
-    r.delete(f"session:{session_id}:persist_state")
-    _state._session_tool_sets.pop(session_id, None)
-    _state._session_system_prompts.pop(session_id, None)
-    _state._session_skill_registries.pop(session_id, None)
-    _state._session_project_config.pop(session_id, None)
-    _state._session_current_cwd.pop(session_id, None)
-    _state._session_costs.pop(session_id, None)
+    _delete_sessions([session_id])
 
 
 def invalidate_redis_session_cache_on_startup() -> None:

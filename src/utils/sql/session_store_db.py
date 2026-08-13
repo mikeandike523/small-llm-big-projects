@@ -218,15 +218,28 @@ def mark_session_corrupt(session_id: str) -> None:
         conn.commit()
 
 
-def delete_session(session_id: str) -> None:
-    """Delete a session's metadata row and all of its events (no-op if absent)."""
+def delete_sessions(session_ids: Sequence[str]) -> int:
+    """Delete many sessions' metadata rows and events in a single transaction.
+
+    Deletes each session's events first, then its metadata row. Returns the
+    number of sessions passed in (the deletes are no-ops for absent sessions).
+    """
+    ids = list(session_ids)
+    if not ids:
+        return 0
+
+    id_tuples = [(session_id,) for session_id in ids]
     pool = get_pool()
     with pool.get_connection() as conn:
         with conn.cursor() as cur:
-            cur.execute(
-                "DELETE FROM session_events WHERE session_id = %s", (session_id,)
+            cur.executemany(
+                "DELETE FROM session_events WHERE session_id = %s", id_tuples
             )
-            cur.execute(
-                "DELETE FROM session_meta WHERE session_id = %s", (session_id,)
-            )
+            cur.executemany("DELETE FROM session_meta WHERE session_id = %s", id_tuples)
         conn.commit()
+    return len(ids)
+
+
+def delete_session(session_id: str) -> None:
+    """Delete a session's metadata row and all of its events (no-op if absent)."""
+    delete_sessions([session_id])

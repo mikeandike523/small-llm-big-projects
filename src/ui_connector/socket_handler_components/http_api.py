@@ -16,6 +16,7 @@ from src.ui_connector.socket_handler_components.session_store import (
     _load_session,
     _save_session,
     _delete_session,
+    _delete_sessions,
     _init_session_caches,
     _get_session_skill_registry,
 )
@@ -24,7 +25,12 @@ from src.ui_connector.socket_handler_components.terminal import (
 )
 from src.utils.sql.session_store_db import list_session_meta
 from src.data import get_pool
-from src.tools import ALL_TOOL_DEFINITIONS, _TOOL_MAP, load_custom_tools, validate_no_reserved_params
+from src.tools import (
+    ALL_TOOL_DEFINITIONS,
+    _TOOL_MAP,
+    load_custom_tools,
+    validate_no_reserved_params,
+)
 from src.logic.system_prompt import (
     SkillManifestError,
     build_skill_registry,
@@ -85,7 +91,9 @@ def api_create_session():
                     )
                     if cur.fetchone() is None:
                         return (
-                            jsonify({"error": f"Profile '{raw_profile}' does not exist."}),
+                            jsonify(
+                                {"error": f"Profile '{raw_profile}' does not exist."}
+                            ),
                             400,
                         )
         except Exception as exc:
@@ -144,7 +152,11 @@ def api_create_session():
                 session_prefix=session_id[:8],
             )
             _excl_load = {n for n, f in custom_exclusions.items() if f.get("loading")}
-            base_defs = [d for d in ALL_TOOL_DEFINITIONS if d.get("function", {}).get("name") not in _excl_load]
+            base_defs = [
+                d
+                for d in ALL_TOOL_DEFINITIONS
+                if d.get("function", {}).get("name") not in _excl_load
+            ]
             base_map = {k: v for k, v in _TOOL_MAP.items() if k not in _excl_load}
             _state._session_tool_sets[session_id] = (
                 base_defs + extra_defs,
@@ -228,6 +240,55 @@ def api_delete_session(session_id: str):
     return jsonify({"ok": True})
 
 
+@app.route("/api/sessions/bulk-delete", methods=["POST"])
+def api_bulk_delete_sessions():
+    """
+    Delete many sessions at once.
+
+    Body (JSON):
+      session_ids   list[str] — session ids to delete (may be empty)
+
+    Sessions with an active turn are skipped and reported back so the UI can
+    leave them selected rather than silently dropping them.
+    Returns:
+      {"deleted": [...], "skipped": [...]}
+    """
+    data = request.get_json(force=True, silent=True) or {}
+    raw_ids = data.get("session_ids")
+    if not isinstance(raw_ids, list):
+        return jsonify({"error": "session_ids must be a list"}), 400
+
+    session_ids: list[str] = []
+    seen: set[str] = set()
+    for raw in raw_ids:
+        if not isinstance(raw, str):
+            return jsonify({"error": "session_ids must contain only strings"}), 400
+        session_id = raw.strip()
+        if not session_id:
+            continue
+        if session_id not in seen:
+            seen.add(session_id)
+            session_ids.append(session_id)
+
+    deleted: list[str] = []
+    skipped: list[str] = []
+    for session_id in session_ids:
+        if session_id in _state._session_active_turns:
+            skipped.append(session_id)
+        else:
+            deleted.append(session_id)
+
+    _delete_sessions(deleted)
+
+    if skipped:
+        logger.info(
+            "Bulk delete skipped %d active session(s): %s", len(skipped), skipped
+        )
+    if deleted:
+        logger.info("Bulk deleted %d session(s) via API", len(deleted))
+    return jsonify({"deleted": deleted, "skipped": skipped})
+
+
 @app.route("/api/sessions/<session_id>/profile", methods=["PATCH"])
 def api_session_set_profile(session_id: str):
     """Change the profile for a session (takes effect on next turn)."""
@@ -240,11 +301,14 @@ def api_session_set_profile(session_id: str):
             with pool.get_connection() as conn:
                 with conn.cursor() as cur:
                     cur.execute(
-                        "SELECT 1 FROM profiles WHERE name = %s LIMIT 1", (profile_name,)
+                        "SELECT 1 FROM profiles WHERE name = %s LIMIT 1",
+                        (profile_name,),
                     )
                     if cur.fetchone() is None:
                         return (
-                            jsonify({"error": f"Profile '{profile_name}' does not exist."}),
+                            jsonify(
+                                {"error": f"Profile '{profile_name}' does not exist."}
+                            ),
                             404,
                         )
         except Exception as exc:

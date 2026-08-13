@@ -1,6 +1,6 @@
 /** @jsxImportSource @emotion/react */
 import { css, keyframes } from "@emotion/react";
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useRef, useState, useCallback } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import NewSessionDialog, { type SessionDefaults } from "./NewSessionDialog";
 
@@ -19,6 +19,11 @@ interface SessionSummary {
   task_titles: string[];
   skills_path: string | null;
   custom_tools_path: string | null;
+}
+
+interface BulkDeleteResponse {
+  deleted: string[];
+  skipped: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -265,6 +270,105 @@ const trashBtnCss = css`
   }
 `;
 
+const selectAllBtnCss = css`
+  background: none;
+  border: 1px solid #30405f;
+  border-radius: 6px;
+  color: #7b9cff;
+  font-size: 12px;
+  font-family: inherit;
+  padding: 7px 14px;
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    border-color 0.15s;
+  &:hover {
+    background: #101a28;
+    border-color: #4a6aee;
+  }
+  &:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+`;
+
+const selectColCss = css`
+  display: flex;
+  align-items: flex-start;
+  padding-top: 2px;
+  flex-shrink: 0;
+`;
+
+const checkboxCss = css`
+  appearance: none;
+  width: 15px;
+  height: 15px;
+  border: 1px solid #30405f;
+  border-radius: 3px;
+  background: #0a0f18;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition:
+    background 0.12s,
+    border-color 0.12s;
+
+  &:hover {
+    border-color: #7b9cff;
+  }
+
+  &:checked {
+    background: #1d3b8a;
+    border-color: #4a6aee;
+  }
+
+  &:checked::after {
+    content: "✓";
+    display: block;
+    color: #eaf0ff;
+    font-size: 11px;
+    line-height: 13px;
+    text-align: center;
+  }
+`;
+
+const bulkBarCss = css`
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  background: #151a24;
+  border: 1px solid #30405f;
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin-bottom: 16px;
+`;
+
+const bulkDeleteBtnCss = css`
+  background: #2a0a0a;
+  border: 1px solid #cc2222;
+  border-radius: 6px;
+  color: #ee4444;
+  font-size: 12px;
+  font-family: inherit;
+  font-weight: 600;
+  padding: 7px 14px;
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    border-color 0.15s;
+  &:hover:not(:disabled) {
+    background: #3a0a0a;
+    border-color: #ff4444;
+  }
+  &:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+`;
+
 const openDirBtnCss = css`
   background: none;
   border: none;
@@ -316,7 +420,13 @@ const tooltipWrapCss = css`
   }
 `;
 
-function Tooltip({ label, children }: { label: string; children: JSX.Element }) {
+function Tooltip({
+  label,
+  children,
+}: {
+  label: string;
+  children: JSX.Element;
+}) {
   return (
     <span css={tooltipWrapCss} data-tip={label}>
       {children}
@@ -337,8 +447,24 @@ function FolderPlusIcon() {
         d="M1 5.5C1 4.67 1.67 4 2.5 4H6.79L7.85 5.06A1 1 0 008.56 5.5H13.5C14.33 5.5 15 6.17 15 7V12C15 12.83 14.33 13.5 13.5 13.5H2.5C1.67 13.5 1 12.83 1 12V5.5Z"
         fill="currentColor"
       />
-      <line x1="8" y1="7.5" x2="8" y2="11.5" stroke="white" strokeWidth="1.4" strokeLinecap="round" />
-      <line x1="6" y1="9.5" x2="10" y2="9.5" stroke="white" strokeWidth="1.4" strokeLinecap="round" />
+      <line
+        x1="8"
+        y1="7.5"
+        x2="8"
+        y2="11.5"
+        stroke="white"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+      />
+      <line
+        x1="6"
+        y1="9.5"
+        x2="10"
+        y2="9.5"
+        stroke="white"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+      />
     </svg>
   );
 }
@@ -487,6 +613,11 @@ export default function Dashboard() {
   const [newSessionCwd, setNewSessionCwd] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<SessionSummary | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [showBulkDelete, setShowBulkDelete] = useState(false);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+  const selectedIdsRef = useRef<Set<string>>(selectedIds);
+  selectedIdsRef.current = selectedIds;
   const [sessionDefaults, setSessionDefaults] =
     useState<SessionDefaults | null>(null);
   const [sessionDefaultsError, setSessionDefaultsError] = useState<
@@ -574,6 +705,76 @@ export default function Dashboard() {
     }
   }
 
+  const selectableIds = sessions
+    .filter((s) => !s.active_turn)
+    .map((s) => s.session_id);
+
+  const allSelected =
+    selectableIds.length > 0 &&
+    selectableIds.every((id) => selectedIds.has(id));
+
+  function toggleSelect(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  }
+
+  function toggleSelectAll() {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (allSelected) {
+        for (const id of selectableIds) next.delete(id);
+      } else {
+        for (const id of selectableIds) next.add(id);
+      }
+      return next;
+    });
+  }
+
+  async function confirmBulkDelete() {
+    const ids = Array.from(selectedIdsRef.current);
+    if (ids.length === 0) {
+      setShowBulkDelete(false);
+      return;
+    }
+    setBulkDeleting(true);
+    try {
+      const res = await fetch("/api/sessions/bulk-delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session_ids: ids }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        alert(body.error ?? `Delete failed (${res.status})`);
+      } else {
+        const result: BulkDeleteResponse = await res.json();
+        const deletedSet = new Set(result.deleted);
+        setSessions((prev) =>
+          prev.filter((s) => !deletedSet.has(s.session_id)),
+        );
+        // Keep skipped (active-turn) sessions selected; they were not deleted.
+        setSelectedIds(new Set(result.skipped));
+        if (result.skipped.length > 0) {
+          alert(
+            `${result.deleted.length} session(s) deleted. ${result.skipped.length} active session(s) were skipped.`,
+          );
+        }
+      }
+    } catch {
+      alert("Could not reach server");
+    } finally {
+      setBulkDeleting(false);
+      setShowBulkDelete(false);
+    }
+  }
+
   return (
     <div css={containerCss}>
       <div css={headerCss}>
@@ -587,7 +788,10 @@ export default function Dashboard() {
           </Link>
           <button
             css={newSessionBtnCss}
-            onClick={() => { setNewSessionCwd(null); setShowNewSession(true); }}
+            onClick={() => {
+              setNewSessionCwd(null);
+              setShowNewSession(true);
+            }}
             disabled={
               sessionDefaults === null ||
               sessionDefaults.default_profile === null
@@ -647,20 +851,45 @@ export default function Dashboard() {
         )}
 
         {sessions.length > 0 && (
-          <div css={sessionGridCss}>
-            {sessions.map((s) => (
-              <SessionCard
-                key={s.session_id}
-                session={s}
-                onClick={() => openSession(s.session_id)}
-                onDelete={(e) => {
-                  e.stopPropagation();
-                  setDeleteTarget(s);
-                }}
-                onOpenInSameDir={(e) => openNewSessionInDir(s.initial_cwd, e)}
-              />
-            ))}
-          </div>
+          <>
+            <div css={bulkBarCss}>
+              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                <span style={{ fontSize: 12, color: "#dbe5ff" }}>
+                  {selectedIds.size} selected
+                </span>
+                <button
+                  css={selectAllBtnCss}
+                  onClick={toggleSelectAll}
+                  disabled={selectableIds.length === 0}
+                >
+                  {allSelected ? "Clear all" : "Select all"}
+                </button>
+              </div>
+              <button
+                css={bulkDeleteBtnCss}
+                onClick={() => setShowBulkDelete(true)}
+                disabled={selectedIds.size === 0 || bulkDeleting}
+              >
+                Delete selected
+              </button>
+            </div>
+            <div css={sessionGridCss}>
+              {sessions.map((s) => (
+                <SessionCard
+                  key={s.session_id}
+                  session={s}
+                  selected={selectedIds.has(s.session_id)}
+                  onToggleSelect={() => toggleSelect(s.session_id)}
+                  onClick={() => openSession(s.session_id)}
+                  onDelete={(e) => {
+                    e.stopPropagation();
+                    setDeleteTarget(s);
+                  }}
+                  onOpenInSameDir={(e) => openNewSessionInDir(s.initial_cwd, e)}
+                />
+              ))}
+            </div>
+          </>
         )}
       </div>
 
@@ -668,7 +897,10 @@ export default function Dashboard() {
         <NewSessionDialog
           sessionDefaults={sessionDefaults}
           onCreated={handleSessionCreated}
-          onClose={() => { setShowNewSession(false); setNewSessionCwd(null); }}
+          onClose={() => {
+            setShowNewSession(false);
+            setNewSessionCwd(null);
+          }}
           initialCwd={newSessionCwd ?? undefined}
         />
       )}
@@ -707,6 +939,39 @@ export default function Dashboard() {
           </div>
         </div>
       )}
+
+      {showBulkDelete && (
+        <div
+          css={modalOverlayCss}
+          onClick={() => !bulkDeleting && setShowBulkDelete(false)}
+        >
+          <div css={modalBoxCss} onClick={(e) => e.stopPropagation()}>
+            <div css={modalTitleCss}>Delete Selected Sessions?</div>
+            <div css={modalBodyCss}>
+              This will permanently delete all data for{" "}
+              <strong style={{ color: "#ccc" }}>{selectedIds.size}</strong>{" "}
+              selected session(s), including all turns, memory, and cached
+              state. This cannot be undone.
+            </div>
+            <div css={modalActionsCss}>
+              <button
+                css={modalCancelBtnCss}
+                onClick={() => setShowBulkDelete(false)}
+                disabled={bulkDeleting}
+              >
+                Cancel
+              </button>
+              <button
+                css={modalDeleteBtnCss}
+                onClick={confirmBulkDelete}
+                disabled={bulkDeleting}
+              >
+                {bulkDeleting ? "Deleting..." : "Delete"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -717,11 +982,15 @@ export default function Dashboard() {
 
 function SessionCard({
   session,
+  selected,
+  onToggleSelect,
   onClick,
   onDelete,
   onOpenInSameDir,
 }: {
   session: SessionSummary;
+  selected: boolean;
+  onToggleSelect: () => void;
   onClick: () => void;
   onDelete: (e: React.MouseEvent) => void;
   onOpenInSameDir: (e: React.MouseEvent) => void;
@@ -734,10 +1003,30 @@ function SessionCard({
   const titles = session.task_titles ?? [];
   const MAX_TITLES = 4;
 
+  function handleToggleSelect() {
+    if (session.active_turn) return;
+    onToggleSelect();
+  }
+
   return (
     <div css={sessionCardCss} onClick={onClick}>
       <div css={cardHeaderCss}>
         <div css={cwdLineCss}>
+          <span css={selectColCss}>
+            <input
+              type="checkbox"
+              css={checkboxCss}
+              checked={selected}
+              disabled={session.active_turn}
+              onClick={(e) => e.stopPropagation()}
+              onChange={handleToggleSelect}
+              aria-label={
+                session.active_turn
+                  ? "Cannot select a session with an active turn"
+                  : `Select session ${session.session_id.slice(0, 8)}`
+              }
+            />
+          </span>
           <span css={cwdBaseCss} title={fullPath}>
             {base}
           </span>
