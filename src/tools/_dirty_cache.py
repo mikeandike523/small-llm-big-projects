@@ -146,21 +146,49 @@ def check_requires_clean(
     if not unseen_files and not dirty_files and not unseen_mem and not dirty_mem:
         return None
 
+    # These notes exist because of a specific failure mode seen in testing with
+    # smaller models: when told a file/mem key is dirty or unseen, they routinely
+    # reach for the plausible-looking wrong fix instead of the one that actually
+    # clears the flag, then loop on the same error. Files and mem keys are tracked
+    # in two completely independent namespaces (see module docstring/sets above),
+    # so touching one never clears the other -- the model has to be told that
+    # explicitly or it assumes it does. Concretely:
+    #   - for a dirty/unseen FILE, the model tends to call
+    #     read_text_file(path=..., session_memory_key=...) -- which dirties a mem
+    #     key and does nothing to clean the file -- or picks at it with line_reader,
+    #     whose partial-read dirty_effects are deliberately disabled (see
+    #     line_reader.py) so it never clears this state either.
+    #   - for a dirty/unseen MEM key, the model tends to re-read the underlying
+    #     file from disk, assuming that refreshes the key it actually needs to write.
+    _FILE_NOTE = (
+        "    Note: reading into a session memory key (session_memory_key=...), or a "
+        "partial read via line_reader, will NOT clear this -- only a full "
+        "read_text_file(path=...) call (no session_memory_key) counts."
+    )
+    _MEM_NOTE = (
+        "    Note: reading a related file on disk will NOT clear this -- the memory "
+        "item itself must be read directly with session_memory(action='get', key=...)."
+    )
+
     lines = [f"Error: '{tool_name}' blocked:"]
     for p in unseen_files:
         dp = _display_path(p, cwd)
-        lines.append(f"  File '{dp}' has not been read yet.")
-        lines.append(f"    Read first with: read_text_file(path='{dp}')")
+        lines.append(f"  File '{dp}' has not been read yet. Your context may be incorrect.")
+        lines.append(f"    Run this exact command: read_text_file(path='{dp}')")
+        lines.append(_FILE_NOTE)
     for p in dirty_files:
         dp = _display_path(p, cwd)
-        lines.append(f"  File '{dp}' has been modified since last read.")
-        lines.append(f"    Re-read with: read_text_file(path='{dp}')")
+        lines.append(f"  File '{dp}' is dirty (modified since last read). Your context may be out of date.")
+        lines.append(f"    Re-read with this exact command: read_text_file(path='{dp}')")
+        lines.append(_FILE_NOTE)
     for k in unseen_mem:
-        lines.append(f"  Session memory key '{k}' has not been read yet.")
-        lines.append(f"    Read first with: session_memory(action='get', key='{k}')")
+        lines.append(f"  Memory item '{k}' has not been read yet. Your context may be incorrect.")
+        lines.append(f"    Run this exact command: session_memory(action='get', key='{k}')")
+        lines.append(_MEM_NOTE)
     for k in dirty_mem:
-        lines.append(f"  Session memory key '{k}' has been modified since last read.")
-        lines.append(f"    Re-read with: session_memory(action='get', key='{k}')")
+        lines.append(f"  Memory item '{k}' is dirty (modified since last read). Your context may be incorrect.")
+        lines.append(f"    Re-read with this exact command: session_memory(action='get', key='{k}')")
+        lines.append(_MEM_NOTE)
     return "\n".join(lines)
 
 

@@ -29,25 +29,15 @@ def _find_git_bash() -> str | None:
     return None
 
 
-def resolve_cmd(command: str, command_args: list[str]) -> list[str] | str:
-    """
-    Build the final argv list for *command* + *command_args*.
-
-    If *command* is directly resolvable via shutil.which, run it as-is.
-    Otherwise wrap in the platform login shell (bash -lc / zsh -lc) so that
-    shell-managed PATH entries (nvm, pyenv, etc.) are available.
+def _wrap_in_login_shell(shell_cmd: str) -> list[str] | str:
+    """Wrap *shell_cmd* (a raw shell script/command line) in the platform login
+    shell (bash -lc / zsh -lc) so that shell-managed PATH entries (nvm, pyenv,
+    etc.), builtins, aliases, and operators (&&, |, etc.) all work.
 
     Returns list[str] on success, or an error string if the required shell
     cannot be found.
     """
-    import shlex
-
-    resolved = shutil.which(command)
-    if resolved:
-        return [resolved] + command_args
-
     os_name = get_os()
-    shell_cmd = shlex.join([command] + command_args)
 
     if os_name == "Windows":
         git_bash = _find_git_bash()
@@ -73,6 +63,44 @@ def resolve_cmd(command: str, command_args: list[str]) -> list[str] | str:
     if bash:
         return [bash, "-lc", shell_cmd]
     return "Error: No suitable shell found on this Linux system."
+
+
+def resolve_cmd(command: str, command_args: list[str]) -> list[str] | str:
+    """
+    Build the final argv list for *command* + *command_args*.
+
+    If *command* is directly resolvable via shutil.which, run it as-is.
+    Otherwise wrap in the platform login shell (bash -lc / zsh -lc) so that
+    shell-managed PATH entries (nvm, pyenv, etc.) are available.
+
+    Returns list[str] on success, or an error string if the required shell
+    cannot be found.
+    """
+    import shlex
+
+    # Leniency for weaker models: despite the command/command_args split, they
+    # routinely stuff a whole shell line into `command` -- "cd /foo && ls -la",
+    # "echo hi | grep h", chained commands, redirects, etc. -- a habit carried
+    # over from generic shell-hygiene training rather than this tool's schema.
+    # shutil.which() can never resolve a string containing whitespace, so this
+    # used to fall into the shlex.join() fallback below, which shlex.quote()'s
+    # the *entire* string as a single argv token -- turning a real multi-word
+    # command into a broken "command not found". Detect it up front and run it
+    # as a raw shell script instead, exactly as the model intended.
+    if any(ch.isspace() for ch in command):
+        shell_cmd = command if not command_args else command + " " + " ".join(command_args)
+        return _wrap_in_login_shell(shell_cmd)
+
+    resolved = shutil.which(command)
+    if resolved:
+        return [resolved] + command_args
+
+    # `command` is a single token but not directly resolvable via `which` --
+    # a shell builtin (cd, source), an alias, or something only visible after
+    # shell init (nvm/pyenv-managed PATH). Reassemble with proper quoting and
+    # let the login shell resolve it.
+    shell_cmd = shlex.join([command] + command_args)
+    return _wrap_in_login_shell(shell_cmd)
 
 
 def resolve_shell_cmd(command_line: str) -> list[str]:

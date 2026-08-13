@@ -19,7 +19,11 @@ DEFINITION: dict = {
             "Provide exactly one of: 'path' (file on disk) or 'session_memory_key' (session memory). "
             "Designed for chunked reading: use count_lines first to know the total, "
             "then read in chunks with start_line/end_line.\n\n"
-            "Actions: count_lines, read_lines."
+            "Actions: count_lines, read_lines.\n\n"
+            "Note: line_reader does NOT count as reading a file/memory item for the "
+            "purposes of text_editor's dirty/unseen checks, even if you read all lines. "
+            "To unblock a write to a dirty or unread file, use read_text_file(path=...) "
+            "(or session_memory(action='get', key=...) for a memory item) instead."
         ),
         "parameters": {
             "type": "object",
