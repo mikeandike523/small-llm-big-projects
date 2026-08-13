@@ -270,6 +270,51 @@ const trashBtnCss = css`
   }
 `;
 
+const enterSelectBtnCss = css`
+  background: #1a1a2e;
+  border: 1px solid #2a3a6e;
+  border-radius: 6px;
+  color: #7b9cff;
+  font-size: 12px;
+  font-family: inherit;
+  padding: 8px 18px;
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    border-color 0.15s;
+  &:hover {
+    background: #222244;
+    border-color: #4a6aee;
+  }
+  &:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+`;
+
+const cancelSelectBtnCss = css`
+  background: none;
+  border: 1px solid #30405f;
+  border-radius: 6px;
+  color: #dbe5ff;
+  font-size: 12px;
+  font-family: inherit;
+  padding: 7px 14px;
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    border-color 0.15s;
+  &:hover {
+    background: #1a1a2e;
+    border-color: #8aa4d8;
+    color: #fff;
+  }
+  &:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+`;
+
 const selectAllBtnCss = css`
   background: none;
   border: 1px solid #30405f;
@@ -616,6 +661,7 @@ export default function Dashboard() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showBulkDelete, setShowBulkDelete] = useState(false);
   const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [selectionMode, setSelectionMode] = useState(false);
   const selectedIdsRef = useRef<Set<string>>(selectedIds);
   selectedIdsRef.current = selectedIds;
   const [sessionDefaults, setSessionDefaults] =
@@ -737,6 +783,16 @@ export default function Dashboard() {
     });
   }
 
+  function enterSelectionMode() {
+    setSelectedIds(new Set());
+    setSelectionMode(true);
+  }
+
+  function cancelSelection() {
+    setSelectedIds(new Set());
+    setSelectionMode(false);
+  }
+
   async function confirmBulkDelete() {
     const ids = Array.from(selectedIdsRef.current);
     if (ids.length === 0) {
@@ -852,27 +908,55 @@ export default function Dashboard() {
 
         {sessions.length > 0 && (
           <>
-            <div css={bulkBarCss}>
-              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                <span style={{ fontSize: 12, color: "#dbe5ff" }}>
-                  {selectedIds.size} selected
-                </span>
-                <button
-                  css={selectAllBtnCss}
-                  onClick={toggleSelectAll}
-                  disabled={selectableIds.length === 0}
-                >
-                  {allSelected ? "Clear all" : "Select all"}
+            {!selectionMode ? (
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  marginBottom: 16,
+                }}
+              >
+                <button css={enterSelectBtnCss} onClick={enterSelectionMode}>
+                  Select items
                 </button>
               </div>
-              <button
-                css={bulkDeleteBtnCss}
-                onClick={() => setShowBulkDelete(true)}
-                disabled={selectedIds.size === 0 || bulkDeleting}
-              >
-                Delete selected
-              </button>
-            </div>
+            ) : (
+              <div css={bulkBarCss}>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 12,
+                  }}
+                >
+                  <span style={{ fontSize: 12, color: "#dbe5ff" }}>
+                    {selectedIds.size} selected
+                  </span>
+                  <button
+                    css={selectAllBtnCss}
+                    onClick={toggleSelectAll}
+                    disabled={selectableIds.length === 0}
+                  >
+                    {allSelected ? "Clear selection" : "Select all"}
+                  </button>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <button
+                    css={cancelSelectBtnCss}
+                    onClick={cancelSelection}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    css={bulkDeleteBtnCss}
+                    onClick={() => setShowBulkDelete(true)}
+                    disabled={selectedIds.size === 0 || bulkDeleting}
+                  >
+                    Delete selected
+                  </button>
+                </div>
+              </div>
+            )}
             <div css={sessionGridCss}>
               {sessions.map((s) => (
                 <SessionCard
@@ -886,6 +970,7 @@ export default function Dashboard() {
                     setDeleteTarget(s);
                   }}
                   onOpenInSameDir={(e) => openNewSessionInDir(s.initial_cwd, e)}
+                  hideCheckbox={!selectionMode}
                 />
               ))}
             </div>
@@ -987,6 +1072,7 @@ function SessionCard({
   onClick,
   onDelete,
   onOpenInSameDir,
+  hideCheckbox,
 }: {
   session: SessionSummary;
   selected: boolean;
@@ -994,6 +1080,7 @@ function SessionCard({
   onClick: () => void;
   onDelete: (e: React.MouseEvent) => void;
   onOpenInSameDir: (e: React.MouseEvent) => void;
+  hideCheckbox?: boolean;
 }) {
   const base = cwdBasename(session.initial_cwd);
   const fullPath = session.initial_cwd.replace(/\\/g, "/");
@@ -1012,21 +1099,23 @@ function SessionCard({
     <div css={sessionCardCss} onClick={onClick}>
       <div css={cardHeaderCss}>
         <div css={cwdLineCss}>
-          <span css={selectColCss}>
-            <input
-              type="checkbox"
-              css={checkboxCss}
-              checked={selected}
-              disabled={session.active_turn}
-              onClick={(e) => e.stopPropagation()}
-              onChange={handleToggleSelect}
-              aria-label={
-                session.active_turn
-                  ? "Cannot select a session with an active turn"
-                  : `Select session ${session.session_id.slice(0, 8)}`
-              }
-            />
-          </span>
+          {!hideCheckbox && (
+            <span css={selectColCss}>
+              <input
+                type="checkbox"
+                css={checkboxCss}
+                checked={selected}
+                disabled={session.active_turn}
+                onClick={(e) => e.stopPropagation()}
+                onChange={handleToggleSelect}
+                aria-label={
+                  session.active_turn
+                    ? "Cannot select a session with an active turn"
+                    : `Select session ${session.session_id.slice(0, 8)}`
+                }
+              />
+            </span>
+          )}
           <span css={cwdBaseCss} title={fullPath}>
             {base}
           </span>
