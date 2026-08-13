@@ -94,26 +94,21 @@ async def _async_agent_loop(
     # The try spans skill selection too: the skill selector is a load-bearing
     # watchdog, so its failures must reach the finally's error-emit path below.
     try:
-        # Skill selection: run once on the first subturn and borrow for continuations.
-        if current_subturn.is_continuation and current_turn.selected_skill_ids:
-            entries_by_id = {e["id"]: e for e in skill_registry}
-            selected_skills = [
-                entries_by_id[sid]
-                for sid in current_turn.selected_skill_ids
-                if sid in entries_by_id
-            ]
-        else:
-            selected_skills = await _select_skills_for_turn(
-                streaming_llm,
-                session,
-                current_subturn.user_text,
-                skill_registry,
-                watchdog_params or {},
-                on_usage=_make_sampler_usage_tracker(session_id, "skill_selector"),
-                on_request_log=_make_sampler_request_logger(session_id, "skill_selector"),
-                on_reasoning_detected=_make_sampler_reasoning_detector(session_id, "skill_selector"),
-            )
-            current_turn.selected_skill_ids = [e["id"] for e in selected_skills]
+        # Skill selection: run at the start of every subturn so that
+        # continuations benefit from fresh context (prior subturns of the
+        # current turn are included in the transcript).
+        selected_skills = await _select_skills_for_turn(
+            streaming_llm,
+            session,
+            current_subturn.user_text,
+            skill_registry,
+            watchdog_params or {},
+            on_usage=_make_sampler_usage_tracker(session_id, "skill_selector"),
+            on_request_log=_make_sampler_request_logger(session_id, "skill_selector"),
+            on_reasoning_detected=_make_sampler_reasoning_detector(session_id, "skill_selector"),
+            current_turn=current_turn,
+        )
+        current_turn.selected_skill_ids = [e["id"] for e in selected_skills]
 
         turn_resolved_skills = resolve_skill_dependency_closure(
             skill_registry,
@@ -123,12 +118,13 @@ async def _async_agent_loop(
             entry for entry in turn_resolved_skills if entry["id"] not in baseline_skill_ids
         ]
         loaded_skills = baseline_skills + turn_only_skills
-        if loaded_skills and not current_subturn.is_continuation:
+        if loaded_skills:
             _emit_and_log(
                 session_id,
                 "skills_loaded",
                 {
                     "turn_id": turn_id,
+                    "subturn_id": current_subturn.id,
                     "skill_names": [entry["name"] for entry in loaded_skills],
                 },
             )

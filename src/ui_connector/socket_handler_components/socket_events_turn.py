@@ -28,12 +28,59 @@ from src.ui_connector.socket_handler_components.watchdogs import (
 from src.ui_connector.socket_handler_components.agent_loop import _async_agent_loop
 from src.tools.todo_list import format_items_for_ui as _todo_format_items_for_ui
 from src.utils.llm.factory import load_llm_config, make_llm_refreshing
-from src.utils.session_model import Turn, Subturn
+from src.utils.session_model import Session, Turn, Subturn
 
 logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
+# Task-title helpers
+# ---------------------------------------------------------------------------
+
+
+def _build_title_context(session: Session, current_turn: Turn) -> str | None:
+    """Build a short prior-context string for task-title recomputation on continuation subturns."""
+    parts: list[str] = []
+    for t in session.completed_turns:
+        if t.task_title:
+            parts.append(f"Previous task: {t.task_title}")
+    for st in current_turn.subturns[:-1]:
+        user_text = (st.user_text or "").strip()
+        if len(user_text) > 200:
+            user_text = user_text[:200] + "..."
+        parts.append(f"Previous subturn request: {user_text}")
+    return "\n".join(parts) if parts else None
+
+
+async def _maybe_fetch_task_title(
+    streaming_llm,
+    text: str,
+    watchdog_params: dict,
+    session_id: str,
+    session: Session,
+    current_turn: Turn,
+    turn_id: str,
+    prior_context: str | None = None,
+) -> None:
+    """Fetch a task title and emit it if successful. Best-effort; failures are logged but not fatal."""
+    try:
+        title = await _fetch_task_title(
+            streaming_llm,
+            text,
+            watchdog_params,
+            on_usage=_make_sampler_usage_tracker(session_id, "task_title"),
+            on_request_log=_make_sampler_request_logger(session_id, "task_title"),
+            on_reasoning_detected=_make_sampler_reasoning_detector(session_id, "task_title"),
+            prior_context=prior_context,
+        )
+        if title:
+            current_turn.task_title = title
+            _emit_and_log(session_id, "task_title", {"turn_id": turn_id, "title": title})
+            _save_session(session_id, session)
+    except Exception:
+        logger.warning("Task title fetch failed for turn %s", turn_id, exc_info=True)
+
+
 # Turn-starting socket event handlers
 # ---------------------------------------------------------------------------
 
@@ -195,26 +242,39 @@ def handle_user_message(data: dict):
     asyncio.set_event_loop(loop)
     _state._cancel_loops[session_id] = loop
 
-    async def _fetch_and_store_title() -> None:
-        title = await _fetch_task_title(
-            streaming_llm,
-            text,
-            watchdog_params,
-            on_usage=_make_sampler_usage_tracker(session_id, "task_title"),
-            on_request_log=_make_sampler_request_logger(session_id, "task_title"),
-            on_reasoning_detected=_make_sampler_reasoning_detector(session_id, "task_title"),
-        )
-        if title:
-            current_turn.task_title = title
-            _emit_and_log(
-                session_id, "task_title", {"turn_id": turn_id, "title": title}
-            )
-            _save_session(session_id, session)
-
     async def _run() -> None:
         task = asyncio.current_task()
         _state._cancel_tasks[session_id] = task
+        title_task: asyncio.Task | None = None
         try:
+            if _is_cont:
+                # Continuation subturn: fire title recomputation at subturn start.
+                asyncio.create_task(
+                    _maybe_fetch_task_title(
+                        streaming_llm,
+                        text,
+                        watchdog_params,
+                        session_id,
+                        session,
+                        current_turn,
+                        turn_id,
+                        prior_context=_build_title_context(session, current_turn),
+                    )
+                )
+            else:
+                # New task: fire title fetch concurrently with agent loop.
+                title_task = asyncio.create_task(
+                    _maybe_fetch_task_title(
+                        streaming_llm,
+                        text,
+                        watchdog_params,
+                        session_id,
+                        session,
+                        current_turn,
+                        turn_id,
+                    )
+                )
+
             _had_tool_calls = await _async_agent_loop(
                 session_id,
                 session,
@@ -233,9 +293,23 @@ def handle_user_message(data: dict):
                 create_file_auto_eol=create_file_auto_eol,
                 enable_patch_rewriter=enable_patch_rewriter,
             )
-            if _had_tool_calls and not current_turn.task_title:
-                await _fetch_and_store_title()
+
+            # For new tasks, ensure title is fetched if the concurrent task
+            # hasn't completed or if it failed silently.
+            if not _is_cont and not current_turn.task_title:
+                await _maybe_fetch_task_title(
+                    streaming_llm,
+                    text,
+                    watchdog_params,
+                    session_id,
+                    session,
+                    current_turn,
+                    turn_id,
+                )
+
         except asyncio.CancelledError:
+            if title_task is not None and not title_task.done():
+                title_task.cancel()
             cancel_event.set()
         except Exception as exc:
             logger.exception(
@@ -358,6 +432,19 @@ def handle_force_continuation(data: dict):
         task = asyncio.current_task()
         _state._cancel_tasks[session_id] = task
         try:
+            # Recompute title for this continuation subturn.
+            asyncio.create_task(
+                _maybe_fetch_task_title(
+                    streaming_llm,
+                    text,
+                    watchdog_params,
+                    session_id,
+                    session,
+                    current_turn,
+                    turn_id,
+                    prior_context=_build_title_context(session, current_turn),
+                )
+            )
             await _async_agent_loop(
                 session_id,
                 session,

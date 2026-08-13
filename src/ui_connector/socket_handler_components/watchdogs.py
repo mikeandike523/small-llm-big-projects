@@ -5,6 +5,8 @@ import json
 import logging
 import re
 from typing import Any
+from textwrap import dedent
+
 
 import src.ui_connector.socket_handler_components.state as _state
 from src.ui_connector.socket_handler_components.emit import (
@@ -19,8 +21,10 @@ from src.utils.llm.factory import _call_sampler
 from src.utils.llm.streaming import StreamingLLM
 from src.utils.session_model import Session, Turn, Subturn
 
+
 logger = logging.getLogger(__name__)
 
+FINAL_ANSWER_CANDIDATE_CHAR_LIMIT = 500
 
 # ---------------------------------------------------------------------------
 # Todo list helpers
@@ -68,6 +72,7 @@ async def _fetch_task_title(
     on_usage=None,
     on_request_log=None,
     on_reasoning_detected=None,
+    prior_context: str | None = None,
 ) -> str | None:
     """Make a non-streaming LLM call to generate a short title for the task."""
     messages = [
@@ -75,13 +80,22 @@ async def _fetch_task_title(
             "role": "system",
             "content": (
                 "You are a labelling assistant. "
-                "Given a user request, output a short title of 3-7 words that captures "
+                "Given a user request (and optionally prior conversation context), "
+                "output a short title of 3-7 words that captures "
                 "the essence of what the user wants to accomplish. "
                 "Output ONLY the title — no punctuation, no quotes, no explanation."
             ),
         },
-        {"role": "user", "content": user_text},
     ]
+    if prior_context:
+        messages.append(
+            {
+                "role": "user",
+                "content": f"Prior context:\n{prior_context}\n\nNew request: {user_text}",
+            }
+        )
+    else:
+        messages.append({"role": "user", "content": user_text})
     try:
         result = await asyncio.to_thread(
             _call_sampler, streaming_llm, messages, watchdog_params, on_usage,
@@ -127,7 +141,7 @@ async def _select_best_final_answer(
         return 0
 
     numbered = [
-        f"[Response {i}]:\n{_truncate_watchdog_text(text, 1500).strip()}"
+        f"[Response {i}]:\n{_truncate_watchdog_text(text, FINAL_ANSWER_CANDIDATE_CHAR_LIMIT).strip()}"
         for i, text in enumerate(candidates, start=1)
     ]
     responses_block = "\n\n".join(numbered)
@@ -135,28 +149,35 @@ async def _select_best_final_answer(
     messages = [
         {
             "role": "system",
-            "content": (
-                "You are selecting the single best final reply to send to a user, chosen "
-                "from several candidate responses an assistant produced while working on "
-                "the task.\n\n"
-                "Pick the response that most completely and clearly answers the user's "
-                "request as a standalone final reply. Prefer a finished answer or summary "
-                "over an interim status update, a reasoning fragment, or a note about work "
-                "still in progress.\n\n"
-                "If NONE of the candidates is an acceptable standalone final answer "
-                "(e.g. they are all interim status updates, reasoning fragments, or "
-                "notes about work still in progress), output 0.\n\n"
-                f"The candidates are numbered 1 to {len(candidates)}.\n"
-                "Output ONLY a single number: the best response's number, or 0 if "
-                "none are acceptable. Nothing else."
-            ),
+            "content": dedent(f"""\
+                You are selecting the single best final reply to send to a user, chosen
+                from several candidate responses an assistant produced while working on
+                the task.
+    
+                Pick the response that most completely and clearly answers the user's
+                request as a standalone final reply. Prefer a finished answer or summary
+                over an interim status update, a reasoning fragment, or a note about work
+                still in progress.
+                Prefer a complete answer over a shortened summary that omits technical details.
+    
+                If NONE of the candidates is an acceptable standalone final answer
+                (e.g. they are all interim status updates, reasoning fragments, or
+                notes about work still in progress), output 0.
+    
+                The candidates are numbered 1 to {len(candidates)}.
+                Output ONLY a single number: the best response's number, or 0 if
+                none are acceptable. Nothing else.\
+            """),
         },
         {
             "role": "user",
-            "content": (
-                f"User request:\n{user_text}\n\n"
-                f"Candidate responses:\n{responses_block}"
-            ),
+            "content": dedent(f"""\
+                User request:
+                {user_text}
+    
+                Candidate responses:
+                {responses_block}\
+            """),
         },
     ]
     # NOTE: this is a load-bearing watchdog. A failed LLM call must propagate so
@@ -350,8 +371,8 @@ async def _is_continuation(
 # ---------------------------------------------------------------------------
 
 
-def _build_skill_selector_transcript(session: Session) -> str:
-    """Format completed turns into a short context transcript for the skill selector."""
+def _build_skill_selector_transcript(session: Session, current_turn: Turn | None = None) -> str:
+    """Format completed turns AND prior subturns of the current turn into a short context transcript for the skill selector."""
     if not session.completed_turns:
         return ""
     lines: list[str] = []
@@ -366,6 +387,24 @@ def _build_skill_selector_transcript(session: Session) -> str:
         lines.append(f"User: {user}")
         lines.append(f"Assistant: {assistant}")
         lines.append("")
+
+    # Append prior subturns of the current turn so continuation subturns
+    # benefit from full session context during skill selection.
+    if current_turn and len(current_turn.subturns) > 1:
+        prior_subturns = current_turn.subturns[:-1]
+        turn_num = len(session.completed_turns) + 1
+        for j, st in enumerate(prior_subturns, start=1):
+            user = (st.user_text or "").strip()
+            final_resp = _subturn_final_response(st)
+            if len(user) > _state._SKILL_SELECTOR_TURN_CHARS:
+                user = user[:_state._SKILL_SELECTOR_TURN_CHARS] + "..."
+            if len(final_resp) > _state._SKILL_SELECTOR_TURN_CHARS:
+                final_resp = final_resp[:_state._SKILL_SELECTOR_TURN_CHARS] + "..."
+            lines.append(f"[Turn {turn_num}, Subturn {j}]")
+            lines.append(f"User: {user}")
+            if final_resp:
+                lines.append(f"Assistant: {final_resp}")
+            lines.append("")
     return "\n".join(lines).strip()
 
 
@@ -378,6 +417,7 @@ async def _select_skills_for_turn(
     on_usage=None,
     on_request_log=None,
     on_reasoning_detected=None,
+    current_turn: Turn | None = None,
 ) -> list[dict]:
     """Run a lightweight LLM call to decide which skills to inject for this turn."""
     selector_candidates = get_selector_candidate_entries(skill_registry)
@@ -389,7 +429,7 @@ async def _select_skills_for_turn(
     ]
     skill_list = "\n".join(skill_list_lines)
 
-    transcript = _build_skill_selector_transcript(session)
+    transcript = _build_skill_selector_transcript(session, current_turn)
     context_block = ""
     if transcript:
         context_block = f"Conversation so far:\n{transcript}\n\n"
