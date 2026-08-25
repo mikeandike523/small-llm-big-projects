@@ -288,7 +288,7 @@ export default function Chat() {
           </div>
         </div>
         <div css={threadCss} ref={threadRef}>
-          <div ref={threadContentRef}>
+          <div ref={threadContentRef} css={css`display:flex;flex-direction:column;gap:28px;`}>
             {startupToolCalls.length > 0 && (
               <StartupToolCallsCard
                 toolCalls={startupToolCalls}

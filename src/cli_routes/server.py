@@ -239,10 +239,10 @@ def server_run(
         )
         raise SystemExit(1)
 
-    _run_preflight_checks()
-
     if desktop:
         _maybe_clear_desktop_log()
+
+    _run_preflight_checks()
 
     # Lightweight pre-flight config advisory (non-fatal).
     try:

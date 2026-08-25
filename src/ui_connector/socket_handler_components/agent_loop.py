@@ -430,19 +430,6 @@ async def _async_agent_loop(
                     else:
                         winner = final_answer_candidates[best_idx]
 
-                # If the winner was streamed as IRAT "thinking", clear that panel so
-                # the frontend promotes it from thinking to the real final answer.
-                if winner["was_irat"]:
-                    _emit_and_log(
-                        session_id,
-                        "irat_thinking_clear",
-                        {
-                            "turn_id": turn_id,
-                            "subturn_id": winner["subturn_id"],
-                            "exchange_idx": winner["exchange_idx"],
-                        },
-                    )
-
                 final_exchange = LLMExchange(
                     assistant_content=winner["content"],
                     reasoning=winner["reasoning"],
@@ -468,6 +455,22 @@ async def _async_agent_loop(
                         "turn_id": turn_id,
                     },
                 )
+
+                # If the winner was streamed as IRAT "thinking", clear that panel so
+                # the frontend promotes it from thinking to the real final answer.
+                # NOTE: This is emitted AFTER message_done so the final answer appears
+                # on the left before the thinking bubble clears from the right.
+                if winner["was_irat"]:
+                    _emit_and_log(
+                        session_id,
+                        "irat_thinking_clear",
+                        {
+                            "turn_id": turn_id,
+                            "subturn_id": winner["subturn_id"],
+                            "exchange_idx": winner["exchange_idx"],
+                        },
+                    )
+
                 turn_completed = True
                 break
 
