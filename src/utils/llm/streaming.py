@@ -246,6 +246,6 @@ class StreamingLLM:
             content=content,
             reasoning=reasoning,
             tool_calls=tool_calls,
-            usage=resp_json.get("usage"),
+            usage=self._adapter.normalize_usage(resp_json.get("usage")),
             reasoning_native=reasoning_native,
         )

@@ -184,10 +184,10 @@ def _accumulate_reasoning_details(state: dict, details: list[dict]) -> str | Non
     reasoning.text preferred (full thinking), reasoning.summary as fallback --
     or None if this chunk carried only opaque data (reasoning.encrypted).
 
-    OpenRouter's docs describe chunks streaming incrementally in order but
-    don't give a formal merge algorithm, so fields are accumulated the same
-    way tool_call.function.arguments deltas are elsewhere in this module:
-    append per-index for content fields, last-write-wins for metadata.
+    OpenRouter requires reasoning_details be passed back unmodified. Streaming
+    chunks are incremental, so merge by preserving every field seen on the
+    block: append text-bearing fields and use last-write-wins for everything
+    else, including provider-specific fields this client does not understand.
     """
     store = state["reasoning_details"]
     order = state["reasoning_details_order"]
@@ -199,19 +199,39 @@ def _accumulate_reasoning_details(state: dict, details: list[dict]) -> str | Non
             store[idx] = {}
             order.append(idx)
         acc = store[idx]
-        for key in ("type", "id", "format"):
-            if block.get(key):
-                acc[key] = block[key]
-        for key in ("text", "summary", "data"):
-            if block.get(key):
-                acc[key] = acc.get(key, "") + block[key]
+        for key, value in block.items():
+            if value is None:
+                continue
+            if key in ("text", "summary", "data"):
+                acc[key] = acc.get(key, "") + value
                 if key == "text":
-                    text_fragment += block[key]
+                    text_fragment += value
                 elif key == "summary":
-                    summary_fragment += block[key]
-        if block.get("signature"):
-            acc["signature"] = block["signature"]
+                    summary_fragment += value
+            else:
+                acc[key] = value
     return text_fragment or summary_fragment or None
+
+
+def _openrouter_reattach_reasoning_native(msg: dict) -> dict:
+    """Reattach either structured reasoning_details or legacy plain reasoning."""
+    native = msg.get("reasoning_native")
+    if native is None:
+        return msg
+    out = {k: v for k, v in msg.items() if k != "reasoning_native"}
+    if native.get("dialect") != OPENROUTER:
+        return out
+    data = native.get("data")
+    if isinstance(data, list):
+        out["reasoning_details"] = data
+    elif isinstance(data, dict):
+        if isinstance(data.get("reasoning_details"), list):
+            out["reasoning_details"] = data["reasoning_details"]
+        elif isinstance(data.get("reasoning"), str):
+            out["reasoning"] = data["reasoning"]
+    elif isinstance(data, str):
+        out["reasoning"] = data
+    return out
 
 
 class OpenRouterDialect(_OpenAICompatibleBase):
@@ -235,13 +255,16 @@ class OpenRouterDialect(_OpenAICompatibleBase):
         p = dict(payload)
         if p.get("messages"):
             p["messages"] = [
-                _reattach_reasoning_native(m, OPENROUTER, "reasoning_details")
-                for m in p["messages"]
+                _openrouter_reattach_reasoning_native(m) for m in p["messages"]
             ]
         return p
 
     def new_stream_state(self) -> dict:
-        return {"reasoning_details": {}, "reasoning_details_order": []}
+        return {
+            "reasoning_details": {},
+            "reasoning_details_order": [],
+            "reasoning": "",
+        }
 
     def parse_data(self, obj: dict, state: dict) -> list[dict]:
         events: list[dict] = []
@@ -266,6 +289,8 @@ class OpenRouterDialect(_OpenAICompatibleBase):
             display_reasoning = _accumulate_reasoning_details(state, details)
         else:
             display_reasoning = delta.get("reasoning")
+            if display_reasoning:
+                state["reasoning"] += display_reasoning
 
         content = delta.get("content")
         if content is not None or display_reasoning is not None:
@@ -282,7 +307,8 @@ class OpenRouterDialect(_OpenAICompatibleBase):
     def finalize_reasoning(self, state: dict) -> dict | None:
         order = state.get("reasoning_details_order") or []
         if not order:
-            return None
+            reasoning = state.get("reasoning") or ""
+            return {"dialect": OPENROUTER, "data": reasoning} if reasoning else None
         store = state["reasoning_details"]
         return {"dialect": OPENROUTER, "data": [store[i] for i in order]}
 
@@ -300,8 +326,10 @@ class OpenRouterDialect(_OpenAICompatibleBase):
                 b.get("summary", "") for b in details if b.get("type") == "reasoning.summary"
             ) or (message.get("reasoning") or "")
         else:
-            reasoning_native = None
             reasoning = message.get("reasoning") or ""
+            reasoning_native = (
+                {"dialect": OPENROUTER, "data": reasoning} if reasoning else None
+            )
 
         return content, reasoning, tool_calls, reasoning_native
 
