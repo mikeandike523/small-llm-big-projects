@@ -53,7 +53,7 @@ export const threadCss = css`
   padding: 24px 16px;
   display: flex;
   flex-direction: column;
-  gap: 28px;
+  gap: 12px;
 `;
 
 export const inputBarCss = css`
