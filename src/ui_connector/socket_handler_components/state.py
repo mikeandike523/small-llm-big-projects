@@ -127,7 +127,7 @@ _SESSION_DEFAULTS_FROM_DB: dict[str, str] = {
 # ---------------------------------------------------------------------------
 
 _OPENAI_MESSAGE_KEYS: frozenset[str] = frozenset(
-    {"role", "content", "tool_calls", "tool_call_id", "name"}
+    {"role", "content", "tool_calls", "tool_call_id", "name", "reasoning_native"}
 )
 
 _CONTEXT_LIMIT_KEYWORDS = (

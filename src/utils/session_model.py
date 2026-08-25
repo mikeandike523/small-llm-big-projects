@@ -6,7 +6,7 @@ import uuid as _uuid_module
 from dataclasses import dataclass, field
 from typing import Any
 
-CURRENT_SCHEMA_VERSION = 5
+CURRENT_SCHEMA_VERSION = 6
 
 
 @dataclass
@@ -24,6 +24,10 @@ class ToolCallRecord:
 class LLMExchange:
     assistant_content: str = ""
     reasoning: str = ""
+    # Provider-native reasoning capture: {"dialect": str, "data": <verbatim
+    # payload>}, opaque outside the dialect that produced it. See
+    # DialectAdapter's docstring (utils/llm/types.py) for the full contract.
+    reasoning_native: dict | None = None
     tool_calls: list[ToolCallRecord] = field(default_factory=list)
     is_final: bool = False
     user_continuation: str | None = None  # injected user message after this exchange
@@ -33,23 +37,24 @@ class LLMExchange:
         msgs: list[dict] = []
         if self.tool_calls:
             # Interim assistant message with tool calls
-            msgs.append(
-                {
-                    "role": "assistant",
-                    "content": self.assistant_content or None,
-                    "tool_calls": [
-                        {
-                            "id": tc.id,
-                            "type": "function",
-                            "function": {
-                                "name": tc.name,
-                                "arguments": json.dumps(tc.args),
-                            },
-                        }
-                        for tc in self.tool_calls
-                    ],
-                }
-            )
+            assistant_msg = {
+                "role": "assistant",
+                "content": self.assistant_content or None,
+                "tool_calls": [
+                    {
+                        "id": tc.id,
+                        "type": "function",
+                        "function": {
+                            "name": tc.name,
+                            "arguments": json.dumps(tc.args),
+                        },
+                    }
+                    for tc in self.tool_calls
+                ],
+            }
+            if self.reasoning_native is not None:
+                assistant_msg["reasoning_native"] = self.reasoning_native
+            msgs.append(assistant_msg)
             # Tool result messages
             for tc in self.tool_calls:
                 msgs.append(
@@ -61,7 +66,10 @@ class LLMExchange:
                 )
         else:
             # Interim or final assistant message without tool calls
-            msgs.append({"role": "assistant", "content": self.assistant_content})
+            assistant_msg = {"role": "assistant", "content": self.assistant_content}
+            if self.reasoning_native is not None:
+                assistant_msg["reasoning_native"] = self.reasoning_native
+            msgs.append(assistant_msg)
         # Inject continuation user message if present
         if self.user_continuation:
             msgs.append({"role": "user", "content": self.user_continuation})
@@ -212,6 +220,7 @@ def llm_exchange_to_dict(ex: LLMExchange) -> dict:
     return {
         "assistant_content": ex.assistant_content,
         "reasoning": ex.reasoning,
+        "reasoning_native": ex.reasoning_native,
         "tool_calls": [tool_call_record_to_dict(tc) for tc in ex.tool_calls],
         "is_final": ex.is_final,
         "user_continuation": ex.user_continuation,
@@ -222,6 +231,7 @@ def llm_exchange_from_dict(d: dict) -> LLMExchange:
     return LLMExchange(
         assistant_content=d.get("assistant_content", ""),
         reasoning=d.get("reasoning", ""),
+        reasoning_native=d.get("reasoning_native"),
         tool_calls=[tool_call_record_from_dict(tc) for tc in d.get("tool_calls", [])],
         is_final=d.get("is_final", False),
         user_continuation=d.get("user_continuation"),

@@ -18,6 +18,7 @@ class StreamResult:
     tool_calls: list[ToolCall] = field(default_factory=list)
     usage: dict | None = None
     stop_reason: str | None = None
+    reasoning_native: dict | None = None
 
     @property
     def has_tool_calls(self) -> bool:
@@ -30,6 +31,7 @@ class FetchResult:
     reasoning: str
     tool_calls: list[ToolCall] = field(default_factory=list)
     usage: dict | None = None
+    reasoning_native: dict | None = None
 
     @property
     def has_tool_calls(self) -> bool:
@@ -66,9 +68,9 @@ class StreamingLLM:
         if adapter is not None:
             self._adapter = adapter
         else:
-            from src.utils.llm.dialect import OpenAIDialect
+            from src.utils.llm.dialect import OpenAICompletionsDialect
 
-            self._adapter = OpenAIDialect()
+            self._adapter = OpenAICompletionsDialect()
 
     def _refresh(self) -> None:
         """Reload endpoint/token/model/params from config_loader if one is set."""
@@ -204,7 +206,10 @@ class StreamingLLM:
             )
 
         return StreamResult(
-            tool_calls=tool_calls, usage=_last_usage, stop_reason=_stop_reason
+            tool_calls=tool_calls,
+            usage=_last_usage,
+            stop_reason=_stop_reason,
+            reasoning_native=self._adapter.finalize_reasoning(state),
         )
 
     def fetch(
@@ -233,10 +238,13 @@ class StreamingLLM:
         r.raise_for_status()
 
         resp_json = r.json()
-        content, reasoning, tool_calls = self._adapter.parse_response(resp_json)
+        content, reasoning, tool_calls, reasoning_native = self._adapter.parse_response(
+            resp_json
+        )
         return FetchResult(
             content=content,
             reasoning=reasoning,
             tool_calls=tool_calls,
             usage=resp_json.get("usage"),
+            reasoning_native=reasoning_native,
         )

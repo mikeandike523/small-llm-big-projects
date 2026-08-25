@@ -6,20 +6,40 @@ URL path, auth headers, request payload shape, SSE event parsing, and
 non-streaming response parsing. StreamingLLM accepts one via dependency
 injection; factory.py detects and creates the right one.
 
-Currently supported dialects: "openai" (default), "anthropic".
+Currently supported dialects: "openai_completions" (default), "openrouter",
+"vllm", "anthropic". See DialectAdapter's docstring (types.py) for the
+reasoning_native tagged-union shape each dialect round-trips.
+
+TODO(reasoning): real OpenAI reasoning models (o-series, gpt-5-reasoning)
+expose NO reasoning content at all through /chat/completions -- only through
+the separate Responses API (/v1/responses), which has a different URL and a
+different request/response shape entirely (input/output item arrays, not
+messages/choices; encrypted_content lives on reasoning output items). Adding
+that requires a new OpenAIResponsesDialect plus model-based routing (not
+every OpenAI model/account has Responses access), since detect_dialect()
+currently can't distinguish "wants Chat Completions" from "wants Responses"
+for the same provider. Deferred; OpenAICompletionsDialect below is correct
+for what /chat/completions can actually return today (nothing).
 """
 
 from __future__ import annotations
 
 import json
 
+from src.utils.llm.dialect_openai_family import (
+    OPENAI_COMPLETIONS,
+    OPENROUTER,
+    VLLM,
+    OpenAICompletionsDialect,
+    OpenRouterDialect,
+    VLLMDialect,
+)
 from src.utils.llm.types import DialectAdapter, ToolCall
 
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
 
-OPENAI = "openai"
 ANTHROPIC = "anthropic"
 
 _DEFAULT_ANTHROPIC_MAX_TOKENS = 8192
@@ -36,7 +56,9 @@ def detect_dialect(
 ) -> str:
     """
     Infer the API dialect from provider name and/or endpoint URL.
-    Matching is case-insensitive on both inputs. Returns OPENAI by default.
+    Matching is case-insensitive on both inputs. Returns OPENAI_COMPLETIONS
+    by default (real OpenAI Chat Completions and any unrecognized
+    OpenAI-compatible endpoint).
     """
     ep = (endpoint_url or "").lower()
     pv = (provider or "").strip().lower()
@@ -45,110 +67,12 @@ def detect_dialect(
         return ANTHROPIC
     if pv in ("anthropic", "claude"):
         return ANTHROPIC
-    # openrouter and vllm both speak OpenAI-compatible
-    # (explicit for clarity, but they'd fall through to default anyway)
-    if "openrouter.ai" in ep:
-        return OPENAI
+    if "openrouter.ai" in ep or pv == "openrouter":
+        return OPENROUTER
     if pv == "vllm":
-        return OPENAI
+        return VLLM
 
-    return OPENAI
-
-
-# ---------------------------------------------------------------------------
-# OpenAI dialect
-# ---------------------------------------------------------------------------
-
-
-class OpenAIDialect(DialectAdapter):
-
-    def endpoint_url(self, base: str) -> str:
-        return base.rstrip("/") + "/chat/completions"
-
-    def headers(self, token: str) -> dict:
-        return {"Authorization": f"Bearer {token}"}
-
-    def adapt_payload(self, payload: dict) -> dict:
-        return dict(payload)  # already in OpenAI format
-
-    def new_stream_state(self) -> dict:
-        return {}  # stateless — OpenAI parsing needs no cross-chunk state
-
-    def parse_data(self, obj: dict, state: dict) -> list[dict]:
-        events: list[dict] = []
-
-        top_usage = obj.get("usage")
-        if top_usage:
-            events.append({"type": "usage", "usage": self.normalize_usage(top_usage)})
-
-        choices = obj.get("choices") or []
-        if not choices:
-            return events
-
-        delta = choices[0].get("delta") or {}
-
-        tc_deltas = delta.get("tool_calls")
-        if tc_deltas:
-            for tc in tc_deltas:
-                events.append(
-                    {
-                        "type": "tool_delta",
-                        "index": tc.get("index", 0),
-                        "id": tc.get("id") or "",
-                        "name": (tc.get("function") or {}).get("name") or "",
-                        "arguments": (tc.get("function") or {}).get("arguments") or "",
-                    }
-                )
-            return events
-
-        content = delta.get("content")
-        reasoning = delta.get("reasoning")
-        if content is not None or reasoning is not None:
-            events.append(
-                {"type": "on_data", "content": content, "reasoning": reasoning}
-            )
-
-        finish_reason = choices[0].get("finish_reason")
-        if finish_reason is not None:
-            events.append({"type": "finish_reason", "reason": finish_reason})
-
-        return events
-
-    def parse_response(self, obj: dict) -> tuple[str, str, list[ToolCall]]:
-        message = (obj.get("choices") or [{}])[0].get("message") or {}
-        content = message.get("content") or ""
-        reasoning = message.get("reasoning") or ""
-        tool_calls = []
-        for tc in message.get("tool_calls") or []:
-            func = tc.get("function") or {}
-            raw_args = func.get("arguments") or "{}"
-            try:
-                arguments = json.loads(raw_args)
-            except json.JSONDecodeError:
-                arguments = {}
-            tool_calls.append(
-                ToolCall(
-                    id=tc.get("id", ""),
-                    name=func.get("name", ""),
-                    arguments=arguments,
-                )
-            )
-        return content, reasoning, tool_calls
-
-    def normalize_usage(self, raw: dict | None) -> dict | None:
-        if raw is None:
-            return None
-        result = {k: v for k, v in raw.items()}
-        # Map OpenAI names → common names
-        if "prompt_tokens" in result:
-            result.setdefault("input_tokens", result.pop("prompt_tokens"))
-        if "completion_tokens" in result:
-            result.setdefault("output_tokens", result.pop("completion_tokens"))
-        if "total_tokens" not in result:
-            result["total_tokens"] = result.get("input_tokens", 0) + result.get(
-                "output_tokens", 0
-            )
-        return result
+    return OPENAI_COMPLETIONS
 
 
 # ---------------------------------------------------------------------------
@@ -209,8 +133,10 @@ class AnthropicDialect(DialectAdapter):
 
     def new_stream_state(self) -> dict:
         return {
-            "block_types": {},  # index -> "text" | "tool_use" | "thinking"
+            "block_types": {},  # index -> "text" | "tool_use" | "thinking" | "redacted_thinking"
             "tool_info": {},  # index -> {"id": str, "name": str}
+            "reasoning_blocks": {},  # index -> raw thinking/redacted_thinking block dict
+            "reasoning_block_order": [],  # order of first appearance
         }
 
     def parse_data(self, obj: dict, state: dict) -> list[dict]:
@@ -232,6 +158,13 @@ class AnthropicDialect(DialectAdapter):
                     "id": block.get("id", ""),
                     "name": block.get("name", ""),
                 }
+            elif btype in ("thinking", "redacted_thinking"):
+                # Redacted blocks arrive fully-formed here (opaque `data`, no
+                # deltas); thinking blocks start empty and fill in via
+                # thinking_delta/signature_delta below. Either way, seed from
+                # whatever the start event already gave us.
+                state["reasoning_blocks"][idx] = dict(block)
+                state["reasoning_block_order"].append(idx)
 
         elif etype == "content_block_delta":
             idx = obj.get("index", 0)
@@ -245,13 +178,16 @@ class AnthropicDialect(DialectAdapter):
                 )
 
             elif dtype == "thinking_delta" and btype == "thinking":
-                events.append(
-                    {
-                        "type": "on_data",
-                        "content": None,
-                        "reasoning": delta.get("thinking"),
-                    }
-                )
+                chunk = delta.get("thinking")
+                events.append({"type": "on_data", "content": None, "reasoning": chunk})
+                acc = state["reasoning_blocks"].get(idx)
+                if acc is not None:
+                    acc["thinking"] = acc.get("thinking", "") + (chunk or "")
+
+            elif dtype == "signature_delta" and btype == "thinking":
+                acc = state["reasoning_blocks"].get(idx)
+                if acc is not None:
+                    acc["signature"] = delta.get("signature", "")
 
             elif dtype == "input_json_delta" and btype == "tool_use":
                 info = state["tool_info"].get(idx, {})
@@ -277,16 +213,27 @@ class AnthropicDialect(DialectAdapter):
 
         return events
 
-    def parse_response(self, obj: dict) -> tuple[str, str, list[ToolCall]]:
+    def finalize_reasoning(self, state: dict) -> dict | None:
+        order = state.get("reasoning_block_order") or []
+        if not order:
+            return None
+        blocks = state["reasoning_blocks"]
+        return {"dialect": ANTHROPIC, "data": [blocks[i] for i in order]}
+
+    def parse_response(self, obj: dict) -> tuple[str, str, list[ToolCall], dict | None]:
         content_text = ""
         reasoning_text = ""
         tool_calls: list[ToolCall] = []
+        reasoning_blocks: list[dict] = []
         for block in obj.get("content") or []:
             btype = block.get("type")
             if btype == "text":
                 content_text += block.get("text", "")
             elif btype == "thinking":
                 reasoning_text += block.get("thinking", "")
+                reasoning_blocks.append(block)
+            elif btype == "redacted_thinking":
+                reasoning_blocks.append(block)
             elif btype == "tool_use":
                 tool_calls.append(
                     ToolCall(
@@ -295,7 +242,10 @@ class AnthropicDialect(DialectAdapter):
                         arguments=block.get("input") or {},
                     )
                 )
-        return content_text, reasoning_text, tool_calls
+        reasoning_native = (
+            {"dialect": ANTHROPIC, "data": reasoning_blocks} if reasoning_blocks else None
+        )
+        return content_text, reasoning_text, tool_calls, reasoning_native
 
     def normalize_usage(self, raw: dict | None) -> dict | None:
         if raw is None:
@@ -318,6 +268,14 @@ def _convert_messages(messages: list[dict]) -> list[dict]:
     """
     Convert OpenAI-format messages to Anthropic format.
     Consecutive tool result messages are merged into a single user message.
+
+    An assistant message tagged with a reasoning_native of dialect "anthropic"
+    has its raw thinking/redacted_thinking blocks prepended to the content
+    array, complete and unmodified, before any text/tool_use blocks -- this is
+    required (not just recommended) whenever the message carries tool_calls,
+    and preserving it on plain-text turns too matches Anthropic's guidance to
+    pass everything back across turns. A mismatched or absent tag yields no
+    blocks (silently dropped, e.g. after a provider switch).
     """
     out: list[dict] = []
     i = 0
@@ -326,9 +284,15 @@ def _convert_messages(messages: list[dict]) -> list[dict]:
         role = msg.get("role")
 
         if role == "assistant":
+            native = msg.get("reasoning_native")
+            reasoning_blocks = (
+                list(native["data"])
+                if native and native.get("dialect") == ANTHROPIC
+                else []
+            )
             tool_calls = msg.get("tool_calls")
             if tool_calls:
-                blocks: list[dict] = []
+                blocks: list[dict] = list(reasoning_blocks)
                 text = msg.get("content")
                 if text:
                     blocks.append({"type": "text", "text": text})
@@ -347,6 +311,12 @@ def _convert_messages(messages: list[dict]) -> list[dict]:
                             "input": input_data,
                         }
                     )
+                out.append({"role": "assistant", "content": blocks})
+            elif reasoning_blocks:
+                blocks = list(reasoning_blocks)
+                text = msg.get("content") or ""
+                if text:
+                    blocks.append({"type": "text", "text": text})
                 out.append({"role": "assistant", "content": blocks})
             else:
                 out.append({"role": "assistant", "content": msg.get("content") or ""})
@@ -399,12 +369,14 @@ def _convert_tools(tools: list[dict]) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 _ADAPTERS: dict[str, type[DialectAdapter]] = {
-    OPENAI: OpenAIDialect,
+    OPENAI_COMPLETIONS: OpenAICompletionsDialect,
+    OPENROUTER: OpenRouterDialect,
+    VLLM: VLLMDialect,
     ANTHROPIC: AnthropicDialect,
 }
 
 
 def get_adapter(dialect: str) -> DialectAdapter:
     """Return an adapter instance for the given dialect name."""
-    cls = _ADAPTERS.get(dialect, OpenAIDialect)
+    cls = _ADAPTERS.get(dialect, OpenAICompletionsDialect)
     return cls()
