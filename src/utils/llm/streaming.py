@@ -88,6 +88,7 @@ class StreamingLLM:
         dialect = detect_dialect(
             provider=config.get("provider"),
             endpoint_url=config.get("endpoint_url"),
+            model=config.get("model"),
         )
         self._adapter = get_adapter(dialect)
 

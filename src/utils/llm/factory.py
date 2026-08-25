@@ -219,6 +219,7 @@ def make_llm_from_config(
     dialect = detect_dialect(
         provider=config.get("provider"),
         endpoint_url=config.get("endpoint_url"),
+        model=config.get("model"),
     )
     adapter = get_adapter(dialect)
     return StreamingLLM(
@@ -262,6 +263,7 @@ def make_llm(timeout_s: float | None = None) -> StreamingLLM | None:
     dialect = detect_dialect(
         provider=config.get("provider"),
         endpoint_url=config.get("endpoint_url"),
+        model=config.get("model"),
     )
     adapter = get_adapter(dialect)
     return StreamingLLM(

@@ -6,20 +6,18 @@ URL path, auth headers, request payload shape, SSE event parsing, and
 non-streaming response parsing. StreamingLLM accepts one via dependency
 injection; factory.py detects and creates the right one.
 
-Currently supported dialects: "openai_completions" (default), "openrouter",
-"vllm", "anthropic". See DialectAdapter's docstring (types.py) for the
-reasoning_native tagged-union shape each dialect round-trips.
+Currently supported dialects: "openai_completions" (default), "openai_responses",
+"openrouter", "vllm", "anthropic". See DialectAdapter's docstring (types.py)
+for the reasoning_native tagged-union shape each dialect round-trips.
 
-TODO(reasoning): real OpenAI reasoning models (o-series, gpt-5-reasoning)
-expose NO reasoning content at all through /chat/completions -- only through
-the separate Responses API (/v1/responses), which has a different URL and a
-different request/response shape entirely (input/output item arrays, not
-messages/choices; encrypted_content lives on reasoning output items). Adding
-that requires a new OpenAIResponsesDialect plus model-based routing (not
-every OpenAI model/account has Responses access), since detect_dialect()
-currently can't distinguish "wants Chat Completions" from "wants Responses"
-for the same provider. Deferred; OpenAICompletionsDialect below is correct
-for what /chat/completions can actually return today (nothing).
+OpenAIResponsesDialect (dialect_openai_responses.py) is only reachable for
+real OpenAI -- gated in detect_dialect() below on provider/endpoint actually
+being OpenAI's own API, then routed per-model via
+openai_model_dialects.uses_responses_api(). OpenRouter and vLLM never reach
+it: OpenRouter fronts many providers' models behind one OpenAI-shaped
+endpoint with its own reasoning convention (OpenRouterDialect), and vLLM-style
+self-hosted servers don't have a /responses route at all regardless of what a
+locally-served model happens to be named.
 """
 
 from __future__ import annotations
@@ -34,6 +32,8 @@ from src.utils.llm.dialect_openai_family import (
     OpenRouterDialect,
     VLLMDialect,
 )
+from src.utils.llm.dialect_openai_responses import OPENAI_RESPONSES, OpenAIResponsesDialect
+from src.utils.llm.openai_model_dialects import uses_responses_api
 from src.utils.llm.types import DialectAdapter, ToolCall
 
 # ---------------------------------------------------------------------------
@@ -53,12 +53,13 @@ _ANTHROPIC_VERSION = "2023-06-01"
 def detect_dialect(
     provider: str | None = None,
     endpoint_url: str | None = None,
+    model: str | None = None,
 ) -> str:
     """
-    Infer the API dialect from provider name and/or endpoint URL.
-    Matching is case-insensitive on both inputs. Returns OPENAI_COMPLETIONS
-    by default (real OpenAI Chat Completions and any unrecognized
-    OpenAI-compatible endpoint).
+    Infer the API dialect from provider name, endpoint URL, and (for real
+    OpenAI only) model name. Matching is case-insensitive on all inputs.
+    Returns OPENAI_COMPLETIONS by default (real OpenAI Chat Completions and
+    any unrecognized OpenAI-compatible endpoint).
     """
     ep = (endpoint_url or "").lower()
     pv = (provider or "").strip().lower()
@@ -71,6 +72,13 @@ def detect_dialect(
         return OPENROUTER
     if pv == "vllm":
         return VLLM
+
+    # Model-based Responses-vs-Completions routing only applies to real
+    # OpenAI -- never to an unrecognized/self-hosted OpenAI-compatible
+    # endpoint, which has no /responses route regardless of model name.
+    is_real_openai = pv in ("openai", "gpt") or "api.openai.com" in ep
+    if is_real_openai and uses_responses_api(model):
+        return OPENAI_RESPONSES
 
     return OPENAI_COMPLETIONS
 
@@ -370,6 +378,7 @@ def _convert_tools(tools: list[dict]) -> list[dict]:
 
 _ADAPTERS: dict[str, type[DialectAdapter]] = {
     OPENAI_COMPLETIONS: OpenAICompletionsDialect,
+    OPENAI_RESPONSES: OpenAIResponsesDialect,
     OPENROUTER: OpenRouterDialect,
     VLLM: VLLMDialect,
     ANTHROPIC: AnthropicDialect,
