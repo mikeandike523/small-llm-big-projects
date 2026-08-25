@@ -6,7 +6,7 @@ import uuid as _uuid_module
 from dataclasses import dataclass, field
 from typing import Any
 
-CURRENT_SCHEMA_VERSION = 6
+CURRENT_SCHEMA_VERSION = 5
 
 
 @dataclass
