@@ -24,6 +24,7 @@ from src.utils.session_model import (
     CURRENT_SCHEMA_VERSION,
 )
 from src.utils.session_events import derive_meta, replay_events
+from src.utils.session_schema_repair import repair_event_log, repair_session_dict
 from src.utils.sql.session_store_db import (
     append_events,
     delete_sessions,
@@ -158,12 +159,19 @@ def _session_from_db(session_id: str) -> Session | None:
     if meta is None:
         return None
 
-    if meta.get("schema_version", 0) != CURRENT_SCHEMA_VERSION:
-        return Session(session_id=session_id)
-
     r = _state._get_redis()
     try:
         rows = load_session_events(session_id)
+        if meta.get("schema_version", 0) != CURRENT_SCHEMA_VERSION:
+            # See session_schema_repair.py: a registered chain can rewrite
+            # meta/rows forward to the current shape; if none is registered
+            # for this version gap (the common case today), fall back to a
+            # blank session rather than replaying a shape replay_events()
+            # wasn't written to understand.
+            repaired = repair_event_log(meta, rows, CURRENT_SCHEMA_VERSION)
+            if repaired is None:
+                return Session(session_id=session_id)
+            meta, rows = repaired
         session = replay_events(session_id, rows)
         # Resync the cursor with the durable log (prevents duplicate re-emits).
         save_cursor(r, session_id, build_cursor(session), _state._SESSION_TTL)
@@ -199,7 +207,17 @@ def _load_session(session_id: str) -> Session:
         try:
             d = json.loads(raw)
             if d.get("schema_version", 0) != CURRENT_SCHEMA_VERSION:
-                session = Session(session_id=session_id)
+                # See session_schema_repair.py: a registered chain can
+                # rewrite this dict forward to the current shape; if none is
+                # registered for this version gap (the common case today),
+                # fall back to a blank session rather than deserializing a
+                # shape session_from_dict() wasn't written to understand.
+                repaired = repair_session_dict(d, CURRENT_SCHEMA_VERSION)
+                session = (
+                    Session(session_id=session_id)
+                    if repaired is None
+                    else session_from_dict(repaired)
+                )
             else:
                 session = session_from_dict(d)
         except Exception:
