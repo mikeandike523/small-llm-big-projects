@@ -27,13 +27,20 @@ class LLMExchange:
     # Provider-native reasoning capture: {"dialect": str, "data": <verbatim
     # payload>}, opaque outside the dialect that produced it. See
     # DialectAdapter's docstring (utils/llm/types.py) for the full contract.
+    # Historical name caveat: for ordered-output dialects this may include
+    # exact native assistant text/tool-call blocks too, not just reasoning.
     reasoning_native: dict | None = None
     tool_calls: list[ToolCallRecord] = field(default_factory=list)
     is_final: bool = False
     user_continuation: str | None = None  # injected user message after this exchange
 
     def to_messages(self) -> list[dict]:
-        """Convert this exchange to OpenAI-format message(s)."""
+        """Convert this exchange to OpenAI-format message(s).
+
+        This is called only for exchanges in the current live subturn. Prior
+        subturns are compacted/summarized, so their tool calls and native
+        replay payloads are intentionally not resent.
+        """
         msgs: list[dict] = []
         if self.tool_calls:
             # Interim assistant message with tool calls

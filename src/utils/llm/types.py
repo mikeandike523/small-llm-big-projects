@@ -22,6 +22,13 @@ class DialectAdapter(ABC):
 
         {"dialect": <this adapter's dialect name>, "data": <verbatim provider payload>}
 
+    Historical name caveat: reasoning_native is the dialect-owned replay
+    payload for one assistant exchange, not necessarily only reasoning text.
+    Simple chat-completions-like dialects store just reasoning-shaped fields
+    here. Ordered-output dialects (Anthropic Messages and OpenAI Responses)
+    may store exact native assistant output blocks/items, including text and
+    tool/function calls, because those items must replay in provider order.
+
     "data" is opaque outside the adapter that produced it — never inspected or
     modified by session storage or other dialects. A dialect whose name doesn't
     match the tag on a message must drop reasoning_native silently rather than

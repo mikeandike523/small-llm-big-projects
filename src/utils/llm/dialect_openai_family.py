@@ -214,7 +214,12 @@ def _accumulate_reasoning_details(state: dict, details: list[dict]) -> str | Non
 
 
 def _openrouter_reattach_reasoning_native(msg: dict) -> dict:
-    """Reattach either structured reasoning_details or legacy plain reasoning."""
+    """Reattach either structured reasoning_details or legacy plain reasoning.
+
+    Unlike Anthropic/Responses, OpenRouter's replay payload is a sibling field
+    on the assistant message; normal content/tool_calls still come from the
+    generic LLMExchange fields.
+    """
     native = msg.get("reasoning_native")
     if native is None:
         return msg

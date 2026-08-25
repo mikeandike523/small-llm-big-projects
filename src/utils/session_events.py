@@ -55,7 +55,12 @@ EVT_TODO_LIST_SET = "todo_list_set"
 
 
 def exchange_payload(ex: LLMExchange) -> dict:
-    """Serialize an exchange for persistence, dropping `reasoning`."""
+    """Serialize an exchange for persistence, dropping display `reasoning`.
+
+    `reasoning_native` stays in the durable event payload. Despite its name,
+    that field is the dialect-owned replay payload for the live subturn and
+    may contain ordered native assistant blocks/items for Anthropic/Responses.
+    """
     d = llm_exchange_to_dict(ex)
     d.pop("reasoning", None)
     return d

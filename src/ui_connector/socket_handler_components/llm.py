@@ -99,6 +99,9 @@ def _build_llm_payload(
         )
 
     if live_subturn:
+        # Only the live subturn replays full exchanges. That is where provider
+        # native reasoning/tool-call payloads matter; prior subturns have
+        # already been reduced to final answer + Context Notes.
         messages.append(
             {"role": "user", "content": live_subturn.user_text_with_context}
         )

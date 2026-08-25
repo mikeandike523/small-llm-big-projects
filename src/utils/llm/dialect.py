@@ -143,6 +143,9 @@ class AnthropicDialect(DialectAdapter):
         return {
             "block_types": {},  # index -> "text" | "tool_use" | "thinking" | "redacted_thinking"
             "tool_info": {},  # index -> {"id": str, "name": str}
+            "tool_arg_json": {},  # index -> accumulated partial_json
+            "content_blocks": {},  # index -> raw Anthropic content block
+            "content_block_order": [],  # order of first appearance
             "reasoning_blocks": {},  # index -> raw thinking/redacted_thinking block dict
             "reasoning_block_order": [],  # order of first appearance
         }
@@ -161,11 +164,26 @@ class AnthropicDialect(DialectAdapter):
             block = obj.get("content_block") or {}
             btype = block.get("type", "text")
             state["block_types"][idx] = btype
+            state["content_blocks"][idx] = dict(block)
+            state["content_block_order"].append(idx)
             if btype == "tool_use":
+                initial_input = block.get("input")
                 state["tool_info"][idx] = {
                     "id": block.get("id", ""),
                     "name": block.get("name", ""),
                 }
+                state["tool_arg_json"][idx] = (
+                    json.dumps(initial_input) if initial_input else ""
+                )
+                events.append(
+                    {
+                        "type": "tool_delta",
+                        "index": idx,
+                        "id": block.get("id", ""),
+                        "name": block.get("name", ""),
+                        "arguments": json.dumps(initial_input) if initial_input else "",
+                    }
+                )
             elif btype in ("thinking", "redacted_thinking"):
                 # Redacted blocks arrive fully-formed here (opaque `data`, no
                 # deltas); thinking blocks start empty and fill in via
@@ -181,6 +199,9 @@ class AnthropicDialect(DialectAdapter):
             btype = state["block_types"].get(idx, "text")
 
             if dtype == "text_delta" and btype == "text":
+                block = state["content_blocks"].get(idx)
+                if block is not None:
+                    block["text"] = block.get("text", "") + (delta.get("text") or "")
                 events.append(
                     {"type": "on_data", "content": delta.get("text"), "reasoning": None}
                 )
@@ -188,17 +209,26 @@ class AnthropicDialect(DialectAdapter):
             elif dtype == "thinking_delta" and btype == "thinking":
                 chunk = delta.get("thinking")
                 events.append({"type": "on_data", "content": None, "reasoning": chunk})
+                block = state["content_blocks"].get(idx)
+                if block is not None:
+                    block["thinking"] = block.get("thinking", "") + (chunk or "")
                 acc = state["reasoning_blocks"].get(idx)
                 if acc is not None:
                     acc["thinking"] = acc.get("thinking", "") + (chunk or "")
 
             elif dtype == "signature_delta" and btype == "thinking":
+                block = state["content_blocks"].get(idx)
+                if block is not None:
+                    block["signature"] = delta.get("signature", "")
                 acc = state["reasoning_blocks"].get(idx)
                 if acc is not None:
                     acc["signature"] = delta.get("signature", "")
 
             elif dtype == "input_json_delta" and btype == "tool_use":
                 info = state["tool_info"].get(idx, {})
+                state["tool_arg_json"][idx] = state["tool_arg_json"].get(idx, "") + (
+                    delta.get("partial_json", "") or ""
+                )
                 events.append(
                     {
                         "type": "tool_delta",
@@ -222,11 +252,32 @@ class AnthropicDialect(DialectAdapter):
         return events
 
     def finalize_reasoning(self, state: dict) -> dict | None:
-        order = state.get("reasoning_block_order") or []
-        if not order:
+        content_order = state.get("content_block_order") or []
+        reasoning_order = state.get("reasoning_block_order") or []
+        if not content_order and not reasoning_order:
             return None
-        blocks = state["reasoning_blocks"]
-        return {"dialect": ANTHROPIC, "data": [blocks[i] for i in order]}
+        content_blocks = state.get("content_blocks") or {}
+        for idx, raw_args in (state.get("tool_arg_json") or {}).items():
+            block = content_blocks.get(idx)
+            if block is None:
+                continue
+            if not raw_args and "input" in block:
+                continue
+            try:
+                block["input"] = json.loads(raw_args) if raw_args else {}
+            except json.JSONDecodeError:
+                block["input"] = {}
+        reasoning_blocks = state.get("reasoning_blocks") or {}
+        # reasoning_native is the exact assistant content[] replay payload here,
+        # not just reasoning. Anthropic can interleave thinking, tool_use, and
+        # text blocks; preserving content_blocks keeps that provider order.
+        return {
+            "dialect": ANTHROPIC,
+            "data": {
+                "content_blocks": [content_blocks[i] for i in content_order],
+                "reasoning_blocks": [reasoning_blocks[i] for i in reasoning_order],
+            },
+        }
 
     def parse_response(self, obj: dict) -> tuple[str, str, list[ToolCall], dict | None]:
         content_text = ""
@@ -250,8 +301,17 @@ class AnthropicDialect(DialectAdapter):
                         arguments=block.get("input") or {},
                     )
                 )
+        content_blocks = [dict(block) for block in obj.get("content") or []]
         reasoning_native = (
-            {"dialect": ANTHROPIC, "data": reasoning_blocks} if reasoning_blocks else None
+            {
+                "dialect": ANTHROPIC,
+                "data": {
+                    "content_blocks": content_blocks,
+                    "reasoning_blocks": reasoning_blocks,
+                },
+            }
+            if content_blocks or reasoning_blocks
+            else None
         )
         return content_text, reasoning_text, tool_calls, reasoning_native
 
@@ -293,11 +353,24 @@ def _convert_messages(messages: list[dict]) -> list[dict]:
 
         if role == "assistant":
             native = msg.get("reasoning_native")
-            reasoning_blocks = (
-                list(native["data"])
-                if native and native.get("dialect") == ANTHROPIC
-                else []
-            )
+            content_blocks: list[dict] | None = None
+            reasoning_blocks: list[dict] = []
+            if native and native.get("dialect") == ANTHROPIC:
+                data = native.get("data")
+                if isinstance(data, dict):
+                    if isinstance(data.get("content_blocks"), list):
+                        content_blocks = list(data["content_blocks"])
+                    if isinstance(data.get("reasoning_blocks"), list):
+                        reasoning_blocks = list(data["reasoning_blocks"])
+                elif isinstance(data, list):
+                    reasoning_blocks = list(data)
+            if content_blocks is not None:
+                # New-shape Anthropic payload: replay the exact native
+                # assistant content[] blocks captured for this exchange.
+                out.append({"role": "assistant", "content": content_blocks})
+                i += 1
+                continue
+
             tool_calls = msg.get("tool_calls")
             if tool_calls:
                 blocks: list[dict] = list(reasoning_blocks)

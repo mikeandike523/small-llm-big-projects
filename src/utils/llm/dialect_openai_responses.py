@@ -103,6 +103,9 @@ class OpenAIResponsesDialect(DialectAdapter):
     def new_stream_state(self) -> dict:
         return {
             "tool_info": {},  # output_index -> {"call_id": str, "name": str}
+            "tool_arg_json": {},  # output_index -> accumulated arguments delta
+            "output_items": {},  # output_index -> complete/partial output item
+            "output_item_order": [],  # order of first appearance
             "reasoning_items": [],  # complete reasoning items, in order (from .done)
         }
 
@@ -112,27 +115,35 @@ class OpenAIResponsesDialect(DialectAdapter):
 
         if etype == "response.output_item.added":
             item = obj.get("item") or {}
+            idx = obj.get("output_index", 0)
+            state["output_items"][idx] = dict(item)
+            state["output_item_order"].append(idx)
             if item.get("type") == "function_call":
-                idx = obj.get("output_index", 0)
                 state["tool_info"][idx] = {
                     "call_id": item.get("call_id", ""),
                     "name": item.get("name", ""),
                 }
+                state["tool_arg_json"][idx] = item.get("arguments") or ""
                 initial_args = item.get("arguments") or ""
-                if initial_args:
-                    events.append(
-                        {
-                            "type": "tool_delta",
-                            "index": idx,
-                            "id": item.get("call_id", ""),
-                            "name": item.get("name", ""),
-                            "arguments": initial_args,
-                        }
-                    )
+                events.append(
+                    {
+                        "type": "tool_delta",
+                        "index": idx,
+                        "id": item.get("call_id", ""),
+                        "name": item.get("name", ""),
+                        "arguments": initial_args,
+                    }
+                )
 
         elif etype == "response.function_call_arguments.delta":
             idx = obj.get("output_index", 0)
             info = state["tool_info"].get(idx, {})
+            state["tool_arg_json"][idx] = state["tool_arg_json"].get(idx, "") + (
+                obj.get("delta") or ""
+            )
+            item = state["output_items"].get(idx)
+            if item is not None:
+                item["arguments"] = state["tool_arg_json"][idx]
             events.append(
                 {
                     "type": "tool_delta",
@@ -151,11 +162,28 @@ class OpenAIResponsesDialect(DialectAdapter):
 
         elif etype == "response.output_item.done":
             item = obj.get("item") or {}
+            idx = obj.get("output_index", 0)
+            if idx not in state["output_items"]:
+                state["output_item_order"].append(idx)
+            state["output_items"][idx] = dict(item)
             if item.get("type") == "reasoning":
                 # Use .done, not .added: encrypted_content may be incomplete
                 # while the item is still in progress (per OpenAI's own type
                 # docs).
                 state["reasoning_items"].append(item)
+            elif item.get("type") == "function_call":
+                final_args = item.get("arguments") or ""
+                if final_args and not state["tool_arg_json"].get(idx):
+                    state["tool_arg_json"][idx] = final_args
+                    events.append(
+                        {
+                            "type": "tool_delta",
+                            "index": idx,
+                            "id": item.get("call_id", ""),
+                            "name": item.get("name", ""),
+                            "arguments": final_args,
+                        }
+                    )
 
         elif etype == "response.completed":
             usage = (obj.get("response") or {}).get("usage")
@@ -170,10 +198,22 @@ class OpenAIResponsesDialect(DialectAdapter):
         return events
 
     def finalize_reasoning(self, state: dict) -> dict | None:
-        items = state.get("reasoning_items") or []
-        if not items:
+        reasoning_items = state.get("reasoning_items") or []
+        output_items_store = state.get("output_items") or {}
+        output_order = state.get("output_item_order") or []
+        output_items = [output_items_store[i] for i in output_order if i in output_items_store]
+        if not reasoning_items and not output_items:
             return None
-        return {"dialect": OPENAI_RESPONSES, "data": items}
+        # reasoning_native is the exact ordered Responses output[] replay
+        # payload here, not just reasoning. It can include reasoning,
+        # function_call, and message items in model-produced order.
+        return {
+            "dialect": OPENAI_RESPONSES,
+            "data": {
+                "output_items": output_items,
+                "reasoning_items": reasoning_items,
+            },
+        }
 
     def parse_response(self, obj: dict) -> tuple[str, str, list[ToolCall], dict | None]:
         content_parts: list[str] = []
@@ -211,8 +251,17 @@ class OpenAIResponsesDialect(DialectAdapter):
                         reasoning_summary += s.get("text", "")
 
         reasoning_display = reasoning_full or reasoning_summary
+        output_items = [dict(item) for item in obj.get("output") or []]
         reasoning_native = (
-            {"dialect": OPENAI_RESPONSES, "data": reasoning_items} if reasoning_items else None
+            {
+                "dialect": OPENAI_RESPONSES,
+                "data": {
+                    "output_items": output_items,
+                    "reasoning_items": reasoning_items,
+                },
+            }
+            if output_items or reasoning_items
+            else None
         )
         return "".join(content_parts), reasoning_display, tool_calls, reasoning_native
 
@@ -251,7 +300,14 @@ def _convert_messages(messages: list[dict]) -> list[dict]:
         if role == "assistant":
             native = msg.get("reasoning_native")
             if native and native.get("dialect") == OPENAI_RESPONSES:
-                out.extend(native["data"])
+                data = native.get("data")
+                if isinstance(data, dict) and isinstance(data.get("output_items"), list):
+                    # New-shape Responses payload: replay the exact native
+                    # output[] items captured for this assistant exchange.
+                    out.extend(data["output_items"])
+                    continue
+                if isinstance(data, list):
+                    out.extend(data)
 
             tool_calls = msg.get("tool_calls")
             if tool_calls:
