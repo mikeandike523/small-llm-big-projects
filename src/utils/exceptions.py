@@ -1,3 +1,7 @@
+class ContextLimitExceededError(RuntimeError):
+    """Raised when an LLM request fails because the conversation exceeds the model's context window."""
+
+
 class ToolTimeoutError(Exception):
     def __init__(
         self,

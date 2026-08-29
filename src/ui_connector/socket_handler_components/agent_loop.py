@@ -6,7 +6,6 @@ import sys
 import traceback
 import threading
 
-import httpx
 from termcolor import colored
 
 import src.ui_connector.socket_handler_components.state as _state
@@ -41,8 +40,9 @@ from src.logic.system_prompt import (
     build_injected_skills_section,
     resolve_skill_dependency_closure,
 )
+from src.utils.exceptions import ContextLimitExceededError
 from src.utils.llm.streaming import StreamingLLM
-from src.utils.request_error_formatting import format_http_error
+from src.utils.request_error_formatting import classify_llm_request_error
 from src.utils.session_model import Session, Turn, Subturn, LLMExchange
 from src.tools.todo_list import format_items_for_ui as _todo_format_items_for_ui
 from src.tools.todo_list import format_todo_tree as _todo_format_tree
@@ -83,6 +83,10 @@ async def _async_agent_loop(
     last_assistant_content = ""
     turn_completed = False
     blank_retry_count = 0
+    # Set when the LLM call itself fails (HTTP error, network error, context
+    # limit, or an unexpected exception) — distinct from user cancellation.
+    # See src.utils.request_error_formatting.classify_llm_request_error.
+    abnormal_end: dict | None = None
 
     session_tool_defs = _get_session_tool_defs(session_id)
     session_tool_map = _get_session_tool_map(session_id)
@@ -173,31 +177,15 @@ async def _async_agent_loop(
             except asyncio.CancelledError:
                 was_cancelled = True
                 raise
-            except httpx.HTTPStatusError as exc:
-                if cancel_event.is_set():
-                    was_cancelled = True
-                    break
-                _emit_and_log(
-                    session_id,
-                    "error",
-                    {
-                        "message": f"LLM stream error:\n\n{format_http_error(exc)}",
-                        "turn_id": turn_id,
-                    },
-                )
-                break
             except Exception as exc:
+                # Covers ContextLimitExceededError, httpx.HTTPStatusError,
+                # httpx.RequestError (connection/timeout), and anything else the
+                # LLM call can raise — classify_llm_request_error dispatches on
+                # the concrete type.
                 if cancel_event.is_set():
                     was_cancelled = True
                     break
-                _emit_and_log(
-                    session_id,
-                    "error",
-                    {
-                        "message": f"LLM stream error:\n\n{exc}",
-                        "turn_id": turn_id,
-                    },
-                )
+                abnormal_end = classify_llm_request_error(exc)
                 break
 
             usage = getattr(result, "usage", None)
@@ -546,16 +534,47 @@ async def _async_agent_loop(
             current_turn.todo_snapshot = _todo_format_items_for_ui(
                 session.session_data.get("todo_list") or []
             )
-            cancelled_content = "[Action Cancelled by User]"
+            cancelled_marker = "[Action Cancelled by User]"
+            # Append the marker as a real exchange (not just condensed_*) so
+            # future _build_llm_payload() calls actually replay it, instead of
+            # silently replaying blank/partial content for this subturn.
+            current_subturn.exchanges.append(
+                LLMExchange(assistant_content=cancelled_marker, is_final=True)
+            )
             current_turn.finalize(
-                session.session_data, cancelled_content, had_todo_items
+                session.session_data, cancelled_marker, had_todo_items
             )
             session.completed_turns.append(current_turn)
             session.current_turn = None
             _emit_and_log(
                 session_id,
                 "message_done",
-                {"content": cancelled_content, "turn_id": turn_id},
+                {"content": cancelled_marker, "turn_id": turn_id},
+            )
+        elif abnormal_end is not None:
+            # LLM call failed (HTTP error, network error, context limit, or an
+            # unexpected exception during the call). The rich diagnostic detail
+            # is shown live via the "error" event and the backend log object —
+            # neither survives a reload (backend_log is never persisted; the
+            # "error" event only replays for ~1hr via the Redis stream) — so the
+            # permanent record uses the same terse marker as the LLM history.
+            current_turn.completed = True
+            current_turn.todo_snapshot = _todo_format_items_for_ui(
+                session.session_data.get("todo_list") or []
+            )
+            marker = abnormal_end["history_marker"]
+            current_subturn.exchanges.append(
+                LLMExchange(assistant_content=marker, is_final=True)
+            )
+            current_turn.finalize(session.session_data, marker, had_todo_items)
+            session.completed_turns.append(current_turn)
+            session.current_turn = None
+            if abnormal_end["log_object"] is not None:
+                _emit_backend_log(session_id, abnormal_end["log_object"])
+            _emit_and_log(
+                session_id,
+                "error",
+                {"message": abnormal_end["gui_message"], "turn_id": turn_id},
             )
         elif turn_completed:
             current_turn.completed = True
@@ -580,13 +599,15 @@ async def _async_agent_loop(
                 tb_str = "".join(traceback.format_exception(exc_type, exc_val, exc_tb))
                 _emit_backend_log(session_id, f"[SERVER ERROR] Agent loop crashed:\n{tb_str}")
                 err_msg = f"Agent loop failed: {exc_val}"
+            marker = "[Agent Error - See Backend Logs]"
             current_turn.completed = True
             current_turn.todo_snapshot = _todo_format_items_for_ui(
                 session.session_data.get("todo_list") or []
             )
-            current_turn.finalize(
-                session.session_data, last_assistant_content, had_todo_items
+            current_subturn.exchanges.append(
+                LLMExchange(assistant_content=marker, is_final=True)
             )
+            current_turn.finalize(session.session_data, marker, had_todo_items)
             session.completed_turns.append(current_turn)
             session.current_turn = None
             # Load-bearing failures (e.g. watchdogs) surface as a real UI error,

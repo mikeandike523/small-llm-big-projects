@@ -20,6 +20,7 @@ from src.ui_connector.socket_handler_components.session_store import (
     _get_session_system_prompt,
 )
 from src.tools import ALL_TOOL_DEFINITIONS
+from src.utils.exceptions import ContextLimitExceededError
 from src.utils.llm.streaming import StreamingLLM
 from src.utils.session_model import Session, Turn, Subturn
 
@@ -251,7 +252,7 @@ async def _async_run_llm_call_with_retry(
         )
     except Exception as exc:
         if _is_context_limit_error(exc):
-            raise RuntimeError(
+            raise ContextLimitExceededError(
                 "Context limit exceeded — the conversation is too long for the model's context window.\n"
                 "Please start a new session or shorten the conversation."
             ) from exc
