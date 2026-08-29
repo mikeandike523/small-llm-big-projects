@@ -89,6 +89,43 @@ const jsonRowExpandableCss = css`
   margin-bottom: 2px;
 `;
 
+const containerTypeIconCss = css`
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  align-self: center;
+  color: #6e7383;
+  opacity: 0.75;
+  font-weight: 700;
+  font-family: "Consolas", monospace;
+  font-size: 11px;
+  line-height: 1;
+  flex-shrink: 0;
+`;
+
+// Pinned to the container's top-left padding edge so it takes no vertical
+// space of its own (the container reserves horizontal room via padding-left
+// instead of the icon pushing a row into the flow).
+const topLevelIconCss = css`
+  position: absolute;
+  top: 0;
+  left: 0;
+`;
+
+function ContainerTypeIcon({
+  isArray,
+  topLevel = false,
+}: {
+  isArray: boolean;
+  topLevel?: boolean;
+}) {
+  return (
+    <span css={[containerTypeIconCss, topLevel && topLevelIconCss]}>
+      {isArray ? "[]" : "{}"}
+    </span>
+  );
+}
+
 function formatJsonLeaf(value: unknown): string {
   if (typeof value === "string") return value;
   return JSON.stringify(value) ?? "undefined";
@@ -114,6 +151,7 @@ function JsonEntry({
     return (
       <>
         <div css={jsonRowCss} style={{ paddingLeft: depth * 16 }}>
+          <ContainerTypeIcon isArray={Array.isArray(value)} />
           <span css={jsonKeyCss}>{name}</span>
         </div>
         {entries.map(([k, v]) => (
@@ -149,10 +187,13 @@ export default function JsonArgsViewer({
   args,
   toolName,
 }: {
-  args: Record<string, unknown>;
+  args: Record<string, unknown> | unknown[];
   toolName?: string;
 }) {
-  const entries = Object.entries(args);
+  const isTopArray = Array.isArray(args);
+  const entries: [string, unknown][] = isTopArray
+    ? (args as unknown[]).map((v, i) => [String(i), v])
+    : Object.entries(args as Record<string, unknown>);
   if (entries.length === 0) return null;
 
   const expandableNames = toolName
@@ -177,8 +218,11 @@ export default function JsonArgsViewer({
           flexDirection: "column",
           flex: 1,
           minHeight: 0,
+          position: "relative",
+          paddingLeft: 16,
         }}
       >
+        <ContainerTypeIcon isArray={isTopArray} topLevel />
         {entries.map(([k, v]) => (
           <JsonEntry
             key={k}
@@ -193,7 +237,15 @@ export default function JsonArgsViewer({
   }
 
   return (
-    <div style={{ minWidth: 0, overflow: "hidden" }}>
+    <div
+      style={{
+        minWidth: 0,
+        overflow: "hidden",
+        position: "relative",
+        paddingLeft: 16,
+      }}
+    >
+      <ContainerTypeIcon isArray={isTopArray} topLevel />
       {entries.map(([k, v]) => (
         <JsonEntry key={k} name={k} value={v} depth={0} />
       ))}

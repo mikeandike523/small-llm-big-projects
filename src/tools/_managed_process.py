@@ -3,7 +3,7 @@ from __future__ import annotations
 import subprocess
 import threading
 import time
-from typing import Callable
+from typing import Any, Callable
 
 from termcolor import colored
 
@@ -35,7 +35,7 @@ def run_command_streaming(
     on_chunk: Callable[[str], None],
     autoresponses: list[AutoResponse] | None = None,
     hang_timeout: int | None = None,
-    emit_backend_log: Callable[[str], None] | None = None,
+    emit_backend_log: Callable[[Any], None] | None = None,
     on_sampler_usage=None,
     on_sampler_request_log=None,
     on_sampler_reasoning_detected=None,

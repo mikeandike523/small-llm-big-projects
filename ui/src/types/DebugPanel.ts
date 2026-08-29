@@ -23,7 +23,7 @@ export interface ToolsInfo {
 
 export interface BackendLogEntry {
   id: number;
-  text: string;
+  content: string | number | boolean | null | Record<string, unknown> | unknown[];
 }
 
 export interface MemKeyEvent {

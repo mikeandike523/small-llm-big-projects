@@ -78,3 +78,23 @@ sourcehelper range-ops extract-ranges SRC_FILE DST_FILE DST_INSERT_BEFORE_LINE R
 
 **Explore `sourcehelper` before tackling a hard refactor:** `sourcehelper` is an ever-growing tool with new subcommands added over time. Before starting a difficult refactoring task, run `sourcehelper --help` to see what operations are currently available — there may be a purpose-built command that saves significant manual effort.
 
+## Logging: Two Separate Mechanisms
+
+### 1. Backend Process Logs — Python `logging` (server diagnostics)
+
+For the human *running the server* — startup info, errors, warnings, general server health.
+
+Configured in `src/ui_connector/main.py` with `logging.basicConfig(force=True)` (overrides Flask). Used via `logging.getLogger(__name__)` across ~15 modules.
+
+- **Desktop app:** stdout/stderr goes to `.slbp-server.log`, tailed by a `LogHistory` ring buffer (`desktop/src/shared/logHistory.ts`, max 500 lines) for the Electron Health tab.
+- **Server / systemd:** Captured naturally by the journal.
+
+### 2. Frontend Logs — `_emit_backend_log()` (session debug text)
+
+For a *user watching a live session* — real-time colored text about what the agent is doing.
+
+One function in `src/ui_connector/socket_handler_components/emit.py:47-51`. Emits a Socket.IO `backend_log` event per-session. Also written to Redis Streams but excluded from replay.
+
+**Injection points:** `emit_backend_log` is placed in `special_resources` during tool execution (`tool_execution.py:74`) and startup calls (`socket_events.py:226`). Tools like `host_shell.py` and `_managed_process.py` receive it as a parameter.
+
+**Frontend:** `BackendLogsTab.tsx` renders in the Debug Panel via `ansi-to-react`. `useSocketWiring.ts` accumulates up to 100 entries per session.

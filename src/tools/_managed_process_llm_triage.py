@@ -1,7 +1,7 @@
 import subprocess
 import threading
 import time
-from typing import Callable
+from typing import Any, Callable
 
 from termcolor import colored
 
@@ -19,7 +19,7 @@ def _llm_triage(
     last_data_time: list[float],
     hung_flag: list[bool],
     lock: threading.Lock,
-    emit_backend_log: Callable[[str], None] | None,
+    emit_backend_log: Callable[[Any], None] | None,
     triage_count: list[int],
     hang_timeout: float,
     start_time: float,

@@ -44,11 +44,16 @@ def _make_sampler_usage_tracker(session_id: str, label: str) -> Callable[[dict],
     return _track
 
 
-def _emit_backend_log(session_id: str, text: str) -> None:
+def _emit_backend_log(session_id: str, content) -> None:
+    """Emit a backend log entry. `content` is sent to the frontend as-is aside
+    from a JSON round-trip that stringifies anything not natively JSON-safe
+    (e.g. custom objects, sets) -- primitives/dicts/lists pass through untouched.
+    """
     with _state._log_counter_lock:
         _state._log_counter += 1
         n = _state._log_counter
-    socketio.emit("backend_log", {"id": n, "text": text}, room=session_id)
+    safe_content = json.loads(json.dumps(content, default=str))
+    socketio.emit("backend_log", {"id": n, "content": safe_content}, room=session_id)
 
 
 def _emit_and_log(session_id: str, event_type: str, data: dict) -> None:

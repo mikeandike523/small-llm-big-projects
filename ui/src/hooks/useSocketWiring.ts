@@ -13,7 +13,7 @@ const MAX_LOGS = 100;
 
 interface BackendLogEntry {
   id: number;
-  text: string;
+  content: string | number | boolean | null | Record<string, unknown> | unknown[];
 }
 
 function newTurn(id: string, userText: string, subturnId?: string): Turn {
@@ -632,9 +632,9 @@ export default function useSocketWiring(
     function onSessionCostUpdate({ total_usd }: { total_usd: number }) {
       setSessionCost(total_usd);
     }
-    function onBackendLog({ id, text }: { id: number; text: string }) {
+    function onBackendLog({ id, content }: BackendLogEntry) {
       setBackendLogs((prev) => {
-        const next = [...prev, { id, text }];
+        const next = [...prev, { id, content }];
         return next.length > MAX_LOGS
           ? next.slice(next.length - MAX_LOGS)
           : next;

@@ -1,20 +1,11 @@
+import { useState } from "react";
 import { useStickToBottom } from "use-stick-to-bottom";
 import { BackendLogEntry } from "../../types/DebugPanel";
 import { placeholderCss } from "../../css/DebugPanel";
-import Ansi from "ansi-to-react";
 import { css } from "@emotion/react";
 import scrollbarCss from "../../css/scrollBarCss";
-import { fontMono, spTextMain } from "../../css/SidePanelTheme";
-
-export const logLineCss = css`
-  font-family: ${fontMono};
-  color: ${spTextMain};
-  font-size: 10px;
-  line-height: 1.5;
-  white-space: pre-wrap;
-  word-break: break-all;
-  padding: 1px 2px;
-`;
+import BackendLogEntryItem from "./BackendLogEntryItem";
+import BackendLogObjectModal from "./BackendLogObjectModal";
 
 export const logsPanelCss = (visible: boolean) => css`
   position: absolute;
@@ -37,6 +28,10 @@ export default function BackendLogsTab({
   visible: boolean;
 }) {
   const { scrollRef, contentRef } = useStickToBottom();
+  const [viewingEntry, setViewingEntry] = useState<{
+    id: number;
+    content: Record<string, unknown> | unknown[];
+  } | null>(null);
 
   return (
     <div ref={scrollRef} css={logsPanelCss(visible)}>
@@ -45,12 +40,18 @@ export default function BackendLogsTab({
           <div css={placeholderCss}>No logs yet.</div>
         ) : (
           logs.map((entry) => (
-            <div key={entry.id} css={logLineCss}>
-              <Ansi>{entry.text}</Ansi>
-            </div>
+            <BackendLogEntryItem
+              key={entry.id}
+              entry={entry}
+              onView={setViewingEntry}
+            />
           ))
         )}
       </div>
+      <BackendLogObjectModal
+        entry={viewingEntry}
+        onClose={() => setViewingEntry(null)}
+      />
     </div>
   );
 }
