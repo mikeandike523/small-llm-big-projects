@@ -71,7 +71,7 @@ def _execute_tools(
     turn_id = current_turn.id
     _current_cwd = _state._session_current_cwd.get(session_id) or session.initial_cwd
     special_resources: dict = {
-        "on_log": lambda msg: _emit_backend_log(session_id, msg),
+        "emit_backend_log": lambda msg: _emit_backend_log(session_id, msg),
         "session_id": session_id,
         "initial_cwd": session.initial_cwd,
         "session_cwd": _current_cwd,

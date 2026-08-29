@@ -19,7 +19,7 @@ def _llm_triage(
     last_data_time: list[float],
     hung_flag: list[bool],
     lock: threading.Lock,
-    on_log: Callable[[str], None] | None,
+    emit_backend_log: Callable[[str], None] | None,
     triage_count: list[int],
     hang_timeout: float,
     start_time: float,
@@ -45,9 +45,9 @@ def _llm_triage(
 
     def _log(msg: str) -> None:
         logger.info("[hang-triage] %s", msg)
-        if on_log:
+        if emit_backend_log:
             try:
-                on_log(msg)
+                emit_backend_log(msg)
             except Exception:
                 pass
 

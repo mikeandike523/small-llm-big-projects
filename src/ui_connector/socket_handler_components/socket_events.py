@@ -223,7 +223,7 @@ def handle_run_startup_tool_calls():
         or "enabled_silent"
     )
     special_resources: dict = {
-        "on_log": lambda msg: _emit_backend_log(session_id, msg),
+        "emit_backend_log": lambda msg: _emit_backend_log(session_id, msg),
         "initial_cwd": session.initial_cwd,
         "session_cwd": _startup_cwd,
         "create_file_auto_eol": _startup_auto_eol,

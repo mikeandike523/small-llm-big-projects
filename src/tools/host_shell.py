@@ -148,7 +148,7 @@ def execute(
 
     sr = special_resources or {}
     on_chunk = sr.get("on_chunk")
-    on_log = sr.get("on_log")
+    emit_backend_log = sr.get("emit_backend_log")
     on_sampler_usage = sr.get("on_sampler_usage")
     on_sampler_request_log = sr.get("on_sampler_request_log")
     on_sampler_reasoning_detected = sr.get("on_sampler_reasoning_detected")
@@ -190,7 +190,7 @@ def execute(
                     tracked_on_chunk,
                     autoresponses=autoresponses,
                     hang_timeout=hang_timeout,
-                    on_log=on_log,
+                    emit_backend_log=emit_backend_log,
                     on_sampler_usage=on_sampler_usage,
                     on_sampler_request_log=on_sampler_request_log,
                     on_sampler_reasoning_detected=on_sampler_reasoning_detected,
