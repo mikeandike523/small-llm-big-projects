@@ -12,6 +12,7 @@ import src.ui_connector.socket_handler_components.state as _state
 from src.ui_connector.app import socketio
 from src.ui_connector.socket_handler_components.emit import (
     _emit_and_log,
+    _emit_backend_log,
     _make_sampler_usage_tracker,
     _make_sampler_request_logger,
     _make_sampler_reasoning_detector,
@@ -28,6 +29,7 @@ from src.ui_connector.socket_handler_components.watchdogs import (
 from src.ui_connector.socket_handler_components.agent_loop import _async_agent_loop
 from src.tools.todo_list import format_items_for_ui as _todo_format_items_for_ui
 from src.utils.llm.factory import load_llm_config, make_llm_refreshing
+from src.utils.request_error_formatting import classify_llm_request_error
 from src.utils.session_model import Session, Turn, Subturn
 
 logger = logging.getLogger(__name__)
@@ -163,8 +165,13 @@ def handle_user_message(data: dict):
             )
         except Exception as _wdog_exc:
             # Load-bearing watchdog: surface the failure to the UI and abort the
-            # turn rather than silently guessing new-task vs follow-up.
+            # turn rather than silently guessing new-task vs follow-up. Classify
+            # the same way as the main agent loop so the user gets a real
+            # message (context-limit/HTTP/network) instead of a raw repr.
             logger.exception("Continuation watchdog failed for session %s", session_id)
+            _classified = classify_llm_request_error(_wdog_exc)
+            if _classified["log_object"] is not None:
+                _emit_backend_log(session_id, _classified["log_object"])
             _err_subturn_id = str(_uuid_module.uuid4())
             _emit_and_log(
                 session_id,
@@ -175,7 +182,7 @@ def handle_user_message(data: dict):
                 session_id,
                 "error",
                 {
-                    "message": f"Continuation watchdog failed: {_wdog_exc}",
+                    "message": _classified["gui_message"],
                     "turn_id": turn_id,
                 },
             )
@@ -313,7 +320,7 @@ def handle_user_message(data: dict):
             cancel_event.set()
         except Exception as exc:
             logger.exception(
-                "Unhandled exception in agent loop for session %s: %s", session_id, exc
+                "Unhandled exception escaped _async_agent_loop entirely for session %s: %s", session_id, exc
             )
         finally:
             _state._cancel_tasks.pop(session_id, None)
@@ -467,7 +474,7 @@ def handle_force_continuation(data: dict):
             cancel_event.set()
         except Exception as exc:
             logger.exception(
-                "Unhandled exception in force_continuation loop for session %s: %s",
+                "Unhandled exception escaped _async_agent_loop (force_continuation) for session %s: %s",
                 session_id,
                 exc,
             )

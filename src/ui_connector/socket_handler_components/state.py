@@ -130,18 +130,6 @@ _OPENAI_MESSAGE_KEYS: frozenset[str] = frozenset(
     {"role", "content", "tool_calls", "tool_call_id", "name", "reasoning_native"}
 )
 
-_CONTEXT_LIMIT_KEYWORDS = (
-    "context length exceeded",
-    "context_length_exceeded",
-    "maximum context length",
-    "maximum token",
-    "context window",
-    "too many tokens",
-    "input is too long",
-    "prompt is too long",
-    "exceeds the maximum",
-)
-
 TITLE_MAX_CHARS = 80
 
 _SKILL_SELECTOR_TURN_CHARS = 600

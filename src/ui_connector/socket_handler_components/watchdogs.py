@@ -455,6 +455,9 @@ async def _select_skills_for_turn(
 
     # Load-bearing: a failed LLM call must propagate so the agent loop surfaces it
     # as a UI error rather than silently running the turn with no skills loaded.
+    # classify_llm_request_error (called centrally in agent_loop.py's finally
+    # block) handles context-limit/HTTP/network classification uniformly for
+    # any exception raised here — no per-call-site wrapping needed.
     result = await asyncio.to_thread(
         _call_sampler, streaming_llm, messages, watchdog_params, on_usage,
         on_request_log, on_reasoning_detected,

@@ -6,7 +6,6 @@ import logging
 import os
 from typing import Any
 
-import httpx
 from termcolor import colored
 
 import src.ui_connector.socket_handler_components.state as _state
@@ -20,7 +19,6 @@ from src.ui_connector.socket_handler_components.session_store import (
     _get_session_system_prompt,
 )
 from src.tools import ALL_TOOL_DEFINITIONS
-from src.utils.exceptions import ContextLimitExceededError
 from src.utils.llm.streaming import StreamingLLM
 from src.utils.session_model import Session, Turn, Subturn
 
@@ -113,26 +111,6 @@ def _build_llm_payload(
 
 
 # ---------------------------------------------------------------------------
-# Context-limit detection helpers
-# ---------------------------------------------------------------------------
-
-
-def _is_context_limit_error(exc: Exception) -> bool:
-    try:
-        if not isinstance(exc, httpx.HTTPStatusError):
-            return False
-        response = exc.response
-        if response is None:
-            return False
-        if response.status_code not in (400, 413, 422):
-            return False
-        body = response.text.lower()
-        return any(kw in body for kw in _state._CONTEXT_LIMIT_KEYWORDS)
-    except Exception:
-        return False
-
-
-# ---------------------------------------------------------------------------
 # Async LLM call abstraction
 # ---------------------------------------------------------------------------
 
@@ -195,18 +173,21 @@ async def _async_run_llm_call(
         _main_params["model"] = streaming_llm._model
     _main_params.update(streaming_llm._default_parameters)
     if _main_params:
-        _parts = []
-        for _k, _v in _main_params.items():
-            try:
-                _parts.append(f"{_k}={json.dumps(_v, ensure_ascii=False)}")
-            except Exception:
-                _parts.append(f"{_k}={_v!r}")
         _emit_backend_log(
             session_id,
-            colored("[main agent]", "cyan") + " request params: " + ", ".join(_parts),
+            {
+                "lifecyclePortion": "main-agent",
+                "params": _main_params,
+            },
         )
     else:
-        _emit_backend_log(session_id, colored("[main agent]", "cyan") + " request params: (none)")
+        _emit_backend_log(
+            session_id,
+            {
+                "lifecyclePortion": "main-agent",
+                "params": {},
+            },
+        )
 
     result = await streaming_llm.stream(
         sanitize_messages_for_llm(payload),
@@ -226,34 +207,3 @@ async def _async_run_llm_call(
     )
 
     return result, acc["content"], acc["reasoning"]
-
-
-async def _async_run_llm_call_with_retry(
-    streaming_llm: StreamingLLM,
-    payload: list[dict],
-    session_id: str,
-    turn_id: str,
-    subturn_id: str,
-    exchange_idx: int,
-    tool_defs: list[dict] | None = None,
-    suppress_content_streaming: bool = False,
-) -> tuple[object, str, str]:
-    """Run an async LLM call; surfaces a user-friendly error on context-limit."""
-    try:
-        return await _async_run_llm_call(
-            streaming_llm,
-            payload,
-            session_id,
-            turn_id,
-            subturn_id,
-            exchange_idx,
-            tool_defs,
-            suppress_content_streaming,
-        )
-    except Exception as exc:
-        if _is_context_limit_error(exc):
-            raise ContextLimitExceededError(
-                "Context limit exceeded — the conversation is too long for the model's context window.\n"
-                "Please start a new session or shorten the conversation."
-            ) from exc
-        raise

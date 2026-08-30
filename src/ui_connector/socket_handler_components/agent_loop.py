@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import sys
-import traceback
 import threading
 
 from termcolor import colored
@@ -25,7 +24,7 @@ from src.ui_connector.socket_handler_components.session_store import (
 )
 from src.ui_connector.socket_handler_components.llm import (
     _build_llm_payload,
-    _async_run_llm_call_with_retry,
+    _async_run_llm_call,
 )
 from src.ui_connector.socket_handler_components.watchdogs import (
     _get_open_items,
@@ -40,7 +39,6 @@ from src.logic.system_prompt import (
     build_injected_skills_section,
     resolve_skill_dependency_closure,
 )
-from src.utils.exceptions import ContextLimitExceededError
 from src.utils.llm.streaming import StreamingLLM
 from src.utils.request_error_formatting import classify_llm_request_error
 from src.utils.session_model import Session, Turn, Subturn, LLMExchange
@@ -162,7 +160,7 @@ async def _async_agent_loop(
 
             try:
                 result, content_for_history, reasoning = (
-                    await _async_run_llm_call_with_retry(
+                    await _async_run_llm_call(
                         streaming_llm,
                         payload,
                         session_id=session_id,
@@ -595,11 +593,25 @@ async def _async_agent_loop(
             )
             exc_type, exc_val, exc_tb = sys.exc_info()
             err_msg = "Agent loop failed."
-            if exc_val is not None:
-                tb_str = "".join(traceback.format_exception(exc_type, exc_val, exc_tb))
-                _emit_backend_log(session_id, f"[SERVER ERROR] Agent loop crashed:\n{tb_str}")
-                err_msg = f"Agent loop failed: {exc_val}"
             marker = "[Agent Error - See Backend Logs]"
+            if exc_val is not None:
+                # Any exception escaping the try body lands here — not just the
+                # main turn call (that path is handled above via abnormal_end).
+                # This covers watchdog calls made outside the inner try, e.g.
+                # _select_skills_for_turn and _select_best_final_answer, which
+                # hit the LLM the same way and can raise the same
+                # httpx/ContextLimitExceededError family. Classify it the same
+                # way as the main-call path so both the GUI message and the
+                # frontend debug log get the same structured treatment — the
+                # full traceback still lands in the backend process log above
+                # (exc_info=True); the frontend debug log gets the classified
+                # object, not a raw string dump, to match abnormal_end and the
+                # continuation-watchdog handler in socket_events_turn.py.
+                classified = classify_llm_request_error(exc_val)
+                err_msg = classified["gui_message"]
+                marker = classified["history_marker"]
+                if classified["log_object"] is not None:
+                    _emit_backend_log(session_id, classified["log_object"])
             current_turn.completed = True
             current_turn.todo_snapshot = _todo_format_items_for_ui(
                 session.session_data.get("todo_list") or []
