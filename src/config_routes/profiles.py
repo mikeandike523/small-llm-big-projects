@@ -19,7 +19,13 @@ from src.utils.sql.kv_manager import KVManager
 
 
 def _param_specs_payload() -> list[dict[str, Any]]:
-    return [_REGISTRY[name].to_api_dict() for name in sorted(_REGISTRY)]
+    """Specs for the per-profile param editor. Global-scope params are excluded:
+    they are not editable per-profile and have no dedicated GUI (yet)."""
+    return [
+        _REGISTRY[name].to_api_dict()
+        for name in sorted(_REGISTRY)
+        if name not in _GLOBAL_PARAMS
+    ]
 
 
 def _profile_exists(cursor, name: str) -> bool:
