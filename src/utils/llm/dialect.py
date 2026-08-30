@@ -89,6 +89,7 @@ def detect_dialect(
 
 
 class AnthropicDialect(DialectAdapter):
+    dialect_name = ANTHROPIC
 
     def endpoint_url(self, base: str) -> str:
         return base.rstrip("/") + "/messages"

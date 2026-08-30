@@ -167,7 +167,18 @@ async def _async_run_llm_call(
                     acc["reasoning"],
                 )
 
-    # Log the params that will be sent to the API (model + default_parameters).
+    # Log the resolved dialect + endpoint URL, then the params that will be
+    # sent to the API (model + default_parameters).
+    _adapter = streaming_llm._adapter
+    _emit_backend_log(
+        session_id,
+        {
+            "lifecyclePortion": "main-agent",
+            "dialect": getattr(_adapter, "dialect_name", _adapter.__class__.__name__),
+            "endpoint": _adapter.endpoint_url(streaming_llm._endpoint),
+            "model": streaming_llm._model,
+        },
+    )
     _main_params: dict = {}
     if streaming_llm._model:
         _main_params["model"] = streaming_llm._model

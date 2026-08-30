@@ -65,6 +65,7 @@ OPENAI_RESPONSES = "openai_responses"
 
 
 class OpenAIResponsesDialect(DialectAdapter):
+    dialect_name = OPENAI_RESPONSES
 
     def endpoint_url(self, base: str) -> str:
         return base.rstrip("/") + "/responses"

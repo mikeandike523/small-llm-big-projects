@@ -60,6 +60,9 @@ class _OpenAICompatibleBase(DialectAdapter):
     the three actually agree on that.
     """
 
+    # Identifier emitted in backend logs / used in reasoning_native tags.
+    dialect_name = OPENAI_COMPLETIONS
+
     def endpoint_url(self, base: str) -> str:
         return base.rstrip("/") + "/chat/completions"
 
@@ -124,6 +127,8 @@ class OpenAICompletionsDialect(_OpenAICompatibleBase):
     (summaries, encrypted_content) is exclusive to the Responses API; see the
     module TODO in dialect.py.
     """
+
+    dialect_name = OPENAI_COMPLETIONS
 
     def adapt_payload(self, payload: dict) -> dict:
         p = dict(payload)
@@ -256,6 +261,8 @@ class OpenRouterDialect(_OpenAICompatibleBase):
     plumbing needed here.
     """
 
+    dialect_name = OPENROUTER
+
     def adapt_payload(self, payload: dict) -> dict:
         p = dict(payload)
         if p.get("messages"):
@@ -355,6 +362,8 @@ class VLLMDialect(_OpenAICompatibleBase):
     message or the API returns a 400; without `tools` it's optional and
     silently ignored if sent.
     """
+
+    dialect_name = VLLM
 
     def adapt_payload(self, payload: dict) -> dict:
         p = dict(payload)
