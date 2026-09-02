@@ -124,6 +124,8 @@ async def _async_run_llm_call(
     exchange_idx: int,
     tool_defs: list[dict] | None = None,
     suppress_content_streaming: bool = False,
+    hotfix_gpt_aggressive_arg_fill: bool = False,
+    hotfix_gpt_strict_tool_def: bool = False,
 ) -> tuple[object, str, str]:
     """
     Run one async LLM call (streaming) and emit token events.
@@ -200,10 +202,20 @@ async def _async_run_llm_call(
             },
         )
 
+    _tools = tool_defs if tool_defs is not None else ALL_TOOL_DEFINITIONS
+    if hotfix_gpt_aggressive_arg_fill:
+        from src.utils.tool_calling.nullable_optional import wrap_tool_defs_nullable
+
+        _tools = wrap_tool_defs_nullable(_tools)
+    if hotfix_gpt_strict_tool_def:
+        from src.utils.tool_calling.strict_mode import force_tool_defs_non_strict
+
+        _tools = force_tool_defs_non_strict(_tools)
+
     result = await streaming_llm.stream(
         sanitize_messages_for_llm(payload),
         on_data,
-        tools=(tool_defs if tool_defs is not None else ALL_TOOL_DEFINITIONS),
+        tools=_tools,
     )
 
     if acc["reasoning"]:

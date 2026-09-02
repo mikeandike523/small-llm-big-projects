@@ -63,6 +63,7 @@ def _execute_tools(
     strict_dirty: bool = True,
     create_file_auto_eol: str | None = None,
     enable_patch_rewriter: bool = False,
+    hotfix_gpt_aggressive_arg_fill: bool = False,
 ) -> LLMExchange:
     """
     Execute all tool calls in result, emit events, and build an LLMExchange record.
@@ -118,6 +119,13 @@ def _execute_tools(
                 )
                 if not props and tc.arguments:
                     tc.arguments = {}
+    if hotfix_gpt_aggressive_arg_fill:
+        from src.utils.tool_calling.nullable_optional import resolve_nulls_to_omitted
+
+        for tc in result.tool_calls:
+            module = actual_tool_map.get(tc.name)
+            if module is not None and tc.arguments:
+                tc.arguments = resolve_nulls_to_omitted(module.DEFINITION, tc.arguments)
 
     exchange = LLMExchange(
         assistant_content=content_for_history,

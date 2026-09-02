@@ -350,12 +350,13 @@ def _convert_tools(tools: list[dict]) -> list[dict]:
     result = []
     for tool in tools:
         fn = tool.get("function") or {}
-        result.append(
-            {
-                "type": "function",
-                "name": fn.get("name", ""),
-                "description": fn.get("description", ""),
-                "parameters": fn.get("parameters") or {"type": "object", "properties": {}},
-            }
-        )
+        flat = {
+            "type": "function",
+            "name": fn.get("name", ""),
+            "description": fn.get("description", ""),
+            "parameters": fn.get("parameters") or {"type": "object", "properties": {}},
+        }
+        if "strict" in fn:
+            flat["strict"] = fn["strict"]
+        result.append(flat)
     return result

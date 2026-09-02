@@ -26,6 +26,7 @@ numpy
 beautifulsoup4
 lxml
 json5
+psutil
 
 # Dev dependencies
 black

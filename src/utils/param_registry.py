@@ -262,6 +262,41 @@ REGISTRY["system.enable_patch_rewriter"] = ParamSpec(
         "less capable models that do not recover well from patch errors on their own."
     ),
 )
+REGISTRY["system.hotfix_gpt_aggressive_arg_fill"] = ParamSpec(
+    name="system.hotfix_gpt_aggressive_arg_fill",
+    value_type="boolean",
+    description=(
+        "Compensate for models (observed on gpt-5.x) that populate every optional "
+        "tool parameter with a type-appropriate default (0, '', [], false) instead of "
+        "omitting it, rather than actually choosing that value -- and then repeat the "
+        "same invalid call after an error, since the value was never a deliberate choice. "
+        "false (default): tool schemas and tool-call arguments pass through unmodified. "
+        "true: every optional (non-required) property in a tool's parameter schema is "
+        "unioned with type 'null' before being sent to the model, giving it an explicit, "
+        "distinguishable way to say 'omit this'. On the way back, an explicit null the "
+        "model sends for such a property is treated as if the key were never provided, "
+        "before the normal tool-arg validator runs. A property whose OWN schema already "
+        "allows null is left unwrapped, and any null it returns is passed through as a "
+        "real null rather than being treated as omission -- logs a one-time '! caution' "
+        "warning the first time such a field is encountered while this is enabled."
+    ),
+)
+REGISTRY["system.hotfix_gpt_strict_tool_def"] = ParamSpec(
+    name="system.hotfix_gpt_strict_tool_def",
+    value_type="boolean",
+    description=(
+        "Diagnostic hotfix, unrelated to system.hotfix_gpt_aggressive_arg_fill's actual "
+        "fix -- exists only to test a hypothesis about ITS root cause. Explicitly sends "
+        "strict: false on every tool definition instead of omitting the field (today's "
+        "default), to isolate whether a model over-populating optional tool arguments is "
+        "caused by it inferring/defaulting to strict mode when the field is absent, or "
+        "happens independently of strict mode entirely. false (default): strict is "
+        "omitted, as today. true: strict: false is sent explicitly on every tool, for "
+        "both Chat Completions (nested under function) and the Responses API (flattened "
+        "to the top level, per OpenAI's docs). Meant to be toggled off again once that "
+        "question is answered."
+    ),
+)
 REGISTRY["system.create_file_auto_eol"] = ParamSpec(
     name="system.create_file_auto_eol",
     value_type="string",

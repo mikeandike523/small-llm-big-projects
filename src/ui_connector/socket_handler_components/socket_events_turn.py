@@ -137,6 +137,12 @@ def handle_user_message(data: dict):
     enable_patch_rewriter: bool = llm_config["system_params"].get(
         "enable_patch_rewriter", False
     )
+    hotfix_gpt_aggressive_arg_fill: bool = llm_config["system_params"].get(
+        "hotfix_gpt_aggressive_arg_fill", False
+    )
+    hotfix_gpt_strict_tool_def: bool = llm_config["system_params"].get(
+        "hotfix_gpt_strict_tool_def", False
+    )
     model_temperature: float | None = (llm_config.get("model_params") or {}).get("temperature")
     watchdog_params: dict = llm_config.get("watchdog_params") or {}
     summarizer_params: dict = llm_config.get("summarizer_params") or {}
@@ -299,6 +305,8 @@ def handle_user_message(data: dict):
                 strict_dirty=strict_dirty,
                 create_file_auto_eol=create_file_auto_eol,
                 enable_patch_rewriter=enable_patch_rewriter,
+                hotfix_gpt_aggressive_arg_fill=hotfix_gpt_aggressive_arg_fill,
+                hotfix_gpt_strict_tool_def=hotfix_gpt_strict_tool_def,
             )
 
             # For new tasks, ensure title is fetched if the concurrent task
@@ -387,6 +395,12 @@ def handle_force_continuation(data: dict):
     enable_patch_rewriter: bool = llm_config["system_params"].get(
         "enable_patch_rewriter", False
     )
+    hotfix_gpt_aggressive_arg_fill: bool = llm_config["system_params"].get(
+        "hotfix_gpt_aggressive_arg_fill", False
+    )
+    hotfix_gpt_strict_tool_def: bool = llm_config["system_params"].get(
+        "hotfix_gpt_strict_tool_def", False
+    )
     model_temperature: float | None = (llm_config.get("model_params") or {}).get("temperature")
     watchdog_params: dict = llm_config.get("watchdog_params") or {}
     summarizer_params: dict = llm_config.get("summarizer_params") or {}
@@ -469,6 +483,8 @@ def handle_force_continuation(data: dict):
                 strict_dirty=strict_dirty,
                 create_file_auto_eol=create_file_auto_eol,
                 enable_patch_rewriter=enable_patch_rewriter,
+                hotfix_gpt_aggressive_arg_fill=hotfix_gpt_aggressive_arg_fill,
+                hotfix_gpt_strict_tool_def=hotfix_gpt_strict_tool_def,
             )
         except asyncio.CancelledError:
             cancel_event.set()
