@@ -83,6 +83,32 @@ def detect_dialect(
     return OPENAI_COMPLETIONS
 
 
+def should_force_tool_strict(dialect_name: str, model: str | None) -> bool | None:
+    """Decide whether to force tool defs' `strict` field, absent an explicit override.
+
+    Returns False to force strict:false, True to force strict:true (no rule does
+    this today -- reserved for symmetry with system.override_strict_tool_def), or
+    None to leave `strict` untouched entirely.
+
+    Rule 1: real OpenAI, Chat Completions or Responses -- the Responses API
+    silently auto-attempts strict mode when `strict` is omitted, promoting
+    optional properties into `required` server-side (confirmed against OpenAI's
+    own docs: "omitting strict attempts strict mode... falls back to non-strict
+    ... if the schema cannot be made compatible" -- unlike Chat Completions,
+    which is non-strict by default). Force false so schemas are honored as
+    authored, not silently rewritten.
+    Rule 2: OpenRouter fronting an OpenAI-family model (name contains "openai"
+    or "gpt") -- same underlying model, same risk.
+    """
+    if dialect_name in (OPENAI_COMPLETIONS, OPENAI_RESPONSES):
+        return False
+    if dialect_name == OPENROUTER:
+        model_lower = (model or "").lower()
+        if "openai" in model_lower or "gpt" in model_lower:
+            return False
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Anthropic dialect
 # ---------------------------------------------------------------------------

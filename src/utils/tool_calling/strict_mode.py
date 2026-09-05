@@ -1,8 +1,9 @@
-"""Diagnostic hotfix gated behind system.hotfix_gpt_strict_tool_def -- forces
-strict: false onto every outgoing tool definition, instead of omitting the
-field (today's default), to test whether a model over-populating optional
-tool arguments is caused by it inferring strict mode when the field is
-absent, independent of system.hotfix_gpt_aggressive_arg_fill's actual fix.
+"""Sets the `strict` field on outgoing tool definitions.
+
+Driven by src/utils/llm/dialect.py:should_force_tool_strict() (automatic,
+per-dialect/model) and system.override_strict_tool_def (manual escape
+hatch) -- see StreamingLLM._build_base_payload() in streaming.py, the
+single point where both are resolved into one decision.
 
 Per OpenAI's function-calling docs, `strict` is a sibling of `type`/`name`/
 `parameters` in the tool definition: nested under `function` for Chat
@@ -17,11 +18,11 @@ from __future__ import annotations
 import copy
 
 
-def force_tool_defs_non_strict(tool_defs: list[dict]) -> list[dict]:
-    """Return a deep copy of tool_defs with function.strict explicitly set to False."""
+def set_tool_defs_strict(tool_defs: list[dict], value: bool) -> list[dict]:
+    """Return a deep copy of tool_defs with function.strict explicitly set to `value`."""
     result = copy.deepcopy(tool_defs)
     for tool in result:
         fn = tool.get("function")
         if isinstance(fn, dict):
-            fn["strict"] = False
+            fn["strict"] = value
     return result

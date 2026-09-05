@@ -65,8 +65,6 @@ async def _async_agent_loop(
     strict_dirty: bool = True,
     create_file_auto_eol: str | None = None,
     enable_patch_rewriter: bool = False,
-    hotfix_gpt_aggressive_arg_fill: bool = False,
-    hotfix_gpt_strict_tool_def: bool = False,
 ) -> None:
     """
     Main agentic loop. Runs inside a private asyncio event loop in the SocketIO thread.
@@ -172,8 +170,6 @@ async def _async_agent_loop(
                         tool_defs=session_tool_defs,
                         suppress_content_streaming=session.interim_response_as_thinking
                         and is_interim_call,
-                        hotfix_gpt_aggressive_arg_fill=hotfix_gpt_aggressive_arg_fill,
-                        hotfix_gpt_strict_tool_def=hotfix_gpt_strict_tool_def,
                     )
                 )
             except asyncio.CancelledError:
@@ -241,7 +237,6 @@ async def _async_agent_loop(
                         strict_dirty,
                         create_file_auto_eol,
                         enable_patch_rewriter,
-                        hotfix_gpt_aggressive_arg_fill,
                     )
                 except asyncio.CancelledError:
                     cancel_event.set()

@@ -230,6 +230,7 @@ def make_llm_from_config(
         config["model_params"],
         adapter=adapter,
         config_loader=config_loader,
+        system_params=config.get("system_params", {}),
     )
 
 
@@ -273,4 +274,5 @@ def make_llm(timeout_s: float | None = None) -> StreamingLLM | None:
         config["model"],
         config["model_params"],
         adapter=adapter,
+        system_params=config.get("system_params", {}),
     )

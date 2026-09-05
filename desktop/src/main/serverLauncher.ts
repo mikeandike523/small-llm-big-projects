@@ -3,6 +3,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { checkServerRunning, readServerState, clearServerState, type ServerState } from './serverState';
 import { LogHistory } from '../shared/logHistory';
+import { MAX_LOG_LINES } from '../shared/logConfig';
+import { readLogStartOffset, writeLogStartOffset, clearLogStartOffset } from './logState';
+import readLastLines from 'read-last-lines';
 
 export type HealthStatusKind = 'checking' | 'starting' | 'running' | 'unreachable' | 'failed';
 
@@ -93,6 +96,76 @@ function serverCommand(repoRoot: string): { cmd: string; args: string[] } {
   return { cmd: slbpScriptPath(repoRoot), args: ['server', 'run', '--desktop'] };
 }
 
+/** Reads bytes [from, to) from `filePath`. */
+function readRange(filePath: string, from: number, to: number): Buffer {
+  const fd = fs.openSync(filePath, 'r');
+  try {
+    const buf = Buffer.alloc(to - from);
+    fs.readSync(fd, buf, 0, buf.length, from);
+    return buf;
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
+/**
+ * Backfills `history` from the existing log file before live tailing starts,
+ * so reopening the app shows what the user last saw instead of a blank
+ * widget. Priority: (1) the stored "history start" offset from
+ * logState.json, which reproduces the exact window of lines last rendered;
+ * (2) read-last-lines capped at MAX_LOG_LINES, for a first run or lost
+ * state file; (3) nothing (empty or unreadable log). Returns the byte
+ * offset live tailing should resume from plus the freshly persisted
+ * history-start offset.
+ */
+async function initializeHistoryAsync(
+  filePath: string,
+  history: LogHistory,
+  onChange: () => void,
+): Promise<{ resumeOffset: number; startOffset: number }> {
+  let size = 0;
+  try {
+    size = fs.statSync(filePath).size;
+  } catch {
+    return { resumeOffset: 0, startOffset: 0 };
+  }
+  if (size === 0) return { resumeOffset: 0, startOffset: 0 };
+
+  history.reset();
+
+  const stored = readLogStartOffset(filePath);
+  if (stored !== null && stored <= size) {
+    try {
+      // `stored` is the exact first byte of the oldest retained line
+      // (LogHistory's byte accounting is verified exact). Seed baseOffset
+      // so endOffset lands exactly on `size`: from here on, live-tail
+      // feeds advance offsets 1:1 with the file, keeping everything exact.
+      const text = readRange(filePath, stored, size).toString('utf-8');
+      history.baseOffset = size - Buffer.byteLength(text, 'utf-8');
+      if (text.length > 0) history.handleNewText(text, Buffer.byteLength(text, 'utf-8'));
+      writeLogStartOffset(filePath, history.startOffset);
+      onChange();
+      return { resumeOffset: size, startOffset: history.startOffset };
+    } catch {
+      // File vanished/locked mid-prefill -- fall through to the fallback.
+    }
+  }
+
+  // Fallback: last MAX_LOG_LINES lines.
+  try {
+    const text = await readLastLines.read(filePath, MAX_LOG_LINES);
+    if (text) {
+      history.baseOffset = size - Buffer.byteLength(text, 'utf-8');
+      history.handleNewText(text, Buffer.byteLength(text, 'utf-8'));
+      writeLogStartOffset(filePath, history.startOffset);
+      onChange();
+    }
+  } catch {
+    // Unreadable / no fallback available -- start empty, as before.
+  }
+  return { resumeOffset: size, startOffset: history.startOffset };
+}
+
 /**
  * Poll-tails a growing file from a byte offset, feeding raw text chunks into
  * `history` and notifying `onChange` whenever it changes. Polling instead of
@@ -101,14 +174,21 @@ function serverCommand(repoRoot: string): { cmd: string; args: string[] } {
  * log view.
  */
 function tailLogFile(filePath: string, history: LogHistory, onChange: () => void): () => void {
+  // Prefill is async (read-last-lines only offers a promise API), so polling
+  // is suppressed until it lands. Nothing appended during the prefill window
+  // is lost: initializeHistoryAsync reads up to its own EOF and its returned
+  // resumeOffset becomes the poll's starting offset.
   let offset = 0;
-  try {
-    offset = fs.statSync(filePath).size;
-  } catch {
-    offset = 0;
-  }
+  let ready = false;
+  let persistedStart = 0;
+  void initializeHistoryAsync(filePath, history, onChange).then(({ resumeOffset, startOffset }) => {
+    offset = resumeOffset;
+    persistedStart = startOffset;
+    ready = true;
+  });
 
   const poll = () => {
+    if (!ready) return;
     let size: number;
     try {
       size = fs.statSync(filePath).size;
@@ -124,21 +204,25 @@ function tailLogFile(filePath: string, history: LogHistory, onChange: () => void
       // on screen until the next write happens to arrive.
       offset = 0;
       history.reset();
+      history.baseOffset = 0;
+      // External truncation is a "new world": drop the stored offset so the
+      // next session falls back to read-last-lines instead of prefilling
+      // from an offset that no longer means anything.
+      clearLogStartOffset(filePath);
+      persistedStart = 0;
       onChange();
     }
     if (size <= offset) return;
 
-    const fd = fs.openSync(filePath, 'r');
-    try {
-      const length = size - offset;
-      const buf = Buffer.alloc(length);
-      fs.readSync(fd, buf, 0, length, offset);
-      offset = size;
-      history.handleNewText(buf.toString('utf-8'));
-      onChange();
-    } finally {
-      fs.closeSync(fd);
+    const length = size - offset;
+    const buf = readRange(filePath, offset, size);
+    offset = size;
+    history.handleNewText(buf.toString('utf-8'), length);
+    if (history.startOffset !== persistedStart) {
+      persistedStart = history.startOffset;
+      writeLogStartOffset(filePath, persistedStart);
     }
+    onChange();
   };
 
   const interval = setInterval(poll, LOG_TAIL_POLL_INTERVAL_MS);

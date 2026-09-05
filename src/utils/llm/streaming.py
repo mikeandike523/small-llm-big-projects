@@ -47,6 +47,7 @@ class StreamingLLM:
     _timeout_s: Optional[Number]
     _adapter: "DialectAdapter"
     _config_loader: Optional[Callable[[], Any]]
+    _system_params: dict
 
     def __init__(
         self,
@@ -57,6 +58,7 @@ class StreamingLLM:
         default_parameters={},
         adapter: "DialectAdapter | None" = None,
         config_loader: Optional[Callable[[], Any]] = None,
+        system_params: dict = {},
     ):
         self._endpoint = endpoint
         self._token = token
@@ -64,6 +66,7 @@ class StreamingLLM:
         self._default_parameters = default_parameters
         self._timeout_s = timeout_s
         self._config_loader = config_loader
+        self._system_params = system_params
 
         if adapter is not None:
             self._adapter = adapter
@@ -85,6 +88,7 @@ class StreamingLLM:
         self._token = config["token_value"]
         self._model = config.get("model")
         self._default_parameters = config.get("model_params", {})
+        self._system_params = config.get("system_params", {})
         dialect = detect_dialect(
             provider=config.get("provider"),
             endpoint_url=config.get("endpoint_url"),
@@ -112,6 +116,17 @@ class StreamingLLM:
             payload["max_tokens"] = max_tokens
         if tools:
             payload["tools"] = tools
+            from src.utils.llm.dialect import should_force_tool_strict
+            from src.utils.tool_calling.strict_mode import set_tool_defs_strict
+
+            override = self._system_params.get("override_strict_tool_def")
+            decision = (
+                override
+                if override is not None
+                else should_force_tool_strict(self._adapter.dialect_name, self._model)
+            )
+            if decision is not None:
+                payload["tools"] = set_tool_defs_strict(payload["tools"], decision)
         return payload
 
     async def stream(
