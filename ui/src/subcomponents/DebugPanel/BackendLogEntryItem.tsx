@@ -1,10 +1,17 @@
 import Ansi from "ansi-to-react";
 import { css } from "@emotion/react";
-import { BackendLogEntry } from "../../types/DebugPanel";
+import {
+  BackendLogContent,
+  BackendLogSingleEntry,
+} from "../../types/DebugPanel";
 import { fontMono, spTextMain } from "../../css/SidePanelTheme";
 import { BACKEND_LOG_OBJECT_TRUNCATE_CHARS } from "../../constants/tool-ui-constants";
 
 export const logLineCss = css`
+  border-bottom: 1px solid #1a3f66;
+`;
+
+export const logContentCss = css`
   font-family: ${fontMono};
   color: ${spTextMain};
   font-size: 10px;
@@ -12,7 +19,6 @@ export const logLineCss = css`
   white-space: pre-wrap;
   word-break: break-all;
   padding: 1px 2px;
-  border-bottom: 1px solid #1a3f66;
 `;
 
 const viewButtonCss = css`
@@ -40,34 +46,59 @@ export default function BackendLogEntryItem({
   entry,
   onView,
 }: {
-  entry: BackendLogEntry;
-  onView: (entry: { id: number; content: Record<string, unknown> | unknown[] }) => void;
+  entry: BackendLogSingleEntry;
+  onView: (entry: {
+    id: number;
+    content: Record<string, unknown> | unknown[];
+  }) => void;
 }) {
-  const { content } = entry;
+  return (
+    <div css={logLineCss}>
+      <BackendLogContentView
+        id={entry.id}
+        content={entry.content}
+        onView={onView}
+      />
+    </div>
+  );
+}
+
+export function BackendLogContentView({
+  id,
+  content,
+  onView,
+}: {
+  id: number;
+  content: BackendLogContent;
+  onView: (entry: {
+    id: number;
+    content: Record<string, unknown> | unknown[];
+  }) => void;
+}) {
   const isObjectLike = content !== null && typeof content === "object";
 
   if (!isObjectLike) {
     if (typeof content === "string") {
       return (
-        <div css={logLineCss}>
+        <div css={logContentCss}>
           <Ansi>{content}</Ansi>
         </div>
       );
     }
     // number | boolean | null -- no ANSI parsing needed, no modal to open.
-    return <div css={logLineCss}>{String(content)}</div>;
+    return <div css={logContentCss}>{String(content)}</div>;
   }
 
   const preview = truncateForPreview(JSON.stringify(content));
 
   return (
-    <div css={logLineCss}>
+    <div css={logContentCss}>
       {preview}
       <button
         css={viewButtonCss}
         onClick={() =>
           onView({
-            id: entry.id,
+            id,
             content: content as Record<string, unknown> | unknown[],
           })
         }

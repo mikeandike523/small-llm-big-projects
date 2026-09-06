@@ -5,6 +5,7 @@ import { placeholderCss } from "../../css/DebugPanel";
 import { css } from "@emotion/react";
 import scrollbarCss from "../../css/scrollBarCss";
 import BackendLogEntryItem from "./BackendLogEntryItem";
+import BackendLogMultiCard from "./BackendLogMultiCard";
 import BackendLogObjectModal from "./BackendLogObjectModal";
 
 export const logsPanelCss = (visible: boolean) => css`
@@ -39,13 +40,21 @@ export default function BackendLogsTab({
         {logs.length === 0 ? (
           <div css={placeholderCss}>No logs yet.</div>
         ) : (
-          logs.map((entry) => (
-            <BackendLogEntryItem
-              key={entry.id}
-              entry={entry}
-              onView={setViewingEntry}
-            />
-          ))
+          logs.map((entry) =>
+            entry.multiple === true ? (
+              <BackendLogMultiCard
+                key={entry.id}
+                entry={entry}
+                onView={setViewingEntry}
+              />
+            ) : (
+              <BackendLogEntryItem
+                key={entry.id}
+                entry={entry}
+                onView={setViewingEntry}
+              />
+            ),
+          )
         )}
       </div>
       <BackendLogObjectModal

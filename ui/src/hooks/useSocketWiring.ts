@@ -8,13 +8,9 @@ import type {
   ApprovalItem,
   PatchRewriteState,
 } from "../types";
+import type { BackendLogEntry, BackendLogContent } from "../types/DebugPanel";
 
 const MAX_LOGS = 100;
-
-interface BackendLogEntry {
-  id: number;
-  content: string | number | boolean | null | Record<string, unknown> | unknown[];
-}
 
 function newTurn(id: string, userText: string, subturnId?: string): Turn {
   const stId = subturnId ?? crypto.randomUUID();
@@ -632,9 +628,24 @@ export default function useSocketWiring(
     function onSessionCostUpdate({ total_usd }: { total_usd: number }) {
       setSessionCost(total_usd);
     }
-    function onBackendLog({ id, content }: BackendLogEntry) {
+    function onBackendLog(entry: BackendLogEntry) {
+      let normalizedEntry: BackendLogEntry | null = entry;
+
+      if (entry.multiple === true) {
+        if (!Array.isArray(entry.content) || entry.content.length === 0) {
+          normalizedEntry = null;
+        } else if (entry.content.length === 1) {
+          normalizedEntry = {
+            id: entry.id,
+            content: entry.content[0] as BackendLogContent,
+          };
+        }
+      }
+
+      if (normalizedEntry === null) return;
+
       setBackendLogs((prev) => {
-        const next = [...prev, { id, content }];
+        const next = [...prev, normalizedEntry];
         return next.length > MAX_LOGS
           ? next.slice(next.length - MAX_LOGS)
           : next;

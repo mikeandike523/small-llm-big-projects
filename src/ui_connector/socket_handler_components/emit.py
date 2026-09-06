@@ -44,16 +44,32 @@ def _make_sampler_usage_tracker(session_id: str, label: str) -> Callable[[dict],
     return _track
 
 
-def _emit_backend_log(session_id: str, content) -> None:
-    """Emit a backend log entry. `content` is sent to the frontend as-is aside
-    from a JSON round-trip that stringifies anything not natively JSON-safe
-    (e.g. custom objects, sets) -- primitives/dicts/lists pass through untouched.
+def _emit_backend_log(session_id: str, *contents) -> None:
+    """Emit one backend log entry to the frontend.
+
+    With one positional content argument, this preserves the legacy payload shape:
+    ``{"id": n, "content": content}``.
+
+    With two or more content arguments, the arguments are transported as one
+    grouped/multi log entry: ``{"id": n, "multiple": True, "content": [...]}``.
+
+    Content is sent to the frontend after a JSON round-trip that stringifies
+    anything not natively JSON-safe (e.g. custom objects, sets) while leaving
+    primitives/dicts/lists untouched.
     """
+    if not contents:
+        return
+
     with _state._log_counter_lock:
         _state._log_counter += 1
         n = _state._log_counter
-    safe_content = json.loads(json.dumps(content, default=str))
-    socketio.emit("backend_log", {"id": n, "content": safe_content}, room=session_id)
+    if len(contents) == 1:
+        safe_content = json.loads(json.dumps(contents[0], default=str))
+        payload = {"id": n, "content": safe_content}
+    else:
+        safe_content = json.loads(json.dumps(list(contents), default=str))
+        payload = {"id": n, "multiple": True, "content": safe_content}
+    socketio.emit("backend_log", payload, room=session_id)
 
 
 def _emit_and_log(session_id: str, event_type: str, data: dict) -> None:

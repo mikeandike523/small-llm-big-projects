@@ -21,10 +21,22 @@ export interface ToolsInfo {
   customPlugins: { name: string; count: number; path: string }[] | null;
 }
 
-export interface BackendLogEntry {
+export type BackendLogContent =
+  string | number | boolean | null | Record<string, unknown> | unknown[];
+
+export interface BackendLogSingleEntry {
   id: number;
-  content: string | number | boolean | null | Record<string, unknown> | unknown[];
+  multiple?: false;
+  content: BackendLogContent;
 }
+
+export interface BackendLogMultiEntry {
+  id: number;
+  multiple: true;
+  content: BackendLogContent[];
+}
+
+export type BackendLogEntry = BackendLogSingleEntry | BackendLogMultiEntry;
 
 export interface MemKeyEvent {
   key: string;
