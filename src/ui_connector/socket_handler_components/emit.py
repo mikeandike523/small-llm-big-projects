@@ -4,13 +4,20 @@ import json
 import logging
 from typing import Callable
 
-from termcolor import colored
-
 import src.ui_connector.socket_handler_components.state as _state
 from src.ui_connector.app import socketio
 from src.utils.event_log import log_event, REPLAY_EXCLUDED_EVENTS
 
 logger = logging.getLogger(__name__)
+
+
+def _make_sampler_callbacks(session_id: str, label: str) -> dict:
+    """Return a dict of usage, request-log, and response callbacks for a sampler."""
+    return {
+        "on_usage": _make_sampler_usage_tracker(session_id, label),
+        "on_request_log": _make_sampler_request_logger(session_id, label),
+        "on_response": _make_sampler_response_logger(session_id, label),
+    }
 
 
 def _make_sampler_usage_tracker(session_id: str, label: str) -> Callable[[dict], None]:
@@ -19,27 +26,29 @@ def _make_sampler_usage_tracker(session_id: str, label: str) -> Callable[[dict],
         if not usage:
             return
         cost = usage.get("cost")
-        cost_str = ""
+        total_session_cost = _state._session_costs.get(session_id, 0.0)
         if cost is not None:
             try:
                 cost = float(cost)
-                _state._session_costs[session_id] = (
-                    _state._session_costs.get(session_id, 0.0) + cost
-                )
-                total_cost = _state._session_costs[session_id]
+                _state._session_costs[session_id] = total_session_cost + cost
+                total_session_cost = _state._session_costs[session_id]
                 socketio.emit(
-                    "session_cost_update", {"total_usd": total_cost}, room=session_id
+                    "session_cost_update",
+                    {"total_usd": total_session_cost},
+                    room=session_id,
                 )
-                cost_str = f", cost=${cost:.6f} (session=${total_cost:.6f})"
             except (TypeError, ValueError):
-                pass
+                cost = None
         _emit_backend_log(
             session_id,
-            colored(f"[sampler:{label}] ", "magenta")
-            + f"prompt={usage.get('prompt_tokens', '?')}, "
-            f"completion={usage.get('completion_tokens', '?')}, "
-            f"total={usage.get('total_tokens', '?')}"
-            + cost_str,
+            f"[sampler:{label}] usage",
+            {
+                "prompt_tokens": usage.get("prompt_tokens", "?"),
+                "completion_tokens": usage.get("completion_tokens", "?"),
+                "total_tokens": usage.get("total_tokens", "?"),
+                "cost": cost,
+                "total_session_cost": total_session_cost,
+            },
         )
     return _track
 
@@ -109,31 +118,34 @@ def _emit_content_snapshot(
 def _make_sampler_request_logger(session_id: str, sampler_name: str) -> Callable[[dict], None]:
     """Return a callback that logs the sampler request params to the backend log."""
     def _log(params: dict) -> None:
-        if not params:
-            _emit_backend_log(
-                session_id,
-                colored(f"[sampler:{sampler_name}]", "cyan") + " request params: (none)",
-            )
-            return
-        parts = []
-        for k, v in params.items():
-            try:
-                parts.append(f"{k}={json.dumps(v, ensure_ascii=False)}")
-            except Exception:
-                parts.append(f"{k}={v!r}")
         _emit_backend_log(
             session_id,
-            colored(f"[sampler:{sampler_name}]", "cyan") + " request params: " + ", ".join(parts),
+            f"[sampler:{sampler_name}] request params",
+            params if params else {"note": "(none)"},
         )
     return _log
 
 
-def _make_sampler_reasoning_detector(session_id: str, sampler_name: str) -> Callable[[int], None]:
-    """Return a callback that logs a warning when reasoning tokens are detected."""
-    def _detect(reasoning_len: int) -> None:
+def _make_sampler_response_logger(session_id: str, label: str):
+    """Return a callback that logs system prompt, user message, reasoning, and assistant response."""
+    def _log(messages, result) -> None:
+        system_msg = ""
+        user_msg = ""
+        for m in messages:
+            role = m.get("role", "")
+            if role == "system" and not system_msg:
+                system_msg = m.get("content", "") or ""
+            elif role == "user" and not user_msg:
+                user_msg = m.get("content", "") or ""
         _emit_backend_log(
             session_id,
-            colored(f"[sampler:{sampler_name}]", "yellow")
-            + f" reasoning tokens detected (len={reasoning_len})",
+            f"[sampler:{label}] response",
+            {
+                "system_prompt": system_msg,
+                "user_message": user_msg,
+                "assistant_response": result.content or "",
+                "reasoning_text": result.reasoning or "",
+                "reasoning_length": len(result.reasoning) if result.reasoning else 0,
+            },
         )
-    return _detect
+    return _log

@@ -65,8 +65,18 @@ def execute(
 
     on_chunk = (special_resources or {}).get("on_chunk")
     summarizer_params: dict = (special_resources or {}).get("summarizer_params") or {}
-    on_sampler_usage = (special_resources or {}).get("on_sampler_usage")
-    on_sampler_request_log = (special_resources or {}).get("on_sampler_request_log")
+    make_sampler_callbacks = (special_resources or {}).get("make_sampler_callbacks")
+    # Use factory if available (gives distinct "summarize_memory_item" label);
+    # fall back to generic "tool" callbacks for tests / CLI paths.
+    if make_sampler_callbacks is not None:
+        cb = make_sampler_callbacks("summarize_memory_item")
+        on_sampler_usage = cb.get("on_usage")
+        on_sampler_request_log = cb.get("on_request_log")
+        on_sampler_response = cb.get("on_response")
+    else:
+        on_sampler_usage = (special_resources or {}).get("on_sampler_usage")
+        on_sampler_request_log = (special_resources or {}).get("on_sampler_request_log")
+        on_sampler_response = (special_resources or {}).get("on_sampler_response")
     on_sampler_reasoning_detected = (special_resources or {}).get("on_sampler_reasoning_detected")
 
     memory = ensure_session_memory(session_data)
@@ -103,6 +113,7 @@ def execute(
             llm, messages, summarizer_params, on_sampler_usage,
             on_request_log=on_sampler_request_log,
             on_reasoning_detected=on_sampler_reasoning_detected,
+            on_response=on_sampler_response,
         )
         summary = (fetch_result.content or "").strip()
     except Exception as e:

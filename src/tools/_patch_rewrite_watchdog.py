@@ -41,6 +41,7 @@ def attempt_patch_fix(
     on_usage=None,
     on_request_log=None,
     on_reasoning_detected=None,
+    on_response=None,
 ) -> str | None:
     """Try up to max_attempts LLM calls to produce a version of original_patch
     that applies cleanly to file_contents.
@@ -80,6 +81,7 @@ def attempt_patch_fix(
                 llm, messages, params, on_usage,
                 on_request_log=on_request_log,
                 on_reasoning_detected=on_reasoning_detected,
+                on_response=on_response,
             )
             candidate = (result.content or "").strip()
             if candidate and _dry_run(file_contents, candidate):

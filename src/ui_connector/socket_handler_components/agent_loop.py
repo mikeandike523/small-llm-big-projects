@@ -13,7 +13,7 @@ from src.ui_connector.socket_handler_components.emit import (
     _emit_backend_log,
     _make_sampler_usage_tracker,
     _make_sampler_request_logger,
-    _make_sampler_reasoning_detector,
+    _make_sampler_response_logger,
 )
 from src.ui_connector.socket_handler_components.session_store import (
     _save_session,
@@ -107,7 +107,7 @@ async def _async_agent_loop(
             watchdog_params or {},
             on_usage=_make_sampler_usage_tracker(session_id, "skill_selector"),
             on_request_log=_make_sampler_request_logger(session_id, "skill_selector"),
-            on_reasoning_detected=_make_sampler_reasoning_detector(session_id, "skill_selector"),
+            on_response=_make_sampler_response_logger(session_id, "skill_selector"),
             current_turn=current_turn,
         )
         current_turn.selected_skill_ids = [e["id"] for e in selected_skills]
@@ -189,28 +189,29 @@ async def _async_agent_loop(
             usage = getattr(result, "usage", None)
             if usage:
                 cost = usage.get("cost")
-                cost_str = ""
+                total_session_cost = _state._session_costs.get(session_id, 0.0)
                 if cost is not None:
                     try:
                         cost = float(cost)
-                        _state._session_costs[session_id] = (
-                            _state._session_costs.get(session_id, 0.0) + cost
-                        )
-                        total_cost = _state._session_costs[session_id]
+                        _state._session_costs[session_id] = total_session_cost + cost
+                        total_session_cost = _state._session_costs[session_id]
                         socketio.emit(
                             "session_cost_update",
-                            {"total_usd": total_cost},
+                            {"total_usd": total_session_cost},
                             room=session_id,
                         )
-                        cost_str = f", cost=${cost:.6f} (session=${total_cost:.6f})"
                     except (TypeError, ValueError):
-                        pass
+                        cost = None
                 _emit_backend_log(
                     session_id,
-                    colored("Usage: ", "cyan")
-                    + f"prompt={usage.get('prompt_tokens', '?')}, "
-                    f"completion={usage.get('completion_tokens', '?')}, "
-                    f"total={usage.get('total_tokens', '?')}" + cost_str,
+                    "main-agent usage",
+                    {
+                        "prompt_tokens": usage.get("prompt_tokens", "?"),
+                        "completion_tokens": usage.get("completion_tokens", "?"),
+                        "total_tokens": usage.get("total_tokens", "?"),
+                        "cost": cost,
+                        "total_session_cost": total_session_cost,
+                    },
                 )
 
             last_assistant_content = content_for_history
@@ -274,7 +275,7 @@ async def _async_agent_loop(
                             streaming_llm, session_id, turn_id, current_subturn, reason,
                             summarizer_params or {},
                             on_request_log=_make_sampler_request_logger(session_id, "summarizer"),
-                            on_reasoning_detected=_make_sampler_reasoning_detector(session_id, "summarizer"),
+                            on_response=_make_sampler_response_logger(session_id, "summarizer"),
                         )
                     _emit_and_log(
                         session_id,
@@ -295,7 +296,7 @@ async def _async_agent_loop(
                     blank_retry_count += 1
                     _emit_backend_log(
                         session_id,
-                        colored("[WARNING]", "yellow")
+                        colored("[WARNING]", "yellow", force_color=True)
                         + f" Blank response — silent retry {blank_retry_count}/{blank_response_retries}",
                     )
                     continue
@@ -304,7 +305,7 @@ async def _async_agent_loop(
                     if existing_open:
                         _emit_backend_log(
                             session_id,
-                            colored("[WARNING]", "yellow")
+                            colored("[WARNING]", "yellow", force_color=True)
                             + " Blank response with open todos — skipping nudge, letting todo reprompt handle it",
                         )
                         # Fall through: unclosed-todo block below will inject the continuation.
@@ -313,7 +314,7 @@ async def _async_agent_loop(
                         blank_retry_count = 0
                         _emit_backend_log(
                             session_id,
-                            colored("[WARNING]", "yellow")
+                            colored("[WARNING]", "yellow", force_color=True)
                             + " Blank response — injecting todo nudge",
                         )
                         nudge_exchange = LLMExchange(
@@ -331,7 +332,7 @@ async def _async_agent_loop(
                 else:
                     _emit_backend_log(
                         session_id,
-                        colored("[WARNING]", "yellow")
+                        colored("[WARNING]", "yellow", force_color=True)
                         + " Second consecutive blank response — handing off to standard exit logic",
                     )
                 # Fall through to unclosed-todo / final-reprompt / message_done paths.
@@ -340,7 +341,7 @@ async def _async_agent_loop(
             if blank_retry_count > 0 and content_for_history.strip():
                 _emit_backend_log(
                     session_id,
-                    colored("[INFO]", "green")
+                    colored("[INFO]", "green", force_color=True)
                     + f" Blank retry succeeded after {blank_retry_count} attempt(s) — resuming normal flow",
                 )
                 blank_retry_count = 0
@@ -375,6 +376,12 @@ async def _async_agent_loop(
                 )
                 current_subturn.exchanges.append(interim_exchange)
                 _save_session(session_id, session)
+                _emit_backend_log(
+                    session_id,
+                    colored("[TODO REPROMPT]", "yellow", force_color=True)
+                    + f" {len(unclosed)} open todo item(s) — continuing turn",
+                    {"turn_id": turn_id, "open_count": len(unclosed)},
+                )
                 continue
 
             # Todos are closed → the turn is ready to end. If any candidates were
@@ -390,7 +397,7 @@ async def _async_agent_loop(
                         watchdog_params or {},
                         on_usage=_make_sampler_usage_tracker(session_id, "final_answer"),
                         on_request_log=_make_sampler_request_logger(session_id, "final_answer"),
-                        on_reasoning_detected=_make_sampler_reasoning_detector(session_id, "final_answer"),
+                        on_response=_make_sampler_response_logger(session_id, "final_answer"),
                     )
                     if best_idx is None:
                         # Selector judged none of the candidates a viable final
@@ -415,6 +422,12 @@ async def _async_agent_loop(
                             )
                             _emit_and_log(session_id, "final_reprompt", {"turn_id": turn_id})
                             _emit_and_log(session_id, "begin_final_summary", {"turn_id": turn_id})
+                            _emit_backend_log(
+                                session_id,
+                                colored("[FINAL SUMMARY REPROMPT]", "cyan", force_color=True)
+                                + " Final answer selector rejected all candidates — forcing summary",
+                                {"turn_id": turn_id},
+                            )
                             _save_session(session_id, session)
                             continue
                         winner = final_answer_candidates[-1]
@@ -437,7 +450,7 @@ async def _async_agent_loop(
                         winner["content"],
                         summarizer_params or {},
                         on_request_log=_make_sampler_request_logger(session_id, "summarizer"),
-                        on_reasoning_detected=_make_sampler_reasoning_detector(session_id, "summarizer"),
+                        on_response=_make_sampler_response_logger(session_id, "summarizer"),
                     )
                 _emit_and_log(
                     session_id,
@@ -484,6 +497,12 @@ async def _async_agent_loop(
                 current_subturn.exchanges.append(interim_exchange)
                 _emit_and_log(session_id, "final_reprompt", {"turn_id": turn_id})
                 _emit_and_log(session_id, "begin_final_summary", {"turn_id": turn_id})
+                _emit_backend_log(
+                    session_id,
+                    colored("[FINAL SUMMARY REPROMPT]", "cyan", force_color=True)
+                    + " Todos closed with no answer candidates — forcing summary",
+                    {"turn_id": turn_id},
+                )
                 _save_session(session_id, session)
                 continue
 
@@ -491,7 +510,7 @@ async def _async_agent_loop(
             if not content_for_history:
                 _emit_backend_log(
                     session_id,
-                    colored("[WARNING]", "yellow") + " LLM returned empty final response — bubble will not render",
+                    colored("[WARNING]", "yellow", force_color=True) + " LLM returned empty final response — bubble will not render",
                 )
             final_exchange = LLMExchange(
                 assistant_content=content_for_history,
@@ -509,7 +528,7 @@ async def _async_agent_loop(
                     content_for_history,
                     summarizer_params or {},
                     on_request_log=_make_sampler_request_logger(session_id, "summarizer"),
-                    on_reasoning_detected=_make_sampler_reasoning_detector(session_id, "summarizer"),
+                    on_response=_make_sampler_response_logger(session_id, "summarizer"),
                 )
             _emit_and_log(
                 session_id,

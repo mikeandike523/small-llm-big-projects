@@ -26,6 +26,7 @@ def _llm_triage(
     on_usage=None,
     on_request_log=None,
     on_reasoning_detected=None,
+    make_sampler_callbacks=None,
 ) -> bool:
     """
     Out-of-band LLM triage called when idle >= hang_timeout.
@@ -102,6 +103,7 @@ def _llm_triage(
         "Reply with exactly one word: WAITING or INPUT."
     )
     try:
+        cb1 = make_sampler_callbacks("hang_triage_stage1") if make_sampler_callbacks else {}
         r1 = _call_sampler(
             llm,
             [
@@ -109,9 +111,10 @@ def _llm_triage(
                 {"role": "user", "content": buffer_snapshot or "(no output yet)"},
             ],
             _watchdog_params,
-            on_usage,
-            on_request_log=on_request_log,
-            on_reasoning_detected=on_reasoning_detected,
+            cb1.get("on_usage", on_usage),
+            on_request_log=cb1.get("on_request_log", on_request_log),
+            on_reasoning_detected=cb1.get("on_reasoning_detected", on_reasoning_detected),
+            on_response=cb1.get("on_response"),
         )
         decision1 = r1.content.strip().upper()
     except Exception as exc:
@@ -133,6 +136,7 @@ def _llm_triage(
         )
         chosen_wait = hang_timeout  # fallback if call fails or answer is invalid
         try:
+            cb1b = make_sampler_callbacks("hang_triage_stage1b") if make_sampler_callbacks else {}
             r1b = _call_sampler(
                 llm,
                 [
@@ -140,9 +144,10 @@ def _llm_triage(
                     {"role": "user", "content": buffer_snapshot or "(no output yet)"},
                 ],
                 _watchdog_params,
-                on_usage,
-                on_request_log=on_request_log,
-                on_reasoning_detected=on_reasoning_detected,
+                cb1b.get("on_usage", on_usage),
+                on_request_log=cb1b.get("on_request_log", on_request_log),
+                on_reasoning_detected=cb1b.get("on_reasoning_detected", on_reasoning_detected),
+                on_response=cb1b.get("on_response"),
             )
             raw = r1b.content.strip()
             parsed = float(raw)
@@ -198,6 +203,7 @@ def _llm_triage(
         "Reply with either SIMPLE:<chars> or EXOTIC."
     )
     try:
+        cb2 = make_sampler_callbacks("hang_triage_stage2") if make_sampler_callbacks else {}
         r2 = _call_sampler(
             llm,
             [
@@ -205,9 +211,10 @@ def _llm_triage(
                 {"role": "user", "content": buffer_snapshot or "(no output yet)"},
             ],
             _watchdog_params,
-            on_usage,
-            on_request_log=on_request_log,
-            on_reasoning_detected=on_reasoning_detected,
+            cb2.get("on_usage", on_usage),
+            on_request_log=cb2.get("on_request_log", on_request_log),
+            on_reasoning_detected=cb2.get("on_reasoning_detected", on_reasoning_detected),
+            on_response=cb2.get("on_response"),
         )
         decision2 = r2.content.strip()
     except Exception as exc:

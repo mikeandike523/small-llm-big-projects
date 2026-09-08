@@ -72,6 +72,7 @@ async def _fetch_task_title(
     on_usage=None,
     on_request_log=None,
     on_reasoning_detected=None,
+    on_response=None,
     prior_context: str | None = None,
 ) -> str | None:
     """Make a non-streaming LLM call to generate a short title for the task."""
@@ -99,7 +100,7 @@ async def _fetch_task_title(
     try:
         result = await asyncio.to_thread(
             _call_sampler, streaming_llm, messages, watchdog_params, on_usage,
-            on_request_log, on_reasoning_detected,
+            on_request_log, on_reasoning_detected, on_response,
         )
         title = (result.content or "").strip()
         if not title:
@@ -125,6 +126,7 @@ async def _select_best_final_answer(
     on_usage=None,
     on_request_log=None,
     on_reasoning_detected=None,
+    on_response=None,
 ) -> int | None:
     """Pick the best final answer among candidate responses.
 
@@ -185,7 +187,7 @@ async def _select_best_final_answer(
     # Only an unparseable-but-successful response falls back to the last candidate.
     result = await asyncio.to_thread(
         _call_sampler, streaming_llm, messages, watchdog_params, on_usage,
-        on_request_log, on_reasoning_detected,
+        on_request_log, on_reasoning_detected, on_response,
     )
     raw = (result.content or "").strip()
     match = re.search(r"\d+", raw)
@@ -233,6 +235,7 @@ def _compute_subturn_compaction(
     on_usage=None,
     on_request_log=None,
     on_reasoning_detected=None,
+    on_response=None,
 ) -> str:
     """Synchronous: call LLM to produce a context annotation for a completed subturn."""
     tool_calls_text = _format_tool_calls_for_compaction(subturn)
@@ -269,7 +272,7 @@ def _compute_subturn_compaction(
     try:
         result = _call_sampler(
             streaming_llm, messages, summarizer_params, on_usage,
-            on_request_log, on_reasoning_detected,
+            on_request_log, on_reasoning_detected, on_response,
         )
         text = (result.content or "").strip()
         if text:
@@ -288,6 +291,7 @@ async def _generate_and_store_compaction(
     summarizer_params: dict,
     on_request_log=None,
     on_reasoning_detected=None,
+    on_response=None,
 ) -> None:
     """Async: generate a compaction for a completed subturn, store it, and emit to frontend."""
     _on_usage = _make_sampler_usage_tracker(session_id, "summarizer")
@@ -300,6 +304,7 @@ async def _generate_and_store_compaction(
         _on_usage,
         on_request_log,
         on_reasoning_detected,
+        on_response,
     )
     current_subturn.detailed_summary = compaction
     _emit_and_log(
@@ -326,6 +331,7 @@ async def _is_continuation(
     on_usage=None,
     on_request_log=None,
     on_reasoning_detected=None,
+    on_response=None,
 ) -> bool:
     """Decide whether a new user message is a follow-up continuation of the previous turn."""
     last_turn = session.completed_turns[-1]
@@ -360,7 +366,7 @@ async def _is_continuation(
     # as a UI error and abort the turn rather than silently treating it as new-task.
     result = await asyncio.to_thread(
         _call_sampler, streaming_llm, messages, watchdog_params, on_usage,
-        on_request_log, on_reasoning_detected,
+        on_request_log, on_reasoning_detected, on_response,
     )
     decision = (result.content or "").strip().upper()
     return decision != "YES"
@@ -417,6 +423,7 @@ async def _select_skills_for_turn(
     on_usage=None,
     on_request_log=None,
     on_reasoning_detected=None,
+    on_response=None,
     current_turn: Turn | None = None,
 ) -> list[dict]:
     """Run a lightweight LLM call to decide which skills to inject for this turn."""
@@ -460,7 +467,7 @@ async def _select_skills_for_turn(
     # any exception raised here — no per-call-site wrapping needed.
     result = await asyncio.to_thread(
         _call_sampler, streaming_llm, messages, watchdog_params, on_usage,
-        on_request_log, on_reasoning_detected,
+        on_request_log, on_reasoning_detected, on_response,
     )
     response = (result.content or "").strip().lower()
     if not response or response == "none":

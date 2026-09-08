@@ -80,9 +80,14 @@ def handle_resume_session(data: dict):
     _effective_initial_cwd = session.initial_cwd or "(none)"
     _emit_backend_log(
         session_id,
-        colored("System started", "green")
-        + f": streaming=True, skills={skills_str}, os={_state._env_os}, shell={_state._env_shell}, "
-        f"initial_cwd={_effective_initial_cwd!r}",
+        colored("Session Connected", "green", force_color=True),
+        {
+            "streaming": True,
+            "skills": skills_str,
+            "os": _state._env_os,
+            "shell": _state._env_shell,
+            "initial_cwd": _effective_initial_cwd,
+        },
     )
 
     if session.schema_version != CURRENT_SCHEMA_VERSION:

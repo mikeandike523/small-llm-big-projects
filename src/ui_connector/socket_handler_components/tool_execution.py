@@ -11,7 +11,8 @@ from src.ui_connector.socket_handler_components.emit import (
     _emit_backend_log,
     _make_sampler_usage_tracker,
     _make_sampler_request_logger,
-    _make_sampler_reasoning_detector,
+    _make_sampler_response_logger,
+    _make_sampler_callbacks,
 )
 from src.ui_connector.socket_handler_components.terminal import (
     _launch_terminal_for_session,
@@ -89,7 +90,8 @@ def _execute_tools(
         "patchrewriter_params": patchrewriter_params or {},
         "on_sampler_usage": _make_sampler_usage_tracker(session_id, "tool"),
         "on_sampler_request_log": _make_sampler_request_logger(session_id, "tool"),
-        "on_sampler_reasoning_detected": _make_sampler_reasoning_detector(session_id, "tool"),
+        "on_sampler_response": _make_sampler_response_logger(session_id, "tool"),
+        "make_sampler_callbacks": lambda label: _make_sampler_callbacks(session_id, label),
     }
 
     def _on_cwd_change(new_path: str) -> None:
@@ -249,7 +251,7 @@ def _execute_tools(
                                 patchrewriter_params=patchrewriter_params or {},
                                 on_usage=_make_sampler_usage_tracker(session_id, "patch_rewriter"),
                                 on_request_log=_make_sampler_request_logger(session_id, "patch_rewriter"),
-                                on_reasoning_detected=_make_sampler_reasoning_detector(session_id, "patch_rewriter"),
+                                on_response=_make_sampler_response_logger(session_id, "patch_rewriter"),
                             )
                             if _fixed is not None:
                                 # Mutate in-place so tool_record.args also reflects

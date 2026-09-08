@@ -21,16 +21,25 @@ export const logContentCss = css`
   padding: 1px 2px;
 `;
 
+const objectRowCss = css`
+  ${logContentCss};
+  position: relative;
+`;
+
 const viewButtonCss = css`
-  margin-left: 6px;
-  background: #1e2a3d;
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  z-index: 1;
+  background: #19283b;
   color: #6b9fe4;
   border: 1px solid #2b4a70;
   border-radius: 3px;
   font-size: 9px;
   font-family: inherit;
-  padding: 0 5px;
+  padding: 0 6px;
   cursor: pointer;
+  box-shadow: 0 0 4px rgba(0, 0, 0, 0.5);
   &:hover {
     background: #26364d;
   }
@@ -89,11 +98,14 @@ export function BackendLogContentView({
     return <div css={logContentCss}>{String(content)}</div>;
   }
 
-  const preview = truncateForPreview(JSON.stringify(content));
+  const preview = truncateForPreview(JSON.stringify(content, null, 2));
 
   return (
-    <div css={logContentCss}>
-      {preview}
+    <div css={objectRowCss}>
+      {/* ansi-to-react escapes nothing and leaves plain text untouched,
+          so wrapping the JSON preview is safe and colorizes any ANSI
+          sequences embedded in object values. */}
+      <Ansi>{preview}</Ansi>
       <button
         css={viewButtonCss}
         onClick={() =>

@@ -170,6 +170,7 @@ def _call_sampler(
     on_usage=None,
     on_request_log=None,
     on_reasoning_detected=None,
+    on_response=None,
 ):
     """Invoke llm.fetch() with a sampler params dict.
 
@@ -179,6 +180,7 @@ def _call_sampler(
     on_usage(usage_dict) is called if provided and the response carries usage data.
     on_request_log(sampler_params) is called before the fetch to log the outgoing params.
     on_reasoning_detected(reasoning_len) is called if the response contains reasoning tokens.
+    on_response(messages, result) is called after fetch with the full request/response context.
     """
     max_tokens = sampler_params.get("max_tokens")
     api_params = {k: v for k, v in sampler_params.items() if k != "max_tokens"}
@@ -194,6 +196,12 @@ def _call_sampler(
     if on_reasoning_detected is not None and result.reasoning:
         try:
             on_reasoning_detected(len(result.reasoning))
+        except Exception:
+            pass
+
+    if on_response is not None:
+        try:
+            on_response(messages, result)
         except Exception:
             pass
 

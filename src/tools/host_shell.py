@@ -152,6 +152,7 @@ def execute(
     on_sampler_usage = sr.get("on_sampler_usage")
     on_sampler_request_log = sr.get("on_sampler_request_log")
     on_sampler_reasoning_detected = sr.get("on_sampler_reasoning_detected")
+    make_sampler_callbacks = sr.get("make_sampler_callbacks")
     cancel_event: threading.Event | None = sr.get("cancel_event")
     session_id: str | None = sr.get("session_id")
     session_cwd: str | None = sr.get("session_cwd")
@@ -194,6 +195,7 @@ def execute(
                     on_sampler_usage=on_sampler_usage,
                     on_sampler_request_log=on_sampler_request_log,
                     on_sampler_reasoning_detected=on_sampler_reasoning_detected,
+                    make_sampler_callbacks=make_sampler_callbacks,
                     tool_name="host_shell",
                     timeout_hint=TIMEOUT_HINT,
                     cancel_event=cancel_event,

@@ -172,8 +172,8 @@ async def _async_run_llm_call(
     _adapter = streaming_llm._adapter
     _emit_backend_log(
         session_id,
+        "main-agent",
         {
-            "lifecyclePortion": "main-agent",
             "dialect": getattr(_adapter, "dialect_name", _adapter.__class__.__name__),
             "endpoint": _adapter.endpoint_url(streaming_llm._endpoint),
             "model": streaming_llm._model,
@@ -186,16 +186,16 @@ async def _async_run_llm_call(
     if _main_params:
         _emit_backend_log(
             session_id,
+            "main-agent",
             {
-                "lifecyclePortion": "main-agent",
                 "params": _main_params,
             },
         )
     else:
         _emit_backend_log(
             session_id,
+            "main-agent",
             {
-                "lifecyclePortion": "main-agent",
                 "params": {},
             },
         )
@@ -205,13 +205,6 @@ async def _async_run_llm_call(
         on_data,
         tools=tool_defs if tool_defs is not None else ALL_TOOL_DEFINITIONS,
     )
-
-    if acc["reasoning"]:
-        _emit_backend_log(
-            session_id,
-            colored("[main agent]", "yellow")
-            + f" reasoning tokens detected (len={len(acc['reasoning'])})",
-        )
 
     _emit_content_snapshot(
         session_id, turn_id, subturn_id, exchange_idx, acc["content"], acc["reasoning"]

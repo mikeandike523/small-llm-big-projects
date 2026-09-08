@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { useStickToBottom } from "use-stick-to-bottom";
+import { useRef, useState } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { BackendLogEntry } from "../../types/DebugPanel";
 import { placeholderCss } from "../../css/DebugPanel";
 import { css } from "@emotion/react";
@@ -16,9 +16,21 @@ export const logsPanelCss = (visible: boolean) => css`
   pointer-events: ${visible ? "auto" : "none"};
   transition: opacity 0.18s ease;
   padding: 6px;
-  display: flex;
-  flex-direction: column;
   ${scrollbarCss}
+`;
+
+// Absolutely-positioned rows inside a sized spacer div (virtualizer layout)
+const virtualInnerCss = css`
+  position: relative;
+  width: 100%;
+`;
+
+const virtualRowCss = css`
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  padding-bottom: 4px;
 `;
 
 export default function BackendLogsTab({
@@ -28,35 +40,56 @@ export default function BackendLogsTab({
   logs: BackendLogEntry[];
   visible: boolean;
 }) {
-  const { scrollRef, contentRef } = useStickToBottom();
+  const scrollRef = useRef<HTMLDivElement>(null);
   const [viewingEntry, setViewingEntry] = useState<{
     id: number;
     content: Record<string, unknown> | unknown[];
   } | null>(null);
 
+  const virtualizer = useVirtualizer({
+    count: logs.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => 48,
+    getItemKey: (index) => logs[index].id,
+    overscan: 8,
+    // Stick-to-bottom: keep the newest log entry in view as entries append,
+    // matching the behavior of the tool-calls virtual list in TurnContainer.
+    anchorTo: "end",
+    followOnAppend: true,
+  });
+
   return (
     <div ref={scrollRef} css={logsPanelCss(visible)}>
-      <div ref={contentRef}>
-        {logs.length === 0 ? (
-          <div css={placeholderCss}>No logs yet.</div>
-        ) : (
-          logs.map((entry) =>
-            entry.multiple === true ? (
-              <BackendLogMultiCard
+      {logs.length === 0 ? (
+        <div css={placeholderCss}>No logs yet.</div>
+      ) : (
+        <div css={virtualInnerCss} style={{ height: virtualizer.getTotalSize() }}>
+          {virtualizer.getVirtualItems().map((virtualRow) => {
+            const entry = logs[virtualRow.index];
+            return (
+              <div
                 key={entry.id}
-                entry={entry}
-                onView={setViewingEntry}
-              />
-            ) : (
-              <BackendLogEntryItem
-                key={entry.id}
-                entry={entry}
-                onView={setViewingEntry}
-              />
-            ),
-          )
-        )}
-      </div>
+                data-index={virtualRow.index}
+                ref={virtualizer.measureElement}
+                css={virtualRowCss}
+                style={{ transform: `translateY(${virtualRow.start}px)` }}
+              >
+                {entry.multiple === true ? (
+                  <BackendLogMultiCard
+                    entry={entry}
+                    onView={setViewingEntry}
+                  />
+                ) : (
+                  <BackendLogEntryItem
+                    entry={entry}
+                    onView={setViewingEntry}
+                  />
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
       <BackendLogObjectModal
         entry={viewingEntry}
         onClose={() => setViewingEntry(null)}
