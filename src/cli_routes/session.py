@@ -21,22 +21,19 @@ def session():
 
 @session.command(name="new")
 @click.option(
-    "--load-skills",
-    is_flag=True,
-    default=False,
-    help="Load custom skills from a skills/ directory in the working directory of this session.",
+    "--load-skills/--no-load-skills",
+    default=True,
+    help="Load custom skills from a skills/ directory in the working directory of this session. (default: on)",
 )
 @click.option(
-    "--load-tools",
-    is_flag=True,
-    default=False,
-    help="Load custom tools from a tools/ directory in the working directory of this session.",
+    "--load-tools/--no-load-tools",
+    default=True,
+    help="Load custom tools from a tools/ directory in the working directory of this session. (default: on)",
 )
 @click.option(
-    "--load-startup-tool-calls",
-    is_flag=True,
-    default=False,
-    help="Execute tool calls from startup_tool_calls.json in the working directory on session start.",
+    "--load-startup-tool-calls/--no-load-startup-tool-calls",
+    default=True,
+    help="Execute tool calls from startup_tool_calls.json in the working directory on session start. (default: on)",
 )
 @click.option(
     "--cwd",

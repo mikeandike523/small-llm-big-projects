@@ -31,6 +31,7 @@ import LoadingBackdrop from "../subcomponents/Chat/LoadingBackdrop";
 import ToolModal from "../subcomponents/Chat/ToolModal";
 import { DebugPanel } from "./DebugPanel";
 import FormattedCostWithColor from "./FormattedCostWithColor";
+import ContextUsageBar from "./ContextUsageBar";
 import StartupToolCallsCard from "./StartupToolsCard";
 import { TerminalPanel } from "./TerminalPanel";
 import TurnContainer from "./TurnContainer";
@@ -101,6 +102,7 @@ export default function Chat() {
     sessionCost,
     sessionProfile,
     setSessionProfile,
+    contextUsageData,
     terminalOpen,
     setTerminalOpen,
   } = useSocketWiring(socket, scrollToBottom);
@@ -250,6 +252,7 @@ export default function Chat() {
           <span css={sessionIdCss} title={sessionId}>
             session: {sessionId.slice(0, 8)}
           </span>
+          {contextUsageData && <ContextUsageBar data={contextUsageData} />}
           <div css={headerSideCss}>
             {profiles.length > 0 && (
               <select

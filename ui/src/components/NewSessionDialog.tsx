@@ -268,6 +268,10 @@ export default function NewSessionDialog({
   const [workspaceDir, setWorkspaceDir] = useState<string>("");
   const [flags, setFlags] = useState<SessionDefaults>(() => ({
     ...sessionDefaults,
+    // Default all option checkboxes to checked when the dialog opens.
+    load_skills: true,
+    load_tools: true,
+    load_startup_tool_calls: true,
   }));
   const [selectedProfile, setSelectedProfile] = useState<string>(
     sessionDefaults.default_profile ?? "",

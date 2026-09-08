@@ -176,6 +176,12 @@ export default function useSocketWiring(
   const [isLoadingBackendState, setIsLoadingBackendState] = useState(false);
   const [sessionCost, setSessionCost] = useState<number | null>(null);
   const [sessionProfile, setSessionProfile] = useState<string | null>(null);
+  const [contextUsageData, setContextUsageData] = useState<{
+    prompt_tokens: number;
+    completion_tokens: number;
+    total_tokens: number | null;
+    known_max_context: number;
+  } | null>(null);
 
   // ---------------------------------------------------------------------------
   // lastEventId — persisted to sessionStorage
@@ -628,6 +634,14 @@ export default function useSocketWiring(
     function onSessionCostUpdate({ total_usd }: { total_usd: number }) {
       setSessionCost(total_usd);
     }
+    function onContextUsageEvent(data: {
+      prompt_tokens: number;
+      completion_tokens: number;
+      total_tokens: number | null;
+      known_max_context: number;
+    }) {
+      setContextUsageData(data);
+    }
     function onBackendLog(entry: BackendLogEntry) {
       let normalizedEntry: BackendLogEntry | null = entry;
 
@@ -1075,6 +1089,7 @@ export default function useSocketWiring(
     socket.on("tools_info", onToolsInfo);
     socket.on("system_prompt", onSystemPrompt);
     socket.on("session_cost_update", onSessionCostUpdate);
+    socket.on("context_usage_event", onContextUsageEvent);
     socket.on("backend_log", onBackendLog);
     socket.on("startup_tool_call", onStartupToolCall);
     socket.on("startup_tool_result", onStartupToolResult);
@@ -1123,6 +1138,7 @@ export default function useSocketWiring(
       socket.off("tools_info", onToolsInfo);
       socket.off("system_prompt", onSystemPrompt);
       socket.off("session_cost_update", onSessionCostUpdate);
+      socket.off("context_usage_event", onContextUsageEvent);
       socket.off("backend_log", onBackendLog);
       socket.off("startup_tool_call", onStartupToolCall);
       socket.off("startup_tool_result", onStartupToolResult);
@@ -1175,6 +1191,7 @@ export default function useSocketWiring(
     sessionCost,
     sessionProfile,
     setSessionProfile,
+    contextUsageData,
     terminalOpen,
     setTerminalOpen,
   };

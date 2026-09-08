@@ -113,14 +113,8 @@ def api_create_session():
             with open(startup_tool_calls_path, "r", encoding="utf-8") as fh:
                 startup_tool_calls = json.load(fh)
         except FileNotFoundError:
-            return (
-                jsonify(
-                    {
-                        "error": f"startup_tool_calls.json not found at {startup_tool_calls_path!r}"
-                    }
-                ),
-                400,
-            )
+            # No startup_tool_calls.json present — silently skip (no startup tool calls).
+            startup_tool_calls = []
         except Exception as exc:
             return (
                 jsonify({"error": f"Failed to load startup_tool_calls.json: {exc}"}),

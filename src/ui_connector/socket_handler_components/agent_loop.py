@@ -14,6 +14,7 @@ from src.ui_connector.socket_handler_components.emit import (
     _make_sampler_usage_tracker,
     _make_sampler_request_logger,
     _make_sampler_response_logger,
+    _emit_context_usage_if_configured,
 )
 from src.ui_connector.socket_handler_components.session_store import (
     _save_session,
@@ -105,7 +106,7 @@ async def _async_agent_loop(
             current_subturn.user_text,
             skill_registry,
             watchdog_params or {},
-            on_usage=_make_sampler_usage_tracker(session_id, "skill_selector"),
+            on_usage=_make_sampler_usage_tracker(session_id, "skill_selector", session.profile_name),
             on_request_log=_make_sampler_request_logger(session_id, "skill_selector"),
             on_response=_make_sampler_response_logger(session_id, "skill_selector"),
             current_turn=current_turn,
@@ -217,6 +218,8 @@ async def _async_agent_loop(
                         "total_session_cost": total_session_cost,
                     },
                 )
+                # Emit context_usage_event if model.known_max_context is set
+                _emit_context_usage_if_configured(session_id, session.profile_name, usage)
 
             last_assistant_content = content_for_history
 
@@ -399,7 +402,7 @@ async def _async_agent_loop(
                         current_subturn.user_text,
                         [c["content"] for c in final_answer_candidates],
                         watchdog_params or {},
-                        on_usage=_make_sampler_usage_tracker(session_id, "final_answer"),
+                        on_usage=_make_sampler_usage_tracker(session_id, "final_answer", session.profile_name),
                         on_request_log=_make_sampler_request_logger(session_id, "final_answer"),
                         on_response=_make_sampler_response_logger(session_id, "final_answer"),
                     )

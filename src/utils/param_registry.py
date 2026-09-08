@@ -217,6 +217,20 @@ REGISTRY["model.irat"] = ParamSpec(
     ),
 )
 
+REGISTRY["model.known_max_context"] = ParamSpec(
+    name="model.known_max_context",
+    value_type="integer",
+    min=0,
+    system_only=True,
+    description=(
+        "Known maximum context length for this model, if available. "
+        "When set and per-exchange usage data is available (e.g., from OpenRouter), "
+        "the frontend can display a visual indicator showing how close one is to hitting "
+        "the context limit. Optional; if not set or the model does not report usage, "
+        "this feature is disabled."
+    ),
+)
+
 # system.* params
 REGISTRY["system.return_value_max_chars"] = ParamSpec(
     name="system.return_value_max_chars",

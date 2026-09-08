@@ -389,6 +389,10 @@ def load_custom_tools(
 
     Raises RuntimeError on any loading error.
     """
+    if not os.path.isdir(tools_dir):
+        # No tools/ directory present — silently load nothing.
+        return [], {}, [], {}
+
     if workspace_root and workspace_root not in sys.path:
         sys.path.insert(0, workspace_root)
 
