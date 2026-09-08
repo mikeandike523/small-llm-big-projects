@@ -43,8 +43,12 @@ def _make_sampler_usage_tracker(session_id: str, label: str) -> Callable[[dict],
             session_id,
             f"[sampler:{label}] usage",
             {
-                "prompt_tokens": usage.get("prompt_tokens", "?"),
-                "completion_tokens": usage.get("completion_tokens", "?"),
+                "input_tokens": usage.get(
+                    "input_tokens", usage.get("prompt_tokens", "?")
+                ),
+                "output_tokens": usage.get(
+                    "output_tokens", usage.get("completion_tokens", "?")
+                ),
                 "total_tokens": usage.get("total_tokens", "?"),
                 "cost": cost,
                 "total_session_cost": total_session_cost,

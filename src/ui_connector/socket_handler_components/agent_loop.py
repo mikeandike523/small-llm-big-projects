@@ -206,8 +206,12 @@ async def _async_agent_loop(
                     session_id,
                     "main-agent usage",
                     {
-                        "prompt_tokens": usage.get("prompt_tokens", "?"),
-                        "completion_tokens": usage.get("completion_tokens", "?"),
+                        "input_tokens": usage.get(
+                            "input_tokens", usage.get("prompt_tokens", "?")
+                        ),
+                        "output_tokens": usage.get(
+                            "output_tokens", usage.get("completion_tokens", "?")
+                        ),
                         "total_tokens": usage.get("total_tokens", "?"),
                         "cost": cost,
                         "total_session_cost": total_session_cost,
