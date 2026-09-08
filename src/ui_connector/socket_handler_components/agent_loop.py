@@ -205,7 +205,7 @@ async def _async_agent_loop(
                         cost = None
                 _emit_backend_log(
                     session_id,
-                    "main-agent usage",
+                    "Main Agent Per Exchange Usage",
                     {
                         "input_tokens": usage.get(
                             "input_tokens", usage.get("prompt_tokens", "?")

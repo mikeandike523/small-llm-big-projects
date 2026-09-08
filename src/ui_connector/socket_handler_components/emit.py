@@ -6,6 +6,7 @@ from typing import Callable
 
 import src.ui_connector.socket_handler_components.state as _state
 from src.ui_connector.app import socketio
+from src.data import get_pool
 from src.utils.event_log import log_event, REPLAY_EXCLUDED_EVENTS
 from src.utils.param_registry import param_storage_key
 from src.utils.sql.kv_manager import KVManager
@@ -93,8 +94,10 @@ def _emit_context_usage_if_configured(session_id: str, session_profile: str | No
         
         # Try to get the parameter value from KV store
         try:
-            kv_manager = KVManager()
-            known_max_context = kv_manager.get(kv_key)
+            pool = get_pool()
+            with pool.get_connection() as conn:
+                kv_manager = KVManager(conn)
+                known_max_context = kv_manager.get_value(kv_key)
             
             # If the parameter is not set or is None, don't emit
             if known_max_context is None:
