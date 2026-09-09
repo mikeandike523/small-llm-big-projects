@@ -91,9 +91,13 @@ def execute(
     if not content.strip():
         return f"Error: Session memory item '{memory_key}' is empty."
 
-    from src.utils.llm.factory import make_llm
+    # Use the inherited session LLM when available (via special_resources);
+    # fall back to make_llm() for tests / CLI paths.
+    llm = (special_resources or {}).get("llm")
+    if llm is None:
+        from src.utils.llm.factory import make_llm
+        llm = make_llm()
 
-    llm = make_llm()
     if llm is None:
         return "Error: No LLM configured. Cannot summarize."
 

@@ -48,6 +48,7 @@ class StreamingLLM:
     _adapter: "DialectAdapter"
     _config_loader: Optional[Callable[[], Any]]
     _system_params: dict
+    _adapter_cache: dict
 
     def __init__(
         self,
@@ -67,6 +68,7 @@ class StreamingLLM:
         self._timeout_s = timeout_s
         self._config_loader = config_loader
         self._system_params = system_params
+        self._adapter_cache = {}
 
         if adapter is not None:
             self._adapter = adapter
@@ -96,6 +98,28 @@ class StreamingLLM:
         )
         self._adapter = get_adapter(dialect)
 
+    def _ensure_adapter_for_model(self, resolved_model: str | None) -> None:
+        """Re-detect and cache the dialect adapter for the given model on the current endpoint.
+
+        Called inside _build_base_payload after sampler parameter overrides may
+        have replaced the model name (e.g. watchdog.model.name). Caching by
+        (endpoint, model) avoids reconstructing adapters on every request.
+        """
+        from src.utils.llm.dialect import detect_dialect, get_adapter
+
+        cache_key = (self._endpoint, resolved_model or "")
+        cached = self._adapter_cache.get(cache_key)
+        if cached is not None:
+            self._adapter = cached
+            return
+
+        dialect = detect_dialect(
+            endpoint_url=self._endpoint,
+            model=resolved_model,
+        )
+        self._adapter = get_adapter(dialect)
+        self._adapter_cache[cache_key] = self._adapter
+
     def _build_base_payload(
         self, messages, max_tokens, parameters, tools, streaming: bool
     ) -> dict:
@@ -111,6 +135,10 @@ class StreamingLLM:
             payload["model"] = self._model
         if parameters:
             payload.update(parameters)
+        # Per-fetch dialect re-detection — sampler overrides (e.g.
+        # watchdog.model.name) may have changed the resolved model, and a
+        # different model on the same endpoint may need a different adapter.
+        self._ensure_adapter_for_model(payload.get("model"))
         payload["messages"] = messages
         if max_tokens:
             payload["max_tokens"] = max_tokens
@@ -231,12 +259,18 @@ class StreamingLLM:
     def fetch(
         self,
         messages,
+        timeout_s=None,
         max_tokens=None,
         parameters={},
         tools: Optional[list[dict]] = None,
     ) -> FetchResult:
-        """Synchronous (non-streaming) request — used for out-of-band calls (e.g. hang triage)."""
+        """Synchronous (non-streaming) request — used for out-of-band calls (e.g. hang triage).
+
+        timeout_s overrides the instance default for this single request only.
+        """
         self._refresh()
+        # Allow per-call timeout override while keeping self._timeout_s unchanged.
+        effective_timeout = timeout_s if timeout_s is not None else self._timeout_s
         payload = self._adapter.adapt_payload(
             self._build_base_payload(
                 messages, max_tokens, parameters, tools, streaming=False
@@ -244,7 +278,7 @@ class StreamingLLM:
         )
         headers = self._adapter.headers(self._token)
         url = self._adapter.endpoint_url(self._endpoint)
-        timeout = httpx.Timeout(float(self._timeout_s)) if self._timeout_s else None
+        timeout = httpx.Timeout(float(effective_timeout)) if effective_timeout else None
 
         with httpx.Client() as client:
             r = client.post(url, json=payload, headers=headers, timeout=timeout)

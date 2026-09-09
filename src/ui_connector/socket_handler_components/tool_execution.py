@@ -52,6 +52,7 @@ def _stub_tool_result(full_result: str, max_chars: int, session_data: dict) -> s
 def _execute_tools(
     result: Any,
     content_for_history: str,
+    llm: Any,
     session: Session,
     session_id: str,
     current_turn: Turn,
@@ -79,6 +80,7 @@ def _execute_tools(
         "create_file_auto_eol": create_file_auto_eol,
         "on_cwd_change": None,
         "cancel_event": cancel_event,
+        "llm": llm,
         "create_terminal": lambda cmd, tab_name: _launch_terminal_for_session(
             session_id, cmd, tab_name
         ),
@@ -248,6 +250,7 @@ def _execute_tools(
 
                             _fixed = attempt_patch_fix(
                                 _contents, _patch, _on_rw_progress,
+                                llm=llm,
                                 patchrewriter_params=patchrewriter_params or {},
                                 on_usage=_make_sampler_usage_tracker(session_id, "patch_rewriter"),
                                 on_request_log=_make_sampler_request_logger(session_id, "patch_rewriter"),

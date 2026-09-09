@@ -204,6 +204,27 @@ for _ns in ("model", *_SAMPLER_NAMESPACES):
         _name = f"{_ns}.{_suffix}"
         REGISTRY[_name] = ParamSpec(name=_name, **_kwargs)
 
+# Per-sampler model-override params: optionally use a different model for each
+# watchdog/sampler. Set name to the model identifier for the same endpoint.
+# Unset (default): the profile's main model is used for all samplers.
+_SAMPLER_MODEL_OVERRIDES: dict[str, str] = {
+    "watchdog.model.name": (
+        "Override the model used by all watchdog samplers (skill selector, "
+        "final-answer selector, task title, continuation, and hang-triage). "
+        "Unset: use the profile's main model."
+    ),
+    "summarizer.model.name": (
+        "Override the model used by the summarizer (subturn compaction and "
+        "summarize_memory_item). Unset: use the profile's main model."
+    ),
+    "patchrewriter.model.name": (
+        "Override the model used by the patch rewriter watchdog (repair of "
+        "failing apply_patch calls). Unset: use the profile's main model."
+    ),
+}
+for _name, _desc in _SAMPLER_MODEL_OVERRIDES.items():
+    REGISTRY[_name] = ParamSpec(name=_name, value_type="string", system_only=True, description=_desc)
+
 # model.* extras (system-only flags, not forwarded to the LLM API)
 REGISTRY["model.irat"] = ParamSpec(
     name="model.irat",

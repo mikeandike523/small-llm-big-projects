@@ -156,6 +156,7 @@ def execute(
     cancel_event: threading.Event | None = sr.get("cancel_event")
     session_id: str | None = sr.get("session_id")
     session_cwd: str | None = sr.get("session_cwd")
+    session_llm = sr.get("llm")
 
     try:
         cmd = _resolve_cmd(command, command_args)
@@ -196,6 +197,7 @@ def execute(
                     on_sampler_request_log=on_sampler_request_log,
                     on_sampler_reasoning_detected=on_sampler_reasoning_detected,
                     make_sampler_callbacks=make_sampler_callbacks,
+                    llm=session_llm,
                     tool_name="host_shell",
                     timeout_hint=TIMEOUT_HINT,
                     cancel_event=cancel_event,

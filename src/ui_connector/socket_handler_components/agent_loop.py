@@ -233,6 +233,7 @@ async def _async_agent_loop(
                         _execute_tools,
                         result,
                         content_for_history,
+                        streaming_llm,
                         session,
                         session_id,
                         current_turn,

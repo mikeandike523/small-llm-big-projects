@@ -36,6 +36,7 @@ def attempt_patch_fix(
     file_contents: str,
     original_patch: str,
     on_progress: Callable[[int, int], None],
+    llm=None,
     max_attempts: int = _MAX_ATTEMPTS,
     patchrewriter_params: dict | None = None,
     on_usage=None,
@@ -52,13 +53,16 @@ def attempt_patch_fix(
     Returns the first candidate that passes a dry-run, or None if all fail.
     """
     try:
-        from src.utils.llm.factory import make_llm, _call_sampler
+        from src.utils.llm.factory import make_llm as _make_llm, _call_sampler
     except Exception as exc:
-        logger.warning("Patch rewrite watchdog: cannot import make_llm: %s", exc)
+        logger.warning("Patch rewrite watchdog: cannot import factory: %s", exc)
         return None
 
-    llm = make_llm()
-    if llm is None:
+    # Use inherited session LLM when available; fall back to make_llm() for tests/CLI.
+    _llm = llm
+    if _llm is None:
+        _llm = _make_llm()
+    if _llm is None:
         logger.warning("Patch rewrite watchdog: no LLM configured, skipping")
         return None
 
@@ -78,7 +82,7 @@ def attempt_patch_fix(
         on_progress(attempt, max_attempts)
         try:
             result = _call_sampler(
-                llm, messages, params, on_usage,
+                _llm, messages, params, on_usage,
                 on_request_log=on_request_log,
                 on_reasoning_detected=on_reasoning_detected,
                 on_response=on_response,

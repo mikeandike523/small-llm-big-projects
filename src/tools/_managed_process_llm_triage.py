@@ -27,6 +27,7 @@ def _llm_triage(
     on_request_log=None,
     on_reasoning_detected=None,
     make_sampler_callbacks=None,
+    llm=None,
 ) -> bool:
     """
     Out-of-band LLM triage called when idle >= hang_timeout.
@@ -80,10 +81,15 @@ def _llm_triage(
         )
     )
 
-    from src.utils.llm.factory import make_llm, load_llm_config, _call_sampler
+    from src.utils.llm.factory import make_llm as _make_llm, load_llm_config, _call_sampler
 
-    llm = make_llm(timeout_s=HANG_DECISION_TIMEOUT)
-    if llm is None:
+    # Use the inherited session LLM when available; fall back to make_llm()
+    # for tests / CLI paths. When inherited, pass timeout_s per-call.
+    _llm = llm
+    _is_inherited = _llm is not None
+    if _llm is None:
+        _llm = _make_llm(timeout_s=HANG_DECISION_TIMEOUT)
+    if _llm is None:
         return _kill(colored("No LLM available — killing process", "red"))
     _llm_cfg = load_llm_config() or {}
     _watchdog_params: dict = _llm_cfg.get("watchdog_params") or {}
@@ -105,7 +111,7 @@ def _llm_triage(
     try:
         cb1 = make_sampler_callbacks("hang_triage_stage1") if make_sampler_callbacks else {}
         r1 = _call_sampler(
-            llm,
+            _llm,
             [
                 {"role": "system", "content": stage1_system},
                 {"role": "user", "content": buffer_snapshot or "(no output yet)"},
@@ -115,6 +121,7 @@ def _llm_triage(
             on_request_log=cb1.get("on_request_log", on_request_log),
             on_reasoning_detected=cb1.get("on_reasoning_detected", on_reasoning_detected),
             on_response=cb1.get("on_response"),
+            **(dict(timeout_s=HANG_DECISION_TIMEOUT) if _is_inherited else {}),
         )
         decision1 = r1.content.strip().upper()
     except Exception as exc:
@@ -138,7 +145,7 @@ def _llm_triage(
         try:
             cb1b = make_sampler_callbacks("hang_triage_stage1b") if make_sampler_callbacks else {}
             r1b = _call_sampler(
-                llm,
+                _llm,
                 [
                     {"role": "system", "content": stage1b_system},
                     {"role": "user", "content": buffer_snapshot or "(no output yet)"},
@@ -148,6 +155,7 @@ def _llm_triage(
                 on_request_log=cb1b.get("on_request_log", on_request_log),
                 on_reasoning_detected=cb1b.get("on_reasoning_detected", on_reasoning_detected),
                 on_response=cb1b.get("on_response"),
+                **(dict(timeout_s=HANG_DECISION_TIMEOUT) if _is_inherited else {}),
             )
             raw = r1b.content.strip()
             parsed = float(raw)
@@ -205,7 +213,7 @@ def _llm_triage(
     try:
         cb2 = make_sampler_callbacks("hang_triage_stage2") if make_sampler_callbacks else {}
         r2 = _call_sampler(
-            llm,
+            _llm,
             [
                 {"role": "system", "content": stage2_system},
                 {"role": "user", "content": buffer_snapshot or "(no output yet)"},
@@ -215,6 +223,7 @@ def _llm_triage(
             on_request_log=cb2.get("on_request_log", on_request_log),
             on_reasoning_detected=cb2.get("on_reasoning_detected", on_reasoning_detected),
             on_response=cb2.get("on_response"),
+            **(dict(timeout_s=HANG_DECISION_TIMEOUT) if _is_inherited else {}),
         )
         decision2 = r2.content.strip()
     except Exception as exc:

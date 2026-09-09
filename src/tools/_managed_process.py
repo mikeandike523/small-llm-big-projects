@@ -44,6 +44,7 @@ def run_command_streaming(
     timeout_hint: str | None = None,
     cancel_event: threading.Event | None = None,
     cwd: str | None = None,
+    llm=None,
 ) -> SubprocessResult:
     """
     Run a command and stream its output via on_chunk as it arrives.
@@ -261,6 +262,7 @@ def run_command_streaming(
                         on_request_log=on_sampler_request_log,
                         on_reasoning_detected=on_sampler_reasoning_detected,
                         make_sampler_callbacks=make_sampler_callbacks,
+                        llm=llm,
                     ):
                         break  # triage decided to kill — watchdog exits
                     # triage extended the timer — continue the loop

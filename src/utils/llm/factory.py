@@ -17,6 +17,8 @@ logger = logging.getLogger(__name__)
 
 def _build_namespace_params(param_keys: list[str], full_prefix: str, kv: KVManager) -> dict:
     """Build a self-contained API params dict for one sampler namespace.
+    The suffix 'name' is mapped to the payload key 'model' so sampler overrides
+    (e.g. watchdog.model.name) replace the model in the outgoing request.
 
     Reads all stored keys under full_prefix, then merges request_extra_params on
     top (within the same namespace only). Returns a flat dict where max_tokens is
@@ -30,7 +32,10 @@ def _build_namespace_params(param_keys: list[str], full_prefix: str, kv: KVManag
         suffix = k[len(full_prefix):]
         if suffix == "request_extra_params":
             continue  # handled below after base params are collected
-        params[suffix] = kv.get_value(k)
+        if suffix == "name":
+            params["model"] = kv.get_value(k)  # map param name -> payload key
+        else:
+            params[suffix] = kv.get_value(k)
     extra_key = full_prefix + "request_extra_params"
     if extra_key in param_keys:
         extra = kv.get_value(extra_key) or {}
@@ -167,12 +172,14 @@ def _call_sampler(
     llm: StreamingLLM,
     messages: list[dict],
     sampler_params: dict,
+    timeout_s=None,
     on_usage=None,
     on_request_log=None,
     on_reasoning_detected=None,
     on_response=None,
 ):
     """Invoke llm.fetch() with a sampler params dict.
+    timeout_s is forwarded to llm.fetch() for per-call timeout overrides.
 
     max_tokens is extracted and passed as a kwarg; the remaining keys are
     forwarded as the parameters dict (API params like temperature/top_p/top_k,
@@ -181,9 +188,10 @@ def _call_sampler(
     on_request_log(sampler_params) is called before the fetch to log the outgoing params.
     on_reasoning_detected(reasoning_len) is called if the response contains reasoning tokens.
     on_response(messages, result) is called after fetch with the full request/response context.
+    'name' is stripped — it is a system-only param already mapped to 'model'.
     """
     max_tokens = sampler_params.get("max_tokens")
-    api_params = {k: v for k, v in sampler_params.items() if k != "max_tokens"}
+    api_params = {k: v for k, v in sampler_params.items() if k not in ("max_tokens", "name")}
 
     if on_request_log is not None:
         try:
@@ -191,7 +199,7 @@ def _call_sampler(
         except Exception:
             pass
 
-    result = llm.fetch(messages, max_tokens=max_tokens, parameters=api_params)
+    result = llm.fetch(messages, timeout_s=timeout_s, max_tokens=max_tokens, parameters=api_params)
 
     if on_reasoning_detected is not None and result.reasoning:
         try:
