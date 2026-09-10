@@ -114,7 +114,7 @@ def execute(
 
     try:
         fetch_result = _call_sampler(
-            llm, messages, summarizer_params, on_sampler_usage,
+            llm, messages, summarizer_params, on_usage=on_sampler_usage,
             on_request_log=on_sampler_request_log,
             on_reasoning_detected=on_sampler_reasoning_detected,
             on_response=on_sampler_response,

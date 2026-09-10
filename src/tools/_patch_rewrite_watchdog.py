@@ -82,7 +82,7 @@ def attempt_patch_fix(
         on_progress(attempt, max_attempts)
         try:
             result = _call_sampler(
-                _llm, messages, params, on_usage,
+                _llm, messages, params, on_usage=on_usage,
                 on_request_log=on_request_log,
                 on_reasoning_detected=on_reasoning_detected,
                 on_response=on_response,

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import functools
 import json
 import logging
 import re
@@ -99,8 +100,16 @@ async def _fetch_task_title(
         messages.append({"role": "user", "content": user_text})
     try:
         result = await asyncio.to_thread(
-            _call_sampler, streaming_llm, messages, watchdog_params, on_usage,
-            on_request_log, on_reasoning_detected, on_response,
+            functools.partial(
+                _call_sampler,
+                streaming_llm,
+                messages,
+                watchdog_params,
+                on_usage=on_usage,
+                on_request_log=on_request_log,
+                on_reasoning_detected=on_reasoning_detected,
+                on_response=on_response,
+            )
         )
         title = (result.content or "").strip()
         if not title:
@@ -186,8 +195,16 @@ async def _select_best_final_answer(
     # the agent loop surfaces it as a UI error rather than silently degrading.
     # Only an unparseable-but-successful response falls back to the last candidate.
     result = await asyncio.to_thread(
-        _call_sampler, streaming_llm, messages, watchdog_params, on_usage,
-        on_request_log, on_reasoning_detected, on_response,
+        functools.partial(
+            _call_sampler,
+            streaming_llm,
+            messages,
+            watchdog_params,
+            on_usage=on_usage,
+            on_request_log=on_request_log,
+            on_reasoning_detected=on_reasoning_detected,
+            on_response=on_response,
+        )
     )
     raw = (result.content or "").strip()
     match = re.search(r"\d+", raw)
@@ -271,8 +288,10 @@ def _compute_subturn_compaction(
     ]
     try:
         result = _call_sampler(
-            streaming_llm, messages, summarizer_params, on_usage,
-            on_request_log, on_reasoning_detected, on_response,
+            streaming_llm, messages, summarizer_params, on_usage=on_usage,
+            on_request_log=on_request_log,
+            on_reasoning_detected=on_reasoning_detected,
+            on_response=on_response,
         )
         text = (result.content or "").strip()
         if text:
@@ -365,8 +384,16 @@ async def _is_continuation(
     # Load-bearing: a failed LLM call must propagate so the caller can surface it
     # as a UI error and abort the turn rather than silently treating it as new-task.
     result = await asyncio.to_thread(
-        _call_sampler, streaming_llm, messages, watchdog_params, on_usage,
-        on_request_log, on_reasoning_detected, on_response,
+        functools.partial(
+            _call_sampler,
+            streaming_llm,
+            messages,
+            watchdog_params,
+            on_usage=on_usage,
+            on_request_log=on_request_log,
+            on_reasoning_detected=on_reasoning_detected,
+            on_response=on_response,
+        )
     )
     decision = (result.content or "").strip().upper()
     return decision != "YES"
@@ -466,8 +493,16 @@ async def _select_skills_for_turn(
     # block) handles context-limit/HTTP/network classification uniformly for
     # any exception raised here — no per-call-site wrapping needed.
     result = await asyncio.to_thread(
-        _call_sampler, streaming_llm, messages, watchdog_params, on_usage,
-        on_request_log, on_reasoning_detected, on_response,
+        functools.partial(
+            _call_sampler,
+            streaming_llm,
+            messages,
+            watchdog_params,
+            on_usage=on_usage,
+            on_request_log=on_request_log,
+            on_reasoning_detected=on_reasoning_detected,
+            on_response=on_response,
+        )
     )
     response = (result.content or "").strip().lower()
     if not response or response == "none":

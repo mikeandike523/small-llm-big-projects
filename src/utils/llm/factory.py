@@ -195,7 +195,10 @@ def _call_sampler(
 
     if on_request_log is not None:
         try:
-            on_request_log(sampler_params)
+            resolved_model = sampler_params.get("name") or getattr(llm, "_model", None) or "unknown"
+            log_params = dict(sampler_params)
+            log_params["model"] = resolved_model
+            on_request_log(log_params)
         except Exception:
             pass
 
