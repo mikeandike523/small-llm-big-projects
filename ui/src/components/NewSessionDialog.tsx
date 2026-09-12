@@ -13,6 +13,8 @@ export interface SessionDefaults {
   load_startup_tool_calls: boolean;
   default_profile: string | null;
   profiles: string[];
+  approval_mode: string;
+  approval_modes: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -276,6 +278,9 @@ export default function NewSessionDialog({
   const [selectedProfile, setSelectedProfile] = useState<string>(
     sessionDefaults.default_profile ?? "",
   );
+  const [selectedApprovalMode, setSelectedApprovalMode] = useState<string>(
+    sessionDefaults.approval_mode ?? "default",
+  );
   const [browsing, setBrowsing] = useState(false);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -330,6 +335,7 @@ export default function NewSessionDialog({
       interim_response_as_thinking:
         sessionDefaults.interim_response_as_thinking,
       profile_name: selectedProfile || null,
+      approval_mode: selectedApprovalMode,
     };
     if (flags.load_skills) payload.skills_path = `${cwd}/skills`;
     if (flags.load_tools) payload.custom_tools_path = `${cwd}/tools`;
@@ -452,6 +458,25 @@ export default function NewSessionDialog({
             </select>
           </div>
         )}
+
+        <div>
+          <div css={fieldLabelCss}>Approval Mode</div>
+          <select
+            css={selectCss}
+            value={selectedApprovalMode}
+            onChange={(e) => setSelectedApprovalMode(e.target.value)}
+          >
+            {(sessionDefaults.approval_modes ?? [
+              "default",
+              "auto-accept-edits",
+              "full-auto",
+            ]).map((mode) => (
+              <option key={mode} value={mode}>
+                {mode}
+              </option>
+            ))}
+          </select>
+        </div>
 
         {error && <div css={errorMsgCss}>{error}</div>}
 

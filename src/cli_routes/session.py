@@ -11,6 +11,7 @@ from src.utils.app_launcher import open_session
 from src.utils.server_state import read_state
 from src.utils.sql.kv_manager import KVManager
 from src.utils.profile_utils import get_active_profile, require_active_profile, _kv_prefix
+from src.utils.approval_modes import APPROVAL_MODE_DEFAULT, APPROVAL_MODES
 
 
 @cli.group()
@@ -48,12 +49,19 @@ def session():
         "Defaults to the system default profile set via 'slbp profile use'."
     ),
 )
+@click.option(
+    "--approval-mode",
+    type=click.Choice(APPROVAL_MODES, case_sensitive=False),
+    default=APPROVAL_MODE_DEFAULT,
+    help="Approval mode for this session.",
+)
 def session_new(
     load_skills,
     load_tools,
     load_startup_tool_calls,
     cwd,
     starting_profile,
+    approval_mode,
 ):
     """
     Create a new agentic session and open it in the default web browser.
@@ -106,11 +114,13 @@ def session_new(
         )
 
     session_cwd = os.path.abspath(cwd) if cwd else os.getcwd()
+    approval_mode = approval_mode.lower()
 
     payload: dict = {
         "initial_cwd": session_cwd,
         "interim_response_as_thinking": interim_response_as_thinking,
         "profile_name": starting_profile,
+        "approval_mode": approval_mode,
     }
     if load_skills:
         payload["skills_path"] = os.path.join(session_cwd, "skills")
@@ -144,5 +154,6 @@ def session_new(
 
     click.echo(f"[slbp] Session created: {session_id}")
     click.echo(f"[slbp] Profile: {starting_profile or effective_profile}")
+    click.echo(f"[slbp] Approval mode: {approval_mode}")
     click.echo(f"[slbp] CWD: {session_cwd}")
     open_session(session_id, proxy_port)

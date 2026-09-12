@@ -176,6 +176,7 @@ export default function useSocketWiring(
   const [isLoadingBackendState, setIsLoadingBackendState] = useState(false);
   const [sessionCost, setSessionCost] = useState<number | null>(null);
   const [sessionProfile, setSessionProfile] = useState<string | null>(null);
+  const [approvalMode, setApprovalMode] = useState<string>("default");
   const [contextUsageData, setContextUsageData] = useState<{
     prompt_tokens: number;
     completion_tokens: number;
@@ -699,6 +700,7 @@ export default function useSocketWiring(
       currentTurn?: unknown;
       schemaInvalid?: boolean;
       profileName?: string | null;
+      approvalMode?: string;
     }) {
       if (data.schemaInvalid) {
         // Schema mismatch — no event_replay will follow, so clear loading now
@@ -746,6 +748,9 @@ export default function useSocketWiring(
 
       if (data.profileName !== undefined) {
         setSessionProfile(data.profileName ?? null);
+      }
+      if (data.approvalMode !== undefined) {
+        setApprovalMode(data.approvalMode);
       }
     }
 
@@ -1191,6 +1196,8 @@ export default function useSocketWiring(
     sessionCost,
     sessionProfile,
     setSessionProfile,
+    approvalMode,
+    setApprovalMode,
     contextUsageData,
     terminalOpen,
     setTerminalOpen,

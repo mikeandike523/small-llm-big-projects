@@ -6,6 +6,8 @@ import uuid as _uuid_module
 from dataclasses import dataclass, field
 from typing import Any
 
+from src.utils.approval_modes import APPROVAL_MODE_DEFAULT
+
 CURRENT_SCHEMA_VERSION = 5
 
 
@@ -93,6 +95,7 @@ class Subturn:
     detailed_summary: str | None = (
         None  # compaction string; None when no tool calls were made
     )
+    approval_mode: str | None = None
 
     def count_tool_calls(self) -> int:
         return sum(len(ex.tool_calls) for ex in self.exchanges)
@@ -192,6 +195,7 @@ class Session:
     interim_response_as_thinking: bool = False
     created_at: float = field(default_factory=time.time)
     profile_name: str | None = None
+    approval_mode: str = APPROVAL_MODE_DEFAULT
 
 
 # ---------------------------------------------------------------------------
@@ -253,6 +257,7 @@ def subturn_to_dict(st: Subturn) -> dict:
         "exchanges": [llm_exchange_to_dict(ex) for ex in st.exchanges],
         "is_continuation": st.is_continuation,
         "detailed_summary": st.detailed_summary,
+        "approval_mode": st.approval_mode,
     }
 
 
@@ -264,6 +269,7 @@ def subturn_from_dict(d: dict) -> Subturn:
         exchanges=[llm_exchange_from_dict(ex) for ex in d.get("exchanges", [])],
         is_continuation=d.get("is_continuation", False),
         detailed_summary=d.get("detailed_summary"),
+        approval_mode=d.get("approval_mode"),
     )
 
 
@@ -336,6 +342,7 @@ def session_to_dict(session: Session) -> dict:
         "interim_response_as_thinking": session.interim_response_as_thinking,
         "created_at": session.created_at,
         "profile_name": session.profile_name,
+        "approval_mode": session.approval_mode,
     }
 
 
@@ -424,4 +431,5 @@ def session_from_dict(d: dict) -> Session:
         interim_response_as_thinking=d.get("interim_response_as_thinking", False),
         created_at=d.get("created_at", 0.0),
         profile_name=d.get("profile_name"),
+        approval_mode=d.get("approval_mode", APPROVAL_MODE_DEFAULT),
     )

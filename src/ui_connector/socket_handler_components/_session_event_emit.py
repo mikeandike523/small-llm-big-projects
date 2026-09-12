@@ -32,6 +32,8 @@ from src.utils.session_events import (
     EVT_TITLE_SET,
     EVT_TODO_LIST_SET,
     EVT_TURN_COMPLETED,
+    EVT_APPROVAL_MODE_SET,
+    approval_mode_payload,
     EVT_TURN_STARTED,
     exchange_hash,
     exchange_payload,
@@ -73,6 +75,13 @@ def compute_events(session: Session, cursor: dict) -> list[tuple[str, dict]]:
     if not cursor.get("created"):
         events.append((EVT_SESSION_CREATED, session_created_payload(session)))
         cursor["created"] = True
+        cursor["approval_mode"] = session.approval_mode
+
+    if cursor.get("approval_mode") != session.approval_mode:
+        events.append(
+            (EVT_APPROVAL_MODE_SET, approval_mode_payload(session.approval_mode))
+        )
+        cursor["approval_mode"] = session.approval_mode
 
     turns_cursor: dict = cursor.setdefault("turns", {})
 

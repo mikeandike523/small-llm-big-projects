@@ -199,6 +199,7 @@ def handle_user_message(data: dict):
             user_text=text,
             user_text_with_context=user_text_with_context,
             is_continuation=True,
+            approval_mode=session.approval_mode,
         )
         current_turn.subturns.append(current_subturn)
         turn_id = current_turn.id
@@ -208,6 +209,7 @@ def handle_user_message(data: dict):
             user_text=text,
             user_text_with_context=user_text_with_context,
             is_continuation=False,
+            approval_mode=session.approval_mode,
         )
         current_turn = Turn(
             id=turn_id,
@@ -401,6 +403,7 @@ def handle_force_continuation(data: dict):
         user_text=text,
         user_text_with_context=text,
         is_continuation=True,
+        approval_mode=session.approval_mode,
     )
     current_turn.subturns.append(current_subturn)
     session.current_turn = current_turn

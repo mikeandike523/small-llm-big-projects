@@ -41,6 +41,11 @@ from src.utils.sql.kv_manager import KVManager
 from src.utils.profile_utils import get_active_profile, _kv_prefix
 from src.utils.env_info import get_default_workspace_dir
 from src.utils.session_model import Session
+from src.utils.approval_modes import (
+    APPROVAL_MODE_DEFAULT,
+    APPROVAL_MODES,
+    is_valid_approval_mode,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -78,6 +83,24 @@ def api_create_session():
     custom_tools_path = data.get("custom_tools_path") or None
     startup_tool_calls_path = data.get("startup_tool_calls_path") or None
     interim_response_as_thinking = bool(data.get("interim_response_as_thinking", False))
+    raw_approval_mode = data.get("approval_mode")
+    approval_mode = (
+        raw_approval_mode.strip()
+        if isinstance(raw_approval_mode, str) and raw_approval_mode.strip()
+        else APPROVAL_MODE_DEFAULT
+    )
+    if not is_valid_approval_mode(approval_mode):
+        return (
+            jsonify(
+                {
+                    "error": (
+                        f"Invalid approval_mode '{approval_mode}'. "
+                        f"Must be one of: {', '.join(APPROVAL_MODES)}"
+                    )
+                }
+            ),
+            400,
+        )
 
     # Resolve starting profile: explicit override or system default.
     raw_profile = (data.get("profile_name") or "").strip() or None
@@ -129,6 +152,7 @@ def api_create_session():
         startup_tool_calls=startup_tool_calls,
         interim_response_as_thinking=interim_response_as_thinking,
         profile_name=profile_name,
+        approval_mode=approval_mode,
     )
 
     # Validate builtin tools for reserved parameter names before touching session state.
@@ -314,6 +338,32 @@ def api_session_set_profile(session_id: str):
     return jsonify({"ok": True, "profile_name": profile_name})
 
 
+@app.route("/api/sessions/<session_id>/approval-mode", methods=["PATCH"])
+def api_session_set_approval_mode(session_id: str):
+    """Change the approval mode for a session (takes effect on next subturn)."""
+    data = request.get_json(force=True, silent=True) or {}
+    raw_approval_mode = data.get("approval_mode")
+    approval_mode = raw_approval_mode.strip() if isinstance(raw_approval_mode, str) else ""
+
+    if not is_valid_approval_mode(approval_mode):
+        return (
+            jsonify(
+                {
+                    "error": (
+                        f"Invalid approval_mode '{approval_mode}'. "
+                        f"Must be one of: {', '.join(APPROVAL_MODES)}"
+                    )
+                }
+            ),
+            400,
+        )
+
+    session = _load_session(session_id)
+    session.approval_mode = approval_mode
+    _save_session(session_id, session)
+    return jsonify({"ok": True, "approval_mode": approval_mode})
+
+
 @app.route("/api/session-defaults", methods=["GET"])
 def api_session_defaults():
     """Return default values for all new-session options."""
@@ -335,6 +385,8 @@ def api_session_defaults():
             500,
         )
     defaults["default_profile"] = profile
+    defaults["approval_mode"] = APPROVAL_MODE_DEFAULT
+    defaults["approval_modes"] = APPROVAL_MODES
     try:
         pool = get_pool()
         with pool.get_connection() as conn:

@@ -107,6 +107,7 @@ def handle_resume_session(data: dict):
             "currentTurn": current_turn_data,
             "isTurnActive": is_turn_active,
             "profileName": session.profile_name,
+            "approvalMode": session.approval_mode,
         },
     )
 
@@ -231,6 +232,7 @@ def handle_run_startup_tool_calls():
         "emit_backend_log": lambda *msgs: _emit_backend_log(session_id, *msgs),
         "session_init_working_dir": session.initial_cwd,
         "session_current_working_dir": _startup_cwd,
+        "approval_mode": session.approval_mode,
         "create_file_auto_eol": _startup_auto_eol,
         "on_cwd_change": None,
     }

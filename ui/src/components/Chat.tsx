@@ -102,6 +102,8 @@ export default function Chat() {
     sessionCost,
     sessionProfile,
     setSessionProfile,
+    approvalMode,
+    setApprovalMode,
     contextUsageData,
     terminalOpen,
     setTerminalOpen,
@@ -116,7 +118,13 @@ export default function Chat() {
   }, [thread]);
 
   const [profiles, setProfiles] = useState<string[]>([]);
+  const [approvalModes, setApprovalModes] = useState<string[]>([
+    "default",
+    "auto-accept-edits",
+    "full-auto",
+  ]);
   const [profileChanging, setProfileChanging] = useState(false);
+  const [approvalModeChanging, setApprovalModeChanging] = useState(false);
 
   // Fetch available profile names for the dropdown once on mount.
   React.useEffect(() => {
@@ -124,12 +132,13 @@ export default function Chat() {
       .then((r) => r.json())
       .then((d) => {
         if (Array.isArray(d.profiles)) setProfiles(d.profiles);
+        if (Array.isArray(d.approval_modes)) setApprovalModes(d.approval_modes);
       })
       .catch(() => {});
   }, []);
 
   async function handleProfileChange(newProfile: string) {
-    if (profileChanging || newProfile === sessionProfile) return;
+    if (profileChanging || busy || newProfile === sessionProfile) return;
     setProfileChanging(true);
     try {
       await fetch(`/api/sessions/${sessionId}/profile`, {
@@ -142,6 +151,23 @@ export default function Chat() {
       // silently ignore — user can retry
     } finally {
       setProfileChanging(false);
+    }
+  }
+
+  async function handleApprovalModeChange(newMode: string) {
+    if (approvalModeChanging || busy || newMode === approvalMode) return;
+    setApprovalModeChanging(true);
+    try {
+      await fetch(`/api/sessions/${sessionId}/approval-mode`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ approval_mode: newMode }),
+      });
+      setApprovalMode(newMode);
+    } catch {
+      // silently ignore — user can retry
+    } finally {
+      setApprovalModeChanging(false);
     }
   }
 
@@ -279,6 +305,29 @@ export default function Chat() {
                 ))}
               </select>
             )}
+            <select
+              value={approvalMode}
+              onChange={(e) => handleApprovalModeChange(e.target.value)}
+              disabled={approvalModeChanging || busy}
+              title="Approval mode (takes effect on next subturn)"
+              style={{
+                background: "#101722",
+                border: "1px solid #2a3a6e",
+                borderRadius: 4,
+                color: approvalMode ? "#a0b8f0" : "#666",
+                fontFamily: "inherit",
+                fontSize: 11,
+                padding: "3px 6px",
+                cursor: approvalModeChanging || busy ? "not-allowed" : "pointer",
+                opacity: approvalModeChanging ? 0.5 : 1,
+              }}
+            >
+              {approvalModes.map((mode) => (
+                <option key={mode} value={mode}>
+                  {mode}
+                </option>
+              ))}
+            </select>
             {sessionCost !== null && (
               <span
                 css={sessionCostCss}

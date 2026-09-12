@@ -72,11 +72,19 @@ def _execute_tools(
     """
     turn_id = current_turn.id
     _current_cwd = _state._session_current_cwd.get(session_id) or session.initial_cwd
+    _current_subturn = next(
+        (st for st in current_turn.subturns if st.id == subturn_id), None
+    )
+    approval_mode = (
+        (_current_subturn.approval_mode if _current_subturn else None)
+        or session.approval_mode
+    )
     special_resources: dict = {
         "emit_backend_log": lambda *msgs: _emit_backend_log(session_id, *msgs),
         "session_id": session_id,
         "session_init_working_dir": session.initial_cwd,
         "session_current_working_dir": _current_cwd,
+        "approval_mode": approval_mode,
         "create_file_auto_eol": create_file_auto_eol,
         "on_cwd_change": None,
         "cancel_event": cancel_event,

@@ -375,6 +375,7 @@ def main() -> None:
         "on_chunk": _on_chunk,
         "session_init_working_dir": cwd,
         "session_current_working_dir": cwd,
+        "approval_mode": "default",
     }
 
     try:

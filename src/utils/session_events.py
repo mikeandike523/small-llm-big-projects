@@ -32,6 +32,7 @@ from src.utils.session_model import (
     llm_exchange_from_dict,
     llm_exchange_to_dict,
 )
+from src.utils.approval_modes import APPROVAL_MODE_DEFAULT
 
 # ---------------------------------------------------------------------------
 # Event vocabulary
@@ -47,6 +48,7 @@ EVT_SUBTURN_SUMMARY_SET = "subturn_summary_set"
 EVT_TURN_COMPLETED = "turn_completed"
 # Session-global live todo list (session_data["todo_list"]); last-writer-wins.
 EVT_TODO_LIST_SET = "todo_list_set"
+EVT_APPROVAL_MODE_SET = "approval_mode_set"
 
 
 # ---------------------------------------------------------------------------
@@ -84,6 +86,7 @@ def session_created_payload(session: Session) -> dict:
         "skills_path": session.skills_path,
         "custom_tools_path": session.custom_tools_path,
         "profile_name": session.profile_name,
+        "approval_mode": session.approval_mode,
         "interim_response_as_thinking": session.interim_response_as_thinking,
         "startup_tool_calls": session.startup_tool_calls,
         "startup_done": session.startup_done,
@@ -99,7 +102,12 @@ def subturn_started_payload(turn_id: str, st: Subturn) -> dict:
         "user_text": st.user_text,
         "user_text_with_context": st.user_text_with_context,
         "is_continuation": st.is_continuation,
+        "approval_mode": st.approval_mode,
     }
+
+
+def approval_mode_payload(mode: str) -> dict:
+    return {"mode": mode}
 
 
 def turn_completed_payload(turn: Turn) -> dict:
@@ -160,6 +168,7 @@ def _on_session_created(state: ReplayState, p: dict) -> None:
     s.skills_path = p.get("skills_path")
     s.custom_tools_path = p.get("custom_tools_path")
     s.profile_name = p.get("profile_name")
+    s.approval_mode = p.get("approval_mode", APPROVAL_MODE_DEFAULT)
     s.interim_response_as_thinking = p.get("interim_response_as_thinking", False)
     s.startup_tool_calls = p.get("startup_tool_calls", [])
     s.startup_done = p.get("startup_done", False)
@@ -190,6 +199,7 @@ def _on_subturn_started(state: ReplayState, p: dict) -> None:
         user_text_with_context=p.get("user_text_with_context", ""),
         exchanges=[],
         is_continuation=p.get("is_continuation", False),
+        approval_mode=p.get("approval_mode"),
     )
     turn.subturns.append(st)
     state._subturns[subturn_id] = st
@@ -228,6 +238,10 @@ def _on_todo_list_set(state: ReplayState, p: dict) -> None:
     state.session.session_data["todo_list"] = p.get("items", [])
 
 
+def _on_approval_mode_set(state: ReplayState, p: dict) -> None:
+    state.session.approval_mode = p.get("mode", APPROVAL_MODE_DEFAULT)
+
+
 _HANDLERS = {
     EVT_SESSION_CREATED: _on_session_created,
     EVT_TURN_STARTED: _on_turn_started,
@@ -238,6 +252,7 @@ _HANDLERS = {
     EVT_SUBTURN_SUMMARY_SET: _on_subturn_summary_set,
     EVT_TURN_COMPLETED: _on_turn_completed,
     EVT_TODO_LIST_SET: _on_todo_list_set,
+    EVT_APPROVAL_MODE_SET: _on_approval_mode_set,
 }
 
 
