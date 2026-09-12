@@ -79,6 +79,62 @@ def _make_sampler_usage_tracker(session_id: str, label: str) -> Callable[[dict],
     return _track
 
 
+def _get_known_max_context(session_profile: str | None) -> int | None:
+    """Return the profile's model.known_max_context parameter, or None if unset/invalid.
+
+    Shared by the context-usage emit path and the profile-change clear logic
+    (http_api.api_session_set_profile) so both consult the same source of truth.
+    """
+    if not session_profile:
+        return None
+    profile_prefix = f"profiles.{session_profile}."
+    kv_key = param_storage_key("model.known_max_context", profile_prefix)
+    try:
+        pool = get_pool()
+        with pool.get_connection() as conn:
+            kv_manager = KVManager(conn)
+            known_max_context = kv_manager.get_value(kv_key)
+    except Exception as e:
+        logger.debug(f"Could not retrieve model.known_max_context parameter: {e}")
+        return None
+    if known_max_context is None:
+        return None
+    try:
+        known_max_context = int(known_max_context)
+    except (ValueError, TypeError):
+        logger.warning(f"Invalid model.known_max_context value: {known_max_context}")
+        return None
+    if known_max_context <= 0:
+        return None
+    return known_max_context
+
+
+def clear_context_usage(session_id: str, profile_name: str | None) -> None:
+    """Clear the persisted/in-memory context usage for a session and tell the frontend.
+
+    Called when the session's profile changes: the previously displayed bar was
+    parameterized by the OLD profile's known_max_context, so it is stale the
+    moment the profile changes. Popping the in-memory snapshot also makes the
+    next ``_save_session`` write NULL to ``session_meta.last_context_usage``,
+    so stale data cannot survive across restarts (unless the new profile also
+    has a known max, in which case the next exchange overwrites it anyway).
+
+    Emits a clear signal: ``context_usage_event`` with ``known_max_context: null``.
+    """
+    _state._session_last_context_usage.pop(session_id, None)
+    socketio.emit(
+        "context_usage_event",
+        {
+            "prompt_tokens": None,
+            "completion_tokens": None,
+            "total_tokens": None,
+            "known_max_context": None,
+            "profile": profile_name,
+        },
+        room=session_id,
+    )
+
+
 def _emit_context_usage_if_configured(session_id: str, session_profile: str | None, usage: dict) -> None:
     """Emit context_usage_event to frontend if model.known_max_context parameter is set.
 
@@ -88,54 +144,30 @@ def _emit_context_usage_if_configured(session_id: str, session_profile: str | No
     and flushed to ``session_meta`` on the next ``_save_session`` (same telemetry
     semantics as cost). Main-agent-only: sampler callbacks must NOT call this.
     """
-    if not session_profile:
+    known_max_context = _get_known_max_context(session_profile)
+    if known_max_context is None:
         return
-    
+
     try:
-        # Build the KV key for this profile's model.known_max_context parameter
-        profile_prefix = f"profiles.{session_profile}."
-        kv_key = param_storage_key("model.known_max_context", profile_prefix)
-        
-        # Try to get the parameter value from KV store
-        try:
-            pool = get_pool()
-            with pool.get_connection() as conn:
-                kv_manager = KVManager(conn)
-                known_max_context = kv_manager.get_value(kv_key)
-            
-            # If the parameter is not set or is None, don't emit
-            if known_max_context is None:
-                return
-            
-            try:
-                known_max_context = int(known_max_context)
-            except (ValueError, TypeError):
-                logger.warning(f"Invalid model.known_max_context value: {known_max_context}")
-                return
-            
-            # If known_max_context is not positive, don't emit
-            if known_max_context <= 0:
-                return
-            
-            # Extract token counts from usage
-            prompt_tokens = usage.get("input_tokens") or usage.get("prompt_tokens")
-            completion_tokens = usage.get("output_tokens") or usage.get("completion_tokens")
-            total_tokens = usage.get("total_tokens")
-            
-            # Only emit if we have at least prompt and completion tokens
-            if prompt_tokens is not None and completion_tokens is not None:
-                snapshot = {
-                    "prompt_tokens": int(prompt_tokens),
-                    "completion_tokens": int(completion_tokens),
-                    "total_tokens": int(total_tokens) if total_tokens is not None else None,
-                    "known_max_context": known_max_context,
-                }
-                # Record for persistence (flushed to session_meta by _save_session).
-                _state._session_last_context_usage[session_id] = snapshot
-                socketio.emit("context_usage_event", snapshot, room=session_id)
-        except Exception as e:
-            logger.debug(f"Could not retrieve model.known_max_context parameter: {e}")
-            return
+        # Extract token counts from usage
+        prompt_tokens = usage.get("input_tokens") or usage.get("prompt_tokens")
+        completion_tokens = usage.get("output_tokens") or usage.get("completion_tokens")
+        total_tokens = usage.get("total_tokens")
+
+        # Only emit if we have at least prompt and completion tokens
+        if prompt_tokens is not None and completion_tokens is not None:
+            snapshot = {
+                "prompt_tokens": int(prompt_tokens),
+                "completion_tokens": int(completion_tokens),
+                "total_tokens": int(total_tokens) if total_tokens is not None else None,
+                "known_max_context": known_max_context,
+                # Stamp with the producing profile so stale snapshots can be
+                # detected on resume if the profile changed between restarts.
+                "profile": session_profile,
+            }
+            # Record for persistence (flushed to session_meta by _save_session).
+            _state._session_last_context_usage[session_id] = snapshot
+            socketio.emit("context_usage_event", snapshot, room=session_id)
     except Exception as e:
         logger.warning(f"Error in _emit_context_usage_if_configured: {e}")
 

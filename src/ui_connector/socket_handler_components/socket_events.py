@@ -116,7 +116,16 @@ def handle_resume_session(data: dict):
         emit("session_cost_update", {"total_usd": total_cost})
 
     last_context_usage = _state._session_last_context_usage.get(session_id)
-    if last_context_usage:
+    # Defensive profile-match check: the snapshot is stamped with the profile
+    # that produced it. (_session_from_db already filters on cold load and the
+    # profile PATCH handler clears live changes, but this guards any path that
+    # leaves a mismatched snapshot in state.) A null known_max_context is a
+    # clear signal — never re-emit it as data.
+    if (
+        last_context_usage
+        and last_context_usage.get("known_max_context") is not None
+        and last_context_usage.get("profile") == session.profile_name
+    ):
         emit("context_usage_event", last_context_usage)
 
     try:

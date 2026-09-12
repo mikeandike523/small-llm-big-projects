@@ -334,6 +334,21 @@ def api_session_set_profile(session_id: str):
 
     session = _load_session(session_id)
     session.profile_name = profile_name
+
+    # Context-usage staleness: the previously displayed/persisted bar was
+    # parameterized by the OLD profile's known_max_context. If the new profile
+    # has no known max, clear it now (in-memory + emit clear event so the
+    # widget disappears immediately); the next _save_session writes NULL to
+    # session_meta. If the new profile HAS a known max, the next main-agent
+    # exchange emits a fresh, correctly-parameterized snapshot anyway.
+    from src.ui_connector.socket_handler_components.emit import (
+        _get_known_max_context,
+        clear_context_usage,
+    )
+
+    if _get_known_max_context(profile_name) is None:
+        clear_context_usage(session_id, profile_name)
+
     _save_session(session_id, session)
     return jsonify({"ok": True, "profile_name": profile_name})
 

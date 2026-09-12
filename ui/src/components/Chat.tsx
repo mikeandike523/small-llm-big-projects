@@ -105,6 +105,7 @@ export default function Chat() {
     approvalMode,
     setApprovalMode,
     contextUsageData,
+    setContextUsageData,
     terminalOpen,
     setTerminalOpen,
   } = useSocketWiring(socket, scrollToBottom);
@@ -147,6 +148,13 @@ export default function Chat() {
         body: JSON.stringify({ profile_name: newProfile || null }),
       });
       setSessionProfile(newProfile || null);
+      // Optimistically clear the context bar: the displayed snapshot was
+      // parameterized by the OLD profile's known_max_context, so it is stale
+      // the moment the profile changes. The backend also emits a clear event
+      // when the new profile lacks a known max (source of truth); if the new
+      // profile has one, the next exchange re-emits fresh data and the bar
+      // reappears with correctly-parameterized numbers.
+      setContextUsageData(null);
     } catch {
       // silently ignore — user can retry
     } finally {

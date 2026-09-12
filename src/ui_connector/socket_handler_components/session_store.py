@@ -196,7 +196,24 @@ def _session_from_db(session_id: str) -> Session | None:
     if meta.get("total_cost_usd"):
         _state._session_costs[session_id] = float(meta["total_cost_usd"])
     if meta.get("last_context_usage"):
-        _state._session_last_context_usage[session_id] = meta["last_context_usage"]
+        last_context_usage = meta["last_context_usage"]
+        # The snapshot is stamped with the profile that produced it. If the
+        # profile changed between runs (e.g. switched after a restart), the
+        # stored token counts and known_max_context no longer describe the
+        # current profile — drop the stale snapshot instead of restoring it
+        # (the next _save_session then writes NULL to session_meta, and the
+        # next main-agent exchange with a max-context profile re-emits fresh).
+        if last_context_usage.get("profile") == session.profile_name:
+            _state._session_last_context_usage[session_id] = last_context_usage
+        else:
+            _state._session_last_context_usage.pop(session_id, None)
+            logger.info(
+                "Dropping stale last_context_usage for session %s "
+                "(snapshot profile %r != current profile %r)",
+                session_id,
+                last_context_usage.get("profile"),
+                session.profile_name,
+            )
 
     return session
 

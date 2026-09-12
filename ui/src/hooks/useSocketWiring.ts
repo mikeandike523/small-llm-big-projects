@@ -636,12 +636,27 @@ export default function useSocketWiring(
       setSessionCost(total_usd);
     }
     function onContextUsageEvent(data: {
-      prompt_tokens: number;
-      completion_tokens: number;
+      prompt_tokens: number | null;
+      completion_tokens: number | null;
       total_tokens: number | null;
-      known_max_context: number;
+      known_max_context: number | null;
     }) {
-      setContextUsageData(data);
+      // known_max_context === null is a clear signal (e.g. profile switched to
+      // one without a known max) — hide the widget instead of showing stale data.
+      if (
+        data.known_max_context == null ||
+        data.prompt_tokens == null ||
+        data.completion_tokens == null
+      ) {
+        setContextUsageData(null);
+      } else {
+        setContextUsageData({
+          prompt_tokens: data.prompt_tokens,
+          completion_tokens: data.completion_tokens,
+          total_tokens: data.total_tokens,
+          known_max_context: data.known_max_context,
+        });
+      }
     }
     function onBackendLog(entry: BackendLogEntry) {
       let normalizedEntry: BackendLogEntry | null = entry;
@@ -1199,6 +1214,7 @@ export default function useSocketWiring(
     approvalMode,
     setApprovalMode,
     contextUsageData,
+    setContextUsageData,
     terminalOpen,
     setTerminalOpen,
   };

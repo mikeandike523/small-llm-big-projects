@@ -106,7 +106,7 @@ async def _async_agent_loop(
             current_subturn.user_text,
             skill_registry,
             watchdog_params or {},
-            on_usage=_make_sampler_usage_tracker(session_id, "skill_selector", session.profile_name),
+            on_usage=_make_sampler_usage_tracker(session_id, "skill_selector"),
             on_request_log=_make_sampler_request_logger(session_id, "skill_selector"),
             on_response=_make_sampler_response_logger(session_id, "skill_selector"),
             current_turn=current_turn,
@@ -403,7 +403,7 @@ async def _async_agent_loop(
                         current_subturn.user_text,
                         [c["content"] for c in final_answer_candidates],
                         watchdog_params or {},
-                        on_usage=_make_sampler_usage_tracker(session_id, "final_answer", session.profile_name),
+                        on_usage=_make_sampler_usage_tracker(session_id, "final_answer"),
                         on_request_log=_make_sampler_request_logger(session_id, "final_answer"),
                         on_response=_make_sampler_response_logger(session_id, "final_answer"),
                     )
