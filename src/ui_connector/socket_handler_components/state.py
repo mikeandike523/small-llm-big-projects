@@ -45,6 +45,10 @@ _session_project_config: dict[str, dict] = {}
 _session_current_cwd: dict[str, str] = {}
 # session_id -> accumulated cost in USD for this session
 _session_costs: dict[str, float] = {}
+# session_id -> last context usage snapshot emitted by the MAIN agent exchange
+# loop ({"prompt_tokens", "completion_tokens", "total_tokens", "known_max_context"}).
+# Telemetry (like cost, NOT event-sourced); flushed to session_meta on save.
+_session_last_context_usage: dict[str, dict] = {}
 # Set of session_ids that are currently executing a turn
 _session_active_turns: set[str] = set()
 

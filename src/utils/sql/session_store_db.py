@@ -96,6 +96,7 @@ def upsert_session_meta(
     skills_path: str | None,
     custom_tools_path: str | None,
     memory: dict,
+    last_context_usage: dict | None = None,
 ) -> None:
     """Insert or update the slim metadata row for a session.
 
@@ -111,9 +112,9 @@ def upsert_session_meta(
                     session_id, created_at, schema_version, profile_name,
                     initial_cwd, current_cwd, total_cost_usd, turn_count,
                     task_titles, interim_response_as_thinking, skills_path,
-                    custom_tools_path, corrupt, memory_json
+                    custom_tools_path, corrupt, memory_json, last_context_usage
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 0, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 0, %s, %s)
                 AS incoming
                 ON DUPLICATE KEY UPDATE
                     schema_version               = incoming.schema_version,
@@ -127,7 +128,8 @@ def upsert_session_meta(
                     skills_path                  = incoming.skills_path,
                     custom_tools_path            = incoming.custom_tools_path,
                     corrupt                      = 0,
-                    memory_json                  = incoming.memory_json
+                    memory_json                  = incoming.memory_json,
+                    last_context_usage           = incoming.last_context_usage
                 """,
                 (
                     session_id,
@@ -143,6 +145,7 @@ def upsert_session_meta(
                     skills_path,
                     custom_tools_path,
                     json.dumps(memory, ensure_ascii=False),
+                    json.dumps(last_context_usage) if last_context_usage is not None else None,
                 ),
             )
         conn.commit()
@@ -172,6 +175,7 @@ def _row_to_meta(row: dict, *, include_memory: bool) -> dict:
         "skills_path": row.get("skills_path") or None,
         "custom_tools_path": row.get("custom_tools_path") or None,
         "corrupt": bool(row.get("corrupt")),
+        "last_context_usage": _normalize_json(row.get("last_context_usage")),
     }
     if include_memory:
         meta["memory"] = _normalize_json(row.get("memory_json")) or {}
@@ -196,8 +200,8 @@ def load_session_meta(session_id: str) -> dict | None:
     with pool.get_connection() as conn:
         with conn.cursor(dictionary=True) as cur:
             cur.execute(
-                f"SELECT {_META_LIST_COLS}, memory_json FROM session_meta "
-                "WHERE session_id = %s",
+                f"SELECT {_META_LIST_COLS}, memory_json, last_context_usage "
+                "FROM session_meta WHERE session_id = %s",
                 (session_id,),
             )
             row = cur.fetchone()

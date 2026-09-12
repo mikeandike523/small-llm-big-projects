@@ -115,6 +115,10 @@ def handle_resume_session(data: dict):
     if total_cost is not None:
         emit("session_cost_update", {"total_usd": total_cost})
 
+    last_context_usage = _state._session_last_context_usage.get(session_id)
+    if last_context_usage:
+        emit("context_usage_event", last_context_usage)
+
     try:
         r = _state._get_redis()
         events = get_events_since(r, session_id, last_event_id)

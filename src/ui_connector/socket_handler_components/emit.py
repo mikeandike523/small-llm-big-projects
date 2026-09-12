@@ -14,31 +14,34 @@ from src.utils.sql.kv_manager import KVManager
 logger = logging.getLogger(__name__)
 
 
-def _make_sampler_callbacks(session_id: str, label: str, session_profile: str | None = None) -> dict:
+def _make_sampler_callbacks(session_id: str, label: str) -> dict:
     """Return a dict of usage, request-log, and response callbacks for a sampler.
-    
+
     Args:
         session_id: The session ID
-        label: Label for this sampler (e.g., "main-agent", "tool", "skill_selector")
-        session_profile: The session profile name, used to retrieve model.known_max_context
+        label: Label for this sampler (e.g., "tool", "skill_selector")
+
+    Note: context_usage_event is intentionally NOT emitted from sampler
+    callbacks — only the main agent exchange loop (agent_loop.py) emits
+    context usage, so tool/auxiliary samplers never pollute that display.
     """
     return {
-        "on_usage": _make_sampler_usage_tracker(session_id, label, session_profile),
+        "on_usage": _make_sampler_usage_tracker(session_id, label),
         "on_request_log": _make_sampler_request_logger(session_id, label),
         "on_response": _make_sampler_response_logger(session_id, label),
     }
 
 
-def _make_sampler_usage_tracker(session_id: str, label: str, session_profile: str | None = None) -> Callable[[dict], None]:
+def _make_sampler_usage_tracker(session_id: str, label: str) -> Callable[[dict], None]:
     """Return a callback that logs sampler usage to the backend log and updates session cost.
-    
-    If session_profile is provided and model.known_max_context is set, also emits
-    a context_usage_event to the frontend with token usage and max context info.
-    
+
+    Intentionally does NOT emit context_usage_event — that display is driven
+    exclusively by the main agent exchange loop (agent_loop.py), so sampler
+    usage from tools/auxiliary samplers never affects the context bar.
+
     Args:
         session_id: The session ID
-        label: Label for this sampler (e.g., "main-agent", "tool", "skill_selector")
-        session_profile: The session profile name, used to retrieve model.known_max_context
+        label: Label for this sampler (e.g., "tool", "skill_selector")
     """
     def _track(usage: dict) -> None:
         if not usage:
@@ -73,16 +76,17 @@ def _make_sampler_usage_tracker(session_id: str, label: str, session_profile: st
             },
         )
         
-        # Emit context_usage_event if model.known_max_context is set
-        if session_profile:
-            _emit_context_usage_if_configured(session_id, session_profile, usage)
     return _track
 
 
 def _emit_context_usage_if_configured(session_id: str, session_profile: str | None, usage: dict) -> None:
     """Emit context_usage_event to frontend if model.known_max_context parameter is set.
-    
+
     This allows the frontend to display a visual indicator of context limit proximity.
+
+    The emitted snapshot is also recorded in ``_state._session_last_context_usage``
+    and flushed to ``session_meta`` on the next ``_save_session`` (same telemetry
+    semantics as cost). Main-agent-only: sampler callbacks must NOT call this.
     """
     if not session_profile:
         return
@@ -120,16 +124,15 @@ def _emit_context_usage_if_configured(session_id: str, session_profile: str | No
             
             # Only emit if we have at least prompt and completion tokens
             if prompt_tokens is not None and completion_tokens is not None:
-                socketio.emit(
-                    "context_usage_event",
-                    {
-                        "prompt_tokens": int(prompt_tokens),
-                        "completion_tokens": int(completion_tokens),
-                        "total_tokens": int(total_tokens) if total_tokens is not None else None,
-                        "known_max_context": known_max_context,
-                    },
-                    room=session_id,
-                )
+                snapshot = {
+                    "prompt_tokens": int(prompt_tokens),
+                    "completion_tokens": int(completion_tokens),
+                    "total_tokens": int(total_tokens) if total_tokens is not None else None,
+                    "known_max_context": known_max_context,
+                }
+                # Record for persistence (flushed to session_meta by _save_session).
+                _state._session_last_context_usage[session_id] = snapshot
+                socketio.emit("context_usage_event", snapshot, room=session_id)
         except Exception as e:
             logger.debug(f"Could not retrieve model.known_max_context parameter: {e}")
             return

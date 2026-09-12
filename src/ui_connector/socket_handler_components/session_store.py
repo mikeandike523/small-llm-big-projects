@@ -195,6 +195,8 @@ def _session_from_db(session_id: str) -> Session | None:
         _state._session_current_cwd[session_id] = meta["current_cwd"]
     if meta.get("total_cost_usd"):
         _state._session_costs[session_id] = float(meta["total_cost_usd"])
+    if meta.get("last_context_usage"):
+        _state._session_last_context_usage[session_id] = meta["last_context_usage"]
 
     return session
 
@@ -298,6 +300,7 @@ def _save_session(session_id: str, session: Session) -> None:
             initial_cwd=session.initial_cwd or "",
             current_cwd=_state._session_current_cwd.get(session_id),
             total_cost_usd=float(_state._session_costs.get(session_id) or 0.0),
+            last_context_usage=_state._session_last_context_usage.get(session_id),
             turn_count=meta["turn_count"],
             task_titles=meta["task_titles"],
             interim_response_as_thinking=session.interim_response_as_thinking,
@@ -344,6 +347,7 @@ def _delete_sessions(session_ids: list[str]) -> None:
         _state._session_project_config.pop(session_id, None)
         _state._session_current_cwd.pop(session_id, None)
         _state._session_costs.pop(session_id, None)
+        _state._session_last_context_usage.pop(session_id, None)
 
 
 def _delete_session(session_id: str) -> None:
