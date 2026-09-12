@@ -118,13 +118,13 @@ DEFINITION: dict = {
 }
 
 
-def needs_approval(args: dict) -> bool:
+def needs_approval(args: dict, _session_data: dict | None = None, special_resources: dict | None = None) -> bool:
     raw = args.get("path")
     if not raw:
         return False
-    from src.tools._approval import is_path_in_scope
+    from src.tools._approval import ApprovalContext, is_path_in_scope
 
-    return not is_path_in_scope(raw)
+    return not is_path_in_scope(raw, ctx=ApprovalContext.from_special_resources(special_resources))
 
 
 # ---------------------------------------------------------------------------
@@ -265,7 +265,7 @@ def _segment_matches_regex(
 
 def execute(args: dict, _session_data: dict = {}, special_resources: dict | None = None) -> str:
     sr = special_resources or {}
-    session_cwd: str | None = sr.get("session_cwd")
+    session_cwd: str | None = sr.get("session_current_working_dir")
     raw_patterns: list[str] = args.get("patterns") or []
     raw_path: str = args.get("path") or session_cwd or ""
     use_gitignore: bool = bool(args.get("use_gitignore", True))

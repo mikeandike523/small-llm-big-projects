@@ -368,10 +368,14 @@ def main() -> None:
         sys.stdout.buffer.write(_BLUE + text.encode("utf-8", errors="replace") + _RESET)
         sys.stdout.buffer.flush()
 
-    special_resources = {"on_chunk": _on_chunk}
-
     session_data = _make_session_data()
     cleanup = session_data.pop("_cleanup")
+    cwd = session_data.get("initial_cwd") or str(_repo_root)
+    special_resources = {
+        "on_chunk": _on_chunk,
+        "session_init_working_dir": cwd,
+        "session_current_working_dir": cwd,
+    }
 
     try:
         result = execute_tool(tool_name, args, session_data, special_resources)

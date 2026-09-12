@@ -29,7 +29,7 @@ def needs_approval(args: dict) -> bool:
 
 def execute(args: dict, session_data: dict, special_resources: dict | None = None) -> str:
     sr = special_resources or {}
-    path = _resolve_path(args["path"], sr.get("session_cwd"))
+    path = _resolve_path(args["path"], sr.get("session_current_working_dir"))
 
     if not os.path.exists(path):
         return f"Error: path does not exist: {path}"

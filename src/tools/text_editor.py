@@ -249,7 +249,7 @@ def dirty_effects(args: dict, session_data: dict | None = None) -> dict:
     return {}
 
 
-def needs_approval(args: dict) -> bool:
+def needs_approval(args: dict, _session_data: dict | None = None, special_resources: dict | None = None) -> bool:
     action = args.get("action", "")
     filepath = args.get("filepath")
 
@@ -257,20 +257,21 @@ def needs_approval(args: dict) -> bool:
         if filepath is None:
             return False  # session memory key only — no file write
 
-        from src.tools._approval import needs_path_approval, _resolve
+        from src.tools._approval import ApprovalContext, needs_path_approval, _resolve
+
+        approval_ctx = ApprovalContext.from_special_resources(special_resources)
 
         # Outside approved roots: always require approval regardless of outcome.
-        if needs_path_approval(filepath):
+        if needs_path_approval(filepath, ctx=approval_ctx):
             return True
 
         # Path is in-scope. Dry-run the operation: if it would fail (no matches,
         # bad args) or produce no change, auto-approve so the agent sees the
         # tool's own error without a prompt. Only prompt when it WOULD write.
         #
-        # Resolve against the session CWD (held in approval thread-locals), not
-        # the server process CWD. A relative filepath would otherwise miss the
-        # file here and raise.
-        resolved_filepath = _resolve(filepath)
+        # Resolve against the session CWD from special_resources, not the server
+        # process CWD. A relative filepath would otherwise miss the file here and raise.
+        resolved_filepath = _resolve(filepath, ctx=approval_ctx)
 
         # Read the target. Benign, expected failures (missing file, no
         # permission) mean the write can't happen, so don't prompt. Any OTHER
@@ -301,8 +302,8 @@ def needs_approval(args: dict) -> bool:
 
     # Read-only actions: path-based approval (consistent with read_text_file).
     if filepath is not None:
-        from src.tools._approval import needs_path_approval
-        return needs_path_approval(filepath)
+        from src.tools._approval import ApprovalContext, needs_path_approval
+        return needs_path_approval(filepath, ctx=ApprovalContext.from_special_resources(special_resources))
     return False
 
 
@@ -317,7 +318,7 @@ def execute(args: dict, session_data: dict | None = None, special_resources: dic
         session_data = {}
 
     sr = special_resources or {}
-    session_cwd: str | None = sr.get("session_cwd")
+    session_cwd: str | None = sr.get("session_current_working_dir")
     key = args.get("key")
     raw_filepath = args.get("filepath")
     filepath = _resolve_path(raw_filepath, session_cwd) if raw_filepath else None

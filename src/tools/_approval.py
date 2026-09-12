@@ -2,26 +2,27 @@ from __future__ import annotations
 
 import os
 import subprocess
-import threading
+from dataclasses import dataclass
 from pathlib import Path
 
 from src.tools._subprocess import run_command
 
 _APPROVAL_CMD_TIMEOUT = 5  # seconds; deny approval if git commands stall
 
-# Thread-local storage so check_needs_approval can inject both session CWDs
-# without changing every tool's needs_approval signature.
-_tl = threading.local()
+@dataclass(frozen=True)
+class ApprovalContext:
+    """Context required for approval-time path checks."""
 
+    session_init_working_dir: str | None = None
+    session_current_working_dir: str | None = None
 
-def set_approval_cwd(cwd: str | None) -> None:
-    """Set the session's initial CWD for approval checks on the current thread."""
-    _tl.session_cwd = cwd
-
-
-def set_approval_current_cwd(cwd: str | None) -> None:
-    """Set the session's current CWD (post-change_pwd) for approval checks."""
-    _tl.session_current_cwd = cwd
+    @classmethod
+    def from_special_resources(cls, special_resources: dict | None) -> "ApprovalContext":
+        sr = special_resources or {}
+        return cls(
+            session_init_working_dir=sr.get("session_init_working_dir"),
+            session_current_working_dir=sr.get("session_current_working_dir"),
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -29,43 +30,43 @@ def set_approval_current_cwd(cwd: str | None) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _get_session_init_cwd() -> str | None:
+def _get_session_init_cwd(ctx: ApprovalContext) -> str | None:
     """The session's initial CWD — always an approved root."""
-    cwd = getattr(_tl, "session_cwd", None)
+    cwd = ctx.session_init_working_dir
     return str(Path(cwd).resolve()) if cwd else None
 
 
-def _get_session_current_cwd() -> str | None:
+def _get_session_current_cwd(ctx: ApprovalContext) -> str | None:
     """The session's current CWD — used as an approved root for path checks.
 
     Tracks change_pwd calls; falls back to the session's initial CWD.
     Never falls back to os.getcwd() — that is the server process CWD and
     must never be treated as an approved root.
     """
-    cwd = getattr(_tl, "session_current_cwd", None)
+    cwd = ctx.session_current_working_dir
     if cwd:
         return str(Path(cwd).resolve())
-    return _get_session_init_cwd()
+    return _get_session_init_cwd(ctx)
 
 
-def _get_effective_cwd() -> str:
+def _get_effective_cwd(ctx: ApprovalContext) -> str:
     """CWD used for anchoring relative paths in _resolve().
 
     Raises if neither the session's current CWD nor its initial CWD is set —
     this prevents the server process CWD from silently becoming the resolution
     base and potentially leaking paths into approval checks.
     """
-    cwd = _get_session_current_cwd()
+    cwd = _get_session_current_cwd(ctx)
     if cwd:
         return cwd
     raise RuntimeError(
         "No session CWD is set for this approval check. "
-        "set_approval_cwd() and set_approval_current_cwd() must be called "
+        "special_resources with session working-directory context must be passed "
         "before resolving paths (via check_needs_approval)."
     )
 
 
-def _resolve(raw_path: str) -> str:
+def _resolve(raw_path: str, *, ctx: ApprovalContext) -> str:
     """Resolve a path to an absolute string, following all symlinks.
 
     Symlink resolution guards against symlink-based traversal attacks: a
@@ -75,7 +76,7 @@ def _resolve(raw_path: str) -> str:
     p = (
         Path(raw_path)
         if os.path.isabs(raw_path)
-        else Path(os.path.join(_get_effective_cwd(), raw_path))
+        else Path(os.path.join(_get_effective_cwd(ctx), raw_path))
     )
     return str(p.resolve())
 
@@ -88,27 +89,27 @@ def _is_under(resolved: str, root: str) -> bool:
         return False
 
 
-def _is_under_any_approved_root(resolved: str) -> bool:
+def _is_under_any_approved_root(resolved: str, *, ctx: ApprovalContext) -> bool:
     """True if resolved is under the session's current CWD or initial CWD.
 
     Both roots are always approved so the agent is not locked out after
     change_pwd, while still scoping free access to the project.
     """
-    current = _get_session_current_cwd()
+    current = _get_session_current_cwd(ctx)
     if current and _is_under(resolved, current):
         return True
-    init = _get_session_init_cwd()
+    init = _get_session_init_cwd(ctx)
     if init and init != current and _is_under(resolved, init):
         return True
     return False
 
 
-def _is_under_cwd(resolved: str) -> bool:
+def _is_under_cwd(resolved: str, *, ctx: ApprovalContext) -> bool:
     """Alias for _is_under_any_approved_root — kept for backward compatibility."""
-    return _is_under_any_approved_root(resolved)
+    return _is_under_any_approved_root(resolved, ctx=ctx)
 
 
-def is_path_in_scope(raw_path: str | None) -> bool:
+def is_path_in_scope(raw_path: str | None, *, ctx: ApprovalContext) -> bool:
     """Return True if raw_path resolves to a location within an approved session root.
 
     Unlike needs_path_approval, does NOT apply git-ignore filtering — suitable
@@ -118,7 +119,7 @@ def is_path_in_scope(raw_path: str | None) -> bool:
     if not raw_path:
         return True  # no path → operates on cwd → in scope
     try:
-        return _is_under_any_approved_root(_resolve(raw_path))
+        return _is_under_any_approved_root(_resolve(raw_path, ctx=ctx), ctx=ctx)
     except RuntimeError:
         return False  # no session CWD set → treat as out of scope
 
@@ -178,12 +179,12 @@ def _git_dir_is_ignored(resolved: str) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def file_needs_approval(args: dict, path_arg: str = "path") -> bool:
+def file_needs_approval(args: dict, path_arg: str = "path", *, ctx: ApprovalContext) -> bool:
     """Convenience wrapper: approval check for a single path argument."""
-    return needs_path_approval(args.get(path_arg))
+    return needs_path_approval(args.get(path_arg), ctx=ctx)
 
 
-def needs_path_approval(raw_path: str | None) -> bool:
+def needs_path_approval(raw_path: str | None, *, ctx: ApprovalContext) -> bool:
     """Core approval check for a path argument.
 
     Returns False (auto-approved) when the resolved path is within the
@@ -205,15 +206,15 @@ def needs_path_approval(raw_path: str | None) -> bool:
     if not raw_path:
         return False
 
-    resolved = _resolve(raw_path)
+    resolved = _resolve(raw_path, ctx=ctx)
 
-    if not _is_under_any_approved_root(resolved):
+    if not _is_under_any_approved_root(resolved, ctx=ctx):
         return True
 
     # Within an approved root — still block git-ignored paths.
     # The root directories themselves are always approved.
-    current_cwd = _get_session_current_cwd()
-    init_cwd = _get_session_init_cwd()
+    current_cwd = _get_session_current_cwd(ctx)
+    init_cwd = _get_session_init_cwd(ctx)
     if (current_cwd and resolved == current_cwd) or (
         init_cwd and resolved == init_cwd
     ):

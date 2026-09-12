@@ -224,9 +224,8 @@ def check_needs_approval(
     name: str,
     args: dict,
     tool_map: dict | None = None,
-    session_cwd: str | None = None,
-    session_current_cwd: str | None = None,
     session_data: dict | None = None,
+    special_resources: dict | None = None,
 ) -> bool:
     """Return True if this tool call requires user approval before executing.
 
@@ -246,18 +245,14 @@ def check_needs_approval(
     fn = getattr(module, "needs_approval", None)
     if fn is None:
         return False
-    from src.tools._approval import set_approval_cwd, set_approval_current_cwd
 
     clean_args = {k: v for k, v in args.items() if k not in _RESERVED_TOOL_PARAMS}
-    set_approval_cwd(session_cwd or None)
-    set_approval_current_cwd(session_current_cwd or None)
-    try:
-        if _accepts_session_data(fn):
-            return bool(fn(clean_args, session_data))
-        return bool(fn(clean_args))
-    finally:
-        set_approval_cwd(None)
-        set_approval_current_cwd(None)
+    fn_special_resources = dict(special_resources or {})
+    if _accepts_special_resources(fn):
+        return bool(fn(clean_args, session_data, fn_special_resources))
+    if _accepts_session_data(fn):
+        return bool(fn(clean_args, session_data))
+    return bool(fn(clean_args))
 
 
 def _accepts_session_data(fn) -> bool:
@@ -290,7 +285,7 @@ def get_dirty_effects(
 
 
 def _accepts_special_resources(fn) -> bool:
-    """Return True if the tool's execute function declares a third parameter."""
+    """Return True if the tool function declares a third special_resources parameter."""
     try:
         return len(inspect.signature(fn).parameters) >= 3
     except (ValueError, TypeError):

@@ -229,15 +229,15 @@ def handle_run_startup_tool_calls():
     )
     special_resources: dict = {
         "emit_backend_log": lambda *msgs: _emit_backend_log(session_id, *msgs),
-        "initial_cwd": session.initial_cwd,
-        "session_cwd": _startup_cwd,
+        "session_init_working_dir": session.initial_cwd,
+        "session_current_working_dir": _startup_cwd,
         "create_file_auto_eol": _startup_auto_eol,
         "on_cwd_change": None,
     }
 
     def _on_startup_cwd_change(new_path: str) -> None:
         _state._session_current_cwd[session_id] = new_path
-        special_resources["session_cwd"] = new_path
+        special_resources["session_current_working_dir"] = new_path
         socketio.emit("pwd_update", {"path": new_path.replace("\\", "/")}, room=session_id)
 
     special_resources["on_cwd_change"] = _on_startup_cwd_change

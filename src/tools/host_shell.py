@@ -155,7 +155,7 @@ def execute(
     make_sampler_callbacks = sr.get("make_sampler_callbacks")
     cancel_event: threading.Event | None = sr.get("cancel_event")
     session_id: str | None = sr.get("session_id")
-    session_cwd: str | None = sr.get("session_cwd")
+    session_cwd: str | None = sr.get("session_current_working_dir")
     session_llm = sr.get("llm")
 
     try:

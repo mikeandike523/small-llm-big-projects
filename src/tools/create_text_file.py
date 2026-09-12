@@ -53,7 +53,7 @@ def execute(args: dict, session_data: dict, special_resources: dict | None = Non
     # CWD. Without this a relative path would land in the server's working
     # directory instead of the agent's project.
     sr = special_resources or {}
-    session_cwd = sr.get("session_cwd")
+    session_cwd = sr.get("session_current_working_dir")
     target = Path(_resolve_path(path, session_cwd))
 
     # Auto-EOL: normalize line endings of the new file based on the session's
@@ -61,7 +61,7 @@ def execute(args: dict, session_data: dict, special_resources: dict | None = Non
     initial_content, eol_note = maybe_apply_auto_eol(
         initial_content,
         sr.get("create_file_auto_eol"),
-        sr.get("initial_cwd"),
+        sr.get("session_init_working_dir"),
     )
 
     try:

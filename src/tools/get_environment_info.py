@@ -47,8 +47,8 @@ def execute(
 ) -> str:
     sr = special_resources or {}
     target: str = args.get("target", "return_value")
-    current_cwd = (sr.get("session_cwd") or "").replace("\\", "/")
-    initial_cwd = (sr.get("initial_cwd") or "").replace("\\", "/")
+    current_cwd = (sr.get("session_current_working_dir") or "").replace("\\", "/")
+    initial_cwd = (sr.get("session_init_working_dir") or "").replace("\\", "/")
 
     result = format_environment_info(current_cwd=current_cwd, initial_cwd=initial_cwd)
 

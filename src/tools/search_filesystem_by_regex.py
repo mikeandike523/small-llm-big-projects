@@ -83,10 +83,10 @@ DEFINITION: dict = {
 }
 
 
-def needs_approval(args: dict) -> bool:
-    from src.tools._approval import needs_path_approval
+def needs_approval(args: dict, _session_data: dict | None = None, special_resources: dict | None = None) -> bool:
+    from src.tools._approval import ApprovalContext, needs_path_approval
 
-    return needs_path_approval(args.get("path"))
+    return needs_path_approval(args.get("path"), ctx=ApprovalContext.from_special_resources(special_resources))
 
 
 _BOLD = "\033[1m"
@@ -135,7 +135,7 @@ def _apply_bold(line: str, pattern: str) -> str:
 
 def execute(args: dict, _session_data: dict | None = None, special_resources: dict | None = None) -> str:
     sr = special_resources or {}
-    session_cwd: str | None = sr.get("session_cwd")
+    session_cwd: str | None = sr.get("session_current_working_dir")
     pattern: str = args.get("pattern", "")
     raw_path: str = args.get("path", "")
     use_gitignore: bool = args.get("use_gitignore", True)

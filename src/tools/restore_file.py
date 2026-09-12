@@ -57,7 +57,7 @@ def needs_approval(args: dict) -> bool:
 
 
 def execute(args: dict, session_data: dict, special_resources: dict) -> str:
-    path = _resolve_path(args["path"], special_resources.get("session_cwd"))
+    path = _resolve_path(args["path"], special_resources.get("session_current_working_dir"))
     action = args.get("action", "restore")
     session_id: str = special_resources.get("session_id", "")
 

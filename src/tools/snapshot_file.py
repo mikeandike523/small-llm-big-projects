@@ -35,7 +35,7 @@ NO_STUB = True
 def execute(args: dict, session_data: dict, special_resources: dict) -> str:
     # Resolve relative paths against the session CWD, not the server process
     # CWD, so the snapshot key matches the file the agent actually edits.
-    path = _resolve_path(args["path"], special_resources.get("session_cwd"))
+    path = _resolve_path(args["path"], special_resources.get("session_current_working_dir"))
     session_id: str = special_resources.get("session_id", "")
 
     target = Path(path)

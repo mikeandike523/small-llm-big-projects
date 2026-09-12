@@ -9,7 +9,7 @@ from src.tools import execute_tool
 def run(env: TestEnv, server: MicroServer | None = None):
     cl = CheckList("get_pwd")
     # get_pwd reports the session CWD supplied via special_resources.
-    sr = {"session_cwd": env.tmp_dir}
+    sr = {"session_current_working_dir": env.tmp_dir}
     expected = env.tmp_dir.replace("\\", "/")
     try:
         # basic call — should return the session cwd (forward-slash form)

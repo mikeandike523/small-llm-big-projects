@@ -44,7 +44,7 @@ def execute(args: dict, session_data: dict | None = None, special_resources: dic
 
     sr = special_resources or {}
     target: str = args.get("target", "return_value")
-    cwd: str = (sr.get("session_cwd") or "").replace("\\", "/")
+    cwd: str = (sr.get("session_current_working_dir") or "").replace("\\", "/")
 
     if target == "return_value":
         return cwd

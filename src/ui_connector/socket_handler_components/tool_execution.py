@@ -75,8 +75,8 @@ def _execute_tools(
     special_resources: dict = {
         "emit_backend_log": lambda *msgs: _emit_backend_log(session_id, *msgs),
         "session_id": session_id,
-        "initial_cwd": session.initial_cwd,
-        "session_cwd": _current_cwd,
+        "session_init_working_dir": session.initial_cwd,
+        "session_current_working_dir": _current_cwd,
         "create_file_auto_eol": create_file_auto_eol,
         "on_cwd_change": None,
         "cancel_event": cancel_event,
@@ -98,7 +98,7 @@ def _execute_tools(
 
     def _on_cwd_change(new_path: str) -> None:
         _state._session_current_cwd[session_id] = new_path
-        special_resources["session_cwd"] = new_path
+        special_resources["session_current_working_dir"] = new_path
         _emit_and_log(session_id, "pwd_update", {"path": new_path.replace("\\", "/")})
 
     special_resources["on_cwd_change"] = _on_cwd_change
@@ -185,7 +185,7 @@ def _execute_tools(
                 _filepath = None
                 if _raw_filepath:
                     from src.tools._path_utils import _resolve_path as _rp
-                    _filepath = _rp(_raw_filepath, special_resources.get("session_cwd"))
+                    _filepath = _rp(_raw_filepath, special_resources.get("session_current_working_dir"))
                 if _patch and isinstance(_patch, str) and (_filepath or _key):
                     # Read the target contents for dry-run and watchdog use.
                     _contents: str | None = None
@@ -286,9 +286,8 @@ def _execute_tools(
                 tc.name,
                 tc.arguments,
                 tool_map=actual_tool_map,
-                session_cwd=session.initial_cwd or None,
-                session_current_cwd=_state._session_current_cwd.get(session_id),
                 session_data=session.session_data,
+                special_resources=special_resources,
             ):
                 approved, redirect_message = _request_approval(
                     session_id,
@@ -344,7 +343,7 @@ def _execute_tools(
             special_resources["on_chunk"] = _on_chunk
 
             # Auto-snapshot: capture original file state before the first write this session.
-            _snap_cwd = special_resources.get("session_cwd")
+            _snap_cwd = special_resources.get("session_current_working_dir")
             for _snap_path in _effects.get("dirties_files", []):
                 try:
                     _file_snapshot.auto_snapshot_if_first_write(session_id, _snap_path, cwd=_snap_cwd)
@@ -397,7 +396,7 @@ def _execute_tools(
 
             # Apply dirty effects only when the tool did not return an error.
             if _effects and not tool_result.startswith("Error"):
-                if _dirty_cache.apply_effects(session_id, _effects, cwd=special_resources.get("session_cwd")):
+                if _dirty_cache.apply_effects(session_id, _effects, cwd=special_resources.get("session_current_working_dir")):
                     _emit_and_log(
                         session_id,
                         "dirty_cache_update",

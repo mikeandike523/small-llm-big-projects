@@ -42,7 +42,7 @@ def needs_approval(args: dict) -> bool:
 
 def execute(args: dict, session_data: dict, special_resources: dict | None = None) -> str:
     sr = special_resources or {}
-    session_cwd = sr.get("session_cwd")
+    session_cwd = sr.get("session_current_working_dir")
     src = _resolve_path(args["src"], session_cwd)
     dst = _resolve_path(args["dst"], session_cwd)
     preserve_metadata = bool(args.get("preserve_metadata", True))

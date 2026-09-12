@@ -61,7 +61,7 @@ def needs_approval(args: dict) -> bool:
 
 def execute(args: dict, session_data: dict, special_resources: dict | None = None) -> str:
     sr = special_resources or {}
-    path = _resolve_path(args["path"], sr.get("session_cwd"))
+    path = _resolve_path(args["path"], sr.get("session_current_working_dir"))
     content: str | None = args.get("content")
     session_memory_key: str | None = args.get("session_memory_key")
     create_parents: bool = args.get("create_parents", False)
@@ -95,7 +95,7 @@ def execute(args: dict, session_data: dict, special_resources: dict | None = Non
         content, eol_note = maybe_apply_auto_eol(
             content,
             sr.get("create_file_auto_eol"),
-            sr.get("initial_cwd"),
+            sr.get("session_init_working_dir"),
         )
 
     try:

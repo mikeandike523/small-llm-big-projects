@@ -121,11 +121,11 @@ def dirty_effects(args: dict, session_data: dict | None = None) -> dict:
     return {}
 
 
-def needs_approval(args: dict) -> bool:
+def needs_approval(args: dict, _session_data: dict | None = None, special_resources: dict | None = None) -> bool:
     if args.get("path"):
-        from src.tools._approval import needs_path_approval
+        from src.tools._approval import ApprovalContext, needs_path_approval
 
-        return needs_path_approval(args["path"])
+        return needs_path_approval(args["path"], ctx=ApprovalContext.from_special_resources(special_resources))
     return False
 
 
@@ -191,7 +191,7 @@ def execute(args: dict, session_data: dict, special_resources: dict | None = Non
     sr = special_resources or {}
     action = args.get("action")
 
-    text, error = _load_text(args, session_data, session_cwd=sr.get("session_cwd"))
+    text, error = _load_text(args, session_data, session_cwd=sr.get("session_current_working_dir"))
     if error:
         return error
 
