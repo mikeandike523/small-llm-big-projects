@@ -24,8 +24,7 @@ from src.ui_connector.socket_handler_components.session_store import (
     _get_autoloaded_session_skills,
 )
 from src.ui_connector.socket_handler_components.llm import (
-    _build_llm_payload,
-    _async_run_llm_call,
+    _async_run_llm_call_with_context_retries,
 )
 from src.ui_connector.socket_handler_components.watchdogs import (
     _get_open_items,
@@ -155,15 +154,13 @@ async def _async_agent_loop(
                 )
 
             exchange_idx = len(current_subturn.exchanges)
-            payload = _build_llm_payload(
-                session, current_turn, active_skills_section or None
-            )
-
             try:
                 result, content_for_history, reasoning = (
-                    await _async_run_llm_call(
+                    await _async_run_llm_call_with_context_retries(
                         streaming_llm,
-                        payload,
+                        session,
+                        current_turn,
+                        active_skills_section or None,
                         session_id=session_id,
                         turn_id=turn_id,
                         subturn_id=current_subturn.id,

@@ -19,6 +19,8 @@ from src.ui_connector.socket_handler_components.session_store import (
     _get_session_system_prompt,
 )
 from src.tools import ALL_TOOL_DEFINITIONS
+from src.utils.context_errors import context_limit_log_object, is_context_limit_error
+from src.utils.exceptions import ContextReductionExhaustedError
 from src.utils.llm.streaming import StreamingLLM
 from src.utils.session_model import Session, Turn, Subturn
 
@@ -70,12 +72,32 @@ def _subturn_assistant_context(subturn: Subturn) -> str:
     return final_response
 
 
+def _append_closed_subturn(messages: list[dict], subturn: Subturn) -> None:
+    messages.append({"role": "user", "content": subturn.user_text_with_context})
+    messages.append(
+        {"role": "assistant", "content": _subturn_assistant_context(subturn)}
+    )
+
+
+def _append_live_subturn(messages: list[dict], subturn: Subturn) -> None:
+    messages.append({"role": "user", "content": subturn.user_text_with_context})
+    for exchange in subturn.exchanges:
+        messages.extend(exchange.to_messages())
+
+
 def _build_llm_payload(
     session: Session,
     current_turn: Turn,
     skills_section: str | None = None,
+    closed_current_turn_prior_subturns: int | None = None,
 ) -> list[dict]:
-    """Assemble the message list actually sent to the LLM endpoint."""
+    """Assemble the message list actually sent to the LLM endpoint.
+
+    completed_turns are always represented by closed subturn context. For the
+    active turn, closed_current_turn_prior_subturns controls how many earliest
+    prior subturns are reduced to final response plus Context Notes. When None,
+    all prior subturns are closed, preserving the historical behavior.
+    """
     system_content = _get_session_system_prompt(session.session_id)
     if skills_section:
         system_content = system_content + "\n" + skills_section
@@ -83,29 +105,24 @@ def _build_llm_payload(
 
     for turn in session.completed_turns:
         for subturn in turn.subturns:
-            messages.append({"role": "user", "content": subturn.user_text_with_context})
-            messages.append(
-                {"role": "assistant", "content": _subturn_assistant_context(subturn)}
-            )
+            _append_closed_subturn(messages, subturn)
 
     prior_subturns = current_turn.subturns[:-1]
     live_subturn = current_turn.subturns[-1] if current_turn.subturns else None
+    if closed_current_turn_prior_subturns is None:
+        closed_current_turn_prior_subturns = len(prior_subturns)
+    closed_current_turn_prior_subturns = max(
+        0, min(closed_current_turn_prior_subturns, len(prior_subturns))
+    )
 
-    for subturn in prior_subturns:
-        messages.append({"role": "user", "content": subturn.user_text_with_context})
-        messages.append(
-            {"role": "assistant", "content": _subturn_assistant_context(subturn)}
-        )
+    for idx, subturn in enumerate(prior_subturns):
+        if idx < closed_current_turn_prior_subturns:
+            _append_closed_subturn(messages, subturn)
+        else:
+            _append_live_subturn(messages, subturn)
 
     if live_subturn:
-        # Only the live subturn replays full exchanges. That is where provider
-        # native reasoning/tool-call payloads matter; prior subturns have
-        # already been reduced to final answer + Context Notes.
-        messages.append(
-            {"role": "user", "content": live_subturn.user_text_with_context}
-        )
-        for exchange in live_subturn.exchanges:
-            messages.extend(exchange.to_messages())
+        _append_live_subturn(messages, live_subturn)
 
     return messages
 
@@ -211,3 +228,82 @@ async def _async_run_llm_call(
     )
 
     return result, acc["content"], acc["reasoning"]
+
+
+async def _async_run_llm_call_with_context_retries(
+    streaming_llm: StreamingLLM,
+    session: Session,
+    current_turn: Turn,
+    skills_section: str | None,
+    session_id: str,
+    turn_id: str,
+    subturn_id: str,
+    exchange_idx: int,
+    tool_defs: list[dict] | None = None,
+    suppress_content_streaming: bool = False,
+) -> tuple[object, str, str]:
+    """Run the main LLM call, progressively closing prior subturns on context errors.
+
+    The first attempt keeps every prior subturn in the current turn "live":
+    their original assistant/tool/tool-result/user-continuation messages are
+    replayed through LLMExchange.to_messages(), including provider-native
+    replay payloads such as reasoning_native. If and only if that request fails
+    with a context-limit-looking exception, the next attempt closes one more
+    earliest prior subturn by sending only its user message and assistant final
+    response plus Context Notes. This repeats until the request succeeds or all
+    prior subturns have been closed.
+
+    Non-context exceptions are never retried and propagate unchanged, so callers
+    handle exactly the original error. If every attempt fails with a context
+    limit error, this raises ContextReductionExhaustedError from the final
+    context exception; the final HTTP response body, when available, is emitted
+    to frontend logs before the custom error is raised.
+    """
+    max_closable = max(0, len(current_turn.subturns) - 1)
+
+    for closed_count in range(max_closable + 1):
+        payload = _build_llm_payload(
+            session,
+            current_turn,
+            skills_section,
+            closed_current_turn_prior_subturns=closed_count,
+        )
+        try:
+            return await _async_run_llm_call(
+                streaming_llm,
+                payload,
+                session_id=session_id,
+                turn_id=turn_id,
+                subturn_id=subturn_id,
+                exchange_idx=exchange_idx,
+                tool_defs=tool_defs,
+                suppress_content_streaming=suppress_content_streaming,
+            )
+        except Exception as exc:
+            if not is_context_limit_error(exc):
+                raise
+
+            log_object = context_limit_log_object(exc)
+            if log_object is not None:
+                log_object["closed_prior_subturns"] = closed_count
+                log_object["closable_prior_subturns"] = max_closable
+                _emit_backend_log(session_id, "Context limit response", log_object)
+
+            if closed_count >= max_closable:
+                raise ContextReductionExhaustedError(
+                    "Could not make request, context exceeded, "
+                    "check frontend logs for response body."
+                ) from exc
+
+            _emit_backend_log(
+                session_id,
+                "Context limit exceeded; retrying with one more prior subturn closed",
+                {
+                    "closed_prior_subturns": closed_count + 1,
+                    "closable_prior_subturns": max_closable,
+                },
+            )
+
+    raise ContextReductionExhaustedError(
+        "Could not make request, context exceeded, check frontend logs for response body."
+    )
