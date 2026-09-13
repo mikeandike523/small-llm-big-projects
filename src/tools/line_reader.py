@@ -121,7 +121,7 @@ def dirty_effects(args: dict, session_data: dict | None = None) -> dict:
     return {}
 
 
-def needs_approval(args: dict, _session_data: dict | None = None, special_resources: dict | None = None) -> bool:
+def needs_approval(args: dict, session_data: dict | None = None, special_resources: dict | None = None) -> bool:
     if args.get("path"):
         from src.tools._approval import ApprovalContext, needs_path_approval
 

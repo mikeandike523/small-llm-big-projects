@@ -43,6 +43,15 @@ def is_context_limit_error(exc: Exception) -> bool:
         return False
 
 
+def is_rate_limit_error(exc: Exception) -> bool:
+    """Return True when an exception is an HTTP 429 rate-limit response."""
+    return (
+        isinstance(exc, httpx.HTTPStatusError)
+        and exc.response is not None
+        and exc.response.status_code == 429
+    )
+
+
 def context_limit_log_object(exc: Exception) -> dict | None:
     """Build a frontend-log payload for the response body that triggered detection."""
     if not isinstance(exc, httpx.HTTPStatusError):

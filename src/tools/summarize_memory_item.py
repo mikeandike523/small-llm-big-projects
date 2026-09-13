@@ -49,7 +49,7 @@ Do NOT include meta-commentary like "The page discusses..." or "According to the
 Just provide the summary directly."""
 
 
-def needs_approval(args: dict) -> bool:
+def needs_approval(args: dict, session_data: dict | None = None, special_resources: dict | None = None) -> bool:
     return False
 
 

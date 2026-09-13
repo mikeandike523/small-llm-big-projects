@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import os
+import random
 from typing import Any
 
 from termcolor import colored
@@ -14,17 +15,28 @@ from src.ui_connector.socket_handler_components.emit import (
     _emit_and_log,
     _emit_backend_log,
     _emit_content_snapshot,
+    _get_known_max_context,
 )
 from src.ui_connector.socket_handler_components.session_store import (
     _get_session_system_prompt,
 )
 from src.tools import ALL_TOOL_DEFINITIONS
-from src.utils.context_errors import context_limit_log_object, is_context_limit_error
+from src.utils.context_errors import (
+    context_limit_log_object,
+    is_context_limit_error,
+    is_rate_limit_error,
+)
 from src.utils.exceptions import ContextReductionExhaustedError
 from src.utils.llm.streaming import StreamingLLM
 from src.utils.session_model import Session, Turn, Subturn
 
 logger = logging.getLogger(__name__)
+
+PRECUT_CONTEXT_FRACTION = 0.75
+RATE_LIMIT_MAX_RETRIES = 3
+RATE_LIMIT_BACKOFF_INITIAL_S = 1.0
+RATE_LIMIT_BACKOFF_MAX_S = 8.0
+RATE_LIMIT_JITTER_S = 0.25
 
 
 # ---------------------------------------------------------------------------
@@ -125,6 +137,95 @@ def _build_llm_payload(
         _append_live_subturn(messages, live_subturn)
 
     return messages
+
+
+def _int_token_value(value: object) -> int | None:
+    try:
+        result = int(value)
+    except (TypeError, ValueError):
+        return None
+    if result < 0:
+        return None
+    return result
+
+
+def _usage_total_tokens(usage: dict | None) -> int | None:
+    """Extract total tokens from a provider usage dict, if available."""
+    if not isinstance(usage, dict):
+        return None
+
+    total = _int_token_value(usage.get("total_tokens"))
+    if total is not None:
+        return total
+
+    input_tokens = _int_token_value(usage.get("input_tokens"))
+    if input_tokens is None:
+        input_tokens = _int_token_value(usage.get("prompt_tokens"))
+    output_tokens = _int_token_value(usage.get("output_tokens"))
+    if output_tokens is None:
+        output_tokens = _int_token_value(usage.get("completion_tokens"))
+    if input_tokens is None or output_tokens is None:
+        return None
+    return input_tokens + output_tokens
+
+
+def _last_exchange_total_tokens(subturn: Subturn) -> int | None:
+    for exchange in reversed(subturn.exchanges):
+        total = _usage_total_tokens(exchange.usage)
+        if total is not None:
+            return total
+    return None
+
+
+def _prior_subturn_token_hints(current_turn: Turn) -> list[int] | None:
+    """Return per-prior-subturn token hints, or None if any hint is missing."""
+    hints: list[int] = []
+    for subturn in current_turn.subturns[:-1]:
+        total = _last_exchange_total_tokens(subturn)
+        if total is None:
+            return None
+        hints.append(total)
+    return hints
+
+
+def _initial_closed_subturn_count(
+    current_turn: Turn,
+    known_max_context: int | None,
+) -> int:
+    """Choose the starting closed-subturn count for the simple pre-cut heuristic.
+
+    The heuristic only runs when known_max_context is set and every prior
+    subturn has a valid last-exchange total token count. It walks newest to
+    oldest, keeps as many recent prior subturns live as fit under
+    PRECUT_CONTEXT_FRACTION of the known max context, and closes the older
+    prefix. It intentionally does not estimate system prompt, tool schema,
+    current subturn, or closed-summary cost.
+    """
+    known_max_context = _int_token_value(known_max_context)
+    if known_max_context is None or known_max_context == 0:
+        return 0
+
+    hints = _prior_subturn_token_hints(current_turn)
+    if hints is None:
+        return 0
+
+    budget = int(known_max_context * PRECUT_CONTEXT_FRACTION)
+    live_total = 0
+    keep_live = 0
+    for total in reversed(hints):
+        if live_total + total > budget:
+            break
+        live_total += total
+        keep_live += 1
+    return len(hints) - keep_live
+
+
+def _rate_limit_sleep_s(retry_index: int) -> float:
+    base = min(
+        RATE_LIMIT_BACKOFF_INITIAL_S * (2 ** retry_index),
+        RATE_LIMIT_BACKOFF_MAX_S,
+    )
+    return base + random.uniform(0, RATE_LIMIT_JITTER_S)
 
 
 # ---------------------------------------------------------------------------
@@ -244,65 +345,103 @@ async def _async_run_llm_call_with_context_retries(
 ) -> tuple[object, str, str]:
     """Run the main LLM call, progressively closing prior subturns on context errors.
 
-    The first attempt keeps every prior subturn in the current turn "live":
+    The first attempt usually keeps every prior subturn in the current turn "live":
     their original assistant/tool/tool-result/user-continuation messages are
     replayed through LLMExchange.to_messages(), including provider-native
-    replay payloads such as reasoning_native. If and only if that request fails
-    with a context-limit-looking exception, the next attempt closes one more
-    earliest prior subturn by sending only its user message and assistant final
-    response plus Context Notes. This repeats until the request succeeds or all
-    prior subturns have been closed.
+    replay payloads such as reasoning_native. When model.known_max_context is
+    configured and every prior subturn has usage data, a conservative pre-cut
+    may start with older prior subturns already closed. If and only if a request
+    fails with a context-limit-looking exception, the next attempt closes one
+    more earliest prior subturn by sending only its user message and assistant
+    final response plus Context Notes. This repeats until the request succeeds
+    or all prior subturns have been closed.
 
-    Non-context exceptions are never retried and propagate unchanged, so callers
-    handle exactly the original error. If every attempt fails with a context
-    limit error, this raises ContextReductionExhaustedError from the final
-    context exception; the final HTTP response body, when available, is emitted
-    to frontend logs before the custom error is raised.
+    HTTP 429 rate-limit responses retry the same payload with exponential
+    backoff plus jitter and never close additional subturns. Non-context,
+    non-429 exceptions are never retried and propagate unchanged, so callers
+    handle exactly the original error. If 429 retries are exhausted, the final
+    429 propagates unchanged. If every context-reduction attempt fails with a
+    context limit error, this raises ContextReductionExhaustedError from the
+    final context exception; the final HTTP response body, when available, is
+    emitted to frontend logs before the custom error is raised.
     """
     max_closable = max(0, len(current_turn.subturns) - 1)
+    start_closed_count = _initial_closed_subturn_count(
+        current_turn,
+        _get_known_max_context(session.profile_name),
+    )
+    if start_closed_count:
+        _emit_backend_log(
+            session_id,
+            "Pre-cutting prior subturns from usage hints",
+            {
+                "closed_prior_subturns": start_closed_count,
+                "closable_prior_subturns": max_closable,
+                "context_fraction": PRECUT_CONTEXT_FRACTION,
+            },
+        )
 
-    for closed_count in range(max_closable + 1):
+    for closed_count in range(start_closed_count, max_closable + 1):
         payload = _build_llm_payload(
             session,
             current_turn,
             skills_section,
             closed_current_turn_prior_subturns=closed_count,
         )
-        try:
-            return await _async_run_llm_call(
-                streaming_llm,
-                payload,
-                session_id=session_id,
-                turn_id=turn_id,
-                subturn_id=subturn_id,
-                exchange_idx=exchange_idx,
-                tool_defs=tool_defs,
-                suppress_content_streaming=suppress_content_streaming,
-            )
-        except Exception as exc:
-            if not is_context_limit_error(exc):
-                raise
+        for rate_retry in range(RATE_LIMIT_MAX_RETRIES + 1):
+            try:
+                return await _async_run_llm_call(
+                    streaming_llm,
+                    payload,
+                    session_id=session_id,
+                    turn_id=turn_id,
+                    subturn_id=subturn_id,
+                    exchange_idx=exchange_idx,
+                    tool_defs=tool_defs,
+                    suppress_content_streaming=suppress_content_streaming,
+                )
+            except Exception as exc:
+                if is_rate_limit_error(exc):
+                    if rate_retry >= RATE_LIMIT_MAX_RETRIES:
+                        raise
+                    sleep_s = _rate_limit_sleep_s(rate_retry)
+                    _emit_backend_log(
+                        session_id,
+                        "Rate limited by provider; retrying same payload",
+                        {
+                            "retry": rate_retry + 1,
+                            "max_retries": RATE_LIMIT_MAX_RETRIES,
+                            "sleep_s": round(sleep_s, 3),
+                            "closed_prior_subturns": closed_count,
+                        },
+                    )
+                    await asyncio.sleep(sleep_s)
+                    continue
 
-            log_object = context_limit_log_object(exc)
-            if log_object is not None:
-                log_object["closed_prior_subturns"] = closed_count
-                log_object["closable_prior_subturns"] = max_closable
-                _emit_backend_log(session_id, "Context limit response", log_object)
+                if not is_context_limit_error(exc):
+                    raise
 
-            if closed_count >= max_closable:
-                raise ContextReductionExhaustedError(
-                    "Could not make request, context exceeded, "
-                    "check frontend logs for response body."
-                ) from exc
+                log_object = context_limit_log_object(exc)
+                if log_object is not None:
+                    log_object["closed_prior_subturns"] = closed_count
+                    log_object["closable_prior_subturns"] = max_closable
+                    _emit_backend_log(session_id, "Context limit response", log_object)
 
-            _emit_backend_log(
-                session_id,
-                "Context limit exceeded; retrying with one more prior subturn closed",
-                {
-                    "closed_prior_subturns": closed_count + 1,
-                    "closable_prior_subturns": max_closable,
-                },
-            )
+                if closed_count >= max_closable:
+                    raise ContextReductionExhaustedError(
+                        "Could not make request, context exceeded, "
+                        "check frontend logs for response body."
+                    ) from exc
+
+                _emit_backend_log(
+                    session_id,
+                    "Context limit exceeded; retrying with one more prior subturn closed",
+                    {
+                        "closed_prior_subturns": closed_count + 1,
+                        "closable_prior_subturns": max_closable,
+                    },
+                )
+                break
 
     raise ContextReductionExhaustedError(
         "Could not make request, context exceeded, check frontend logs for response body."

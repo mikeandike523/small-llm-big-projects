@@ -35,7 +35,7 @@ DEFINITION: dict = {
 }
 
 
-def needs_approval(args: dict, _session_data: dict | None = None, special_resources: dict | None = None) -> bool:
+def needs_approval(args: dict, session_data: dict | None = None, special_resources: dict | None = None) -> bool:
     raw = args.get("path")
     if not raw:
         return False

@@ -25,7 +25,7 @@ DEFINITION: dict = {
 }
 
 
-def needs_approval(args: dict, _session_data: dict | None = None, special_resources: dict | None = None) -> bool:
+def needs_approval(args: dict, session_data: dict | None = None, special_resources: dict | None = None) -> bool:
     from src.tools._approval import ApprovalContext, file_needs_approval
 
     return file_needs_approval(args, ctx=ApprovalContext.from_special_resources(special_resources))

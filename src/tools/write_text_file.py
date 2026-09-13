@@ -55,7 +55,7 @@ def dirty_effects(args: dict) -> dict:
     return {}
 
 
-def needs_approval(args: dict) -> bool:
+def needs_approval(args: dict, session_data: dict | None = None, special_resources: dict | None = None) -> bool:
     return True
 
 

@@ -251,6 +251,7 @@ async def _async_agent_loop(
 
                 exchange.reasoning = reasoning
                 exchange.reasoning_native = result.reasoning_native
+                exchange.usage = usage
                 had_tool_calls = True
                 blank_nudge_sent = False
                 if not had_todo_items and session.session_data.get("todo_list"):
@@ -326,6 +327,7 @@ async def _async_agent_loop(
                             assistant_content="",
                             reasoning=reasoning,
                             reasoning_native=result.reasoning_native,
+                            usage=usage,
                             is_final=False,
                             user_continuation=(
                                 "Looks like you stopped early on a long task, please make a todo list to stay on task.."
@@ -361,6 +363,7 @@ async def _async_agent_loop(
                         "content": content_for_history,
                         "reasoning": reasoning,
                         "reasoning_native": result.reasoning_native,
+                        "usage": usage,
                         "subturn_id": current_subturn.id,
                         "exchange_idx": exchange_idx,
                         "was_irat": was_irat_call,
@@ -376,6 +379,7 @@ async def _async_agent_loop(
                     assistant_content=content_for_history,
                     reasoning=reasoning,
                     reasoning_native=result.reasoning_native,
+                    usage=usage,
                     is_final=False,
                     user_continuation=continuation,
                 )
@@ -416,6 +420,7 @@ async def _async_agent_loop(
                                     assistant_content=content_for_history,
                                     reasoning=reasoning,
                                     reasoning_native=result.reasoning_native,
+                                    usage=usage,
                                     is_final=False,
                                     user_continuation=(
                                         "None of your responses so far is a complete final "
@@ -443,6 +448,7 @@ async def _async_agent_loop(
                     assistant_content=winner["content"],
                     reasoning=winner["reasoning"],
                     reasoning_native=winner["reasoning_native"],
+                    usage=winner["usage"],
                     is_final=True,
                 )
                 current_subturn.exchanges.append(final_exchange)
@@ -496,6 +502,7 @@ async def _async_agent_loop(
                     assistant_content=content_for_history,
                     reasoning=reasoning,
                     reasoning_native=result.reasoning_native,
+                    usage=usage,
                     is_final=False,
                     user_continuation=continuation,
                 )
@@ -521,6 +528,7 @@ async def _async_agent_loop(
                 assistant_content=content_for_history,
                 reasoning=reasoning,
                 reasoning_native=result.reasoning_native,
+                usage=usage,
                 is_final=True,
             )
             current_subturn.exchanges.append(final_exchange)

@@ -249,7 +249,7 @@ def dirty_effects(args: dict, session_data: dict | None = None) -> dict:
     return {}
 
 
-def needs_approval(args: dict, _session_data: dict | None = None, special_resources: dict | None = None) -> bool:
+def needs_approval(args: dict, session_data: dict | None = None, special_resources: dict | None = None) -> bool:
     action = args.get("action", "")
     filepath = args.get("filepath")
 

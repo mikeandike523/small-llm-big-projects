@@ -32,6 +32,7 @@ class LLMExchange:
     # Historical name caveat: for ordered-output dialects this may include
     # exact native assistant text/tool-call blocks too, not just reasoning.
     reasoning_native: dict | None = None
+    usage: dict | None = None
     tool_calls: list[ToolCallRecord] = field(default_factory=list)
     is_final: bool = False
     user_continuation: str | None = None  # injected user message after this exchange
@@ -232,6 +233,7 @@ def llm_exchange_to_dict(ex: LLMExchange) -> dict:
         "assistant_content": ex.assistant_content,
         "reasoning": ex.reasoning,
         "reasoning_native": ex.reasoning_native,
+        "usage": ex.usage,
         "tool_calls": [tool_call_record_to_dict(tc) for tc in ex.tool_calls],
         "is_final": ex.is_final,
         "user_continuation": ex.user_continuation,
@@ -243,6 +245,7 @@ def llm_exchange_from_dict(d: dict) -> LLMExchange:
         assistant_content=d.get("assistant_content", ""),
         reasoning=d.get("reasoning", ""),
         reasoning_native=d.get("reasoning_native"),
+        usage=d.get("usage"),
         tool_calls=[tool_call_record_from_dict(tc) for tc in d.get("tool_calls", [])],
         is_final=d.get("is_final", False),
         user_continuation=d.get("user_continuation"),

@@ -83,7 +83,7 @@ DEFINITION: dict = {
 }
 
 
-def needs_approval(args: dict, _session_data: dict | None = None, special_resources: dict | None = None) -> bool:
+def needs_approval(args: dict, session_data: dict | None = None, special_resources: dict | None = None) -> bool:
     from src.tools._approval import ApprovalContext, needs_path_approval
 
     return needs_path_approval(args.get("path"), ctx=ApprovalContext.from_special_resources(special_resources))

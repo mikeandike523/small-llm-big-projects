@@ -233,6 +233,11 @@ def check_needs_approval(
     the tool's own needs_approval is never consulted in that case. This is a hard
     gate: bypassing the redactor always requires explicit user permission, with no
     code path that can reach execution without it.
+
+    Built-in tools should expose needs_approval(args, session_data=None,
+    special_resources=None). special_resources carries framework-owned context
+    such as approval_mode and the current session cwd. The fallback arity checks
+    below are kept so older custom tools remain compatible.
     """
     # Hard gate: request_unredacted=True forces approval unconditionally.
     # Do NOT call the tool's needs_approval — the answer is already True.
