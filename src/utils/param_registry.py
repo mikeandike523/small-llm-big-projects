@@ -28,6 +28,15 @@ class ParamSpec(BaseModel):
     name: str
     value_type: ValueType
     description: str
+    # Required for every param -- there is no implicit/ambient fallback anywhere else in
+    # the system. None is a legitimate, explicit default for "omittable" params (e.g.
+    # request_extra_params, override_strict_tool_def, the *.model.name overrides) where
+    # unset means "omit this from the request" or "auto-detect" -- that behavior is handled
+    # at the call site, NOT here. This field intentionally has no pydantic-level fallback
+    # (no `= ...`) so that constructing a ParamSpec without an explicit `default=` raises
+    # immediately; validate_registry_defaults() re-checks this with hasattr() as a named,
+    # aggregate server-start guard (see its docstring for why hasattr specifically).
+    default: Any
     system_only: bool = False  # never forwarded to any LLM request
     scope: Scope = "profile"  # "profile": stored as profiles.<name>.params.* ; "global": stored as params.*
     min: float | None = None
@@ -37,7 +46,7 @@ class ParamSpec(BaseModel):
     _adapter: Any = PrivateAttr(default=None)
 
     def model_post_init(self, __context: Any) -> None:
-        """Build and cache a pydantic TypeAdapter for numeric types."""
+        """Build and cache a pydantic TypeAdapter for numeric types, then sanity-check default."""
         if self.value_type == "integer":
             kw: dict[str, Any] = {}
             if self.min is not None:
@@ -54,6 +63,13 @@ class ParamSpec(BaseModel):
                 kw["le"] = self.max
             ann = Annotated[float, Field(**kw)] if kw else float
             self._adapter = TypeAdapter(ann)
+
+        # A default of None is always allowed (the "omittable" escape hatch called out
+        # above). Any non-None default must itself satisfy this param's own validation,
+        # so a typo'd default (wrong type, out of bounds, not in choices) fails loudly at
+        # import time instead of surfacing later as a mysterious bad runtime value.
+        if self.default is not None:
+            self.parse_value(self.default)
 
     def parse_value(self, raw: Any) -> Any:
         """Parse and validate a raw value. Raises ValueError with a human-readable message."""
@@ -158,6 +174,7 @@ _SAMPLER_SUFFIX_KWARGS: dict[str, dict[str, Any]] = {
         "value_type": "float",
         "min": 0.0,
         "max": 2.0,
+        "default": None,  # unset: omit from the request, provider applies its own default
         "description": (
             "Controls randomness. 0.0 is fully deterministic; 2.0 is very random. "
             "Typical values: 0.2 - 0.8."
@@ -167,6 +184,7 @@ _SAMPLER_SUFFIX_KWARGS: dict[str, dict[str, Any]] = {
         "value_type": "float",
         "min": 0.0,
         "max": 1.0,
+        "default": None,  # unset: omit from the request, provider applies its own default
         "description": (
             "Nucleus sampling. Only the smallest set of tokens whose cumulative probability "
             "<= top_p are considered. 1.0 disables nucleus sampling."
@@ -175,15 +193,18 @@ _SAMPLER_SUFFIX_KWARGS: dict[str, dict[str, Any]] = {
     "top_k": {
         "value_type": "integer",
         "min": 1,
+        "default": None,  # unset: omit from the request, provider applies its own default
         "description": "Limits the token candidate pool to the K most probable tokens at each step.",
     },
     "max_tokens": {
         "value_type": "integer",
         "min": 1,
+        "default": None,  # unset: omit from the request, provider applies its own default
         "description": "Maximum number of tokens to generate in a single response.",
     },
     "request_extra_params": {
         "value_type": "object",
+        "default": None,  # unset: omit entirely -- never send `null` for this key
         "description": (
             "Extra parameters merged into every API request for this call type. "
             'Must be a valid JSON object, e.g. {"reasoning":{"effort":"low"}}. '
@@ -223,13 +244,16 @@ _SAMPLER_MODEL_OVERRIDES: dict[str, str] = {
     ),
 }
 for _name, _desc in _SAMPLER_MODEL_OVERRIDES.items():
-    REGISTRY[_name] = ParamSpec(name=_name, value_type="string", system_only=True, description=_desc)
+    REGISTRY[_name] = ParamSpec(
+        name=_name, value_type="string", system_only=True, default=None, description=_desc
+    )
 
 # model.* extras (system-only flags, not forwarded to the LLM API)
 REGISTRY["model.irat"] = ParamSpec(
     name="model.irat",
     value_type="boolean",
     system_only=True,
+    default=False,
     description=(
         "Enable interim-response-as-thinking for new sessions. "
         "When true, interim assistant content between tool calls is shown in the thinking "
@@ -243,6 +267,7 @@ REGISTRY["model.known_max_context"] = ParamSpec(
     value_type="integer",
     min=0,
     system_only=True,
+    default=None,  # unset: context-usage display feature is disabled
     description=(
         "Known maximum context length for this model, if available. "
         "When set and per-exchange usage data is available (e.g., from OpenRouter), "
@@ -257,6 +282,7 @@ REGISTRY["system.return_value_max_chars"] = ParamSpec(
     name="system.return_value_max_chars",
     value_type="integer",
     min=1,
+    default=None,  # unset: stubbing/truncation is disabled entirely (no cap applied)
     description=(
         "Maximum inline tool return characters before stubbing. "
         "When a tool result exceeds this, it is truncated to a preview and the full "
@@ -267,6 +293,7 @@ REGISTRY["system.blank_response_retries"] = ParamSpec(
     name="system.blank_response_retries",
     value_type="integer",
     min=0,
+    default=0,
     description=(
         "Silent LLM retries before injecting a todo-nudge when the model emits a blank "
         "response with no tool calls. 0 = nudge immediately (default). "
@@ -276,16 +303,18 @@ REGISTRY["system.blank_response_retries"] = ParamSpec(
 REGISTRY["system.strict_dirty"] = ParamSpec(
     name="system.strict_dirty",
     value_type="boolean",
+    default=False,
     description=(
         "Controls how strictly the dirty-file cache blocks tool calls. "
-        "true (default): block if the file has never been read OR has been modified since "
-        "last read. false: only block if never read -- useful for models that prefer "
-        "calling apply_patch multiple times over writing multi-hunk patches."
+        "false (default): only block if the file has never been read -- useful for models "
+        "that prefer calling apply_patch multiple times over writing multi-hunk patches. "
+        "true: also block if the file has been modified since it was last read."
     ),
 )
 REGISTRY["system.enable_patch_rewriter"] = ParamSpec(
     name="system.enable_patch_rewriter",
     value_type="boolean",
+    default=False,
     description=(
         "Enable the patch-rewriter watchdog for failing apply_patch calls. "
         "false (default): a patch that does not apply cleanly is passed through to "
@@ -300,6 +329,7 @@ REGISTRY["system.enable_patch_rewriter"] = ParamSpec(
 REGISTRY["system.override_strict_tool_def"] = ParamSpec(
     name="system.override_strict_tool_def",
     value_type="boolean",
+    default=None,  # unset: automatic per-dialect decision applies (see description)
     description=(
         "Override the automatic per-dialect decision (see "
         "src/utils/llm/dialect.py:should_force_tool_strict) about whether to inject "
@@ -317,6 +347,7 @@ REGISTRY["system.create_file_auto_eol"] = ParamSpec(
     name="system.create_file_auto_eol",
     value_type="string",
     choices=["enabled", "enabled_silent", "disabled"],
+    default="enabled_silent",
     description=(
         "Auto-normalize line endings of newly created files (create_text_file, or "
         "write_text_file to a path that did not previously exist). The target EOL is "
@@ -332,6 +363,7 @@ REGISTRY["system.channels.slack.enabled"] = ParamSpec(
     name="system.channels.slack.enabled",
     value_type="boolean",
     scope="global",
+    default=False,
     description=(
         "Enable the Slack channel integration. "
         "When true, the Slack Socket Mode client is started on server boot "
@@ -343,6 +375,7 @@ REGISTRY["desktop.slbp-process.clear-logs-on-start"] = ParamSpec(
     name="desktop.slbp-process.clear-logs-on-start",
     value_type="boolean",
     scope="global",
+    default=False,
     description=(
         "When true, truncate .slbp-server.log at the start of every server boot launched "
         "by the desktop app (`slbp server run --desktop`). "
@@ -352,6 +385,34 @@ REGISTRY["desktop.slbp-process.clear-logs-on-start"] = ParamSpec(
         "redirection to that file)."
     ),
 )
+
+def validate_registry_defaults() -> None:
+    """Server-start sanity check: every registered param must declare a default.
+
+    ParamSpec.default has no pydantic-level fallback, so constructing a spec without
+    an explicit `default=` already raises at import time -- but that only catches the
+    *first* offender and stops there. This walks the fully-built REGISTRY and reports
+    every offender at once, which is more useful if this check is ever loosened or a
+    spec is ever built by some other path (e.g. ``ParamSpec.model_construct``, which
+    bypasses validation entirely).
+
+    Uses hasattr() rather than a truthiness/None check: None is a valid, intentional
+    default for "omittable" params (request_extra_params, override_strict_tool_def,
+    the *.model.name overrides, etc.) -- the failure this guards against is a spec that
+    never got a `default` attribute at all, not one whose default happens to be falsy.
+    """
+    missing = sorted(name for name, spec in REGISTRY.items() if not hasattr(spec, "default"))
+    if missing:
+        raise RuntimeError(
+            "param_registry: the following params are missing a required 'default': "
+            + ", ".join(missing)
+        )
+
+
+# Enforced eagerly at import time (in addition to pydantic's own required-field
+# validation during REGISTRY construction above) so that ANY entrypoint that imports
+# this module -- server, CLI, tests -- is protected, not just the server startup path.
+validate_registry_defaults()
 
 # ---------------------------------------------------------------------------
 # Derived sets (backward-compatible exports)

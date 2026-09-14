@@ -17,7 +17,7 @@ from src.utils.process import ManagedProcess, find_bash, run_processes
 from src.utils.server_state import clear_state, get_running_server_state, write_state
 from src.data import get_pool
 from src.utils.sql.kv_manager import KVManager
-from src.utils.param_registry import param_storage_key
+from src.utils.param_helper import get_param_value
 from src.utils.profile_utils import get_active_profile, _kv_prefix
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -116,8 +116,9 @@ def _maybe_clear_desktop_log() -> None:
         pool = get_pool()
         with pool.get_connection() as conn:
             kv = KVManager(conn)
-            key = param_storage_key("desktop.slbp-process.clear-logs-on-start")
-            enabled = bool(kv.get_value(key, default=False))
+            enabled = bool(
+                get_param_value(kv, "desktop.slbp-process.clear-logs-on-start")
+            )
     except Exception as exc:
         click.echo(
             colored(f"Warning: could not check clear-logs-on-start param: {exc}", "yellow")

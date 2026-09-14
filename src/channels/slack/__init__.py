@@ -18,7 +18,7 @@ from slack_sdk.socket_mode.response import SocketModeResponse
 from slack_sdk.web import WebClient
 
 from src.channels.slack.session import get_slack_team_id, resolve_slack_session
-from src.utils.param_registry import param_storage_key as _param_storage_key
+from src.utils.param_helper import get_param_value
 from src.utils.sql.kv_manager import KVManager
 logger = logging.getLogger(__name__)
 
@@ -88,8 +88,7 @@ def _is_slack_enabled() -> bool:
         return False
 
     with pool.get_connection() as conn:
-        key = _param_storage_key("system.channels.slack.enabled")
-        return bool(KVManager(conn).get_value(key, default=False))
+        return bool(get_param_value(KVManager(conn), "system.channels.slack.enabled"))
 
 
 _web_client: WebClient | None = None

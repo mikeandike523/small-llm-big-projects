@@ -20,6 +20,7 @@ from src.ui_connector.socket_handlers import (  # noqa: E402
     invalidate_redis_session_cache_on_startup,
 )
 from src.channels.slack import startup_slack  # noqa: E402
+from src.utils.param_registry import validate_registry_defaults  # noqa: E402
 
 
 def _configure_logging() -> None:
@@ -32,6 +33,9 @@ def _configure_logging() -> None:
 
 if __name__ == "__main__":
     _configure_logging()
+    # Also enforced at import time (see param_registry.py) -- repeated explicitly here
+    # so a missing param default fails server startup loudly and specifically.
+    validate_registry_defaults()
     invalidate_redis_session_cache_on_startup()
     startup_slack()
     port = int(os.environ.get("FLASK_PORT", 5000))

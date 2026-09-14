@@ -10,6 +10,7 @@ from src.data import get_pool
 from src.utils.app_launcher import open_session
 from src.utils.server_state import read_state
 from src.utils.sql.kv_manager import KVManager
+from src.utils.param_helper import get_param_value
 from src.utils.profile_utils import get_active_profile, require_active_profile, _kv_prefix
 from src.utils.approval_modes import APPROVAL_MODE_DEFAULT, APPROVAL_MODES
 
@@ -92,8 +93,9 @@ def session_new(
             else:
                 effective_profile = require_active_profile(kv)
             prefix = _kv_prefix(effective_profile)
-            val = kv.get_value(f"{prefix}params.model.irat")
-        interim_response_as_thinking = val if val is not None else False
+            interim_response_as_thinking = get_param_value(
+                kv, "model.irat", profile_prefix=prefix
+            )
     except click.ClickException:
         raise
     except Exception as exc:

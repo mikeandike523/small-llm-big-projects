@@ -1,0 +1,318 @@
+# Step 4 File Sweep — Param Call-Site Conversion
+
+Tracked `.py` files (git-tracked, excluding `ui/*`, `desktop/*`, and anything
+gitignored), examined 10 at a time for param-registry call sites (`.get(x, default)`,
+`or default`, hardcoded literal fallbacks, direct `kv_store`/`kv.get_value` param
+reads) to convert to `get_param_value()` from `src/utils/param_helper.py`.
+
+Legend: `[ ]` not yet examined · `[x]` examined (converted call sites found, or
+confirmed none present — see Issues section for anything notable).
+
+## Files
+
+- [x] main.py
+- [x] run_tool.py
+- [x] scripts/check_py.py
+- [x] src/channels/__init__.py
+- [x] src/channels/slack/__init__.py
+- [x] src/channels/slack/session.py
+- [x] src/cli_obj.py
+- [x] src/cli_routes/chat.py
+- [x] src/cli_routes/dashboard.py
+- [x] src/cli_routes/desktop.py
+- [x] src/cli_routes/endpoint.py
+- [x] src/cli_routes/model.py
+- [x] src/cli_routes/param.py
+- [x] src/cli_routes/phpmyadmin.py
+- [x] src/cli_routes/process_doctor.py
+- [x] src/cli_routes/profile.py
+- [x] src/cli_routes/server.py
+- [x] src/cli_routes/server_task.py
+- [x] src/cli_routes/service_token.py
+- [x] src/cli_routes/session.py
+- [x] src/cli_routes/token/helpers.py
+- [x] src/cli_routes/token/list.py
+- [x] src/cli_routes/token/remove.py
+- [x] src/cli_routes/token/rename.py
+- [x] src/cli_routes/token/set.py
+- [x] src/cli_routes/token/show.py
+- [x] src/cli_routes/token/subroutes.py
+- [x] src/cli_routes/token/use.py
+- [x] src/cli_routes/token_obj.py
+- [x] src/config/text.py
+- [x] src/config_routes/__init__.py
+- [x] src/config_routes/params.py
+- [x] src/config_routes/profiles.py
+- [x] src/config_routes/tokens.py
+- [x] src/data.py
+- [x] src/logic/system_prompt.py
+- [x] src/redaction/core.py
+- [x] src/redaction/plugins/redaction_plugin_dotenv.py
+- [x] src/redaction/types.py
+- [x] src/terminal/__init__.py
+- [x] src/terminal/pty_process.py
+- [x] src/terminal/session_manager.py
+- [x] src/terminal/shell_resolver.py
+- [x] src/tools/__init__.py
+- [x] src/tools/_approval.py
+- [x] src/tools/_auto_eol.py
+- [x] src/tools/_autoresponse.py
+- [x] src/tools/_dirty_cache.py
+- [x] src/tools/_eol.py
+- [x] src/tools/_exclude_builtin_tools.py
+- [x] src/tools/_file_snapshot.py
+- [x] src/tools/_indentation.py
+- [x] src/tools/_list_dir_utils.py
+- [x] src/tools/_managed_process.py
+- [x] src/tools/_managed_process_llm_triage.py
+- [x] src/tools/_managed_process_shared_defs.py
+- [x] src/tools/_memory.py
+- [x] src/tools/_patch_rewrite_watchdog.py
+- [x] src/tools/_path_utils.py
+- [x] src/tools/_subprocess.py
+- [ ] src/tools/_text_editor_actions.py
+- [ ] src/tools/_text_editor_utils.py
+- [ ] src/tools/_validate_timeout.py
+- [ ] src/tools/basic_web_request.py
+- [ ] src/tools/brave_web_search.py
+- [ ] src/tools/change_pwd.py
+- [ ] src/tools/check_terminal_state.py
+- [ ] src/tools/code_interpreter.py
+- [ ] src/tools/config.py
+- [ ] src/tools/copy_dir.py
+- [ ] src/tools/copy_file.py
+- [ ] src/tools/create_dir.py
+- [ ] src/tools/create_text_file.py
+- [ ] src/tools/delete_file.py
+- [ ] src/tools/dom_analyzer.py
+- [ ] src/tools/find_files_by_name.py
+- [ ] src/tools/get_environment_info.py
+- [ ] src/tools/get_global_workspace_dir.py
+- [ ] src/tools/get_pwd.py
+- [ ] src/tools/host_check_command.py
+- [ ] src/tools/host_shell.py
+- [ ] src/tools/line_reader.py
+- [ ] src/tools/list_dir.py
+- [ ] src/tools/list_working_tree.py
+- [ ] src/tools/move_dir_or_file.py
+- [ ] src/tools/open_in_terminal.py
+- [ ] src/tools/read_open_terminal.py
+- [ ] src/tools/read_text_file.py
+- [ ] src/tools/remove_dir.py
+- [ ] src/tools/report_impossible.py
+- [ ] src/tools/restore_file.py
+- [ ] src/tools/scrape_web_page.py
+- [ ] src/tools/search_filesystem_by_regex.py
+- [ ] src/tools/session_memory.py
+- [ ] src/tools/snapshot_file.py
+- [ ] src/tools/summarize_memory_item.py
+- [ ] src/tools/text_editor.py
+- [ ] src/tools/todo_list.py
+- [ ] src/tools/wikipedia.py
+- [ ] src/tools/write_text_file.py
+- [ ] src/ui_connector/__init__.py
+- [ ] src/ui_connector/app.py
+- [ ] src/ui_connector/main.py
+- [ ] src/ui_connector/socket_handler_components/__init__.py
+- [ ] src/ui_connector/socket_handler_components/_session_event_emit.py
+- [ ] src/ui_connector/socket_handler_components/agent_loop.py
+- [ ] src/ui_connector/socket_handler_components/approval.py
+- [ ] src/ui_connector/socket_handler_components/emit.py
+- [ ] src/ui_connector/socket_handler_components/http_api.py
+- [ ] src/ui_connector/socket_handler_components/llm.py
+- [ ] src/ui_connector/socket_handler_components/session_store.py
+- [ ] src/ui_connector/socket_handler_components/socket_events.py
+- [ ] src/ui_connector/socket_handler_components/socket_events_info.py
+- [ ] src/ui_connector/socket_handler_components/socket_events_terminal.py
+- [ ] src/ui_connector/socket_handler_components/socket_events_turn.py
+- [ ] src/ui_connector/socket_handler_components/state.py
+- [ ] src/ui_connector/socket_handler_components/terminal.py
+- [ ] src/ui_connector/socket_handler_components/tool_execution.py
+- [ ] src/ui_connector/socket_handler_components/tool_preview.py
+- [ ] src/ui_connector/socket_handler_components/watchdogs.py
+- [ ] src/ui_connector/socket_handlers.py
+- [ ] src/utils/app_launcher.py
+- [ ] src/utils/approval_modes.py
+- [ ] src/utils/cli/multiline_prompt.py
+- [ ] src/utils/cli/slash_commands.py
+- [ ] src/utils/context_errors.py
+- [ ] src/utils/docker_compose.py
+- [ ] src/utils/env_info.py
+- [ ] src/utils/event_log.py
+- [ ] src/utils/exceptions.py
+- [ ] src/utils/free_port.py
+- [ ] src/utils/git_heuristic_is_binary.py
+- [ ] src/utils/http/__init__.py
+- [ ] src/utils/http/helpers.py
+- [ ] src/utils/llm/dialect.py
+- [ ] src/utils/llm/dialect_openai_family.py
+- [ ] src/utils/llm/dialect_openai_responses.py
+- [ ] src/utils/llm/factory.py
+- [ ] src/utils/llm/openai_model_dialects.py
+- [ ] src/utils/llm/streaming.py
+- [ ] src/utils/llm/types.py
+- [ ] src/utils/param_registry.py
+- [ ] src/utils/process.py
+- [ ] src/utils/process_doctor.py
+- [ ] src/utils/profile_utils.py
+- [ ] src/utils/redis_dict.py
+- [ ] src/utils/request_error_formatting.py
+- [ ] src/utils/scheduled_task.py
+- [ ] src/utils/server_state.py
+- [ ] src/utils/session_events.py
+- [ ] src/utils/session_model.py
+- [ ] src/utils/session_schema_repair.py
+- [ ] src/utils/sql/kv_manager.py
+- [ ] src/utils/sql/session_store_db.py
+- [ ] src/utils/text/line_numbers.py
+- [ ] src/utils/text_truncation.py
+- [ ] src/utils/tool_calling/arguments.py
+- [ ] src/utils/tool_calling/strict_mode.py
+- [ ] tests/test_approval_modes_policy.py
+- [ ] tests/test_llm_dialects.py
+- [ ] tests/test_llm_payload_context_retries.py
+- [ ] tests/test_run_tool_cli.py
+- [ ] tests/test_skill_registry.py
+- [ ] tests/test_terminal.py
+- [ ] tests/test_tool_approval_hooks.py
+- [ ] tests/test_tool_output_truncation.py
+- [ ] tool_tests/_view_server.py
+- [ ] tool_tests/helpers/__init__.py
+- [ ] tool_tests/helpers/_server_script.py
+- [ ] tool_tests/helpers/env.py
+- [ ] tool_tests/helpers/http_server.py
+- [ ] tool_tests/helpers/result.py
+- [ ] tool_tests/individual/read_text_file/checks_return_value.py
+- [ ] tool_tests/individual/read_text_file/checks_session_memory.py
+- [ ] tool_tests/individual/session_memory/checks_append.py
+- [ ] tool_tests/individual/session_memory/checks_concat.py
+- [ ] tool_tests/individual/session_memory/checks_copy.py
+- [ ] tool_tests/individual/session_memory/checks_delete.py
+- [ ] tool_tests/individual/session_memory/checks_extract_json.py
+- [ ] tool_tests/individual/session_memory/checks_get.py
+- [ ] tool_tests/individual/session_memory/checks_list.py
+- [ ] tool_tests/individual/session_memory/checks_rename.py
+- [ ] tool_tests/individual/session_memory/checks_search_by_regex.py
+- [ ] tool_tests/individual/session_memory/checks_set.py
+- [ ] tool_tests/individual/test_basic_web_request.py
+- [ ] tool_tests/individual/test_brave_web_search.py
+- [ ] tool_tests/individual/test_change_pwd.py
+- [ ] tool_tests/individual/test_code_interpreter.py
+- [ ] tool_tests/individual/test_create_dir.py
+- [ ] tool_tests/individual/test_create_text_file.py
+- [ ] tool_tests/individual/test_delete_file.py
+- [ ] tool_tests/individual/test_get_pwd.py
+- [ ] tool_tests/individual/test_list_dir.py
+- [ ] tool_tests/individual/test_list_working_tree.py
+- [ ] tool_tests/individual/test_remove_dir.py
+- [ ] tool_tests/individual/test_report_impossible.py
+- [ ] tool_tests/individual/test_scrape_web_page.py
+- [ ] tool_tests/individual/test_search_filesystem_by_regex.py
+- [ ] tool_tests/individual/test_wikipedia.py
+- [ ] tool_tests/individual/text_editor/checks_apply_patch.py
+- [ ] tool_tests/individual/text_editor/checks_check_eol.py
+- [ ] tool_tests/individual/text_editor/checks_check_indentation.py
+- [ ] tool_tests/individual/text_editor/checks_convert_indentation.py
+- [ ] tool_tests/individual/text_editor/checks_count_lines.py
+- [ ] tool_tests/individual/text_editor/checks_errors.py
+- [ ] tool_tests/individual/text_editor/checks_filepath_mode.py
+- [ ] tool_tests/individual/text_editor/checks_normalize_eol.py
+- [ ] tool_tests/individual/text_editor/checks_read_lines.py
+- [ ] tool_tests/individual/text_editor/checks_search_by_regex.py
+- [ ] tool_tests/individual/todo_list/checks_01_list_empty.py
+- [ ] tool_tests/individual/todo_list/checks_02_add_item.py
+- [ ] tool_tests/individual/todo_list/checks_03_list_nonempty.py
+- [ ] tool_tests/individual/todo_list/checks_04_get_item.py
+- [ ] tool_tests/individual/todo_list/checks_05_update_item.py
+- [ ] tool_tests/individual/todo_list/checks_06_close_reopen.py
+- [ ] tool_tests/individual/todo_list/checks_07_delete_leaf.py
+- [ ] tool_tests/individual/todo_list/checks_08_add_order.py
+- [ ] tool_tests/individual/todo_list/checks_09_add_many.py
+- [ ] tool_tests/individual/todo_list/checks_10_promotion.py
+- [ ] tool_tests/individual/todo_list/checks_11_subtree.py
+- [ ] tool_tests/individual/todo_list/checks_12_close_promoted.py
+- [ ] tool_tests/individual/todo_list/checks_13_derived_status.py
+- [ ] tool_tests/individual/todo_list/checks_14_all_done.py
+- [ ] tool_tests/individual/todo_list/checks_15_delete_children.py
+- [ ] tool_tests/individual/todo_list/checks_16_deeply_nested.py
+- [ ] tool_tests/individual/todo_list/checks_17_auto_strip.py
+- [ ] tool_tests/individual/todo_list/checks_18_errors.py
+- [ ] tool_tests/individual/todo_list/checks_19_demotion.py
+- [ ] tool_tests/individual/todo_list/checks_20_delete_many.py
+- [ ] tool_tests/individual/todo_list/checks_21_structure_reminder.py
+- [ ] tool_tests/individual/write_text_file/checks_raw_content.py
+- [ ] tool_tests/individual/write_text_file/checks_session_memory.py
+- [ ] tool_tests/run.py
+
+## Issues
+
+- **`src/channels/slack/__init__.py`** — `_is_slack_enabled()` was reading
+  `system.channels.slack.enabled` directly via `KVManager.get_value(key,
+  default=False)` (bypassing the registry). Converted to `get_param_value()`.
+  No other param call sites found in this batch of 10 (main.py, run_tool.py,
+  scripts/check_py.py, src/channels/__init__.py, src/channels/slack/session.py,
+  src/cli_obj.py, src/cli_routes/{chat,dashboard,desktop}.py are all
+  param-registry-free).
+
+**Batch 2 (11-20):**
+- **`src/cli_routes/server.py`** — `_maybe_clear_desktop_log()` had
+  `kv.get_value(key, default=False)` duplicating the registry default for
+  `desktop.slbp-process.clear-logs-on-start`. Converted to `get_param_value()`.
+- **`src/cli_routes/session.py`** — `session_new` had
+  `val = kv.get_value(f"{prefix}params.model.irat"); ... val if val is not None
+  else False`, duplicating `model.irat`'s registry default. Converted to
+  `get_param_value(kv, "model.irat", profile_prefix=prefix)`.
+- `src/cli_routes/param.py` and `src/cli_routes/profile.py` both read
+  `kv.get_value(key)` for params, but only for keys already known to exist
+  (`list`/`show`/`manual` filter to keys present in the DB before reading) —
+  no default-fallback logic to unify, so left as-is. `param.py` is also the
+  registry's own CLI surface (`slbp param set/unset/list/manual`); its
+  validation already goes through `parse_param_value`/`REGISTRY` directly,
+  which is correct for a *writer* (get_param_value is for readers).
+- `endpoint.py`, `model.py` (reads a plain `model` key, not a registered
+  param), `phpmyadmin.py`, `process_doctor.py`, `server_task.py`,
+  `service_token.py`: no param-registry call sites.
+
+**Batch 3 (21-30):** all of `src/cli_routes/token/*`, `token_obj.py`,
+`config/text.py` — no param-registry call sites (these deal with the separate
+`tokens`/`active_token`/`known_providers` tables).
+
+**Batch 4 (31-40):** no conversions.
+- `src/config_routes/params.py` (`/api/params` GET/set/unset) and
+  `src/config_routes/profiles.py` (`/api/profiles/config`,
+  `/api/profiles/<name>/params/<name>` PUT/DELETE) both intentionally read
+  only *set* param keys (pre-filtered via `kv.list_keys()` against
+  `ALLOWED_PARAMS`/`GLOBAL_PARAMS` before calling `kv.get_value(key)`) — they
+  need to distinguish "explicitly set" from "using the default" for the
+  editor UI, which `get_param_value()` would collapse by design. Left as-is;
+  their writer paths (`set`/`unset`/PUT/DELETE) already go through
+  `parse_param_value`/`REGISTRY` correctly.
+  - Noted in passing (not touched, out of scope): `params.py`'s
+    `_SYSTEM_KEYS`/`_MODEL_EXTRA` tuples (lines 18-25) are still dead code,
+    as already recorded in project memory.
+- `src/config_routes/tokens.py`, `src/data.py`, `src/logic/system_prompt.py`,
+  `src/redaction/*`, `src/terminal/__init__.py`: no param-registry call
+  sites at all.
+
+**Batch 5 (41-50):** no conversions. `src/terminal/*`, `src/tools/__init__.py`
+(tool loading/dispatch), `_approval.py` (uses `special_resources["approval_mode"]`,
+a session-level setting unrelated to param_registry), `_auto_eol.py` and
+`_dirty_cache.py` (both take their `mode`/`strict` behavior as a plain function
+argument supplied by the caller — the actual param reads live at the call sites
+already converted in `socket_events_turn.py`/`tool_execution.py`, tracked
+below), `_autoresponse.py`, `_eol.py`, `_exclude_builtin_tools.py`: none read
+from the param registry directly.
+
+**Batch 6 (51-60):** no conversions.
+- `src/tools/_managed_process_llm_triage.py` reads `watchdog_params` from
+  `load_llm_config()`'s returned dict (`_llm_cfg.get("watchdog_params") or
+  {}`) rather than calling a single param getter — this is the same
+  `factory.py` namespace-dict structural question already flagged at the
+  bottom of this file (needs a design decision, not a mechanical swap).
+- `src/tools/_patch_rewrite_watchdog.py`'s `patchrewriter_params` and
+  `src/tools/_dirty_cache.py`'s `strict` (batch 5) are both plain function
+  arguments threaded down from a caller that already reads the param — no
+  DB access happens in these files themselves.
+- `_file_snapshot.py`, `_indentation.py`, `_list_dir_utils.py`,
+  `_managed_process.py`, `_managed_process_shared_defs.py`, `_memory.py`,
+  `_path_utils.py`, `_subprocess.py`: no param-registry involvement at all.
