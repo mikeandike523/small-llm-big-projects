@@ -130,28 +130,28 @@ confirmed none present — see Issues section for anything notable).
 - [x] src/ui_connector/socket_handler_components/tool_execution.py
 - [x] src/ui_connector/socket_handler_components/tool_preview.py
 - [x] src/ui_connector/socket_handler_components/watchdogs.py
-- [ ] src/ui_connector/socket_handlers.py
-- [ ] src/utils/app_launcher.py
-- [ ] src/utils/approval_modes.py
-- [ ] src/utils/cli/multiline_prompt.py
-- [ ] src/utils/cli/slash_commands.py
-- [ ] src/utils/context_errors.py
-- [ ] src/utils/docker_compose.py
-- [ ] src/utils/env_info.py
-- [ ] src/utils/event_log.py
-- [ ] src/utils/exceptions.py
-- [ ] src/utils/free_port.py
-- [ ] src/utils/git_heuristic_is_binary.py
-- [ ] src/utils/http/__init__.py
-- [ ] src/utils/http/helpers.py
-- [ ] src/utils/llm/dialect.py
-- [ ] src/utils/llm/dialect_openai_family.py
-- [ ] src/utils/llm/dialect_openai_responses.py
-- [ ] src/utils/llm/factory.py
-- [ ] src/utils/llm/openai_model_dialects.py
-- [ ] src/utils/llm/streaming.py
-- [ ] src/utils/llm/types.py
-- [ ] src/utils/param_registry.py
+- [x] src/ui_connector/socket_handlers.py
+- [x] src/utils/app_launcher.py
+- [x] src/utils/approval_modes.py
+- [x] src/utils/cli/multiline_prompt.py
+- [x] src/utils/cli/slash_commands.py
+- [x] src/utils/context_errors.py
+- [x] src/utils/docker_compose.py
+- [x] src/utils/env_info.py
+- [x] src/utils/event_log.py
+- [x] src/utils/exceptions.py
+- [x] src/utils/free_port.py
+- [x] src/utils/git_heuristic_is_binary.py
+- [x] src/utils/http/__init__.py
+- [x] src/utils/http/helpers.py
+- [x] src/utils/llm/dialect.py
+- [x] src/utils/llm/dialect_openai_family.py
+- [x] src/utils/llm/dialect_openai_responses.py
+- [x] src/utils/llm/factory.py
+- [x] src/utils/llm/openai_model_dialects.py
+- [x] src/utils/llm/streaming.py
+- [x] src/utils/llm/types.py
+- [x] src/utils/param_registry.py
 - [ ] src/utils/process.py
 - [ ] src/utils/process_doctor.py
 - [ ] src/utils/profile_utils.py
@@ -411,3 +411,18 @@ the `factory.py` namespace-dict discussion below rather than a fresh DB call.
   `_startup_auto_eol` still has one harmless redundant `or "enabled_silent"`
   fallback layer — left alone since it also guards the "no active
   profile/config at all" case that `get_param_value` can't reach.)
+
+**Batch 13 (121-130):** no conversions. `app_launcher.py`,
+`approval_modes.py`, `cli/multiline_prompt.py`, `cli/slash_commands.py`,
+`context_errors.py`, `docker_compose.py`, `env_info.py`, `event_log.py`,
+`exceptions.py`, `free_port.py` — none touch the param registry. (Also
+caught `src/ui_connector/socket_handlers.py`, skipped by accident after
+batch 12 — pure import coordinator, no param calls.)
+
+**Batch 14:** `git_heuristic_is_binary.py`, `http/__init__.py`,
+`http/helpers.py`, `llm/dialect.py`, `llm/dialect_openai_family.py`,
+`llm/dialect_openai_responses.py`, `llm/openai_model_dialects.py`,
+`llm/streaming.py`, `llm/types.py` — no param-registry call sites (pure
+wire-protocol/dialect logic). `llm/factory.py` and `param_registry.py`
+checked off here too — both already fully covered by steps 1-3 and the
+batch-12 `system_params` rewrite.
