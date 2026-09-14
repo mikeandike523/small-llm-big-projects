@@ -8,7 +8,7 @@ import src.ui_connector.socket_handler_components.state as _state
 from src.ui_connector.app import socketio
 from src.data import get_pool
 from src.utils.event_log import log_event, REPLAY_EXCLUDED_EVENTS
-from src.utils.param_registry import param_storage_key
+from src.utils.param_helper import get_param_value
 from src.utils.sql.kv_manager import KVManager
 
 logger = logging.getLogger(__name__)
@@ -88,21 +88,17 @@ def _get_known_max_context(session_profile: str | None) -> int | None:
     if not session_profile:
         return None
     profile_prefix = f"profiles.{session_profile}."
-    kv_key = param_storage_key("model.known_max_context", profile_prefix)
     try:
         pool = get_pool()
         with pool.get_connection() as conn:
             kv_manager = KVManager(conn)
-            known_max_context = kv_manager.get_value(kv_key)
+            known_max_context = get_param_value(
+                kv_manager, "model.known_max_context", profile_prefix=profile_prefix
+            )
     except Exception as e:
         logger.debug(f"Could not retrieve model.known_max_context parameter: {e}")
         return None
     if known_max_context is None:
-        return None
-    try:
-        known_max_context = int(known_max_context)
-    except (ValueError, TypeError):
-        logger.warning(f"Invalid model.known_max_context value: {known_max_context}")
         return None
     if known_max_context <= 0:
         return None

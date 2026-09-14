@@ -126,17 +126,15 @@ def handle_user_message(data: dict):
         return
 
     streaming_llm = make_llm_refreshing(timeout_s=60, profile_name=_session_profile)
-    return_value_max_chars: int | None = llm_config["system_params"].get(
-        "return_value_max_chars"
-    )
-    blank_response_retries: int = llm_config["system_params"].get("blank_response_retries") or 0
-    strict_dirty: bool = llm_config["system_params"].get("strict_dirty", True)
-    create_file_auto_eol: str = (
-        llm_config["system_params"].get("create_file_auto_eol") or "enabled_silent"
-    )
-    enable_patch_rewriter: bool = llm_config["system_params"].get(
-        "enable_patch_rewriter", False
-    )
+    # load_llm_config() resolves every profile-scoped system.* param through the
+    # registry getter, so each key below is always present with its registry
+    # default already applied -- no per-callsite fallback literal needed.
+    _system_params = llm_config["system_params"]
+    return_value_max_chars: int | None = _system_params["return_value_max_chars"]
+    blank_response_retries: int = _system_params["blank_response_retries"]
+    strict_dirty: bool = _system_params["strict_dirty"]
+    create_file_auto_eol: str = _system_params["create_file_auto_eol"]
+    enable_patch_rewriter: bool = _system_params["enable_patch_rewriter"]
     model_temperature: float | None = (llm_config.get("model_params") or {}).get("temperature")
     watchdog_params: dict = llm_config.get("watchdog_params") or {}
     summarizer_params: dict = llm_config.get("summarizer_params") or {}
@@ -378,17 +376,15 @@ def handle_force_continuation(data: dict):
         return
 
     streaming_llm = make_llm_refreshing(timeout_s=60, profile_name=_session_profile)
-    return_value_max_chars: int | None = llm_config["system_params"].get(
-        "return_value_max_chars"
-    )
-    blank_response_retries: int = llm_config["system_params"].get("blank_response_retries") or 0
-    strict_dirty: bool = llm_config["system_params"].get("strict_dirty", True)
-    create_file_auto_eol: str = (
-        llm_config["system_params"].get("create_file_auto_eol") or "enabled_silent"
-    )
-    enable_patch_rewriter: bool = llm_config["system_params"].get(
-        "enable_patch_rewriter", False
-    )
+    # load_llm_config() resolves every profile-scoped system.* param through the
+    # registry getter, so each key below is always present with its registry
+    # default already applied -- no per-callsite fallback literal needed.
+    _system_params = llm_config["system_params"]
+    return_value_max_chars: int | None = _system_params["return_value_max_chars"]
+    blank_response_retries: int = _system_params["blank_response_retries"]
+    strict_dirty: bool = _system_params["strict_dirty"]
+    create_file_auto_eol: str = _system_params["create_file_auto_eol"]
+    enable_patch_rewriter: bool = _system_params["enable_patch_rewriter"]
     model_temperature: float | None = (llm_config.get("model_params") or {}).get("temperature")
     watchdog_params: dict = llm_config.get("watchdog_params") or {}
     summarizer_params: dict = llm_config.get("summarizer_params") or {}

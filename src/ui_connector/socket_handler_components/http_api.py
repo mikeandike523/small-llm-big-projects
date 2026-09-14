@@ -38,6 +38,7 @@ from src.logic.system_prompt import (
     get_autoload_skill_entries,
 )
 from src.utils.sql.kv_manager import KVManager
+from src.utils.param_helper import get_param_value
 from src.utils.profile_utils import get_active_profile, _kv_prefix
 from src.utils.env_info import get_default_workspace_dir
 from src.utils.session_model import Session
@@ -391,7 +392,8 @@ def api_session_defaults():
             if profile is not None:
                 prefix = _kv_prefix(profile)
                 for param_key, defaults_key in _state._SESSION_DEFAULTS_FROM_DB.items():
-                    val = kv.get_value(prefix + param_key)
+                    param_name = param_key[len("params."):]
+                    val = get_param_value(kv, param_name, profile_prefix=prefix)
                     if val is not None:
                         defaults[defaults_key] = val
     except Exception as exc:

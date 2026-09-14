@@ -7,8 +7,10 @@ from src.utils.sql.kv_manager import KVManager
 from src.utils.llm.streaming import StreamingLLM
 from src.utils.llm.dialect import detect_dialect, get_adapter
 from src.utils.profile_utils import get_active_profile, _kv_prefix
+from src.utils.param_helper import get_param_value
 from src.utils.param_registry import (
     ALLOWED_PARAMS as _ALLOWED_PARAMS,
+    REGISTRY as _REGISTRY,
     SYSTEM_ONLY_PARAMS as _SYSTEM_ONLY_PARAMS,
 )
 
@@ -142,15 +144,18 @@ def load_llm_config(profile_name: str | None = None) -> dict | None:
             param_keys, prefix + "params.patchrewriter.model.", kv
         )
 
-        # System-only flags (never forwarded to any LLM API).
+        # System-only flags (never forwarded to any LLM API). Every profile-scoped
+        # system.* param is resolved through the registry getter, so every key is
+        # always present with its registry default applied -- callers no longer
+        # need their own '.get(name, <literal default>)' fallback (see
+        # param_defaults_checklist.md for the audit that motivated this).
         system_params: dict = {}
-        system_prefix = prefix + "params.system."
-        for k in param_keys:
-            if k.startswith(system_prefix):
-                system_params[k[len(system_prefix):]] = kv.get_value(k)
-        irat_key = full_model_prefix + "irat"
-        if irat_key in param_keys:
-            system_params["irat"] = kv.get_value(irat_key)
+        for _name, _spec in _REGISTRY.items():
+            if _name.startswith("system.") and _spec.scope == "profile":
+                system_params[_name[len("system."):]] = get_param_value(
+                    kv, _name, profile_prefix=prefix
+                )
+        system_params["irat"] = get_param_value(kv, "model.irat", profile_prefix=prefix)
 
     if not token_value or not endpoint_url:
         return None

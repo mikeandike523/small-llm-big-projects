@@ -110,26 +110,26 @@ confirmed none present — see Issues section for anything notable).
 - [x] src/tools/todo_list.py
 - [x] src/tools/wikipedia.py
 - [x] src/tools/write_text_file.py
-- [ ] src/ui_connector/__init__.py
-- [ ] src/ui_connector/app.py
-- [ ] src/ui_connector/main.py
-- [ ] src/ui_connector/socket_handler_components/__init__.py
-- [ ] src/ui_connector/socket_handler_components/_session_event_emit.py
-- [ ] src/ui_connector/socket_handler_components/agent_loop.py
-- [ ] src/ui_connector/socket_handler_components/approval.py
-- [ ] src/ui_connector/socket_handler_components/emit.py
-- [ ] src/ui_connector/socket_handler_components/http_api.py
-- [ ] src/ui_connector/socket_handler_components/llm.py
-- [ ] src/ui_connector/socket_handler_components/session_store.py
-- [ ] src/ui_connector/socket_handler_components/socket_events.py
-- [ ] src/ui_connector/socket_handler_components/socket_events_info.py
-- [ ] src/ui_connector/socket_handler_components/socket_events_terminal.py
-- [ ] src/ui_connector/socket_handler_components/socket_events_turn.py
-- [ ] src/ui_connector/socket_handler_components/state.py
-- [ ] src/ui_connector/socket_handler_components/terminal.py
-- [ ] src/ui_connector/socket_handler_components/tool_execution.py
-- [ ] src/ui_connector/socket_handler_components/tool_preview.py
-- [ ] src/ui_connector/socket_handler_components/watchdogs.py
+- [x] src/ui_connector/__init__.py
+- [x] src/ui_connector/app.py
+- [x] src/ui_connector/main.py
+- [x] src/ui_connector/socket_handler_components/__init__.py
+- [x] src/ui_connector/socket_handler_components/_session_event_emit.py
+- [x] src/ui_connector/socket_handler_components/agent_loop.py
+- [x] src/ui_connector/socket_handler_components/approval.py
+- [x] src/ui_connector/socket_handler_components/emit.py
+- [x] src/ui_connector/socket_handler_components/http_api.py
+- [x] src/ui_connector/socket_handler_components/llm.py
+- [x] src/ui_connector/socket_handler_components/session_store.py
+- [x] src/ui_connector/socket_handler_components/socket_events.py
+- [x] src/ui_connector/socket_handler_components/socket_events_info.py
+- [x] src/ui_connector/socket_handler_components/socket_events_terminal.py
+- [x] src/ui_connector/socket_handler_components/socket_events_turn.py
+- [x] src/ui_connector/socket_handler_components/state.py
+- [x] src/ui_connector/socket_handler_components/terminal.py
+- [x] src/ui_connector/socket_handler_components/tool_execution.py
+- [x] src/ui_connector/socket_handler_components/tool_preview.py
+- [x] src/ui_connector/socket_handler_components/watchdogs.py
 - [ ] src/ui_connector/socket_handlers.py
 - [ ] src/utils/app_launcher.py
 - [ ] src/utils/approval_modes.py
@@ -349,3 +349,65 @@ param-registry involvement. `summarize_memory_item.py` reads
 `summarizer_params` out of `special_resources` (pre-resolved by the caller) —
 same pattern as `_managed_process_llm_triage.py`'s `watchdog_params`, tied to
 the `factory.py` namespace-dict discussion below rather than a fresh DB call.
+
+**Batch 11 (101-110):**
+- **`src/ui_connector/socket_handler_components/emit.py`** —
+  `_get_known_max_context()` built its own storage key via
+  `param_storage_key(...)` and called `kv_manager.get_value(kv_key)` raw (no
+  registry default, manual `int(...)`/`ValueError` coercion duplicating what
+  `ParamSpec.parse_value` already does). Converted to
+  `get_param_value(kv_manager, "model.known_max_context", profile_prefix=...)`,
+  which also removed the now-redundant manual int coercion (validation already
+  happened inside the getter). The `<= 0 -> None` normalization is real
+  business logic (not a default-fallback), kept as-is.
+- **`src/ui_connector/socket_handler_components/http_api.py`** —
+  `api_session_defaults()` reads `_state._SESSION_DEFAULTS_FROM_DB` (currently
+  just `model.irat`) via a raw `kv.get_value(prefix + param_key)`, only
+  overriding a separately-maintained hardcoded UI default when set. Flagged
+  but NOT converted yet — need to check `state.py`'s hardcoded default against
+  the registry default first (next batch) before deciding whether to
+  fold this into `get_param_value` too.
+- `agent_loop.py`, `approval.py`, `llm.py` — all consume already-resolved
+  values passed in as function params (`strict_dirty`, `watchdog_params`,
+  etc., or `_get_known_max_context()`'s return value) rather than reading the
+  DB directly; no new call sites here beyond the one in `emit.py`.
+- `__init__.py` (empty), `app.py`, `main.py` (already touched in step 1),
+  `socket_handler_components/__init__.py` (empty), `_session_event_emit.py`:
+  no param-registry involvement.
+
+**Batch 12 (111-120) — the core fix motivating this whole effort:**
+- **`src/utils/llm/factory.py`** — `load_llm_config()`'s "system-only flags"
+  block used to build `system_params` by copying whatever profile-scoped
+  `system.*` keys happened to exist in the DB, with no defaults applied at
+  all (unset keys were simply absent from the dict). Rewrote it to iterate
+  `REGISTRY` for every profile-scoped `system.*` entry (plus `model.irat`)
+  and resolve each through `get_param_value()`, so `system_params` now
+  **always** contains every one of these keys with its registry default
+  already applied. This is the single choke point both duplicated call
+  sites below fan out from.
+- **`src/ui_connector/socket_handler_components/socket_events_turn.py`** —
+  both `handle_user_message` and `handle_force_continuation` had the exact
+  duplicated block:
+  `strict_dirty: bool = llm_config["system_params"].get("strict_dirty", True)`
+  (plus similar ad hoc fallbacks for `blank_response_retries`,
+  `create_file_auto_eol`, `enable_patch_rewriter`). Since `system_params` is
+  now always fully populated, simplified both to direct key access
+  (`_system_params["strict_dirty"]`, etc.) — **this is the fix**: `strict_dirty`
+  now genuinely defaults to `False` everywhere, matching the registry.
+- **`src/ui_connector/socket_handler_components/agent_loop.py`** and
+  **`tool_execution.py`** — their function-signature defaults
+  (`strict_dirty: bool = True`) were the other half of the inconsistency
+  flagged in `param_defaults_checklist.md`; changed both to `False`.
+- **`src/ui_connector/socket_handler_components/http_api.py`** — resolved
+  the deferred question from batch 11: `state.py`'s
+  `_SESSION_DEFAULTS_HARDCODED["interim_response_as_thinking"] = False`
+  already matched the registry default for `model.irat`, so no
+  inconsistency there. Converted `api_session_defaults()`'s raw
+  `kv.get_value(prefix + param_key)` to `get_param_value()` anyway, for
+  consistency and so it now validates stored data too.
+- `session_store.py`, `socket_events.py`, `socket_events_info.py`,
+  `socket_events_terminal.py`, `state.py`, `terminal.py`, `tool_preview.py`,
+  `watchdogs.py`: no other param-registry call sites. (`socket_events.py`'s
+  `_startup_auto_eol` still has one harmless redundant `or "enabled_silent"`
+  fallback layer — left alone since it also guards the "no active
+  profile/config at all" case that `get_param_value` can't reach.)

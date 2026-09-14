@@ -62,7 +62,7 @@ async def _async_agent_loop(
     patchrewriter_params: dict | None = None,
     blank_response_retries: int = 0,
     model_temperature: float | None = None,
-    strict_dirty: bool = True,
+    strict_dirty: bool = False,
     create_file_auto_eol: str | None = None,
     enable_patch_rewriter: bool = False,
 ) -> None:

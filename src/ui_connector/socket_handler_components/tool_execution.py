@@ -62,7 +62,7 @@ def _execute_tools(
     subturn_id: str = "",
     summarizer_params: dict | None = None,
     patchrewriter_params: dict | None = None,
-    strict_dirty: bool = True,
+    strict_dirty: bool = False,
     create_file_auto_eol: str | None = None,
     enable_patch_rewriter: bool = False,
 ) -> LLMExchange:
