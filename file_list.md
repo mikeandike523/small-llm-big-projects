@@ -70,46 +70,46 @@ confirmed none present — see Issues section for anything notable).
 - [x] src/tools/_patch_rewrite_watchdog.py
 - [x] src/tools/_path_utils.py
 - [x] src/tools/_subprocess.py
-- [ ] src/tools/_text_editor_actions.py
-- [ ] src/tools/_text_editor_utils.py
-- [ ] src/tools/_validate_timeout.py
-- [ ] src/tools/basic_web_request.py
-- [ ] src/tools/brave_web_search.py
-- [ ] src/tools/change_pwd.py
-- [ ] src/tools/check_terminal_state.py
-- [ ] src/tools/code_interpreter.py
-- [ ] src/tools/config.py
-- [ ] src/tools/copy_dir.py
-- [ ] src/tools/copy_file.py
-- [ ] src/tools/create_dir.py
-- [ ] src/tools/create_text_file.py
-- [ ] src/tools/delete_file.py
-- [ ] src/tools/dom_analyzer.py
-- [ ] src/tools/find_files_by_name.py
-- [ ] src/tools/get_environment_info.py
-- [ ] src/tools/get_global_workspace_dir.py
-- [ ] src/tools/get_pwd.py
-- [ ] src/tools/host_check_command.py
-- [ ] src/tools/host_shell.py
-- [ ] src/tools/line_reader.py
-- [ ] src/tools/list_dir.py
-- [ ] src/tools/list_working_tree.py
-- [ ] src/tools/move_dir_or_file.py
-- [ ] src/tools/open_in_terminal.py
-- [ ] src/tools/read_open_terminal.py
-- [ ] src/tools/read_text_file.py
-- [ ] src/tools/remove_dir.py
-- [ ] src/tools/report_impossible.py
-- [ ] src/tools/restore_file.py
-- [ ] src/tools/scrape_web_page.py
-- [ ] src/tools/search_filesystem_by_regex.py
-- [ ] src/tools/session_memory.py
-- [ ] src/tools/snapshot_file.py
-- [ ] src/tools/summarize_memory_item.py
-- [ ] src/tools/text_editor.py
-- [ ] src/tools/todo_list.py
-- [ ] src/tools/wikipedia.py
-- [ ] src/tools/write_text_file.py
+- [x] src/tools/_text_editor_actions.py
+- [x] src/tools/_text_editor_utils.py
+- [x] src/tools/_validate_timeout.py
+- [x] src/tools/basic_web_request.py
+- [x] src/tools/brave_web_search.py
+- [x] src/tools/change_pwd.py
+- [x] src/tools/check_terminal_state.py
+- [x] src/tools/code_interpreter.py
+- [x] src/tools/config.py
+- [x] src/tools/copy_dir.py
+- [x] src/tools/copy_file.py
+- [x] src/tools/create_dir.py
+- [x] src/tools/create_text_file.py
+- [x] src/tools/delete_file.py
+- [x] src/tools/dom_analyzer.py
+- [x] src/tools/find_files_by_name.py
+- [x] src/tools/get_environment_info.py
+- [x] src/tools/get_global_workspace_dir.py
+- [x] src/tools/get_pwd.py
+- [x] src/tools/host_check_command.py
+- [x] src/tools/host_shell.py
+- [x] src/tools/line_reader.py
+- [x] src/tools/list_dir.py
+- [x] src/tools/list_working_tree.py
+- [x] src/tools/move_dir_or_file.py
+- [x] src/tools/open_in_terminal.py
+- [x] src/tools/read_open_terminal.py
+- [x] src/tools/read_text_file.py
+- [x] src/tools/remove_dir.py
+- [x] src/tools/report_impossible.py
+- [x] src/tools/restore_file.py
+- [x] src/tools/scrape_web_page.py
+- [x] src/tools/search_filesystem_by_regex.py
+- [x] src/tools/session_memory.py
+- [x] src/tools/snapshot_file.py
+- [x] src/tools/summarize_memory_item.py
+- [x] src/tools/text_editor.py
+- [x] src/tools/todo_list.py
+- [x] src/tools/wikipedia.py
+- [x] src/tools/write_text_file.py
 - [ ] src/ui_connector/__init__.py
 - [ ] src/ui_connector/app.py
 - [ ] src/ui_connector/main.py
@@ -316,3 +316,36 @@ from the param registry directly.
 - `_file_snapshot.py`, `_indentation.py`, `_list_dir_utils.py`,
   `_managed_process.py`, `_managed_process_shared_defs.py`, `_memory.py`,
   `_path_utils.py`, `_subprocess.py`: no param-registry involvement at all.
+
+**Batch 7 (61-70):** no conversions. All of `_text_editor_actions.py`,
+`_text_editor_utils.py`, `_validate_timeout.py`, `basic_web_request.py`,
+`brave_web_search.py`, `change_pwd.py`, `check_terminal_state.py`,
+`code_interpreter.py`, `config.py`, `copy_dir.py` — the `DEFAULT_*` constants
+here (e.g. `basic_web_request.DEFAULT_TIMEOUT`, `brave_web_search.DEFAULT_COUNT`)
+are per-tool-call JSON-schema argument defaults (what the LLM's tool call gets
+if it omits an argument), a completely separate concept from the DB-backed
+system param registry. None of these files touch `param_registry`/`KVManager`.
+
+**Batch 8 (71-80):** no conversions. `copy_file.py`, `create_dir.py`,
+`delete_file.py`, `dom_analyzer.py`, `find_files_by_name.py`,
+`get_environment_info.py`, `get_global_workspace_dir.py`, `get_pwd.py`,
+`host_check_command.py` — none touch param_registry. `create_text_file.py`
+reads `sr.get("create_file_auto_eol")` from `special_resources`, i.e. the
+value already resolved upstream (the converted call sites in
+`socket_events_turn.py`/`socket_events.py`) — not a fresh DB read, so nothing
+to convert here.
+
+**Batch 9 (81-90):** no conversions. `host_shell.py`, `line_reader.py`,
+`list_dir.py`, `list_working_tree.py`, `move_dir_or_file.py`,
+`open_in_terminal.py`, `read_open_terminal.py`, `read_text_file.py`,
+`remove_dir.py`, `report_impossible.py` — all tool-argument defaults
+(`DEFAULT_TIMEOUT`, `args.get("x", default)` for per-call JSON schema fields)
+and `special_resources` consumers; none read from `param_registry`/`KVManager`.
+
+**Batch 10 (91-100):** no conversions. `restore_file.py`, `scrape_web_page.py`,
+`search_filesystem_by_regex.py`, `session_memory.py`, `snapshot_file.py`,
+`text_editor.py`, `todo_list.py`, `wikipedia.py`, `write_text_file.py` — no
+param-registry involvement. `summarize_memory_item.py` reads
+`summarizer_params` out of `special_resources` (pre-resolved by the caller) —
+same pattern as `_managed_process_llm_triage.py`'s `watchdog_params`, tied to
+the `factory.py` namespace-dict discussion below rather than a fresh DB call.
