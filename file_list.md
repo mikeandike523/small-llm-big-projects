@@ -152,26 +152,26 @@ confirmed none present — see Issues section for anything notable).
 - [x] src/utils/llm/streaming.py
 - [x] src/utils/llm/types.py
 - [x] src/utils/param_registry.py
-- [ ] src/utils/process.py
-- [ ] src/utils/process_doctor.py
-- [ ] src/utils/profile_utils.py
-- [ ] src/utils/redis_dict.py
-- [ ] src/utils/request_error_formatting.py
-- [ ] src/utils/scheduled_task.py
-- [ ] src/utils/server_state.py
-- [ ] src/utils/session_events.py
-- [ ] src/utils/session_model.py
-- [ ] src/utils/session_schema_repair.py
-- [ ] src/utils/sql/kv_manager.py
-- [ ] src/utils/sql/session_store_db.py
-- [ ] src/utils/text/line_numbers.py
-- [ ] src/utils/text_truncation.py
-- [ ] src/utils/tool_calling/arguments.py
-- [ ] src/utils/tool_calling/strict_mode.py
-- [ ] tests/test_approval_modes_policy.py
-- [ ] tests/test_llm_dialects.py
-- [ ] tests/test_llm_payload_context_retries.py
-- [ ] tests/test_run_tool_cli.py
+- [x] src/utils/process.py
+- [x] src/utils/process_doctor.py
+- [x] src/utils/profile_utils.py
+- [x] src/utils/redis_dict.py
+- [x] src/utils/request_error_formatting.py
+- [x] src/utils/scheduled_task.py
+- [x] src/utils/server_state.py
+- [x] src/utils/session_events.py
+- [x] src/utils/session_model.py
+- [x] src/utils/session_schema_repair.py
+- [x] src/utils/sql/kv_manager.py
+- [x] src/utils/sql/session_store_db.py
+- [x] src/utils/text/line_numbers.py
+- [x] src/utils/text_truncation.py
+- [x] src/utils/tool_calling/arguments.py
+- [x] src/utils/tool_calling/strict_mode.py
+- [x] tests/test_approval_modes_policy.py
+- [x] tests/test_llm_dialects.py
+- [x] tests/test_llm_payload_context_retries.py
+- [x] tests/test_run_tool_cli.py
 - [ ] tests/test_skill_registry.py
 - [ ] tests/test_terminal.py
 - [ ] tests/test_tool_approval_hooks.py
@@ -426,3 +426,18 @@ batch 12 — pure import coordinator, no param calls.)
 wire-protocol/dialect logic). `llm/factory.py` and `param_registry.py`
 checked off here too — both already fully covered by steps 1-3 and the
 batch-12 `system_params` rewrite.
+
+**Batch 15:** `process.py`, `process_doctor.py`, `profile_utils.py`,
+`redis_dict.py`, `request_error_formatting.py`, `scheduled_task.py`,
+`server_state.py`, `session_events.py`, `session_model.py`,
+`session_schema_repair.py` — no param-registry call sites. (`profile_utils.py`'s
+`get_active_profile`/`require_active_profile` manage the separate
+`active_profile` pointer, not a registered param.)
+
+**Batch 16:** `sql/kv_manager.py` (the storage primitive `get_param_value`
+itself wraps — not a call site), `sql/session_store_db.py`,
+`text/line_numbers.py`, `text_truncation.py`, `tool_calling/arguments.py`,
+`tool_calling/strict_mode.py`, and the four `tests/*` files read (dialects,
+context-retry payload building, run_tool CLI, approval-mode policy) — no
+param-registry call sites. Tests monkeypatch `_get_known_max_context` etc.
+directly rather than touching the DB, so nothing to convert there either.
