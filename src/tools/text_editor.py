@@ -253,6 +253,18 @@ def needs_approval(args: dict, session_data: dict | None = None, special_resourc
     action = args.get("action", "")
     filepath = args.get("filepath")
 
+    from src.tools._approval import is_auto_accept_edits, is_full_auto
+
+    if is_full_auto(special_resources):
+        return False
+
+    if is_auto_accept_edits(special_resources):
+        if filepath is None:
+            return False
+        from src.tools._approval import ApprovalContext, needs_path_approval
+
+        return needs_path_approval(filepath, ctx=ApprovalContext.from_special_resources(special_resources))
+
     if action in _DRYRUN_ACTIONS:
         if filepath is None:
             return False  # session memory key only — no file write

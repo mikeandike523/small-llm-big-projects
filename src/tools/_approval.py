@@ -6,6 +6,11 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from src.tools._subprocess import run_command
+from src.utils.approval_modes import (
+    APPROVAL_MODE_AUTO_ACCEPT_EDITS,
+    APPROVAL_MODE_DEFAULT,
+    APPROVAL_MODE_FULL_AUTO,
+)
 
 _APPROVAL_CMD_TIMEOUT = 5  # seconds; deny approval if git commands stall
 
@@ -23,6 +28,20 @@ class ApprovalContext:
             session_init_working_dir=sr.get("session_init_working_dir"),
             session_current_working_dir=sr.get("session_current_working_dir"),
         )
+
+
+def get_approval_mode(special_resources: dict | None) -> str:
+    sr = special_resources or {}
+    mode = sr.get("approval_mode")
+    return mode if isinstance(mode, str) and mode else APPROVAL_MODE_DEFAULT
+
+
+def is_auto_accept_edits(special_resources: dict | None) -> bool:
+    return get_approval_mode(special_resources) == APPROVAL_MODE_AUTO_ACCEPT_EDITS
+
+
+def is_full_auto(special_resources: dict | None) -> bool:
+    return get_approval_mode(special_resources) == APPROVAL_MODE_FULL_AUTO
 
 
 # ---------------------------------------------------------------------------

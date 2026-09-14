@@ -36,6 +36,10 @@ DEFINITION: dict = {
 
 
 def needs_approval(args: dict, session_data: dict | None = None, special_resources: dict | None = None) -> bool:
+    from src.tools._approval import is_full_auto
+
+    if is_full_auto(special_resources):
+        return False
     raw = args.get("path")
     if not raw:
         return False

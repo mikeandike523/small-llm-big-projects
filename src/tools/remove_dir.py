@@ -33,13 +33,19 @@ DEFINITION: dict = {
 
 
 def needs_approval(args: dict, session_data: dict | None = None, special_resources: dict | None = None) -> bool:
+    from src.tools._approval import ApprovalContext, is_auto_accept_edits, is_full_auto, needs_path_approval
+
+    if is_full_auto(special_resources):
+        return False
+    if is_auto_accept_edits(special_resources):
+        return needs_path_approval(args.get("path"), ctx=ApprovalContext.from_special_resources(special_resources))
     return True
 
 
 def execute(args: dict, session_data: dict, special_resources: dict | None = None) -> str:
     # Resolve relative paths against the session CWD, not the server process
     # CWD — critical here since this is a destructive (rmtree) operation.
-    session_cwd = (special_resources or {}).get("session_cwd")
+    session_cwd = (special_resources or {}).get("session_current_working_dir")
     path = _resolve_path(args["path"], session_cwd)
     recursive = bool(args.get("recursive", False))
 

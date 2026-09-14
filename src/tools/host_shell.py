@@ -105,7 +105,9 @@ DEFINITION = {
 
 
 def needs_approval(args: dict, session_data: dict | None = None, special_resources: dict | None = None) -> bool:
-    return True
+    from src.tools._approval import is_full_auto
+
+    return not is_full_auto(special_resources)
 
 
 # ---------------------------------------------------------------------------
