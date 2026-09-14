@@ -172,77 +172,77 @@ confirmed none present — see Issues section for anything notable).
 - [x] tests/test_llm_dialects.py
 - [x] tests/test_llm_payload_context_retries.py
 - [x] tests/test_run_tool_cli.py
-- [ ] tests/test_skill_registry.py
-- [ ] tests/test_terminal.py
-- [ ] tests/test_tool_approval_hooks.py
-- [ ] tests/test_tool_output_truncation.py
-- [ ] tool_tests/_view_server.py
-- [ ] tool_tests/helpers/__init__.py
-- [ ] tool_tests/helpers/_server_script.py
-- [ ] tool_tests/helpers/env.py
-- [ ] tool_tests/helpers/http_server.py
-- [ ] tool_tests/helpers/result.py
-- [ ] tool_tests/individual/read_text_file/checks_return_value.py
-- [ ] tool_tests/individual/read_text_file/checks_session_memory.py
-- [ ] tool_tests/individual/session_memory/checks_append.py
-- [ ] tool_tests/individual/session_memory/checks_concat.py
-- [ ] tool_tests/individual/session_memory/checks_copy.py
-- [ ] tool_tests/individual/session_memory/checks_delete.py
-- [ ] tool_tests/individual/session_memory/checks_extract_json.py
-- [ ] tool_tests/individual/session_memory/checks_get.py
-- [ ] tool_tests/individual/session_memory/checks_list.py
-- [ ] tool_tests/individual/session_memory/checks_rename.py
-- [ ] tool_tests/individual/session_memory/checks_search_by_regex.py
-- [ ] tool_tests/individual/session_memory/checks_set.py
-- [ ] tool_tests/individual/test_basic_web_request.py
-- [ ] tool_tests/individual/test_brave_web_search.py
-- [ ] tool_tests/individual/test_change_pwd.py
-- [ ] tool_tests/individual/test_code_interpreter.py
-- [ ] tool_tests/individual/test_create_dir.py
-- [ ] tool_tests/individual/test_create_text_file.py
-- [ ] tool_tests/individual/test_delete_file.py
-- [ ] tool_tests/individual/test_get_pwd.py
-- [ ] tool_tests/individual/test_list_dir.py
-- [ ] tool_tests/individual/test_list_working_tree.py
-- [ ] tool_tests/individual/test_remove_dir.py
-- [ ] tool_tests/individual/test_report_impossible.py
-- [ ] tool_tests/individual/test_scrape_web_page.py
-- [ ] tool_tests/individual/test_search_filesystem_by_regex.py
-- [ ] tool_tests/individual/test_wikipedia.py
-- [ ] tool_tests/individual/text_editor/checks_apply_patch.py
-- [ ] tool_tests/individual/text_editor/checks_check_eol.py
-- [ ] tool_tests/individual/text_editor/checks_check_indentation.py
-- [ ] tool_tests/individual/text_editor/checks_convert_indentation.py
-- [ ] tool_tests/individual/text_editor/checks_count_lines.py
-- [ ] tool_tests/individual/text_editor/checks_errors.py
-- [ ] tool_tests/individual/text_editor/checks_filepath_mode.py
-- [ ] tool_tests/individual/text_editor/checks_normalize_eol.py
-- [ ] tool_tests/individual/text_editor/checks_read_lines.py
-- [ ] tool_tests/individual/text_editor/checks_search_by_regex.py
-- [ ] tool_tests/individual/todo_list/checks_01_list_empty.py
-- [ ] tool_tests/individual/todo_list/checks_02_add_item.py
-- [ ] tool_tests/individual/todo_list/checks_03_list_nonempty.py
-- [ ] tool_tests/individual/todo_list/checks_04_get_item.py
-- [ ] tool_tests/individual/todo_list/checks_05_update_item.py
-- [ ] tool_tests/individual/todo_list/checks_06_close_reopen.py
-- [ ] tool_tests/individual/todo_list/checks_07_delete_leaf.py
-- [ ] tool_tests/individual/todo_list/checks_08_add_order.py
-- [ ] tool_tests/individual/todo_list/checks_09_add_many.py
-- [ ] tool_tests/individual/todo_list/checks_10_promotion.py
-- [ ] tool_tests/individual/todo_list/checks_11_subtree.py
-- [ ] tool_tests/individual/todo_list/checks_12_close_promoted.py
-- [ ] tool_tests/individual/todo_list/checks_13_derived_status.py
-- [ ] tool_tests/individual/todo_list/checks_14_all_done.py
-- [ ] tool_tests/individual/todo_list/checks_15_delete_children.py
-- [ ] tool_tests/individual/todo_list/checks_16_deeply_nested.py
-- [ ] tool_tests/individual/todo_list/checks_17_auto_strip.py
-- [ ] tool_tests/individual/todo_list/checks_18_errors.py
-- [ ] tool_tests/individual/todo_list/checks_19_demotion.py
-- [ ] tool_tests/individual/todo_list/checks_20_delete_many.py
-- [ ] tool_tests/individual/todo_list/checks_21_structure_reminder.py
-- [ ] tool_tests/individual/write_text_file/checks_raw_content.py
-- [ ] tool_tests/individual/write_text_file/checks_session_memory.py
-- [ ] tool_tests/run.py
+- [x] tests/test_skill_registry.py
+- [x] tests/test_terminal.py
+- [x] tests/test_tool_approval_hooks.py
+- [x] tests/test_tool_output_truncation.py
+- [x] tool_tests/_view_server.py
+- [x] tool_tests/helpers/__init__.py
+- [x] tool_tests/helpers/_server_script.py
+- [x] tool_tests/helpers/env.py
+- [x] tool_tests/helpers/http_server.py
+- [x] tool_tests/helpers/result.py
+- [x] tool_tests/individual/read_text_file/checks_return_value.py
+- [x] tool_tests/individual/read_text_file/checks_session_memory.py
+- [x] tool_tests/individual/session_memory/checks_append.py
+- [x] tool_tests/individual/session_memory/checks_concat.py
+- [x] tool_tests/individual/session_memory/checks_copy.py
+- [x] tool_tests/individual/session_memory/checks_delete.py
+- [x] tool_tests/individual/session_memory/checks_extract_json.py
+- [x] tool_tests/individual/session_memory/checks_get.py
+- [x] tool_tests/individual/session_memory/checks_list.py
+- [x] tool_tests/individual/session_memory/checks_rename.py
+- [x] tool_tests/individual/session_memory/checks_search_by_regex.py
+- [x] tool_tests/individual/session_memory/checks_set.py
+- [x] tool_tests/individual/test_basic_web_request.py
+- [x] tool_tests/individual/test_brave_web_search.py
+- [x] tool_tests/individual/test_change_pwd.py
+- [x] tool_tests/individual/test_code_interpreter.py
+- [x] tool_tests/individual/test_create_dir.py
+- [x] tool_tests/individual/test_create_text_file.py
+- [x] tool_tests/individual/test_delete_file.py
+- [x] tool_tests/individual/test_get_pwd.py
+- [x] tool_tests/individual/test_list_dir.py
+- [x] tool_tests/individual/test_list_working_tree.py
+- [x] tool_tests/individual/test_remove_dir.py
+- [x] tool_tests/individual/test_report_impossible.py
+- [x] tool_tests/individual/test_scrape_web_page.py
+- [x] tool_tests/individual/test_search_filesystem_by_regex.py
+- [x] tool_tests/individual/test_wikipedia.py
+- [x] tool_tests/individual/text_editor/checks_apply_patch.py
+- [x] tool_tests/individual/text_editor/checks_check_eol.py
+- [x] tool_tests/individual/text_editor/checks_check_indentation.py
+- [x] tool_tests/individual/text_editor/checks_convert_indentation.py
+- [x] tool_tests/individual/text_editor/checks_count_lines.py
+- [x] tool_tests/individual/text_editor/checks_errors.py
+- [x] tool_tests/individual/text_editor/checks_filepath_mode.py
+- [x] tool_tests/individual/text_editor/checks_normalize_eol.py
+- [x] tool_tests/individual/text_editor/checks_read_lines.py
+- [x] tool_tests/individual/text_editor/checks_search_by_regex.py
+- [x] tool_tests/individual/todo_list/checks_01_list_empty.py
+- [x] tool_tests/individual/todo_list/checks_02_add_item.py
+- [x] tool_tests/individual/todo_list/checks_03_list_nonempty.py
+- [x] tool_tests/individual/todo_list/checks_04_get_item.py
+- [x] tool_tests/individual/todo_list/checks_05_update_item.py
+- [x] tool_tests/individual/todo_list/checks_06_close_reopen.py
+- [x] tool_tests/individual/todo_list/checks_07_delete_leaf.py
+- [x] tool_tests/individual/todo_list/checks_08_add_order.py
+- [x] tool_tests/individual/todo_list/checks_09_add_many.py
+- [x] tool_tests/individual/todo_list/checks_10_promotion.py
+- [x] tool_tests/individual/todo_list/checks_11_subtree.py
+- [x] tool_tests/individual/todo_list/checks_12_close_promoted.py
+- [x] tool_tests/individual/todo_list/checks_13_derived_status.py
+- [x] tool_tests/individual/todo_list/checks_14_all_done.py
+- [x] tool_tests/individual/todo_list/checks_15_delete_children.py
+- [x] tool_tests/individual/todo_list/checks_16_deeply_nested.py
+- [x] tool_tests/individual/todo_list/checks_17_auto_strip.py
+- [x] tool_tests/individual/todo_list/checks_18_errors.py
+- [x] tool_tests/individual/todo_list/checks_19_demotion.py
+- [x] tool_tests/individual/todo_list/checks_20_delete_many.py
+- [x] tool_tests/individual/todo_list/checks_21_structure_reminder.py
+- [x] tool_tests/individual/write_text_file/checks_raw_content.py
+- [x] tool_tests/individual/write_text_file/checks_session_memory.py
+- [x] tool_tests/run.py
 
 ## Issues
 
@@ -441,3 +441,40 @@ itself wraps — not a call site), `sql/session_store_db.py`,
 context-retry payload building, run_tool CLI, approval-mode policy) — no
 param-registry call sites. Tests monkeypatch `_get_known_max_context` etc.
 directly rather than touching the DB, so nothing to convert there either.
+
+**Batch 17-19 (171-233, final):** `tests/test_skill_registry.py`,
+`tests/test_terminal.py`, `tests/test_tool_approval_hooks.py`,
+`tests/test_tool_output_truncation.py`, and all 63 files under
+`tool_tests/` (helpers, `_view_server.py`, `run.py`, and every
+`tool_tests/individual/**` check module) — a repo-wide grep for
+`param_registry|param_helper|get_param_value|kv_manager|KVManager|
+kv\.get_value|strict_dirty|system_params|param_storage_key` across the
+entire `tool_tests/` tree returned zero matches, confirming none of these
+files touch the param registry (they test individual tool implementations
+via a sandboxed session_data/special_resources dict and a micro HTTP
+server, never the DB-backed LLM param system).
+
+## Sweep complete: 233/233 files examined
+
+Total conversions made across the sweep: 9 call sites across 7 files
+(`src/channels/slack/__init__.py`, `src/cli_routes/server.py`,
+`src/cli_routes/session.py`, `src/ui_connector/socket_handler_components/emit.py`,
+`src/ui_connector/socket_handler_components/http_api.py`,
+`src/utils/llm/factory.py`, `src/ui_connector/socket_handler_components/
+socket_events_turn.py` + 2 function-signature defaults in `agent_loop.py`/
+`tool_execution.py`), plus the core fix: `system.strict_dirty`'s default is
+now genuinely `False` everywhere via the centralized `system_params` dict in
+`factory.py`. Every param in `param_defaults_checklist.md` sourced from a
+profile-scoped `system.*`/`model.irat`/`model.known_max_context`/
+`desktop.*`/`system.channels.slack.enabled` entry is now converted.
+
+**Deliberately NOT converted (deferred, needs a design decision):** the
+sampler-namespace dicts in `factory.py` (`model_params`, `watchdog_params`,
+`summarizer_params`, `patchrewriter_params`, built by `_build_namespace_params`)
+still iterate whatever keys exist in the DB rather than calling
+`get_param_value()` per registry entry. This is intentional — converting
+them requires deciding how "None => omit this key from the outgoing
+request" should be expressed through the getter (right now it's an
+implicit consequence of the dict only containing keys that were found in
+the DB). See the checklist's remaining `[ ]` rows for the 20 sampler params
++ 3 `*.model.name` overrides this affects.
