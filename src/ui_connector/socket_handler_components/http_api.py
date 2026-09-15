@@ -426,6 +426,25 @@ def api_system_info():
     )
 
 
+@app.route("/api/version", methods=["GET"])
+def api_version():
+    """
+    Return the backend (server) software version, read live from the root
+    package.json so it always reflects the currently installed application.
+    Returns:
+      {"version": "<semver>"} — or {"version": "unknown"} if package.json
+      cannot be read (e.g. non-standard deployment layout).
+    """
+    root_pkg = pathlib.Path(__file__).resolve().parents[3] / "package.json"
+    try:
+        with open(root_pkg, "r", encoding="utf-8") as fh:
+            version = json.load(fh).get("version", "unknown")
+    except Exception as exc:
+        logger.warning("Failed to read version from %s: %s", root_pkg, exc)
+        version = "unknown"
+    return jsonify({"version": version})
+
+
 @app.route("/api/folder-pick", methods=["POST"])
 def api_folder_pick():
     """

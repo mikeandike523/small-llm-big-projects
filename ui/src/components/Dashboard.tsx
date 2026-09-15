@@ -3,6 +3,7 @@ import { css, keyframes } from "@emotion/react";
 import React, { useEffect, useRef, useState, useCallback } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import NewSessionDialog, { type SessionDefaults } from "./NewSessionDialog";
+import VersionWidget from "./VersionWidget";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -839,6 +840,7 @@ export default function Dashboard() {
           <div css={subtitleCss}>small llm, big projects</div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <VersionWidget />
           <Link css={configLinkCss} to="/config">
             Config
           </Link>
