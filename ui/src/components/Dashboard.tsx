@@ -841,6 +841,9 @@ export default function Dashboard() {
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <VersionWidget />
+          <Link css={configLinkCss} to="/terminal">
+            Terminal
+          </Link>
           <Link css={configLinkCss} to="/config">
             Config
           </Link>

@@ -21,7 +21,9 @@ import {
   modalTextareaCss,
   modalTitleCss,
   newButtonCss,
+  pageCss,
   panelCss,
+  spinnerCss,
   tabBarCss,
   tabButtonCss,
   tabNameCss,
@@ -67,7 +69,9 @@ function makeTab(
   };
 }
 
-export function TerminalPanel({ open, onToggle, socket, busy }: Props) {
+export function TerminalPanel({ open, onToggle, socket, busy, variant }: Props) {
+  const isPage = variant === "page";
+  const isOpen = isPage || !!open;
   const [tabs, setTabs] = useState<TerminalTabState[]>([]);
   const [activeTabIdx, setActiveTabIdx] = useState(0);
   const tabsRef = useRef<TerminalTabState[]>([]);
@@ -104,9 +108,61 @@ export function TerminalPanel({ open, onToggle, socket, busy }: Props) {
     null,
   );
 
+  // Creating spinner: set when we emit terminal_create, cleared on response.
+  const [creating, setCreating] = useState(false);
+  const creatingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const createTerminal = useCallback(() => {
+    if (creating) return;
+    setCreating(true);
+    socket.emit("terminal_create", {});
+    if (creatingTimeoutRef.current) clearTimeout(creatingTimeoutRef.current);
+    creatingTimeoutRef.current = setTimeout(() => setCreating(false), 10_000);
+  }, [socket, creating]);
+
+  // Auto-create on connect for page mode.
+  const autoCreatedRef = useRef(false);
   useEffect(() => {
-    openRef.current = open;
-  }, [open]);
+    if (!isPage) return;
+    function onConnect() {
+      if (!autoCreatedRef.current) {
+        autoCreatedRef.current = true;
+        createTerminal();
+      }
+    }
+    socket.on("connect", onConnect);
+    if (socket.connected) onConnect();
+    return () => {
+      socket.off("connect", onConnect);
+    };
+  }, [isPage, socket, createTerminal]);
+
+  // Clear the creating spinner when terminal_created arrives.
+  useEffect(() => {
+    function onCreated() {
+      setCreating(false);
+      if (creatingTimeoutRef.current) {
+        clearTimeout(creatingTimeoutRef.current);
+        creatingTimeoutRef.current = null;
+      }
+    }
+    socket.on("terminal_created", onCreated);
+    return () => {
+      socket.off("terminal_created", onCreated);
+    };
+  }, [socket]);
+
+  // Cleanup creating timeout on unmount.
+  useEffect(() => {
+    return () => {
+      if (creatingTimeoutRef.current) {
+        clearTimeout(creatingTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    openRef.current = isOpen;
+  }, [isOpen]);
 
   useEffect(
     () => () => {
@@ -359,10 +415,6 @@ export function TerminalPanel({ open, onToggle, socket, busy }: Props) {
     setAskModalFollowup("auto");
   }, [busy, activeTabIdx, askModalText, askModalFollowup, socket]);
 
-  const createTerminal = useCallback(() => {
-    socket.emit("terminal_create", {});
-  }, [socket]);
-
   const closeTerminal = useCallback(
     (terminalId: string) => {
       const closingIdx = tabsRef.current.findIndex(
@@ -385,160 +437,169 @@ export function TerminalPanel({ open, onToggle, socket, busy }: Props) {
 
   const activeTab = tabs[activeTabIdx];
 
+  const inner = (
+    <div css={isPage ? pageCss : panelCss}>
+      {!isPage && (
+        <div css={headerCss}>
+          <span css={titleCss}>Terminal</span>
+        </div>
+      )}
+      <div css={tabBarCss}>
+        {tabs.map((tab, idx) => (
+          <button
+            key={tab.terminalId}
+            css={tabButtonCss(idx === activeTabIdx, tab.exited)}
+            onClick={() => setActiveTabIdx(idx)}
+            onMouseEnter={(e) => showTooltip(e, tab.cmdDisplay)}
+            onMouseLeave={hideTooltip}
+          >
+            <span css={tabNameCss}>
+              {tab.name || tab.terminalId}
+              {tab.exited ? " (exited)" : ""}
+            </span>
+            <span
+              css={closeTabCss}
+              role="button"
+              aria-label={`Close ${tab.name || tab.terminalId}`}
+              onClick={(event) => {
+                event.stopPropagation();
+                closeTerminal(tab.terminalId);
+              }}
+            >
+              x
+            </span>
+          </button>
+        ))}
+        <button css={newButtonCss} onClick={createTerminal} disabled={creating}>
+          + New
+        </button>
+      </div>
+      {creating && <div css={spinnerCss} />}
+      {activeTab ? (
+        <div css={terminalsCss}>
+          {tabs.map((tab, idx) => (
+            <TerminalTab
+              key={tab.terminalId}
+              tab={tab}
+              active={idx === activeTabIdx}
+              panelOpen={isOpen}
+              socket={socket}
+              updateTab={updateTab}
+              drainBuffer={drainBuffer}
+            />
+          ))}
+        </div>
+      ) : (
+        !creating && (
+          <div css={emptyCss}>
+            <button css={newButtonCss} onClick={createTerminal}>
+              + New terminal
+            </button>
+          </div>
+        )
+      )}
+      {!isPage && activeTab && (
+        <div css={footerCss}>
+          <button css={askButtonCss} onClick={() => setAskModalOpen(true)}>
+            Ask about this terminal
+          </button>
+        </div>
+      )}
+      {tooltip && (
+        <div
+          css={tooltipCss(tooltip.visible)}
+          style={{ left: tooltip.x, top: tooltip.y }}
+        >
+          {tooltip.text}
+        </div>
+      )}
+      {!isPage && askModalOpen && (
+        <>
+          <div
+            css={modalBackdropCss}
+            onClick={() => setAskModalOpen(false)}
+          />
+          <div
+            css={modalBoxCss}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Ask about this terminal"
+          >
+            <div css={modalHeaderRowCss}>
+              <span css={modalTitleCss}>Ask about this terminal</span>
+              <button
+                css={modalCloseXCss}
+                onClick={() => setAskModalOpen(false)}
+                aria-label="Close"
+              >
+                ×
+              </button>
+            </div>
+            <div css={modalBodyCss}>
+              <textarea
+                ref={askTextareaRef}
+                css={modalTextareaCss}
+                placeholder="Type your question or request..."
+                value={askModalText}
+                onChange={(e) => setAskModalText(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && (e.ctrlKey || e.metaKey))
+                    submitAskModal();
+                }}
+                rows={4}
+              />
+              <div css={modalFollowupRowCss}>
+                <span css={modalFollowupLabelCss}>Follow-up</span>
+                {(["auto", "follow-up", "new-task"] as const).map(
+                  (opt) => (
+                    <button
+                      key={opt}
+                      css={modalFollowupPillCss(askModalFollowup === opt)}
+                      onClick={() => setAskModalFollowup(opt)}
+                    >
+                      {opt === "auto"
+                        ? "auto-detect"
+                        : opt === "follow-up"
+                          ? "force-follow-up"
+                          : "force-new-task"}
+                    </button>
+                  ),
+                )}
+              </div>
+            </div>
+            <div css={modalActionsRowCss}>
+              <button
+                css={modalCancelBtnCss}
+                onClick={() => setAskModalOpen(false)}
+              >
+                Cancel
+              </button>
+              <button
+                css={modalSubmitBtnCss(!askModalText.trim() || !!busy)}
+                disabled={!askModalText.trim() || !!busy}
+                onClick={submitAskModal}
+              >
+                Send to Agent
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+
+  if (isPage) return inner;
+
   return (
     <div css={panelRootCss} ref={panelDivRef}>
       <PanelDivider
-        open={open}
-        onToggle={onToggle}
+        open={!!open}
+        onToggle={onToggle!}
         label="Terminal"
         side="right"
         badge={tabs.length}
       />
-      {open && (
-        <div css={panelCss}>
-          <div css={headerCss}>
-            <span css={titleCss}>Terminal</span>
-          </div>
-          <div css={tabBarCss}>
-            {tabs.map((tab, idx) => (
-              <button
-                key={tab.terminalId}
-                css={tabButtonCss(idx === activeTabIdx, tab.exited)}
-                onClick={() => setActiveTabIdx(idx)}
-                onMouseEnter={(e) => showTooltip(e, tab.cmdDisplay)}
-                onMouseLeave={hideTooltip}
-              >
-                <span css={tabNameCss}>
-                  {tab.name || tab.terminalId}
-                  {tab.exited ? " (exited)" : ""}
-                </span>
-                <span
-                  css={closeTabCss}
-                  role="button"
-                  aria-label={`Close ${tab.name || tab.terminalId}`}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    closeTerminal(tab.terminalId);
-                  }}
-                >
-                  x
-                </span>
-              </button>
-            ))}
-            <button css={newButtonCss} onClick={createTerminal}>
-              + New
-            </button>
-          </div>
-          {activeTab ? (
-            <div css={terminalsCss}>
-              {tabs.map((tab, idx) => (
-                <TerminalTab
-                  key={tab.terminalId}
-                  tab={tab}
-                  active={idx === activeTabIdx}
-                  panelOpen={open}
-                  socket={socket}
-                  updateTab={updateTab}
-                  drainBuffer={drainBuffer}
-                />
-              ))}
-            </div>
-          ) : (
-            <div css={emptyCss}>
-              <button css={newButtonCss} onClick={createTerminal}>
-                + New terminal
-              </button>
-            </div>
-          )}
-          {activeTab && (
-            <div css={footerCss}>
-              <button css={askButtonCss} onClick={() => setAskModalOpen(true)}>
-                Ask about this terminal
-              </button>
-            </div>
-          )}
-          {tooltip && (
-            <div
-              css={tooltipCss(tooltip.visible)}
-              style={{ left: tooltip.x, top: tooltip.y }}
-            >
-              {tooltip.text}
-            </div>
-          )}
-          {askModalOpen && (
-            <>
-              <div
-                css={modalBackdropCss}
-                onClick={() => setAskModalOpen(false)}
-              />
-              <div
-                css={modalBoxCss}
-                role="dialog"
-                aria-modal="true"
-                aria-label="Ask about this terminal"
-              >
-                <div css={modalHeaderRowCss}>
-                  <span css={modalTitleCss}>Ask about this terminal</span>
-                  <button
-                    css={modalCloseXCss}
-                    onClick={() => setAskModalOpen(false)}
-                    aria-label="Close"
-                  >
-                    ×
-                  </button>
-                </div>
-                <div css={modalBodyCss}>
-                  <textarea
-                    ref={askTextareaRef}
-                    css={modalTextareaCss}
-                    placeholder="Type your question or request..."
-                    value={askModalText}
-                    onChange={(e) => setAskModalText(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && (e.ctrlKey || e.metaKey))
-                        submitAskModal();
-                    }}
-                    rows={4}
-                  />
-                  <div css={modalFollowupRowCss}>
-                    <span css={modalFollowupLabelCss}>Follow-up</span>
-                    {(["auto", "follow-up", "new-task"] as const).map(
-                      (opt) => (
-                        <button
-                          key={opt}
-                          css={modalFollowupPillCss(askModalFollowup === opt)}
-                          onClick={() => setAskModalFollowup(opt)}
-                        >
-                          {opt === "auto"
-                            ? "auto-detect"
-                            : opt === "follow-up"
-                              ? "force-follow-up"
-                              : "force-new-task"}
-                        </button>
-                      ),
-                    )}
-                  </div>
-                </div>
-                <div css={modalActionsRowCss}>
-                  <button
-                    css={modalCancelBtnCss}
-                    onClick={() => setAskModalOpen(false)}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    css={modalSubmitBtnCss(!askModalText.trim() || busy)}
-                    disabled={!askModalText.trim() || busy}
-                    onClick={submitAskModal}
-                  >
-                    Send to Agent
-                  </button>
-                </div>
-              </div>
-            </>
-          )}
-        </div>
-      )}
+      {open && inner}
     </div>
   );
 }

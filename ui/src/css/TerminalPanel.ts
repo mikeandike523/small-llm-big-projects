@@ -365,3 +365,38 @@ export const modalSubmitBtnCss = (disabled: boolean) => css`
       : `background: ${spHeaderBg}; border-color: ${spAccentBright}; color: #d8ecff;`}
   }
 `;
+export const spinnerKeyframes = keyframes`
+  0%   { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+`;
+
+export const spinnerCss = css`
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: ${spBg};
+  z-index: 10;
+
+  &::after {
+    content: "";
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    border: 3px solid ${spBorder};
+    border-top-color: ${spAccentBright};
+    animation: ${spinnerKeyframes} 0.7s linear infinite;
+  }
+`;
+
+// Full-page variant (no side-panel chrome)
+export const pageCss = css`
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-width: 0;
+  background: ${spBg};
+  overflow: hidden;
+  position: relative;
+`;

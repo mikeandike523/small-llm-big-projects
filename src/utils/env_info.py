@@ -112,3 +112,16 @@ def get_default_workspace_dir() -> str:
     Return the app-managed default workspace directory under the user's home directory.
     """
     return str(Path.home() / ".slbp" / "workspace").replace("\\", "/")
+def get_terminal_default_cwd() -> str:
+    """
+    Return the default working directory for standalone terminal tabs:
+    ``~/.slbp/workspace``, created silently if missing.
+    Falls back to the user's home directory if the workspace cannot be created.
+    """
+    home = Path.home()
+    workspace = home / ".slbp" / "workspace"
+    try:
+        workspace.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        return str(home).replace("\\", "/")
+    return str(workspace).replace("\\", "/")

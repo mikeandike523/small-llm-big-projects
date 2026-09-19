@@ -20,8 +20,9 @@ export interface TerminalSessionState {
 }
 
 export interface Props {
-  open: boolean;
-  onToggle: () => void;
+  open?: boolean;
+  onToggle?: () => void;
   socket: Socket;
-  busy: boolean;
+  busy?: boolean;
+  variant?: "panel" | "page";
 }

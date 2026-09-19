@@ -7,7 +7,7 @@ import threading
 import src.ui_connector.socket_handler_components.state as _state
 from src.ui_connector.app import socketio
 from src.terminal import PtyProcess, TerminalSession
-from src.utils.env_info import format_environment_info
+from src.utils.env_info import format_environment_info, get_terminal_default_cwd
 from src.utils.session_model import Session
 
 
@@ -136,7 +136,7 @@ def _launch_terminal_for_session(session_id: str, cmd: list[str], name: str) -> 
     Emits terminal_open_panel (expand the side panel) then terminal_created.
     Called from the open_in_terminal tool via special_resources["create_terminal"].
     """
-    cwd = _state._session_current_cwd.get(session_id) or os.getcwd() or None
+    cwd = _state._session_current_cwd.get(session_id) or get_terminal_default_cwd()
     terminal_id = _new_terminal_id()
     try:
         session = _state._terminal_manager.create(

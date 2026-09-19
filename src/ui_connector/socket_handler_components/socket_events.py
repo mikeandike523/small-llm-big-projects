@@ -36,7 +36,9 @@ def handle_connect():
     sid = request.sid
     session_id = request.args.get("sessionId", "")
     if not session_id:
-        logger.warning("Client connected without sessionId: %s", sid)
+        # Terminal-only connection — no session, sid itself is the room.
+        logger.info("Client connected (terminal-only): %s", sid)
+        join_room(sid)
         return
 
     existing = [
@@ -173,6 +175,16 @@ def handle_resume_session(data: dict):
 def handle_disconnect():
     sid = request.sid
     session_id = _state._sid_to_session_id.pop(sid, None)
+    if session_id is None:
+        # Terminal-only connection — clean up all terminals belonging to this sid.
+        for ts in list(_state._terminal_manager.list_sessions()):
+            if _state._terminal_session_rooms.get(ts.id) == sid:
+                _state._terminal_session_rooms.pop(ts.id, None)
+                _state._terminal_opened_by.pop(ts.id, None)
+                _state._terminal_manager.destroy(ts.id)
+                _state._terminal_output_threads.pop(ts.id, None)
+        logger.info("Client disconnected (terminal-only): %s", sid)
+        return
     logger.info("Client disconnected: %s (session=%s)", sid, session_id)
     # Pending approvals are keyed by session_id and wait indefinitely (see
     # approval.py) — a dropped connection (e.g. the client's machine sleeps)

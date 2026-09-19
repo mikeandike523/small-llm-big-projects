@@ -17,7 +17,21 @@ from src.ui_connector.socket_handler_components.terminal import (
     _terminal_output_pump,
 )
 
+from src.utils.env_info import get_terminal_default_cwd
+
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Helper
+# ---------------------------------------------------------------------------
+
+
+def _terminal_room() -> str | None:
+    """Return the room key for the current socket — the mapped session_id
+    for session-connected sockets, or the sid itself for terminal-only clients."""
+    sid = request.sid
+    return _state._sid_to_session_id.get(sid) or sid
 
 
 # ---------------------------------------------------------------------------
@@ -28,33 +42,32 @@ logger = logging.getLogger(__name__)
 @socketio.on("terminal_create")
 def handle_terminal_create(data: dict):
     data = data or {}
-    sid = request.sid
-    session_id = _state._sid_to_session_id.get(sid)
-    if not session_id:
+    room = _terminal_room()
+    if not room:
         return
 
-    cwd = _state._session_current_cwd.get(session_id) or os.getcwd() or None
+    cwd = _state._session_current_cwd.get(room) or get_terminal_default_cwd()
     terminal_id = _new_terminal_id()
-    name = str(data.get("name") or _next_human_terminal_name(session_id))
+    name = str(data.get("name") or _next_human_terminal_name(room))
     try:
         session = _state._terminal_manager.create(
             name=name, cwd=cwd, rows=24, cols=80, terminal_id=terminal_id
         )
-        _state._terminal_session_rooms[session.id] = session_id
+        _state._terminal_session_rooms[session.id] = room
     except Exception as exc:
         _state._terminal_session_rooms.pop(terminal_id, None)
-        logger.warning("Failed to create terminal for session %s: %s", session_id, exc)
+        logger.warning("Failed to create terminal for room %s: %s", room, exc)
         socketio.emit(
-            "error", {"message": f"Failed to create terminal: {exc}"}, room=session_id
+            "error", {"message": f"Failed to create terminal: {exc}"}, room=room
         )
         return
 
     _state._terminal_opened_by[session.id] = "user"
-    meta = _get_terminal_meta(session_id)
+    meta = _get_terminal_meta(room)
     meta["user_last_opened"] = session.id
     t = threading.Thread(
         target=_terminal_output_pump,
-        args=(session_id, session, session.process),
+        args=(room, session, session.process),
         daemon=True,
     )
     _state._terminal_output_threads[session.id] = t
@@ -65,7 +78,7 @@ def handle_terminal_create(data: dict):
             "name": session.name,
             "cmd_display": _format_cmd_display(session.cmd),
         },
-        room=session_id,
+        room=room,
     )
     t.start()
 
@@ -73,13 +86,12 @@ def handle_terminal_create(data: dict):
 @socketio.on("terminal_input")
 def handle_terminal_input(data: dict):
     data = data or {}
-    sid = request.sid
-    session_id = _state._sid_to_session_id.get(sid)
-    if not session_id:
+    room = _terminal_room()
+    if not room:
         return
 
     terminal_id = str(data.get("terminal_id") or "")
-    if not _terminal_belongs_to_session(session_id, terminal_id):
+    if not _terminal_belongs_to_session(room, terminal_id):
         return
 
     raw = str(data.get("data") or "")
@@ -91,13 +103,12 @@ def handle_terminal_input(data: dict):
 @socketio.on("terminal_resize")
 def handle_terminal_resize(data: dict):
     data = data or {}
-    sid = request.sid
-    session_id = _state._sid_to_session_id.get(sid)
-    if not session_id:
+    room = _terminal_room()
+    if not room:
         return
 
     terminal_id = str(data.get("terminal_id") or "")
-    if not _terminal_belongs_to_session(session_id, terminal_id):
+    if not _terminal_belongs_to_session(room, terminal_id):
         return
 
     try:
@@ -115,13 +126,12 @@ def handle_terminal_resize(data: dict):
 @socketio.on("terminal_close")
 def handle_terminal_close(data: dict):
     data = data or {}
-    sid = request.sid
-    session_id = _state._sid_to_session_id.get(sid)
-    if not session_id:
+    room = _terminal_room()
+    if not room:
         return
 
     terminal_id = str(data.get("terminal_id") or "")
-    if not _terminal_belongs_to_session(session_id, terminal_id):
+    if not _terminal_belongs_to_session(room, terminal_id):
         return
 
     _state._terminal_session_rooms.pop(terminal_id, None)
@@ -132,24 +142,22 @@ def handle_terminal_close(data: dict):
 @socketio.on("terminal_tab_focused")
 def handle_terminal_tab_focused(data: dict):
     data = data or {}
-    sid = request.sid
-    session_id = _state._sid_to_session_id.get(sid)
-    if not session_id:
+    room = _terminal_room()
+    if not room:
         return
     terminal_id = str(data.get("terminal_id") or "")
-    if not _terminal_belongs_to_session(session_id, terminal_id):
+    if not _terminal_belongs_to_session(room, terminal_id):
         return
-    _get_terminal_meta(session_id)["active"] = terminal_id
+    _get_terminal_meta(room)["active"] = terminal_id
 
 
 @socketio.on("terminal_ask_about")
 def handle_terminal_ask_about(data: dict):
     data = data or {}
-    sid = request.sid
-    session_id = _state._sid_to_session_id.get(sid)
-    if not session_id:
+    room = _terminal_room()
+    if not room:
         return
     terminal_id = str(data.get("terminal_id") or "")
-    if not _terminal_belongs_to_session(session_id, terminal_id):
+    if not _terminal_belongs_to_session(room, terminal_id):
         return
-    _get_terminal_meta(session_id)["last_asked"] = terminal_id
+    _get_terminal_meta(room)["last_asked"] = terminal_id
