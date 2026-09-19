@@ -65,8 +65,8 @@ export const tabButtonCss = (active: boolean, exited: boolean) => css`
   gap: 6px;
   max-width: 160px;
   min-width: 0;
-  height: 26px;
-  padding: 0 8px;
+  height: 28px;
+  padding: 1px 8px;
   border-radius: 4px 4px 0 0;
   border: 1px solid ${active ? spAccent : spBorder};
   border-bottom-color: ${active ? spBg : spBorderStrong};
@@ -106,7 +106,8 @@ export const closeTabCss = css`
 `;
 
 export const newButtonCss = css`
-  height: 24px;
+  align-self: center;
+  height: 22px;
   padding: 0 10px;
   border-radius: 5px;
   border: 1px solid ${spBorder};
