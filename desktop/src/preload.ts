@@ -35,6 +35,14 @@ contextBridge.exposeInMainWorld('healthAPI', {
   restartServer: () => ipcRenderer.invoke('health:restart-server'),
 });
 
+// Desktop-app release notes, read from disk in the main process
+// (desktop/release-notes/, produced by release_manager.py).
+contextBridge.exposeInMainWorld('changelogAPI', {
+  getVersion: () => ipcRenderer.invoke('changelog:get-version') as Promise<string>,
+  getIndex: () => ipcRenderer.invoke('changelog:get-index'),
+  getNote: (version: string) => ipcRenderer.invoke('changelog:get-note', version) as Promise<string | null>,
+});
+
 // frame: false removes the native titlebar (and its minimize/maximize/close
 // buttons) entirely, so the tab-strip UI draws its own and calls back into
 // main via these handlers.

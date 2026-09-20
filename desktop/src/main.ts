@@ -5,6 +5,7 @@ import { resolveRepoRoot } from './main/repoRoot';
 import { startControlServer, type ControlServerHandle } from './main/controlServer';
 import { TabManager } from './main/tabManager';
 import { startServerLifecycle, type HealthStatus, type ServerLifecycleHandle } from './main/serverLauncher';
+import { getCurrentVersion, readIndex, readNote } from './main/changelog';
 
 if (started) {
   app.quit();
@@ -60,6 +61,13 @@ ipcMain.handle('health:open-dashboard', () => {
     tabManager?.openDashboard(currentProxyOrigin);
   }
 });
+
+// Desktop-app release notes (release_manager.py output). Registered at module
+// scope like the other handlers so a macOS activate-with-no-windows recreate
+// can't register the same channel twice.
+ipcMain.handle('changelog:get-version', () => getCurrentVersion());
+ipcMain.handle('changelog:get-index', () => readIndex());
+ipcMain.handle('changelog:get-note', (_event, version: string) => readNote(version));
 
 const createWindow = () => {
   const mainWindow = new BrowserWindow({

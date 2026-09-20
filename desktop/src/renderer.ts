@@ -21,6 +21,11 @@ declare global {
       openDashboard: () => Promise<void>;
       restartServer: () => Promise<void>;
     };
+    changelogAPI: {
+      getVersion: () => Promise<string>;
+      getIndex: () => Promise<{ releases: { version: string; date: string; file: string }[] } | null>;
+      getNote: (version: string) => Promise<string | null>;
+    };
   }
 }
 
@@ -165,6 +170,84 @@ tabDashboardBtn.addEventListener('click', () => {
 restartServerBtn.addEventListener('click', () => {
   void window.healthAPI.restartServer();
 });
+
+// --- Changelog UI ---
+
+const versionEl = document.getElementById('health-version')!;
+const changelogBtn = document.getElementById('health-changelog-btn') as HTMLButtonElement;
+const changelogDialog = document.getElementById('changelog-dialog') as HTMLDialogElement;
+const changelogBodyEl = document.getElementById('changelog-body')!;
+const changelogCloseBtn = document.getElementById('changelog-close') as HTMLButtonElement;
+
+/**
+ * Show "v1.2.3" on the health page with the latest release's message as a
+ * native hover tooltip (title attribute). The version arrives first; the
+ * latest note is fetched asynchronously afterwards and fills in the tooltip,
+ * so the version text never blocks on disk I/O.
+ */
+async function loadVersion(): Promise<void> {
+  const version = await window.changelogAPI.getVersion();
+  if (!version) return;
+  versionEl.textContent = `v${version}`;
+  versionEl.title = '';
+  const index = await window.changelogAPI.getIndex();
+  const latest = index?.releases?.[0];
+  if (latest) {
+    const note = await window.changelogAPI.getNote(latest.version);
+    if (note) versionEl.title = `${latest.version} (${latest.date}): ${note}`;
+  }
+}
+
+changelogBtn.addEventListener('click', () => {
+  changelogBodyEl.innerHTML = '';
+  changelogBodyEl.textContent = 'Loading…';
+  changelogDialog.showModal();
+  void openChangelogDialog();
+});
+
+changelogCloseBtn.addEventListener('click', () => changelogDialog.close());
+changelogDialog.addEventListener('click', (event) => {
+  // Click on the backdrop (outside the dialog's content box) dismisses it.
+  if (event.target === changelogDialog) changelogDialog.close();
+});
+
+async function openChangelogDialog(): Promise<void> {
+  const index = await window.changelogAPI.getIndex();
+  changelogBodyEl.innerHTML = '';
+  if (!index || index.releases.length === 0) {
+    changelogBodyEl.textContent = 'No releases recorded yet.';
+    return;
+  }
+  // Placeholder sections first so the full list renders instantly; each
+  // note's text then streams in independently as its own IPC read completes.
+  for (const entry of index.releases) {
+    const sectionEl = document.createElement('div');
+    sectionEl.className = 'changelog-entry';
+
+    const headEl = document.createElement('div');
+    headEl.className = 'changelog-entry-head';
+    const verEl = document.createElement('span');
+    verEl.className = 'changelog-entry-version';
+    verEl.textContent = `v${entry.version}`;
+    const dateEl = document.createElement('span');
+    dateEl.className = 'changelog-entry-date';
+    dateEl.textContent = entry.date;
+    headEl.append(verEl, dateEl);
+
+    const noteEl = document.createElement('div');
+    noteEl.className = 'changelog-entry-note';
+    noteEl.textContent = '…';
+
+    sectionEl.append(headEl, noteEl);
+    changelogBodyEl.appendChild(sectionEl);
+
+    void window.changelogAPI.getNote(entry.version).then((note) => {
+      noteEl.textContent = note ?? '(no note recorded)';
+    });
+  }
+}
+
+void loadVersion();
 
 window.healthAPI.onStatus(renderStatus);
 window.healthAPI.onLogLines(applyLogUpdate);

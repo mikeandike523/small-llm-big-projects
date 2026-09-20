@@ -20,6 +20,8 @@
         <span id="health-status-detail" class="health-detail"></span>
         <button id="health-restart-server" class="health-restart-server">Restart Server</button>
         <button id="health-open-dashboard" class="health-open-dashboard" disabled>Open Dashboard</button>
+        <span id="health-version" class="health-version"></span>
+        <button id="health-changelog-btn" class="health-changelog-btn" title="View all changelogs">Changelogs</button>
       </div>
       <pre id="health-log" class="health-log"></pre>
       <div class="health-log-footer">
@@ -27,6 +29,13 @@
         <button id="health-copy-log-path" class="health-copy-btn" title="Copy log file path">⧉</button>
       </div>
     </div>
+    <dialog id="changelog-dialog" class="changelog-dialog">
+      <div class="changelog-header">
+        <span class="changelog-title">Desktop Changelogs</span>
+        <button id="changelog-close" class="changelog-close" title="Close">&#215;</button>
+      </div>
+      <div id="changelog-body" class="changelog-body"></div>
+    </dialog>
     <script type="module" src="/src/renderer.ts"></script>
   </body>
 </html>
