@@ -4,8 +4,8 @@ import { app } from 'electron';
 
 /**
  * Desktop-app release notes, produced by release_manager.py:
- *   desktop/release-notes/changelog-index.json
- *   desktop/release-notes/<VERSION>.txt
+ *   desktop/desktop-release-notes/changelog-index.json
+ *   desktop/desktop-release-notes/<VERSION>.txt
  *
  * Resolution is exe-relative, never cwd-relative: the process cwd is
  * meaningless for a GUI app launched from a shell or file manager (it stays
@@ -14,7 +14,7 @@ import { app } from 'electron';
  * marked by a .git folder -- or hit the drive root (dirname(parent) ===
  * parent). Inability to read a directory (permission error) ends the
  * traversal rather than aborting the app. The notes then live at
- * <repoRoot>/desktop/release-notes/, which is correct for:
+ * <repoRoot>/desktop/desktop-release-notes/, which is correct for:
  *   - `pnpm start` dev runs (app path === desktop/)
  *   - `pnpm run package` run-in-place builds (exe inside desktop/out/...)
  *   - any future installed location that sits inside the repo tree
@@ -25,7 +25,7 @@ export interface ChangelogIndex {
 }
 
 const REPO_MARKER = '.git';
-const NOTES_DIR = 'release-notes';
+const NOTES_DIR = 'desktop-release-notes';
 const INDEX_FILE = 'changelog-index.json';
 
 /** Walk up from `startDir` to the repo root (first ancestor containing .git). */
@@ -49,7 +49,7 @@ function findRepoRootFrom(startDir: string): string | null {
 }
 
 /**
- * The notes dir is <repoRoot>/desktop/release-notes. app.getAppPath() (inside
+ * The notes dir is <repoRoot>/desktop/desktop-release-notes. app.getAppPath() (inside
  * the asar for packaged builds) is only a fallback for the same traversal.
  */
 function resolveNotesRoot(): string | null {

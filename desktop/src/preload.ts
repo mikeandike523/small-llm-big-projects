@@ -36,7 +36,7 @@ contextBridge.exposeInMainWorld('healthAPI', {
 });
 
 // Desktop-app release notes, read from disk in the main process
-// (desktop/release-notes/, produced by release_manager.py).
+// (desktop/desktop-release-notes/, produced by release_manager.py).
 contextBridge.exposeInMainWorld('changelogAPI', {
   getVersion: () => ipcRenderer.invoke('changelog:get-version') as Promise<string>,
   getIndex: () => ipcRenderer.invoke('changelog:get-index'),

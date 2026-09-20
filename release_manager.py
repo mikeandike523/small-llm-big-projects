@@ -10,7 +10,7 @@ Usage:
   unless --force).
 - Writes ui/public/ui-release-notes/<VERSION>.txt (message only) and regenerates
   changelog-index.json in the same folder. Backend: ./backend-release-notes/.
-  Desktop: ./desktop/release-notes/.
+  Desktop: ./desktop/desktop-release-notes/.
 - Does not touch git.
 """
 
@@ -27,7 +27,7 @@ ROOT = Path(__file__).resolve().parent
 TARGETS = {
     "ui": {"package": ROOT / "ui" / "package.json", "notes_dir": ROOT / "ui" / "public" / "ui-release-notes"},
     "backend": {"package": ROOT / "package.json", "notes_dir": ROOT / "backend-release-notes"},
-    "desktop": {"package": ROOT / "desktop" / "package.json", "notes_dir": ROOT / "desktop" / "release-notes"},
+    "desktop": {"package": ROOT / "desktop" / "package.json", "notes_dir": ROOT / "desktop" / "desktop-release-notes"},
 }
 SEMVER_RE = re.compile(r"^(\d+)\.(\d+)\.(\d+)$")
 
