@@ -9,6 +9,17 @@ import scrollbarCss from "../css/scrollBarCss";
 import { TextPresenter } from "./TextPresenter";
 import ToolCallCard from "./ToolCallCard";
 import ToolApprovalBubble from "./ToolApprovalBubble";
+import {
+  estimateDividerHeight,
+  estimateToolCallCardHeight,
+} from "../estimators/tool-call-bubble";
+
+// Fallback column width for the very first render, before toolsScrollRef has
+// mounted and clientWidth is available. The column is fully responsive
+// (grid fr units), so there's no "real" static value — this only matters
+// for the first paint's estimate, since every render after mount reads the
+// actual width.
+const FALLBACK_TOOL_CALLS_COLUMN_WIDTH_PX = 340;
 
 const turnWrapperCss = css`
   display: flex;
@@ -68,7 +79,7 @@ const turnContainerCss = css`
   background: #0d131e;
   box-shadow: 0 3px 16px rgba(0, 0, 0, 0.5);
 `;
- 
+
 const turnContainerNoTitleCss = css`
   display: grid;
   grid-template-columns: minmax(0, 5fr) minmax(0, 4fr) minmax(0, 2fr);
@@ -222,7 +233,6 @@ const approvalCol2Css = css`
   border-left: 1px solid #22304d;
   min-width: 0;
 `;
-
 
 const approvalColHeaderCss = css`
   font-size: 10px;
@@ -438,7 +448,9 @@ const iratThinkingWrapperCss = css`
 
 const thinkingAnimWrapCss = css`
   display: grid;
-  transition: grid-template-rows 0.3s ease-out, opacity 0.25s ease-out;
+  transition:
+    grid-template-rows 0.3s ease-out,
+    opacity 0.25s ease-out;
 `;
 
 const thinkingAnimInnerCss = css`
@@ -650,7 +662,14 @@ export default function TurnContainer({
   const toolCallsVirtualizer = useVirtualizer({
     count: toolCallRows.length,
     getScrollElement: () => toolsScrollRef.current,
-    estimateSize: () => 90,
+    estimateSize: (index) => {
+      const row = toolCallRows[index];
+      if (row.type === "divider") return estimateDividerHeight();
+      const availableWidthPx =
+        toolsScrollRef.current?.clientWidth ??
+        FALLBACK_TOOL_CALLS_COLUMN_WIDTH_PX;
+      return estimateToolCallCardHeight(row.tc, availableWidthPx);
+    },
     getItemKey: (index) => toolCallRows[index].key,
     overscan: 5,
     anchorTo: "end",
@@ -785,11 +804,20 @@ export default function TurnContainer({
               <div css={thinkingContentCss} ref={thinkingContentRef}>
                 <div
                   css={thinkingAnimWrapCss}
-                  style={{ gridTemplateRows: reasoning ? "1fr" : "0fr", opacity: reasoning ? 1 : 0 }}
+                  style={{
+                    gridTemplateRows: reasoning ? "1fr" : "0fr",
+                    opacity: reasoning ? 1 : 0,
+                  }}
                 >
                   <div css={thinkingAnimInnerCss}>
                     <div css={reasoningWrapperCss}>
-                      <div css={thinkingBubbleLabelCss} style={{ color: "#7aa2e0", borderBottomColor: "#1e3a5f" }}>
+                      <div
+                        css={thinkingBubbleLabelCss}
+                        style={{
+                          color: "#7aa2e0",
+                          borderBottomColor: "#1e3a5f",
+                        }}
+                      >
                         Native Thinking
                       </div>
                       <TextPresenter
@@ -804,11 +832,20 @@ export default function TurnContainer({
                 </div>
                 <div
                   css={thinkingAnimWrapCss}
-                  style={{ gridTemplateRows: iratThinking ? "1fr" : "0fr", opacity: iratThinking ? 1 : 0 }}
+                  style={{
+                    gridTemplateRows: iratThinking ? "1fr" : "0fr",
+                    opacity: iratThinking ? 1 : 0,
+                  }}
                 >
                   <div css={thinkingAnimInnerCss}>
                     <div css={iratThinkingWrapperCss}>
-                      <div css={thinkingBubbleLabelCss} style={{ color: "#c49a4a", borderBottomColor: "#4a360f" }}>
+                      <div
+                        css={thinkingBubbleLabelCss}
+                        style={{
+                          color: "#c49a4a",
+                          borderBottomColor: "#4a360f",
+                        }}
+                      >
                         IRAT Thinking
                       </div>
                       <TextPresenter
@@ -967,7 +1004,6 @@ export default function TurnContainer({
                   </>
                 )}
               </div>
-
             </div>
           </div>
         )}

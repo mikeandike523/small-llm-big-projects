@@ -16,7 +16,8 @@ import {
   expandButtonCss,
 } from "../css/tool-ui-css";
 
-const MAX_STREAMING_CHARS = 300;
+// Exported so the tool-call-bubble height estimator can mirror this truncation exactly.
+export const MAX_STREAMING_CHARS = 300;
 
 const _streamPulse = keyframes`
   0%, 100% { opacity: 0.35; }

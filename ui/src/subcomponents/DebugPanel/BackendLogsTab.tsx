@@ -7,6 +7,12 @@ import scrollbarCss from "../../css/scrollBarCss";
 import BackendLogEntryItem from "./BackendLogEntryItem";
 import BackendLogMultiCard from "./BackendLogMultiCard";
 import BackendLogObjectModal from "./BackendLogObjectModal";
+import { estimateBackendLogRowHeight } from "../../estimators/backend-log-entry";
+
+// Fallback panel width for the very first render, before scrollRef has
+// mounted and clientWidth is available. Every render after mount reads the
+// actual width, so this only matters for the first paint's estimate.
+const FALLBACK_LOGS_PANEL_WIDTH_PX = 340;
 
 export const logsPanelCss = (visible: boolean) => css`
   position: absolute;
@@ -49,7 +55,11 @@ export default function BackendLogsTab({
   const virtualizer = useVirtualizer({
     count: logs.length,
     getScrollElement: () => scrollRef.current,
-    estimateSize: () => 48,
+    estimateSize: (index) =>
+      estimateBackendLogRowHeight(
+        logs[index],
+        scrollRef.current?.clientWidth ?? FALLBACK_LOGS_PANEL_WIDTH_PX,
+      ),
     getItemKey: (index) => logs[index].id,
     overscan: 8,
     // Stick-to-bottom: keep the newest log entry in view as entries append,
@@ -63,7 +73,10 @@ export default function BackendLogsTab({
       {logs.length === 0 ? (
         <div css={placeholderCss}>No logs yet.</div>
       ) : (
-        <div css={virtualInnerCss} style={{ height: virtualizer.getTotalSize() }}>
+        <div
+          css={virtualInnerCss}
+          style={{ height: virtualizer.getTotalSize() }}
+        >
           {virtualizer.getVirtualItems().map((virtualRow) => {
             const entry = logs[virtualRow.index];
             return (
@@ -75,15 +88,9 @@ export default function BackendLogsTab({
                 style={{ transform: `translateY(${virtualRow.start}px)` }}
               >
                 {entry.multiple === true ? (
-                  <BackendLogMultiCard
-                    entry={entry}
-                    onView={setViewingEntry}
-                  />
+                  <BackendLogMultiCard entry={entry} onView={setViewingEntry} />
                 ) : (
-                  <BackendLogEntryItem
-                    entry={entry}
-                    onView={setViewingEntry}
-                  />
+                  <BackendLogEntryItem entry={entry} onView={setViewingEntry} />
                 )}
               </div>
             );

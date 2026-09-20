@@ -2,7 +2,8 @@ import { css } from "@emotion/react";
 
 import scrollbarCss, { thinScrollbarCss } from "../css/scrollBarCss";
 
-const JSON_VALUE_MAX_LINES = 10;
+// Exported so the tool-call-bubble height estimator can mirror this cap exactly.
+export const JSON_VALUE_MAX_LINES = 10;
 
 // Params that may expand to fill the height set by an adjacent diff viewer column.
 // Only tools that show a diff viewer are relevant here.
@@ -206,7 +207,7 @@ export default function JsonArgsViewer({
     ([k, v]) =>
       expandableNames.has(k) &&
       typeof v === "string" &&
-      (v as string).includes("\n")
+      (v as string).includes("\n"),
   );
 
   if (hasExpandableMultiline) {

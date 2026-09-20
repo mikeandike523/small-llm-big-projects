@@ -45,7 +45,8 @@ const viewButtonCss = css`
   }
 `;
 
-function truncateForPreview(text: string): string {
+// Exported so the backend-log-entry height estimator can mirror this truncation exactly.
+export function truncateForPreview(text: string): string {
   if (text.length <= BACKEND_LOG_OBJECT_TRUNCATE_CHARS) return text;
   const more = text.length - BACKEND_LOG_OBJECT_TRUNCATE_CHARS;
   return `${text.slice(0, BACKEND_LOG_OBJECT_TRUNCATE_CHARS)}... (${more} more)`;
