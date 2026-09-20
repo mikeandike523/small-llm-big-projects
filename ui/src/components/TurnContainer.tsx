@@ -2,10 +2,7 @@ import { useState, useRef, Fragment } from "react";
 import { css, keyframes } from "@emotion/react";
 
 import { useStickToBottom } from "use-stick-to-bottom";
-import {
-  useVirtualizer,
-  measureElement as measureVirtualElement,
-} from "@tanstack/react-virtual";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import type { TodoItem, Turn, ToolCallEntry } from "../types";
 
 import scrollbarCss from "../css/scrollBarCss";
@@ -708,18 +705,6 @@ export default function TurnContainer({
     estimateSize: estimateToolCallRowSize,
     getItemKey: (index) => toolCallRows[index].key,
     overscan: 5,
-    measureElement: (el, entry, instance) => {
-      const measured = measureVirtualElement(el, entry, instance);
-      const index = instance.indexFromElement(el);
-      const row = toolCallRows[index];
-      const estimated = estimateToolCallRowSize(index);
-      const previous = instance.measurementsCache[index]?.size;
-      const log = measured === 0 ? console.warn : console.log;
-      log(
-        `[estimator][tool-call-bubble] type=${row?.type ?? "?"} index=${index} key=${row?.key ?? "?"} estimatedPx=${estimated} measuredPx=${measured} previousPx=${previous ?? "?"}${measured === 0 ? " <-- ZERO HEIGHT" : ""}`,
-      );
-      return measured;
-    },
   });
   const isToolCallsAutoScrolling = useStickToEnd(toolCallsVirtualizer);
 

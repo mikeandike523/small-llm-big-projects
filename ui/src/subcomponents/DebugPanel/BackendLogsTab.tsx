@@ -1,8 +1,5 @@
 import { useRef, useState } from "react";
-import {
-  useVirtualizer,
-  measureElement as measureVirtualElement,
-} from "@tanstack/react-virtual";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { BackendLogEntry } from "../../types/DebugPanel";
 import { placeholderCss } from "../../css/DebugPanel";
 import { css } from "@emotion/react";
@@ -100,19 +97,6 @@ export default function BackendLogsTab({
     estimateSize: estimateLogRowSize,
     getItemKey: (index) => logs[index].id,
     overscan: 8,
-    measureElement: (el, entry, instance) => {
-      const measured = measureVirtualElement(el, entry, instance);
-      const index = instance.indexFromElement(el);
-      const row = logs[index];
-      const type = row?.multiple === true ? "multi" : "single";
-      const estimated = estimateLogRowSize(index);
-      const previous = instance.measurementsCache[index]?.size;
-      const log = measured === 0 ? console.warn : console.log;
-      log(
-        `[estimator][backend-log-entry] type=${type} index=${index} id=${row?.id ?? "?"} estimatedPx=${estimated} measuredPx=${measured} previousPx=${previous ?? "?"}${measured === 0 ? " <-- ZERO HEIGHT" : ""}`,
-      );
-      return measured;
-    },
   });
   const isAutoScrolling = useStickToEnd(virtualizer);
 
