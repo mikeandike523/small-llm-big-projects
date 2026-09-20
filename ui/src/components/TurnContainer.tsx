@@ -2,7 +2,10 @@ import { useState, useRef, Fragment } from "react";
 import { css, keyframes } from "@emotion/react";
 
 import { useStickToBottom } from "use-stick-to-bottom";
-import { useVirtualizer } from "@tanstack/react-virtual";
+import {
+  useVirtualizer,
+  measureElement as measureVirtualElement,
+} from "@tanstack/react-virtual";
 import type { TodoItem, Turn, ToolCallEntry } from "../types";
 
 import scrollbarCss from "../css/scrollBarCss";
@@ -13,6 +16,7 @@ import {
   estimateDividerHeight,
   estimateToolCallCardHeight,
 } from "../estimators/tool-call-bubble";
+import { useStickToEnd } from "../hooks/useStickToEnd";
 
 // Fallback column width for the very first render, before toolsScrollRef has
 // mounted and clientWidth is available. The column is fully responsive
@@ -163,6 +167,17 @@ const toolCallsSectionCss = css`
   padding-top: 8px;
 `;
 
+// Wraps the scroll viewport so the autoscroll shine below can be pinned to
+// the visible bottom edge without scrolling away with the content.
+const toolCallsViewportCss = css`
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+`;
+
 const toolCallsScrollCss = css`
   ${scrollbarCss}
   flex: 1;
@@ -170,6 +185,25 @@ const toolCallsScrollCss = css`
   min-width: 0;
   overflow-y: auto;
   overflow-x: hidden;
+`;
+
+// Brief glow at the bottom edge of a virtualized list, lit while it's
+// actively auto-scrolling to follow new content and faded out via CSS
+// transition once that settles.
+const autoScrollShineCss = (active: boolean) => css`
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 28px;
+  pointer-events: none;
+  opacity: ${active ? 1 : 0};
+  transition: opacity 220ms ease;
+  background: linear-gradient(
+    to top,
+    rgba(180, 139, 224, 0.4),
+    rgba(180, 139, 224, 0)
+  );
 `;
 
 const todoColumnCss = css`
@@ -659,22 +693,35 @@ export default function TurnContainer({
     }
   }
 
+  const estimateToolCallRowSize = (index: number): number => {
+    const row = toolCallRows[index];
+    if (row.type === "divider") return estimateDividerHeight();
+    const availableWidthPx =
+      toolsScrollRef.current?.clientWidth ??
+      FALLBACK_TOOL_CALLS_COLUMN_WIDTH_PX;
+    return estimateToolCallCardHeight(row.tc, availableWidthPx);
+  };
+
   const toolCallsVirtualizer = useVirtualizer({
     count: toolCallRows.length,
     getScrollElement: () => toolsScrollRef.current,
-    estimateSize: (index) => {
-      const row = toolCallRows[index];
-      if (row.type === "divider") return estimateDividerHeight();
-      const availableWidthPx =
-        toolsScrollRef.current?.clientWidth ??
-        FALLBACK_TOOL_CALLS_COLUMN_WIDTH_PX;
-      return estimateToolCallCardHeight(row.tc, availableWidthPx);
-    },
+    estimateSize: estimateToolCallRowSize,
     getItemKey: (index) => toolCallRows[index].key,
     overscan: 5,
-    anchorTo: "end",
-    followOnAppend: true,
+    measureElement: (el, entry, instance) => {
+      const measured = measureVirtualElement(el, entry, instance);
+      const index = instance.indexFromElement(el);
+      const row = toolCallRows[index];
+      const estimated = estimateToolCallRowSize(index);
+      const previous = instance.measurementsCache[index]?.size;
+      const log = measured === 0 ? console.warn : console.log;
+      log(
+        `[estimator][tool-call-bubble] type=${row?.type ?? "?"} index=${index} key=${row?.key ?? "?"} estimatedPx=${estimated} measuredPx=${measured} previousPx=${previous ?? "?"}${measured === 0 ? " <-- ZERO HEIGHT" : ""}`,
+      );
+      return measured;
+    },
   });
+  const isToolCallsAutoScrolling = useStickToEnd(toolCallsVirtualizer);
 
   // Display content for the current/last subturn: final exchange or live streaming
   const lastExchange = lastSubturnExchanges[lastSubturnExchanges.length - 1];
@@ -865,43 +912,51 @@ export default function TurnContainer({
           {/* Bottom sub-section: Tool Calls */}
           <div css={toolCallsSectionCss}>
             <div css={centerSectionHeaderCss}>Tool Calls</div>
-            <div css={toolCallsScrollCss} ref={toolsScrollRef}>
-              {totalToolCallCount > 0 && (
-                <div
-                  style={{
-                    position: "relative",
-                    width: "100%",
-                    height: toolCallsVirtualizer.getTotalSize(),
-                  }}
-                >
-                  {toolCallsVirtualizer.getVirtualItems().map((virtualRow) => {
-                    const row = toolCallRows[virtualRow.index];
-                    return (
-                      <div
-                        key={row.key}
-                        data-index={virtualRow.index}
-                        ref={toolCallsVirtualizer.measureElement}
-                        style={{
-                          position: "absolute",
-                          top: 0,
-                          left: 0,
-                          width: "100%",
-                          paddingBottom: 12,
-                          transform: `translateY(${virtualRow.start}px)`,
-                        }}
-                      >
-                        {row.type === "divider" ? (
-                          <div css={subturnDividerCss}>
-                            subturn {row.subturnIdx + 1}
+            <div css={toolCallsViewportCss}>
+              <div css={toolCallsScrollCss} ref={toolsScrollRef}>
+                {totalToolCallCount > 0 && (
+                  <div
+                    style={{
+                      position: "relative",
+                      width: "100%",
+                      height: toolCallsVirtualizer.getTotalSize(),
+                    }}
+                  >
+                    {toolCallsVirtualizer
+                      .getVirtualItems()
+                      .map((virtualRow) => {
+                        const row = toolCallRows[virtualRow.index];
+                        return (
+                          <div
+                            key={row.key}
+                            data-index={virtualRow.index}
+                            ref={toolCallsVirtualizer.measureElement}
+                            style={{
+                              position: "absolute",
+                              top: 0,
+                              left: 0,
+                              width: "100%",
+                              paddingBottom: 12,
+                              transform: `translateY(${virtualRow.start}px)`,
+                            }}
+                          >
+                            {row.type === "divider" ? (
+                              <div css={subturnDividerCss}>
+                                subturn {row.subturnIdx + 1}
+                              </div>
+                            ) : (
+                              <ToolCallCard
+                                tc={row.tc}
+                                onViewFull={onViewFull}
+                              />
+                            )}
                           </div>
-                        ) : (
-                          <ToolCallCard tc={row.tc} onViewFull={onViewFull} />
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
+                        );
+                      })}
+                  </div>
+                )}
+              </div>
+              <div css={autoScrollShineCss(isToolCallsAutoScrolling)} />
             </div>
           </div>
         </div>
