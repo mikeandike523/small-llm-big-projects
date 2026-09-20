@@ -12,6 +12,7 @@ from flask import request, jsonify
 
 import src.ui_connector.socket_handler_components.state as _state
 from src.ui_connector.app import app
+from src.ui_connector import release_notes
 from src.ui_connector.socket_handler_components.session_store import (
     _load_session,
     _save_session,
@@ -431,35 +432,43 @@ def api_version():
     """
     Return the backend (server) software version, read live from the root
     package.json so it always reflects the currently installed application.
+    Paths are resolved against the repository root (not cwd).
     Returns:
       {"version": "<semver>", "note": "<latest release message or ''>",
        "note_date": "<ISO date or ''>"} — "unknown"/"" when data cannot be read.
     """
-    root_pkg = pathlib.Path(__file__).resolve().parents[3] / "package.json"
-    try:
-        with open(root_pkg, "r", encoding="utf-8") as fh:
-            version = json.load(fh).get("version", "unknown")
-    except Exception as exc:
-        logger.warning("Failed to read version from %s: %s", root_pkg, exc)
-        version = "unknown"
-    note, note_date = _latest_backend_release_note()
-    return jsonify({"version": version, "note": note, "note_date": note_date})
+    note, note_date = release_notes.latest_release_note()
+    return jsonify(
+        {
+            "version": release_notes.read_backend_version(),
+            "note": note,
+            "note_date": note_date,
+        }
+    )
 
 
-def _latest_backend_release_note():
-    """Read the newest entry from backend-release-notes/changelog-index.json
-    and its per-version message file. Returns ("", "") when unavailable."""
-    notes_dir = pathlib.Path(__file__).resolve().parents[3] / "backend-release-notes"
-    try:
-        idx = json.loads((notes_dir / "changelog-index.json").read_text(encoding="utf-8"))
-        releases = idx.get("releases", [])
-        if not releases:
-            return "", ""
-        top = releases[0]
-        msg = (notes_dir / top["file"]).read_text(encoding="utf-8").strip()
-        return msg, top.get("date", "")
-    except Exception:
-        return "", ""
+@app.route("/api/changelog", methods=["GET"])
+def api_changelog_index():
+    """
+    Return the backend changelog index (releases newest first).
+    Returns:
+      {"releases": [{"version": "1.2.3", "date": "...", "file": "1.2.3.txt"}, ...]}
+      — empty list when no release notes exist yet.
+    """
+    return jsonify({"releases": release_notes.read_changelog_index()})
+
+
+@app.route("/api/changelog/<version>", methods=["GET"])
+def api_changelog_note(version: str):
+    """
+    Return the release message for one backend version.
+    Returns:
+      {"version": "<v>", "message": "<text>"} or 404 when unknown/invalid.
+    """
+    message = release_notes.read_release_message(version)
+    if message is None:
+        return jsonify({"error": f"No release notes for version {version}"}), 404
+    return jsonify({"version": version, "message": message.strip()})
 
 
 @app.route("/api/folder-pick", methods=["POST"])
