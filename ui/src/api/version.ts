@@ -2,6 +2,8 @@
 // the dashboard can display the currently running server version.
 export type BackendVersion = {
   version: string;
+  note?: string;
+  note_date?: string;
 };
 
 export function fetchBackendVersion(): Promise<BackendVersion> {

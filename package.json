@@ -1,16 +1,16 @@
 {
   "name": "small-llm-big-projects",
-"version": "1.1.0",
+  "version": "1.0.0",
   "description": "",
   "main": "index.js",
   "scripts": {
     "db-first-time-setup": "bash scripts/db-first-time-setup.sh",
-    "ui:type-check":"cd ui && node_modules/.bin/tsc --noEmit",
+    "ui:type-check": "cd ui && node_modules/.bin/tsc --noEmit",
     "src:syntax-and-import-check": "bash python_in_env.sh scripts/check_py.py",
-    "line-counts-over-500":"sourcehelper line-count-report over 500",
-    "format":"bash scripts/format.sh",
-    "python:remove-unused-imports":"ruff check . --select=F401 --fix",
-    "python:check-unused-imports":"ruff check . --select=F401"
+    "line-counts-over-500": "sourcehelper line-count-report over 500",
+    "format": "bash scripts/format.sh",
+    "python:remove-unused-imports": "ruff check . --select=F401 --fix",
+    "python:check-unused-imports": "ruff check . --select=F401"
   },
   "keywords": [],
   "author": "",

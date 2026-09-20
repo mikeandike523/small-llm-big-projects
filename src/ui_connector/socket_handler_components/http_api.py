@@ -432,8 +432,8 @@ def api_version():
     Return the backend (server) software version, read live from the root
     package.json so it always reflects the currently installed application.
     Returns:
-      {"version": "<semver>"} — or {"version": "unknown"} if package.json
-      cannot be read (e.g. non-standard deployment layout).
+      {"version": "<semver>", "note": "<latest release message or ''>",
+       "note_date": "<ISO date or ''>"} — "unknown"/"" when data cannot be read.
     """
     root_pkg = pathlib.Path(__file__).resolve().parents[3] / "package.json"
     try:
@@ -442,7 +442,24 @@ def api_version():
     except Exception as exc:
         logger.warning("Failed to read version from %s: %s", root_pkg, exc)
         version = "unknown"
-    return jsonify({"version": version})
+    note, note_date = _latest_backend_release_note()
+    return jsonify({"version": version, "note": note, "note_date": note_date})
+
+
+def _latest_backend_release_note():
+    """Read the newest entry from backend-release-notes/changelog-index.json
+    and its per-version message file. Returns ("", "") when unavailable."""
+    notes_dir = pathlib.Path(__file__).resolve().parents[3] / "backend-release-notes"
+    try:
+        idx = json.loads((notes_dir / "changelog-index.json").read_text(encoding="utf-8"))
+        releases = idx.get("releases", [])
+        if not releases:
+            return "", ""
+        top = releases[0]
+        msg = (notes_dir / top["file"]).read_text(encoding="utf-8").strip()
+        return msg, top.get("date", "")
+    except Exception:
+        return "", ""
 
 
 @app.route("/api/folder-pick", methods=["POST"])
