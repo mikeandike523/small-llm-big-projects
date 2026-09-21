@@ -14,6 +14,7 @@ const NEAR_END_THRESHOLD_PX = 32;
 export function useStickToEnd<TScrollElement extends Element>(
   virtualizer: Virtualizer<TScrollElement, Element>,
 ): boolean {
+  const prevCountRef = useRef(0);
   const stuckRef = useRef(true);
   const lastScrollTopRef = useRef(0);
   const [isAutoScrolling, setIsAutoScrolling] = useState(true);
@@ -48,11 +49,15 @@ export function useStickToEnd<TScrollElement extends Element>(
   }, [virtualizer.scrollElement]);
 
   // Phase 1 — pre-paint (useLayoutEffect, no deps):
-  // On every React render while locked, snap to the end. This is the
-  // only hook that catches a row growing taller in place (e.g. streaming
-  // tool output) without any dependency we could name changing.
+  // Only scrolls when the item count increases. Gating on count (rather
+  // than scrolling on every render) drastically reduces programmatic
+  // scroll events that can race with user input. Row-growing-in-place
+  // is still caught by Phase 2 via getTotalSize().
   useLayoutEffect(() => {
     if (!stuckRef.current) return;
+    const count = vRef.current.options.count;
+    if (count <= prevCountRef.current) return;
+    prevCountRef.current = count;
     vRef.current.scrollToEnd({ behavior: "instant" });
   });
 

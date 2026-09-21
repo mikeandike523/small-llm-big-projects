@@ -1,0 +1,1 @@
+Improve stick-to-end: only auto-scroll when item count increases.
