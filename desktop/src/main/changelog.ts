@@ -69,13 +69,48 @@ export function getCurrentVersion(): string {
   }
 }
 
+/**
+ * Compare two dotted numeric version strings ("1.10.0" vs "1.9.0").
+ * Returns >0 if a is newer, <0 if b is newer, 0 if equal. Non-numeric
+ * components (or malformed strings) fall back to string comparison so
+ * this never throws on unexpected index content.
+ */
+function compareVersions(a: string, b: string): number {
+  const pa = a.split('.');
+  const pb = b.split('.');
+  const len = Math.max(pa.length, pb.length);
+  for (let i = 0; i < len; i++) {
+    const na = Number(pa[i]);
+    const nb = Number(pb[i]);
+    if (Number.isFinite(na) && Number.isFinite(nb)) {
+      if (na !== nb) return na - nb;
+    } else {
+      // Malformed component: compare the raw strings as a last resort.
+      const sa = pa[i] ?? '';
+      const sb = pb[i] ?? '';
+      if (sa !== sb) return sa < sb ? -1 : 1;
+    }
+  }
+  return 0;
+}
+
+/**
+ * Read the changelog index and return releases sorted newest-first.
+ * The index file's on-disk order is not trusted (release_manager.py may
+ * append rather than prepend), so both the version tooltip and the
+ * changelog dialog can rely on releases[0] being the latest version.
+ */
 export function readIndex(): ChangelogIndex | null {
   const root = resolveNotesRoot();
   if (!root) return null;
   try {
     const raw = fs.readFileSync(path.join(root, INDEX_FILE), 'utf-8');
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed?.releases) ? parsed : null;
+    if (!Array.isArray(parsed?.releases)) return null;
+    parsed.releases.sort((a: { version: string }, b: { version: string }) =>
+      compareVersions(b.version, a.version),
+    );
+    return parsed;
   } catch {
     return null;
   }

@@ -1,7 +1,7 @@
 {
   "name": "slbp-desktop",
   "productName": "SLBP",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Desktop shell for small-llm-big-projects: custom tab strip over the SLBP web UI.",
   "main": ".vite/build/main.js",
   "private": true,
