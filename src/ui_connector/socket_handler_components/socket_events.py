@@ -7,6 +7,7 @@ from flask_socketio import emit, join_room
 from termcolor import colored
 
 import src.ui_connector.socket_handler_components.state as _state
+from src.ui_connector.socket_handler_components import runtime_settings
 from src.ui_connector.app import socketio
 from src.ui_connector.socket_handler_components.emit import (
     _emit_and_log,
@@ -108,8 +109,7 @@ def handle_resume_session(data: dict):
             "completedTurns": completed_turns_data,
             "currentTurn": current_turn_data,
             "isTurnActive": is_turn_active,
-            "profileName": session.profile_name,
-            "approvalMode": session.approval_mode,
+            **runtime_settings.payload(runtime_settings.snapshot(session_id, session)),
         },
     )
 
@@ -127,6 +127,8 @@ def handle_resume_session(data: dict):
         last_context_usage
         and last_context_usage.get("known_max_context") is not None
         and last_context_usage.get("profile") == session.profile_name
+        and last_context_usage.get("profile_revision")
+        == runtime_settings.snapshot(session_id, session).profile_revision
     ):
         emit("context_usage_event", last_context_usage)
 
@@ -273,10 +275,9 @@ def handle_run_startup_tool_calls():
 
     _startup_cwd = _state._session_current_cwd.get(session_id) or session.initial_cwd
     _startup_cfg = load_llm_config(session.profile_name) or {}
-    _startup_auto_eol = (
-        (_startup_cfg.get("system_params") or {}).get("create_file_auto_eol")
-        or "enabled_silent"
-    )
+    _startup_auto_eol = (_startup_cfg.get("system_params") or {}).get(
+        "create_file_auto_eol"
+    ) or "enabled_silent"
     special_resources: dict = {
         "emit_backend_log": lambda *msgs: _emit_backend_log(session_id, *msgs),
         "session_init_working_dir": session.initial_cwd,
@@ -289,7 +290,9 @@ def handle_run_startup_tool_calls():
     def _on_startup_cwd_change(new_path: str) -> None:
         _state._session_current_cwd[session_id] = new_path
         special_resources["session_current_working_dir"] = new_path
-        socketio.emit("pwd_update", {"path": new_path.replace("\\", "/")}, room=session_id)
+        socketio.emit(
+            "pwd_update", {"path": new_path.replace("\\", "/")}, room=session_id
+        )
 
     special_resources["on_cwd_change"] = _on_startup_cwd_change
     from src.ui_connector.socket_handler_components.session_store import (

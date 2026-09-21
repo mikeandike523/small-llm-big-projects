@@ -101,9 +101,7 @@ export default function Chat() {
     isLoadingBackendState,
     sessionCost,
     sessionProfile,
-    setSessionProfile,
     approvalMode,
-    setApprovalMode,
     contextUsageData,
     setContextUsageData,
     terminalOpen,
@@ -114,7 +112,9 @@ export default function Chat() {
   // listens for the native page-title-updated event -- setting document.title
   // is the only hook needed to drive it (no custom IPC).
   useEffect(() => {
-    const latestTitle = [...thread].reverse().find((t) => t.taskTitle)?.taskTitle;
+    const latestTitle = [...thread]
+      .reverse()
+      .find((t) => t.taskTitle)?.taskTitle;
     document.title = latestTitle ?? "New Session";
   }, [thread]);
 
@@ -139,15 +139,15 @@ export default function Chat() {
   }, []);
 
   async function handleProfileChange(newProfile: string) {
-    if (profileChanging || busy || newProfile === sessionProfile) return;
+    if (profileChanging || newProfile === sessionProfile) return;
     setProfileChanging(true);
     try {
-      await fetch(`/api/sessions/${sessionId}/profile`, {
+      const response = await fetch(`/api/sessions/${sessionId}/profile`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ profile_name: newProfile || null }),
       });
-      setSessionProfile(newProfile || null);
+      if (!response.ok) throw new Error("Profile change failed");
       // Optimistically clear the context bar: the displayed snapshot was
       // parameterized by the OLD profile's known_max_context, so it is stale
       // the moment the profile changes. The backend also emits a clear event
@@ -163,15 +163,15 @@ export default function Chat() {
   }
 
   async function handleApprovalModeChange(newMode: string) {
-    if (approvalModeChanging || busy || newMode === approvalMode) return;
+    if (approvalModeChanging || newMode === approvalMode) return;
     setApprovalModeChanging(true);
     try {
-      await fetch(`/api/sessions/${sessionId}/approval-mode`, {
+      const response = await fetch(`/api/sessions/${sessionId}/approval-mode`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ approval_mode: newMode }),
       });
-      setApprovalMode(newMode);
+      if (!response.ok) throw new Error("Approval mode change failed");
     } catch {
       // silently ignore — user can retry
     } finally {
@@ -292,8 +292,8 @@ export default function Chat() {
               <select
                 value={sessionProfile ?? ""}
                 onChange={(e) => handleProfileChange(e.target.value)}
-                disabled={profileChanging || busy}
-                title="Session profile (takes effect on next turn)"
+                disabled={profileChanging}
+                title="Session profile (takes effect on the next LLM request)"
                 style={{
                   background: "#101722",
                   border: "1px solid #2a3a6e",
@@ -302,7 +302,7 @@ export default function Chat() {
                   fontFamily: "inherit",
                   fontSize: 11,
                   padding: "3px 6px",
-                  cursor: profileChanging || busy ? "not-allowed" : "pointer",
+                  cursor: profileChanging ? "not-allowed" : "pointer",
                   opacity: profileChanging ? 0.5 : 1,
                 }}
               >
@@ -316,8 +316,8 @@ export default function Chat() {
             <select
               value={approvalMode}
               onChange={(e) => handleApprovalModeChange(e.target.value)}
-              disabled={approvalModeChanging || busy}
-              title="Approval mode (takes effect on next subturn)"
+              disabled={approvalModeChanging}
+              title="Approval mode (takes effect on the next tool approval check)"
               style={{
                 background: "#101722",
                 border: "1px solid #2a3a6e",
@@ -326,7 +326,7 @@ export default function Chat() {
                 fontFamily: "inherit",
                 fontSize: 11,
                 padding: "3px 6px",
-                cursor: approvalModeChanging || busy ? "not-allowed" : "pointer",
+                cursor: approvalModeChanging ? "not-allowed" : "pointer",
                 opacity: approvalModeChanging ? 0.5 : 1,
               }}
             >
@@ -348,7 +348,14 @@ export default function Chat() {
           </div>
         </div>
         <div css={threadCss} ref={threadRef}>
-          <div ref={threadContentRef} css={css`display:flex;flex-direction:column;gap:28px;`}>
+          <div
+            ref={threadContentRef}
+            css={css`
+              display: flex;
+              flex-direction: column;
+              gap: 28px;
+            `}
+          >
             {startupToolCalls.length > 0 && (
               <StartupToolCallsCard
                 toolCalls={startupToolCalls}

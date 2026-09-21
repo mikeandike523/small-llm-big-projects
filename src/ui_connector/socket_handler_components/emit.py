@@ -43,6 +43,7 @@ def _make_sampler_usage_tracker(session_id: str, label: str) -> Callable[[dict],
         session_id: The session ID
         label: Label for this sampler (e.g., "tool", "skill_selector")
     """
+
     def _track(usage: dict) -> None:
         if not usage:
             return
@@ -75,7 +76,7 @@ def _make_sampler_usage_tracker(session_id: str, label: str) -> Callable[[dict],
                 "total_session_cost": total_session_cost,
             },
         )
-        
+
     return _track
 
 
@@ -105,7 +106,9 @@ def _get_known_max_context(session_profile: str | None) -> int | None:
     return known_max_context
 
 
-def clear_context_usage(session_id: str, profile_name: str | None) -> None:
+def clear_context_usage(
+    session_id: str, profile_name: str | None, profile_revision: int | None = None
+) -> None:
     """Clear the persisted/in-memory context usage for a session and tell the frontend.
 
     Called when the session's profile changes: the previously displayed bar was
@@ -126,12 +129,18 @@ def clear_context_usage(session_id: str, profile_name: str | None) -> None:
             "total_tokens": None,
             "known_max_context": None,
             "profile": profile_name,
+            "profile_revision": profile_revision,
         },
         room=session_id,
     )
 
 
-def _emit_context_usage_if_configured(session_id: str, session_profile: str | None, usage: dict) -> None:
+def _emit_context_usage_if_configured(
+    session_id: str,
+    session_profile: str | None,
+    usage: dict,
+    profile_revision: int | None = None,
+) -> None:
     """Emit context_usage_event to frontend if model.known_max_context parameter is set.
 
     This allows the frontend to display a visual indicator of context limit proximity.
@@ -160,6 +169,7 @@ def _emit_context_usage_if_configured(session_id: str, session_profile: str | No
                 # Stamp with the producing profile so stale snapshots can be
                 # detected on resume if the profile changed between restarts.
                 "profile": session_profile,
+                "profile_revision": profile_revision,
             }
             # Record for persistence (flushed to session_meta by _save_session).
             _state._session_last_context_usage[session_id] = snapshot
@@ -230,19 +240,24 @@ def _emit_content_snapshot(
     )
 
 
-def _make_sampler_request_logger(session_id: str, sampler_name: str) -> Callable[[dict], None]:
+def _make_sampler_request_logger(
+    session_id: str, sampler_name: str
+) -> Callable[[dict], None]:
     """Return a callback that logs the sampler request params to the backend log."""
+
     def _log(params: dict) -> None:
         _emit_backend_log(
             session_id,
             f"[sampler:{sampler_name}] request params",
             params if params else {"note": "(none)"},
         )
+
     return _log
 
 
 def _make_sampler_response_logger(session_id: str, label: str):
     """Return a callback that logs system prompt, user message, reasoning, and assistant response."""
+
     def _log(messages, result) -> None:
         system_msg = ""
         user_msg = ""
@@ -263,4 +278,5 @@ def _make_sampler_response_logger(session_id: str, label: str):
                 "reasoning_length": len(result.reasoning) if result.reasoning else 0,
             },
         )
+
     return _log

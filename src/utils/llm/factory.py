@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from typing import Callable
 
 from src.data import get_pool
 from src.utils.sql.kv_manager import KVManager
@@ -17,7 +18,9 @@ from src.utils.param_registry import (
 logger = logging.getLogger(__name__)
 
 
-def _build_namespace_params(param_keys: list[str], full_prefix: str, kv: KVManager) -> dict:
+def _build_namespace_params(
+    param_keys: list[str], full_prefix: str, kv: KVManager
+) -> dict:
     """Build a self-contained API params dict for one sampler namespace.
     The suffix 'name' is mapped to the payload key 'model' so sampler overrides
     (e.g. watchdog.model.name) replace the model in the outgoing request.
@@ -31,7 +34,7 @@ def _build_namespace_params(param_keys: list[str], full_prefix: str, kv: KVManag
     for k in param_keys:
         if not k.startswith(full_prefix):
             continue
-        suffix = k[len(full_prefix):]
+        suffix = k[len(full_prefix) :]
         if suffix == "request_extra_params":
             continue  # handled below after base params are collected
         if suffix == "name":
@@ -121,7 +124,7 @@ def load_llm_config(profile_name: str | None = None) -> dict | None:
         for k in param_keys:
             if not k.startswith(full_model_prefix):
                 continue
-            suffix = k[len(full_model_prefix):]
+            suffix = k[len(full_model_prefix) :]
             full_name = f"model.{suffix}"
             if full_name not in _ALLOWED_PARAMS or full_name in _SYSTEM_ONLY_PARAMS:
                 continue
@@ -152,7 +155,7 @@ def load_llm_config(profile_name: str | None = None) -> dict | None:
         system_params: dict = {}
         for _name, _spec in _REGISTRY.items():
             if _name.startswith("system.") and _spec.scope == "profile":
-                system_params[_name[len("system."):]] = get_param_value(
+                system_params[_name[len("system.") :]] = get_param_value(
                     kv, _name, profile_prefix=prefix
                 )
         system_params["irat"] = get_param_value(kv, "model.irat", profile_prefix=prefix)
@@ -161,6 +164,7 @@ def load_llm_config(profile_name: str | None = None) -> dict | None:
         return None
 
     return {
+        "profile_name": profile,
         "endpoint_url": endpoint_url,
         "token_value": token_value,
         "provider": provider,
@@ -196,18 +200,24 @@ def _call_sampler(
     'name' is stripped — it is a system-only param already mapped to 'model'.
     """
     max_tokens = sampler_params.get("max_tokens")
-    api_params = {k: v for k, v in sampler_params.items() if k not in ("max_tokens", "name")}
+    api_params = {
+        k: v for k, v in sampler_params.items() if k not in ("max_tokens", "name")
+    }
 
     if on_request_log is not None:
         try:
-            resolved_model = sampler_params.get("name") or getattr(llm, "_model", None) or "unknown"
+            resolved_model = (
+                sampler_params.get("name") or getattr(llm, "_model", None) or "unknown"
+            )
             log_params = dict(sampler_params)
             log_params["model"] = resolved_model
             on_request_log(log_params)
         except Exception:
             pass
 
-    result = llm.fetch(messages, timeout_s=timeout_s, max_tokens=max_tokens, parameters=api_params)
+    result = llm.fetch(
+        messages, timeout_s=timeout_s, max_tokens=max_tokens, parameters=api_params
+    )
 
     if on_reasoning_detected is not None and result.reasoning:
         try:
@@ -261,16 +271,26 @@ def make_llm_from_config(
 def make_llm_refreshing(
     timeout_s: float | None = None,
     profile_name: str | None = None,
+    profile_resolver: Callable[[], str | None] | None = None,
+    config_loader: Callable[[], dict | None] | None = None,
 ) -> StreamingLLM:
     """
     Create a StreamingLLM that reloads its config from the DB on every stream()/fetch() call.
     If profile_name is given, that profile is used for every reload (session-level override).
     Raises RuntimeError if no active config is found at construction time.
     """
-    config = load_llm_config(profile_name)
+    resolved_profile = profile_resolver() if profile_resolver else profile_name
+    config = config_loader() if config_loader else load_llm_config(resolved_profile)
     if config is None:
         raise RuntimeError("No active token/endpoint configured.")
-    loader = (lambda: load_llm_config(profile_name)) if profile_name else load_llm_config
+    if config_loader is not None:
+        loader = config_loader
+    elif profile_resolver is not None:
+        loader = lambda: load_llm_config(profile_resolver())
+    else:
+        loader = (
+            (lambda: load_llm_config(profile_name)) if profile_name else load_llm_config
+        )
     return make_llm_from_config(config, timeout_s, config_loader=loader)
 
 

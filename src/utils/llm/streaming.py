@@ -19,6 +19,8 @@ class StreamResult:
     usage: dict | None = None
     stop_reason: str | None = None
     reasoning_native: dict | None = None
+    applied_profile_name: str | None = None
+    applied_config: dict | None = None
 
     @property
     def has_tool_calls(self) -> bool:
@@ -49,6 +51,8 @@ class StreamingLLM:
     _config_loader: Optional[Callable[[], Any]]
     _system_params: dict
     _adapter_cache: dict
+    _applied_profile_name: str | None
+    _applied_config: dict | None
 
     def __init__(
         self,
@@ -69,6 +73,8 @@ class StreamingLLM:
         self._config_loader = config_loader
         self._system_params = system_params
         self._adapter_cache = {}
+        self._applied_profile_name = None
+        self._applied_config = None
 
         if adapter is not None:
             self._adapter = adapter
@@ -83,7 +89,7 @@ class StreamingLLM:
             return
         config = self._config_loader()
         if config is None:
-            return
+            raise RuntimeError("The selected profile has no active LLM configuration.")
         from src.utils.llm.dialect import detect_dialect, get_adapter
 
         self._endpoint = config["endpoint_url"]
@@ -91,6 +97,8 @@ class StreamingLLM:
         self._model = config.get("model")
         self._default_parameters = config.get("model_params", {})
         self._system_params = config.get("system_params", {})
+        self._applied_profile_name = config.get("profile_name")
+        self._applied_config = config
         dialect = detect_dialect(
             provider=config.get("provider"),
             endpoint_url=config.get("endpoint_url"),
@@ -164,9 +172,11 @@ class StreamingLLM:
         max_tokens=None,
         parameters={},
         tools: Optional[list[dict]] = None,
+        refresh_config: bool = True,
     ) -> StreamResult:
         """Async streaming LLM call. Cancellable via asyncio task cancellation."""
-        self._refresh()
+        if refresh_config:
+            self._refresh()
         payload = self._adapter.adapt_payload(
             self._build_base_payload(
                 messages, max_tokens, parameters, tools, streaming=True
@@ -254,6 +264,8 @@ class StreamingLLM:
             usage=_last_usage,
             stop_reason=_stop_reason,
             reasoning_native=self._adapter.finalize_reasoning(state),
+            applied_profile_name=self._applied_profile_name,
+            applied_config=self._applied_config,
         )
 
     def fetch(

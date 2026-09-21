@@ -49,6 +49,7 @@ EVT_TURN_COMPLETED = "turn_completed"
 # Session-global live todo list (session_data["todo_list"]); last-writer-wins.
 EVT_TODO_LIST_SET = "todo_list_set"
 EVT_APPROVAL_MODE_SET = "approval_mode_set"
+EVT_PROFILE_SET = "profile_set"
 
 
 # ---------------------------------------------------------------------------
@@ -108,6 +109,10 @@ def subturn_started_payload(turn_id: str, st: Subturn) -> dict:
 
 def approval_mode_payload(mode: str) -> dict:
     return {"mode": mode}
+
+
+def profile_payload(profile_name: str | None) -> dict:
+    return {"profile_name": profile_name}
 
 
 def turn_completed_payload(turn: Turn) -> dict:
@@ -242,6 +247,10 @@ def _on_approval_mode_set(state: ReplayState, p: dict) -> None:
     state.session.approval_mode = p.get("mode", APPROVAL_MODE_DEFAULT)
 
 
+def _on_profile_set(state: ReplayState, p: dict) -> None:
+    state.session.profile_name = p.get("profile_name")
+
+
 _HANDLERS = {
     EVT_SESSION_CREATED: _on_session_created,
     EVT_TURN_STARTED: _on_turn_started,
@@ -253,6 +262,7 @@ _HANDLERS = {
     EVT_TURN_COMPLETED: _on_turn_completed,
     EVT_TODO_LIST_SET: _on_todo_list_set,
     EVT_APPROVAL_MODE_SET: _on_approval_mode_set,
+    EVT_PROFILE_SET: _on_profile_set,
 }
 
 

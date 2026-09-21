@@ -9,6 +9,7 @@ from flask import request
 from flask_socketio import emit
 
 import src.ui_connector.socket_handler_components.state as _state
+from src.ui_connector.socket_handler_components import runtime_settings
 from src.ui_connector.app import socketio
 from src.ui_connector.socket_handler_components.emit import (
     _emit_and_log,
@@ -33,6 +34,15 @@ from src.utils.request_error_formatting import classify_llm_request_error
 from src.utils.session_model import Session, Turn, Subturn
 
 logger = logging.getLogger(__name__)
+
+
+def _load_runtime_llm_config(session_id: str, session: Session) -> dict | None:
+    """Load one atomic desired-profile snapshot for a single LLM dispatch."""
+    settings = runtime_settings.snapshot(session_id, session)
+    config = load_llm_config(settings.profile_name)
+    if config is not None:
+        config["profile_revision"] = settings.profile_revision
+    return config
 
 
 # ---------------------------------------------------------------------------
@@ -77,7 +87,9 @@ async def _maybe_fetch_task_title(
         )
         if title:
             current_turn.task_title = title
-            _emit_and_log(session_id, "task_title", {"turn_id": turn_id, "title": title})
+            _emit_and_log(
+                session_id, "task_title", {"turn_id": turn_id, "title": title}
+            )
             _save_session(session_id, session)
     except Exception:
         logger.warning("Task title fetch failed for turn %s", turn_id, exc_info=True)
@@ -125,7 +137,10 @@ def handle_user_message(data: dict):
         )
         return
 
-    streaming_llm = make_llm_refreshing(timeout_s=60, profile_name=_session_profile)
+    streaming_llm = make_llm_refreshing(
+        timeout_s=60,
+        config_loader=lambda: _load_runtime_llm_config(session_id, session),
+    )
     # load_llm_config() resolves every profile-scoped system.* param through the
     # registry getter, so each key below is always present with its registry
     # default already applied -- no per-callsite fallback literal needed.
@@ -135,7 +150,9 @@ def handle_user_message(data: dict):
     strict_dirty: bool = _system_params["strict_dirty"]
     create_file_auto_eol: str = _system_params["create_file_auto_eol"]
     enable_patch_rewriter: bool = _system_params["enable_patch_rewriter"]
-    model_temperature: float | None = (llm_config.get("model_params") or {}).get("temperature")
+    model_temperature: float | None = (llm_config.get("model_params") or {}).get(
+        "temperature"
+    )
     watchdog_params: dict = llm_config.get("watchdog_params") or {}
     summarizer_params: dict = llm_config.get("summarizer_params") or {}
 
@@ -157,8 +174,12 @@ def handle_user_message(data: dict):
                     text,
                     watchdog_params,
                     on_usage=_make_sampler_usage_tracker(session_id, "continuation"),
-                    on_request_log=_make_sampler_request_logger(session_id, "continuation"),
-                    on_response=_make_sampler_response_logger(session_id, "continuation"),
+                    on_request_log=_make_sampler_request_logger(
+                        session_id, "continuation"
+                    ),
+                    on_response=_make_sampler_response_logger(
+                        session_id, "continuation"
+                    ),
                 )
             )
         except Exception as _wdog_exc:
@@ -320,7 +341,9 @@ def handle_user_message(data: dict):
             cancel_event.set()
         except Exception as exc:
             logger.exception(
-                "Unhandled exception escaped _async_agent_loop entirely for session %s: %s", session_id, exc
+                "Unhandled exception escaped _async_agent_loop entirely for session %s: %s",
+                session_id,
+                exc,
             )
         finally:
             _state._cancel_tasks.pop(session_id, None)
@@ -375,7 +398,10 @@ def handle_force_continuation(data: dict):
         )
         return
 
-    streaming_llm = make_llm_refreshing(timeout_s=60, profile_name=_session_profile)
+    streaming_llm = make_llm_refreshing(
+        timeout_s=60,
+        config_loader=lambda: _load_runtime_llm_config(session_id, session),
+    )
     # load_llm_config() resolves every profile-scoped system.* param through the
     # registry getter, so each key below is always present with its registry
     # default already applied -- no per-callsite fallback literal needed.
@@ -385,7 +411,9 @@ def handle_force_continuation(data: dict):
     strict_dirty: bool = _system_params["strict_dirty"]
     create_file_auto_eol: str = _system_params["create_file_auto_eol"]
     enable_patch_rewriter: bool = _system_params["enable_patch_rewriter"]
-    model_temperature: float | None = (llm_config.get("model_params") or {}).get("temperature")
+    model_temperature: float | None = (llm_config.get("model_params") or {}).get(
+        "temperature"
+    )
     watchdog_params: dict = llm_config.get("watchdog_params") or {}
     summarizer_params: dict = llm_config.get("summarizer_params") or {}
 

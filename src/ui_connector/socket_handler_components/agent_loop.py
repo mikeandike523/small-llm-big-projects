@@ -8,6 +8,7 @@ import threading
 from termcolor import colored
 
 import src.ui_connector.socket_handler_components.state as _state
+from src.ui_connector.socket_handler_components import runtime_settings
 from src.ui_connector.socket_handler_components.emit import (
     _emit_and_log,
     _emit_backend_log,
@@ -117,7 +118,9 @@ async def _async_agent_loop(
             [entry["id"] for entry in selected_skills],
         )
         turn_only_skills = [
-            entry for entry in turn_resolved_skills if entry["id"] not in baseline_skill_ids
+            entry
+            for entry in turn_resolved_skills
+            if entry["id"] not in baseline_skill_ids
         ]
         loaded_skills = baseline_skills + turn_only_skills
         if loaded_skills:
@@ -140,7 +143,9 @@ async def _async_agent_loop(
                 break
 
             is_interim_call = (
-                had_tool_calls or bool(current_subturn.exchanges) or current_subturn.is_continuation
+                had_tool_calls
+                or bool(current_subturn.exchanges)
+                or current_subturn.is_continuation
             ) and not final_summary_reprompt_sent
             was_irat_call = session.interim_response_as_thinking and is_interim_call
             if is_interim_call:
@@ -185,6 +190,24 @@ async def _async_agent_loop(
                 break
 
             usage = getattr(result, "usage", None)
+            # Profile-scoped orchestration settings travel with the request that
+            # produced this response. Its tool phase therefore cannot become a
+            # hybrid of a newly selected profile and the response's profile.
+            applied_config = result.applied_config or {}
+            applied_system = applied_config.get("system_params") or {}
+            if applied_system:
+                return_value_max_chars = applied_system["return_value_max_chars"]
+                blank_response_retries = applied_system["blank_response_retries"]
+                strict_dirty = applied_system["strict_dirty"]
+                create_file_auto_eol = applied_system["create_file_auto_eol"]
+                enable_patch_rewriter = applied_system["enable_patch_rewriter"]
+            model_temperature = (applied_config.get("model_params") or {}).get(
+                "temperature"
+            )
+            if applied_config:
+                watchdog_params = applied_config.get("watchdog_params") or {}
+                summarizer_params = applied_config.get("summarizer_params") or {}
+                patchrewriter_params = applied_config.get("patchrewriter_params") or {}
             if usage:
                 cost = usage.get("cost")
                 total_session_cost = _state._session_costs.get(session_id, 0.0)
@@ -204,6 +227,8 @@ async def _async_agent_loop(
                     session_id,
                     "Main Agent Per Exchange Usage",
                     {
+                        "profile": result.applied_profile_name,
+                        "model": applied_config.get("model"),
                         "input_tokens": usage.get(
                             "input_tokens", usage.get("prompt_tokens", "?")
                         ),
@@ -216,7 +241,21 @@ async def _async_agent_loop(
                     },
                 )
                 # Emit context_usage_event if model.known_max_context is set
-                _emit_context_usage_if_configured(session_id, session.profile_name, usage)
+                # An older in-flight request may finish after the user switches
+                # profiles. Its cost remains valid, but its context bar must not
+                # replace the new profile's cleared/current snapshot.
+                desired_settings = runtime_settings.snapshot(session_id, session)
+                if (
+                    result.applied_profile_name == desired_settings.profile_name
+                    and applied_config.get("profile_revision")
+                    == desired_settings.profile_revision
+                ):
+                    _emit_context_usage_if_configured(
+                        session_id,
+                        result.applied_profile_name,
+                        usage,
+                        profile_revision=applied_config.get("profile_revision"),
+                    )
 
             last_assistant_content = content_for_history
 
@@ -278,10 +317,18 @@ async def _async_agent_loop(
                     )
                     if current_subturn.count_tool_calls() > 0:
                         await _generate_and_store_compaction(
-                            streaming_llm, session_id, turn_id, current_subturn, reason,
+                            streaming_llm,
+                            session_id,
+                            turn_id,
+                            current_subturn,
+                            reason,
                             summarizer_params or {},
-                            on_request_log=_make_sampler_request_logger(session_id, "summarizer"),
-                            on_response=_make_sampler_response_logger(session_id, "summarizer"),
+                            on_request_log=_make_sampler_request_logger(
+                                session_id, "summarizer"
+                            ),
+                            on_response=_make_sampler_response_logger(
+                                session_id, "summarizer"
+                            ),
                         )
                     _emit_and_log(
                         session_id,
@@ -307,7 +354,9 @@ async def _async_agent_loop(
                     )
                     continue
                 if not blank_nudge_sent:
-                    existing_open = _get_open_items(session.session_data.get("todo_list") or [])
+                    existing_open = _get_open_items(
+                        session.session_data.get("todo_list") or []
+                    )
                     if existing_open:
                         _emit_backend_log(
                             session_id,
@@ -373,7 +422,9 @@ async def _async_agent_loop(
             # Hard block: todos must be closed before the turn can end.
             unclosed = _get_open_items(session.session_data.get("todo_list") or [])
             if unclosed:
-                tree_text = _todo_format_tree(session.session_data.get("todo_list") or [])
+                tree_text = _todo_format_tree(
+                    session.session_data.get("todo_list") or []
+                )
                 continuation = f"You still have unclosed todo items. Here is the formatted list:\n\n{tree_text}"
                 interim_exchange = LLMExchange(
                     assistant_content=content_for_history,
@@ -404,9 +455,15 @@ async def _async_agent_loop(
                         current_subturn.user_text,
                         [c["content"] for c in final_answer_candidates],
                         watchdog_params or {},
-                        on_usage=_make_sampler_usage_tracker(session_id, "final_answer"),
-                        on_request_log=_make_sampler_request_logger(session_id, "final_answer"),
-                        on_response=_make_sampler_response_logger(session_id, "final_answer"),
+                        on_usage=_make_sampler_usage_tracker(
+                            session_id, "final_answer"
+                        ),
+                        on_request_log=_make_sampler_request_logger(
+                            session_id, "final_answer"
+                        ),
+                        on_response=_make_sampler_response_logger(
+                            session_id, "final_answer"
+                        ),
                     )
                     if best_idx is None:
                         # Selector judged none of the candidates a viable final
@@ -430,11 +487,17 @@ async def _async_agent_loop(
                                     ),
                                 )
                             )
-                            _emit_and_log(session_id, "final_reprompt", {"turn_id": turn_id})
-                            _emit_and_log(session_id, "begin_final_summary", {"turn_id": turn_id})
+                            _emit_and_log(
+                                session_id, "final_reprompt", {"turn_id": turn_id}
+                            )
+                            _emit_and_log(
+                                session_id, "begin_final_summary", {"turn_id": turn_id}
+                            )
                             _emit_backend_log(
                                 session_id,
-                                colored("[FINAL SUMMARY REPROMPT]", "cyan", force_color=True)
+                                colored(
+                                    "[FINAL SUMMARY REPROMPT]", "cyan", force_color=True
+                                )
                                 + " Final answer selector rejected all candidates — forcing summary",
                                 {"turn_id": turn_id},
                             )
@@ -460,8 +523,12 @@ async def _async_agent_loop(
                         current_subturn,
                         winner["content"],
                         summarizer_params or {},
-                        on_request_log=_make_sampler_request_logger(session_id, "summarizer"),
-                        on_response=_make_sampler_response_logger(session_id, "summarizer"),
+                        on_request_log=_make_sampler_request_logger(
+                            session_id, "summarizer"
+                        ),
+                        on_response=_make_sampler_response_logger(
+                            session_id, "summarizer"
+                        ),
                     )
                 _emit_and_log(
                     session_id,
@@ -522,7 +589,8 @@ async def _async_agent_loop(
             if not content_for_history:
                 _emit_backend_log(
                     session_id,
-                    colored("[WARNING]", "yellow", force_color=True) + " LLM returned empty final response — bubble will not render",
+                    colored("[WARNING]", "yellow", force_color=True)
+                    + " LLM returned empty final response — bubble will not render",
                 )
             final_exchange = LLMExchange(
                 assistant_content=content_for_history,
@@ -540,7 +608,9 @@ async def _async_agent_loop(
                     current_subturn,
                     content_for_history,
                     summarizer_params or {},
-                    on_request_log=_make_sampler_request_logger(session_id, "summarizer"),
+                    on_request_log=_make_sampler_request_logger(
+                        session_id, "summarizer"
+                    ),
                     on_response=_make_sampler_response_logger(session_id, "summarizer"),
                 )
             _emit_and_log(

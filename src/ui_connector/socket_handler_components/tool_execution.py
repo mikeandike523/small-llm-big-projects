@@ -5,6 +5,7 @@ import threading
 from typing import Any
 
 import src.ui_connector.socket_handler_components.state as _state
+from src.ui_connector.socket_handler_components import runtime_settings
 from src.ui_connector.app import socketio
 from src.ui_connector.socket_handler_components.emit import (
     _emit_and_log,
@@ -72,13 +73,7 @@ def _execute_tools(
     """
     turn_id = current_turn.id
     _current_cwd = _state._session_current_cwd.get(session_id) or session.initial_cwd
-    _current_subturn = next(
-        (st for st in current_turn.subturns if st.id == subturn_id), None
-    )
-    approval_mode = (
-        (_current_subturn.approval_mode if _current_subturn else None)
-        or session.approval_mode
-    )
+    approval_mode = runtime_settings.snapshot(session_id, session).approval_mode
     special_resources: dict = {
         "emit_backend_log": lambda *msgs: _emit_backend_log(session_id, *msgs),
         "session_id": session_id,
@@ -101,7 +96,9 @@ def _execute_tools(
         "on_sampler_usage": _make_sampler_usage_tracker(session_id, "tool"),
         "on_sampler_request_log": _make_sampler_request_logger(session_id, "tool"),
         "on_sampler_response": _make_sampler_response_logger(session_id, "tool"),
-        "make_sampler_callbacks": lambda label: _make_sampler_callbacks(session_id, label),
+        "make_sampler_callbacks": lambda label: _make_sampler_callbacks(
+            session_id, label
+        ),
     }
 
     def _on_cwd_change(new_path: str) -> None:
@@ -138,6 +135,12 @@ def _execute_tools(
 
     try:
         for tc in result.tool_calls:
+            # Approval policy is intentionally live per tool call. A mode change
+            # never alters a tool already running or resolves an existing prompt,
+            # but it does apply to the next approval gate in this same exchange.
+            special_resources["approval_mode"] = runtime_settings.snapshot(
+                session_id, session
+            ).approval_mode
             _emit_and_log(
                 session_id,
                 "tool_call",
@@ -159,7 +162,9 @@ def _execute_tools(
                 tool_map=actual_tool_map,
             )
             _dirty_error = _dirty_cache.check_requires_clean(
-                session_id, _effects, tc.name,
+                session_id,
+                _effects,
+                tc.name,
                 cwd=_state._session_current_cwd.get(session_id),
                 strict=strict_dirty,
             )
@@ -193,13 +198,19 @@ def _execute_tools(
                 _filepath = None
                 if _raw_filepath:
                     from src.tools._path_utils import _resolve_path as _rp
-                    _filepath = _rp(_raw_filepath, special_resources.get("session_current_working_dir"))
+
+                    _filepath = _rp(
+                        _raw_filepath,
+                        special_resources.get("session_current_working_dir"),
+                    )
                 if _patch and isinstance(_patch, str) and (_filepath or _key):
                     # Read the target contents for dry-run and watchdog use.
                     _contents: str | None = None
                     if _filepath:
                         try:
-                            with open(_filepath, "r", encoding="utf-8", newline="") as _fh:
+                            with open(
+                                _filepath, "r", encoding="utf-8", newline=""
+                            ) as _fh:
                                 _contents = _fh.read()
                         except Exception:
                             pass
@@ -216,6 +227,7 @@ def _execute_tools(
                             _parse_patch_file as _ptf,
                             _apply_edits as _ae,
                         )
+
                         _patch_ok = False
                         try:
                             _hs = _ptf(_patch)
@@ -226,7 +238,9 @@ def _execute_tools(
                             pass
 
                         if not _patch_ok:
-                            from src.tools._patch_rewrite_watchdog import attempt_patch_fix
+                            from src.tools._patch_rewrite_watchdog import (
+                                attempt_patch_fix,
+                            )
 
                             _emit_and_log(
                                 session_id,
@@ -257,12 +271,20 @@ def _execute_tools(
                                 )
 
                             _fixed = attempt_patch_fix(
-                                _contents, _patch, _on_rw_progress,
+                                _contents,
+                                _patch,
+                                _on_rw_progress,
                                 llm=llm,
                                 patchrewriter_params=patchrewriter_params or {},
-                                on_usage=_make_sampler_usage_tracker(session_id, "patch_rewriter"),
-                                on_request_log=_make_sampler_request_logger(session_id, "patch_rewriter"),
-                                on_response=_make_sampler_response_logger(session_id, "patch_rewriter"),
+                                on_usage=_make_sampler_usage_tracker(
+                                    session_id, "patch_rewriter"
+                                ),
+                                on_request_log=_make_sampler_request_logger(
+                                    session_id, "patch_rewriter"
+                                ),
+                                on_response=_make_sampler_response_logger(
+                                    session_id, "patch_rewriter"
+                                ),
                             )
                             if _fixed is not None:
                                 # Mutate in-place so tool_record.args also reflects
@@ -354,7 +376,9 @@ def _execute_tools(
             _snap_cwd = special_resources.get("session_current_working_dir")
             for _snap_path in _effects.get("dirties_files", []):
                 try:
-                    _file_snapshot.auto_snapshot_if_first_write(session_id, _snap_path, cwd=_snap_cwd)
+                    _file_snapshot.auto_snapshot_if_first_write(
+                        session_id, _snap_path, cwd=_snap_cwd
+                    )
                 except Exception:
                     pass
 
@@ -404,7 +428,11 @@ def _execute_tools(
 
             # Apply dirty effects only when the tool did not return an error.
             if _effects and not tool_result.startswith("Error"):
-                if _dirty_cache.apply_effects(session_id, _effects, cwd=special_resources.get("session_current_working_dir")):
+                if _dirty_cache.apply_effects(
+                    session_id,
+                    _effects,
+                    cwd=special_resources.get("session_current_working_dir"),
+                ):
                     _emit_and_log(
                         session_id,
                         "dirty_cache_update",

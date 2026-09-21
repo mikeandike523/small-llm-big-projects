@@ -11,7 +11,7 @@ import uuid as _uuid_module
 from flask import request, jsonify
 
 import src.ui_connector.socket_handler_components.state as _state
-from src.ui_connector.app import app
+from src.ui_connector.app import app, socketio
 from src.ui_connector import release_notes
 from src.ui_connector.socket_handler_components.session_store import (
     _load_session,
@@ -311,7 +311,7 @@ def api_bulk_delete_sessions():
 
 @app.route("/api/sessions/<session_id>/profile", methods=["PATCH"])
 def api_session_set_profile(session_id: str):
-    """Change the profile for a session (takes effect on next turn)."""
+    """Change the profile for a session (takes effect on the next LLM request)."""
     data = request.get_json(force=True, silent=True) or {}
     profile_name = (data.get("profile_name") or "").strip() or None
 
@@ -335,32 +335,31 @@ def api_session_set_profile(session_id: str):
             return jsonify({"error": f"DB error: {exc}"}), 500
 
     session = _load_session(session_id)
-    session.profile_name = profile_name
+    from src.ui_connector.socket_handler_components import runtime_settings
 
-    # Context-usage staleness: the previously displayed/persisted bar was
-    # parameterized by the OLD profile's known_max_context. If the new profile
-    # has no known max, clear it now (in-memory + emit clear event so the
-    # widget disappears immediately); the next _save_session writes NULL to
-    # session_meta. If the new profile HAS a known max, the next main-agent
-    # exchange emits a fresh, correctly-parameterized snapshot anyway.
-    from src.ui_connector.socket_handler_components.emit import (
-        _get_known_max_context,
-        clear_context_usage,
-    )
+    settings = runtime_settings.set_profile(session_id, session, profile_name)
+    session.profile_name = settings.profile_name
 
-    if _get_known_max_context(profile_name) is None:
-        clear_context_usage(session_id, profile_name)
+    # Every old snapshot describes a request made with the prior profile, even
+    # when both profiles happen to advertise the same maximum context size.
+    from src.ui_connector.socket_handler_components.emit import clear_context_usage
+
+    clear_context_usage(session_id, profile_name, settings.profile_revision)
 
     _save_session(session_id, session)
-    return jsonify({"ok": True, "profile_name": profile_name})
+    response = {"ok": True, **runtime_settings.payload(settings)}
+    socketio.emit("session_settings_update", response, room=session_id)
+    return jsonify(response)
 
 
 @app.route("/api/sessions/<session_id>/approval-mode", methods=["PATCH"])
 def api_session_set_approval_mode(session_id: str):
-    """Change the approval mode for a session (takes effect on next subturn)."""
+    """Change the approval mode for the next tool approval check."""
     data = request.get_json(force=True, silent=True) or {}
     raw_approval_mode = data.get("approval_mode")
-    approval_mode = raw_approval_mode.strip() if isinstance(raw_approval_mode, str) else ""
+    approval_mode = (
+        raw_approval_mode.strip() if isinstance(raw_approval_mode, str) else ""
+    )
 
     if not is_valid_approval_mode(approval_mode):
         return (
@@ -376,9 +375,14 @@ def api_session_set_approval_mode(session_id: str):
         )
 
     session = _load_session(session_id)
-    session.approval_mode = approval_mode
+    from src.ui_connector.socket_handler_components import runtime_settings
+
+    settings = runtime_settings.set_approval_mode(session_id, session, approval_mode)
+    session.approval_mode = settings.approval_mode
     _save_session(session_id, session)
-    return jsonify({"ok": True, "approval_mode": approval_mode})
+    response = {"ok": True, **runtime_settings.payload(settings)}
+    socketio.emit("session_settings_update", response, room=session_id)
+    return jsonify(response)
 
 
 @app.route("/api/session-defaults", methods=["GET"])
@@ -393,7 +397,7 @@ def api_session_defaults():
             if profile is not None:
                 prefix = _kv_prefix(profile)
                 for param_key, defaults_key in _state._SESSION_DEFAULTS_FROM_DB.items():
-                    param_name = param_key[len("params."):]
+                    param_name = param_key[len("params.") :]
                     val = get_param_value(kv, param_name, profile_prefix=prefix)
                     if val is not None:
                         defaults[defaults_key] = val

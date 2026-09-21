@@ -20,6 +20,7 @@ from src.ui_connector.socket_handler_components.emit import (
 from src.ui_connector.socket_handler_components.session_store import (
     _get_session_system_prompt,
 )
+from src.ui_connector.socket_handler_components import runtime_settings
 from src.tools import ALL_TOOL_DEFINITIONS
 from src.utils.context_errors import (
     context_limit_log_object,
@@ -222,7 +223,7 @@ def _initial_closed_subturn_count(
 
 def _rate_limit_sleep_s(retry_index: int) -> float:
     base = min(
-        RATE_LIMIT_BACKOFF_INITIAL_S * (2 ** retry_index),
+        RATE_LIMIT_BACKOFF_INITIAL_S * (2**retry_index),
         RATE_LIMIT_BACKOFF_MAX_S,
     )
     return base + random.uniform(0, RATE_LIMIT_JITTER_S)
@@ -268,7 +269,9 @@ async def _async_run_llm_call(
             socketio.emit(
                 "token",
                 {
-                    "type": "irat_thinking" if suppress_content_streaming else "content",
+                    "type": (
+                        "irat_thinking" if suppress_content_streaming else "content"
+                    ),
                     "text": chunk["content"],
                     "turn_id": turn_id,
                 },
@@ -284,6 +287,11 @@ async def _async_run_llm_call(
                     acc["content"],
                     acc["reasoning"],
                 )
+
+    # Snapshot the desired profile once at the actual network-dispatch boundary.
+    # The stream must not refresh a second time, otherwise a concurrent profile
+    # PATCH could split logging/attribution from the request configuration.
+    streaming_llm._refresh()
 
     # Log the resolved dialect + endpoint URL, then the params that will be
     # sent to the API (model + default_parameters).
@@ -322,6 +330,7 @@ async def _async_run_llm_call(
         sanitize_messages_for_llm(payload),
         on_data,
         tools=tool_defs if tool_defs is not None else ALL_TOOL_DEFINITIONS,
+        refresh_config=False,
     )
 
     _emit_content_snapshot(
@@ -368,7 +377,9 @@ async def _async_run_llm_call_with_context_retries(
     max_closable = max(0, len(current_turn.subturns) - 1)
     start_closed_count = _initial_closed_subturn_count(
         current_turn,
-        _get_known_max_context(session.profile_name),
+        _get_known_max_context(
+            runtime_settings.snapshot(session_id, session).profile_name
+        ),
     )
     if start_closed_count:
         _emit_backend_log(

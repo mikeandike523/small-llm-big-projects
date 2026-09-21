@@ -34,6 +34,8 @@ from src.utils.session_events import (
     EVT_TURN_COMPLETED,
     EVT_APPROVAL_MODE_SET,
     approval_mode_payload,
+    EVT_PROFILE_SET,
+    profile_payload,
     EVT_TURN_STARTED,
     exchange_hash,
     exchange_payload,
@@ -76,6 +78,11 @@ def compute_events(session: Session, cursor: dict) -> list[tuple[str, dict]]:
         events.append((EVT_SESSION_CREATED, session_created_payload(session)))
         cursor["created"] = True
         cursor["approval_mode"] = session.approval_mode
+        cursor["profile_name"] = session.profile_name
+
+    if cursor.get("profile_name") != session.profile_name:
+        events.append((EVT_PROFILE_SET, profile_payload(session.profile_name)))
+        cursor["profile_name"] = session.profile_name
 
     if cursor.get("approval_mode") != session.approval_mode:
         events.append(
@@ -93,7 +100,12 @@ def compute_events(session: Session, cursor: dict) -> list[tuple[str, dict]]:
         tc = turns_cursor.get(turn.id)
         if tc is None:
             events.append((EVT_TURN_STARTED, {"turn_id": turn.id}))
-            tc = {"title_set": False, "skills": None, "completed": False, "subturns": {}}
+            tc = {
+                "title_set": False,
+                "skills": None,
+                "completed": False,
+                "subturns": {},
+            }
             turns_cursor[turn.id] = tc
 
         if turn.task_title and not tc["title_set"]:

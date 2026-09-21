@@ -204,6 +204,10 @@ def _session_from_db(session_id: str) -> Session | None:
         # (the next _save_session then writes NULL to session_meta, and the
         # next main-agent exchange with a max-context profile re-emits fresh).
         if last_context_usage.get("profile") == session.profile_name:
+            # Runtime revisions intentionally restart with the server. No old
+            # request can still be in flight after a cold load, so rebase the
+            # durable snapshot onto the new runtime generation.
+            last_context_usage["profile_revision"] = 0
             _state._session_last_context_usage[session_id] = last_context_usage
         else:
             _state._session_last_context_usage.pop(session_id, None)
@@ -288,6 +292,14 @@ def _load_session(session_id: str) -> Session:
 
 
 def _save_session(session_id: str, session: Session) -> None:
+    """Serialize cursor/event/cache writes for one session."""
+    from src.ui_connector.socket_handler_components import runtime_settings
+
+    with runtime_settings.persistence_lock(session_id):
+        _save_session_locked(session_id, session)
+
+
+def _save_session_locked(session_id: str, session: Session) -> None:
     """Persist a session: append new events + upsert metadata (MySQL, durable),
     then warm the Redis cache.
 
@@ -296,6 +308,9 @@ def _save_session(session_id: str, session: Session) -> None:
     durable copy authoritative if the process dies mid-save; the Redis blob is
     just a hot cache (flushed and rebuilt from the event log on boot).
     """
+    from src.ui_connector.socket_handler_components import runtime_settings
+
+    runtime_settings.merge_into_session(session_id, session)
     r = _state._get_redis()
     blob = session_to_dict(session)
 
@@ -346,6 +361,9 @@ def _delete_sessions(session_ids: list[str]) -> None:
     r = _state._get_redis()
     keys = []
     for session_id in session_ids:
+        from src.ui_connector.socket_handler_components import runtime_settings
+
+        runtime_settings.discard(session_id)
         keys.extend(
             [
                 f"session:{session_id}",

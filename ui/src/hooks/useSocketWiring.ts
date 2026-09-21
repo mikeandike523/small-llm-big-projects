@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import type { Socket } from "socket.io-client";
 import type {
   Turn,
@@ -176,6 +176,9 @@ export default function useSocketWiring(
   const [isLoadingBackendState, setIsLoadingBackendState] = useState(false);
   const [sessionCost, setSessionCost] = useState<number | null>(null);
   const [sessionProfile, setSessionProfile] = useState<string | null>(null);
+  const sessionProfileRef = useRef<string | null>(null);
+  const profileRevisionRef = useRef(0);
+  const approvalModeRevisionRef = useRef(0);
   const [approvalMode, setApprovalMode] = useState<string>("default");
   const [contextUsageData, setContextUsageData] = useState<{
     prompt_tokens: number;
@@ -640,7 +643,21 @@ export default function useSocketWiring(
       completion_tokens: number | null;
       total_tokens: number | null;
       known_max_context: number | null;
+      profile?: string | null;
+      profile_revision?: number | null;
     }) {
+      if (
+        data.profile !== undefined &&
+        data.profile !== sessionProfileRef.current
+      ) {
+        return;
+      }
+      if (
+        data.profile_revision != null &&
+        data.profile_revision !== profileRevisionRef.current
+      ) {
+        return;
+      }
       // known_max_context === null is a clear signal (e.g. profile switched to
       // one without a known max) — hide the widget instead of showing stale data.
       if (
@@ -656,6 +673,23 @@ export default function useSocketWiring(
           total_tokens: data.total_tokens,
           known_max_context: data.known_max_context,
         });
+      }
+    }
+    function onSessionSettingsUpdate(data: {
+      profileName: string | null;
+      profileRevision: number;
+      approvalMode: string;
+      approvalModeRevision: number;
+    }) {
+      if (data.profileRevision >= profileRevisionRef.current) {
+        profileRevisionRef.current = data.profileRevision;
+        sessionProfileRef.current = data.profileName;
+        setSessionProfile(data.profileName);
+        setContextUsageData(null);
+      }
+      if (data.approvalModeRevision >= approvalModeRevisionRef.current) {
+        approvalModeRevisionRef.current = data.approvalModeRevision;
+        setApprovalMode(data.approvalMode);
       }
     }
     function onBackendLog(entry: BackendLogEntry) {
@@ -716,6 +750,8 @@ export default function useSocketWiring(
       schemaInvalid?: boolean;
       profileName?: string | null;
       approvalMode?: string;
+      profileRevision?: number;
+      approvalModeRevision?: number;
     }) {
       if (data.schemaInvalid) {
         // Schema mismatch — no event_replay will follow, so clear loading now
@@ -762,11 +798,14 @@ export default function useSocketWiring(
       }
 
       if (data.profileName !== undefined) {
+        sessionProfileRef.current = data.profileName ?? null;
         setSessionProfile(data.profileName ?? null);
       }
+      profileRevisionRef.current = data.profileRevision ?? 0;
       if (data.approvalMode !== undefined) {
         setApprovalMode(data.approvalMode);
       }
+      approvalModeRevisionRef.current = data.approvalModeRevision ?? 0;
     }
 
     // Event replay (always emitted after session_state, possibly with empty list)
@@ -1110,6 +1149,7 @@ export default function useSocketWiring(
     socket.on("system_prompt", onSystemPrompt);
     socket.on("session_cost_update", onSessionCostUpdate);
     socket.on("context_usage_event", onContextUsageEvent);
+    socket.on("session_settings_update", onSessionSettingsUpdate);
     socket.on("backend_log", onBackendLog);
     socket.on("startup_tool_call", onStartupToolCall);
     socket.on("startup_tool_result", onStartupToolResult);
@@ -1159,6 +1199,7 @@ export default function useSocketWiring(
       socket.off("system_prompt", onSystemPrompt);
       socket.off("session_cost_update", onSessionCostUpdate);
       socket.off("context_usage_event", onContextUsageEvent);
+      socket.off("session_settings_update", onSessionSettingsUpdate);
       socket.off("backend_log", onBackendLog);
       socket.off("startup_tool_call", onStartupToolCall);
       socket.off("startup_tool_result", onStartupToolResult);
