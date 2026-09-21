@@ -89,7 +89,7 @@ Configured in `src/ui_connector/main.py` with `logging.basicConfig(force=True)` 
 - **Desktop app:** stdout/stderr goes to `.slbp-server.log`, tailed by a `LogHistory` ring buffer (`desktop/src/shared/logHistory.ts`, max 500 lines) for the Electron Health tab.
 - **Server / systemd:** Captured naturally by the journal.
 
-### 2. Frontend Logs — `_emit_backend_log()` (session debug text)
+### 2. Debug Panel Logs — `_emit_backend_log()` (session debug text)
 
 For a *user watching a live session* — real-time colored text about what the agent is doing.
 

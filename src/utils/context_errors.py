@@ -53,7 +53,7 @@ def is_rate_limit_error(exc: Exception) -> bool:
 
 
 def context_limit_log_object(exc: Exception) -> dict | None:
-    """Build a frontend-log payload for the response body that triggered detection."""
+    """Build a debug-panel-log payload for the response body that triggered detection."""
     if not isinstance(exc, httpx.HTTPStatusError):
         return None
     response = exc.response

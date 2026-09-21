@@ -3,7 +3,7 @@ import httpx
 from src.utils.context_errors import is_context_limit_error, parse_response_body
 from src.utils.exceptions import ContextLimitExceededError
 
-_SEE_LOGS = " See frontend logs for details."
+_SEE_LOGS = " Check debug panel logs tab for details."
 
 _CONTEXT_LIMIT_MESSAGE = (
     "Context limit exceeded - the conversation is too long for the model's context window.\n"

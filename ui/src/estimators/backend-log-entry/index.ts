@@ -1,4 +1,4 @@
-// Height estimator for the virtualized Frontend/Backend Logs list
+// Height estimator for the virtualized Backend Logs list
 // (BackendLogsTab.tsx's virtualizer). Feeds useVirtualizer's estimateSize so
 // the initial guess is close to the real rendered height — measureElement
 // still corrects it after mount, this only shrinks the gap that causes the

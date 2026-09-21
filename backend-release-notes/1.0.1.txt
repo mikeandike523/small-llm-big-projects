@@ -1,0 +1,1 @@
+Updated outdated language regardung backend logs tab.

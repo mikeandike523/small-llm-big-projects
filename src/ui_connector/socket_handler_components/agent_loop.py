@@ -634,9 +634,9 @@ async def _async_agent_loop(
                 # hit the LLM the same way and can raise the same
                 # httpx/ContextLimitExceededError family. Classify it the same
                 # way as the main-call path so both the GUI message and the
-                # frontend debug log get the same structured treatment — the
+                # debug panel log get the same structured treatment — the
                 # full traceback still lands in the backend process log above
-                # (exc_info=True); the frontend debug log gets the classified
+                # (exc_info=True); the debug panel log gets the classified
                 # object, not a raw string dump, to match abnormal_end and the
                 # continuation-watchdog handler in socket_events_turn.py.
                 classified = classify_llm_request_error(exc_val)

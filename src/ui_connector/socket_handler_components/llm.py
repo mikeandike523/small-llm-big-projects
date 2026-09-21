@@ -363,7 +363,7 @@ async def _async_run_llm_call_with_context_retries(
     429 propagates unchanged. If every context-reduction attempt fails with a
     context limit error, this raises ContextReductionExhaustedError from the
     final context exception; the final HTTP response body, when available, is
-    emitted to frontend logs before the custom error is raised.
+    emitted to the debug panel logs tab before the custom error is raised.
     """
     max_closable = max(0, len(current_turn.subturns) - 1)
     start_closed_count = _initial_closed_subturn_count(
@@ -430,7 +430,7 @@ async def _async_run_llm_call_with_context_retries(
                 if closed_count >= max_closable:
                     raise ContextReductionExhaustedError(
                         "Could not make request, context exceeded, "
-                        "check frontend logs for response body."
+                        "Check debug panel logs tab."
                     ) from exc
 
                 _emit_backend_log(
@@ -444,5 +444,5 @@ async def _async_run_llm_call_with_context_retries(
                 break
 
     raise ContextReductionExhaustedError(
-        "Could not make request, context exceeded, check frontend logs for response body."
+        "Could not make request, context exceeded, Check debug panel logs tab."
     )

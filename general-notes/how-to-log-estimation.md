@@ -110,7 +110,7 @@ is temporary.
 ## Worked example
 
 Added and later removed in this repo for the tool-calls bubble list
-(`ui/src/components/TurnContainer.tsx`) and the frontend logs panel
+(`ui/src/components/TurnContainer.tsx`) and the debug panel logs tab
 (`ui/src/subcomponents/DebugPanel/BackendLogsTab.tsx`), while verifying the
 estimators in `ui/src/estimators/tool-call-bubble/` and
 `ui/src/estimators/backend-log-entry/`. Grep git history for
