@@ -192,7 +192,7 @@ const autoScrollShineCss = (active: boolean) => css`
   left: 0;
   right: 0;
   bottom: 0;
-  height: 10px;
+  height: 16px;
   pointer-events: none;
   opacity: ${active ? 1 : 0};
   transition: opacity 220ms ease;

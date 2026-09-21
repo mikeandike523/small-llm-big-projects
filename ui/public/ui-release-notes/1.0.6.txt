@@ -1,0 +1,1 @@
+Unify tanstack virtual scroll behavior: single count-gated phase, consistent CSS and shine height.

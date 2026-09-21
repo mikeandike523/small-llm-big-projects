@@ -48,33 +48,21 @@ export function useStickToEnd<TScrollElement extends Element>(
     return () => el.removeEventListener("scroll", onScroll);
   }, [virtualizer.scrollElement]);
 
-  // Phase 1 — pre-paint (useLayoutEffect, no deps):
-  // Only scrolls when the item count increases. Gating on count (rather
-  // than scrolling on every render) drastically reduces programmatic
-  // scroll events that can race with user input. Row-growing-in-place
-  // is still caught by Phase 2 via getTotalSize().
+  // Only scroll when the item count increases — this eliminates spurious
+  // scrolls from in-place growth or virtualizer re-measurements. A single
+  // RAF after the scroll corrects for any estimate→actual gap once the
+  // virtualizer has measured newly-visible items.
   useLayoutEffect(() => {
     if (!stuckRef.current) return;
     const count = vRef.current.options.count;
     if (count <= prevCountRef.current) return;
     prevCountRef.current = count;
     vRef.current.scrollToEnd({ behavior: "instant" });
+    requestAnimationFrame(() => {
+      if (!stuckRef.current) return;
+      vRef.current.scrollToEnd({ behavior: "instant" });
+    });
   });
-
-  // Phase 2 — post-paint (useEffect, watches total size):
-  // Safety net for the "starts small, floods large" edge case. When a
-  // burst of new items arrives, phase-1 scrollToEnd may use estimated
-  // sizes for items outside the visible range. After paint those items
-  // are rendered, measured by the virtualizer, and getTotalSize() may
-  // grow. Re-snap here to correct onto the true bottom.
-  //
-  // Also serves as the guaranteed first-mount scroll — even when content
-  // hasn't appeared yet (getTotalSize() starts at 0), it fires once on
-  // mount so we're ready when the first real size lands.
-  useEffect(() => {
-    if (!stuckRef.current) return;
-    vRef.current.scrollToEnd({ behavior: "instant" });
-  }, [virtualizer.getTotalSize()]);
 
   return isAutoScrolling;
 }

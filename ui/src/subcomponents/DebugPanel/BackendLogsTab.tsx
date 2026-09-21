@@ -44,7 +44,9 @@ const logsInnerCss = css`
 // PANEL_HORIZONTAL_PADDING_PX mirrors this element's padding via clientWidth.
 const logsScrollCss = css`
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 6px;
+  min-height: 0;
   ${scrollbarCss}
 `;
 
