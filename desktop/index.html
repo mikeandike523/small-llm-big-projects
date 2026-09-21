@@ -18,6 +18,7 @@
       <div class="health-status-row">
         <span id="health-status-badge" class="health-badge health-badge-checking">Checking&hellip;</span>
         <span id="health-status-detail" class="health-detail"></span>
+        <button id="health-process-doctor" class="health-process-doctor">Process Doctor</button>
         <button id="health-restart-server" class="health-restart-server">Restart Server</button>
         <button id="health-open-dashboard" class="health-open-dashboard" disabled>Open Dashboard</button>
         <span id="health-version" class="health-version"></span>
@@ -35,6 +36,16 @@
         <button id="changelog-close" class="changelog-close" title="Close">&#215;</button>
       </div>
       <div id="changelog-body" class="changelog-body"></div>
+    </dialog>
+    <dialog id="process-doctor-dialog" class="process-doctor-dialog">
+      <div class="process-doctor-header">
+        <div>
+          <div class="process-doctor-title">Process Doctor</div>
+          <div class="process-doctor-subtitle">Inspect and clean up orphaned SLBP server processes</div>
+        </div>
+        <button id="process-doctor-close" class="process-doctor-close" title="Close">&#215;</button>
+      </div>
+      <div id="process-doctor-terminal" class="process-doctor-terminal"></div>
     </dialog>
     <script type="module" src="/src/renderer.ts"></script>
   </body>

@@ -89,8 +89,27 @@ def _print_table(matches: list[MatchedProcess]) -> list[MatchedProcess]:
     return [m for m, _ in rows]
 
 
+def _kill_all(matches: list[MatchedProcess]) -> None:
+    """Kill a snapshot of matches, and fail the command if any survive."""
+    failures: list[str] = []
+    for match in matches:
+        ok, message = kill_process(match.pid)
+        click.echo(message)
+        if not ok:
+            failures.append(message)
+    if failures:
+        raise click.ClickException(
+            f"Failed to kill {len(failures)} of {len(matches)} listed process(es)."
+        )
+
+
 @cli.command(name="process-doctor")
-def process_doctor():
+@click.option(
+    "--force-kill-all",
+    is_flag=True,
+    help="Kill every detected SLBP server-stack process without prompting.",
+)
+def process_doctor(force_kill_all: bool):
     """
     Last-resort manual cleanup for orphaned slbp server-stack processes
     (ui/proxy/flask, and the `slbp server run` wrapper chain) that a normal
@@ -108,6 +127,15 @@ def process_doctor():
     finds/kills processes on this machine; does not touch Docker containers
     or the desktop app itself.
     """
+    if force_kill_all:
+        matches = find_slbp_processes()
+        if not matches:
+            click.echo(colored("No slbp server-stack processes found.", "green"))
+            return
+        click.echo(f"Force-killing {len(matches)} slbp server-stack process(es)...")
+        _kill_all(matches)
+        return
+
     while True:
         matches = find_slbp_processes()
         ordered = _print_table(matches)

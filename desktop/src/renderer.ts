@@ -1,4 +1,7 @@
 import './index.css';
+import '@xterm/xterm/css/xterm.css';
+import { Terminal } from '@xterm/xterm';
+import { FitAddon } from '@xterm/addon-fit';
 import type { TabsUpdatePayload, HealthSnapshot } from './preload';
 import type { HealthStatus, HealthStatusKind } from './main/serverLauncher';
 
@@ -26,6 +29,14 @@ declare global {
       getIndex: () => Promise<{ releases: { version: string; date: string; file: string }[] } | null>;
       getNote: (version: string) => Promise<string | null>;
     };
+    processDoctorAPI: {
+      start: (cols: number, rows: number) => Promise<void>;
+      write: (data: string) => void;
+      resize: (cols: number, rows: number) => void;
+      stop: () => Promise<void>;
+      onData: (callback: (data: string) => void) => () => void;
+      onExit: (callback: (exitCode: number) => void) => () => void;
+    };
   }
 }
 
@@ -43,6 +54,7 @@ const tabDashboardBtn = document.getElementById('tab-dashboard-btn') as HTMLButt
 const logEl = document.getElementById('health-log')!;
 const logPathEl = document.getElementById('health-log-path')!;
 const copyLogPathBtn = document.getElementById('health-copy-log-path') as HTMLButtonElement;
+const processDoctorBtn = document.getElementById('health-process-doctor') as HTMLButtonElement;
 
 // Whether the log view should auto-follow new lines. Tracked via a live scroll
 // listener rather than recomputed from logEl.scrollTop/scrollHeight at append time --
@@ -170,6 +182,81 @@ tabDashboardBtn.addEventListener('click', () => {
 restartServerBtn.addEventListener('click', () => {
   void window.healthAPI.restartServer();
 });
+
+// --- Process Doctor terminal ---
+
+const processDoctorDialog = document.getElementById('process-doctor-dialog') as HTMLDialogElement;
+const processDoctorCloseBtn = document.getElementById('process-doctor-close') as HTMLButtonElement;
+const processDoctorTerminalEl = document.getElementById('process-doctor-terminal')!;
+let doctorTerminal: Terminal | null = null;
+let doctorResizeObserver: ResizeObserver | null = null;
+let removeDoctorDataListener: (() => void) | null = null;
+let removeDoctorExitListener: (() => void) | null = null;
+
+function closeProcessDoctor(): void {
+  if (processDoctorDialog.open) processDoctorDialog.close();
+}
+
+function disposeProcessDoctor(): void {
+  doctorResizeObserver?.disconnect();
+  doctorResizeObserver = null;
+  removeDoctorDataListener?.();
+  removeDoctorDataListener = null;
+  removeDoctorExitListener?.();
+  removeDoctorExitListener = null;
+  doctorTerminal?.dispose();
+  doctorTerminal = null;
+  processDoctorTerminalEl.replaceChildren();
+  void window.processDoctorAPI.stop();
+}
+
+processDoctorBtn.addEventListener('click', () => {
+  if (processDoctorDialog.open) return;
+  processDoctorDialog.showModal();
+
+  const terminal = new Terminal({
+    cursorBlink: true,
+    convertEol: true,
+    fontFamily: "Consolas, 'Courier New', monospace",
+    fontSize: 13,
+    theme: { background: '#15161a', foreground: '#e8e8ec', cursor: '#e8e8ec' },
+  });
+  const fitAddon = new FitAddon();
+  terminal.loadAddon(fitAddon);
+  terminal.open(processDoctorTerminalEl);
+  doctorTerminal = terminal;
+
+  removeDoctorDataListener = window.processDoctorAPI.onData((data) => terminal.write(data));
+  removeDoctorExitListener = window.processDoctorAPI.onExit((exitCode) => {
+    terminal.write(`\r\n\x1b[90mProcess Doctor exited with code ${exitCode}. Close this window to continue.\x1b[0m\r\n`);
+  });
+  terminal.onData((data) => window.processDoctorAPI.write(data));
+
+  const fit = () => {
+    if (doctorTerminal !== terminal) return;
+    try {
+      fitAddon.fit();
+      window.processDoctorAPI.resize(terminal.cols, terminal.rows);
+    } catch {
+      // The dialog can lose layout between a close event and observer delivery.
+    }
+  };
+  doctorResizeObserver = new ResizeObserver(fit);
+  doctorResizeObserver.observe(processDoctorTerminalEl);
+  requestAnimationFrame(() => {
+    fitAddon.fit();
+    terminal.focus();
+    void window.processDoctorAPI.start(terminal.cols, terminal.rows).catch((error) => {
+      terminal.write(`\r\n\x1b[31mUnable to start Process Doctor: ${String(error)}\x1b[0m\r\n`);
+    });
+  });
+});
+
+processDoctorCloseBtn.addEventListener('click', closeProcessDoctor);
+processDoctorDialog.addEventListener('click', (event) => {
+  if (event.target === processDoctorDialog) closeProcessDoctor();
+});
+processDoctorDialog.addEventListener('close', disposeProcessDoctor);
 
 // --- Changelog UI ---
 

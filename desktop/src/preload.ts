@@ -35,6 +35,25 @@ contextBridge.exposeInMainWorld('healthAPI', {
   restartServer: () => ipcRenderer.invoke('health:restart-server'),
 });
 
+contextBridge.exposeInMainWorld('processDoctorAPI', {
+  start: (cols: number, rows: number) =>
+    ipcRenderer.invoke('process-doctor:start', { cols, rows }) as Promise<void>,
+  write: (data: string) => ipcRenderer.send('process-doctor:input', data),
+  resize: (cols: number, rows: number) =>
+    ipcRenderer.send('process-doctor:resize', { cols, rows }),
+  stop: () => ipcRenderer.invoke('process-doctor:stop') as Promise<void>,
+  onData: (callback: (data: string) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, data: string) => callback(data);
+    ipcRenderer.on('process-doctor:data', listener);
+    return () => ipcRenderer.removeListener('process-doctor:data', listener);
+  },
+  onExit: (callback: (exitCode: number) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, exitCode: number) => callback(exitCode);
+    ipcRenderer.on('process-doctor:exit', listener);
+    return () => ipcRenderer.removeListener('process-doctor:exit', listener);
+  },
+});
+
 // Desktop-app release notes, read from disk in the main process
 // (desktop/desktop-release-notes/, produced by release_manager.py).
 contextBridge.exposeInMainWorld('changelogAPI', {

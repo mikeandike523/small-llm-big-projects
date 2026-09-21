@@ -6,6 +6,7 @@ import { startControlServer, type ControlServerHandle } from './main/controlServ
 import { TabManager } from './main/tabManager';
 import { startServerLifecycle, type HealthStatus, type ServerLifecycleHandle } from './main/serverLauncher';
 import { getCurrentVersion, readIndex, readNote } from './main/changelog';
+import { ProcessDoctorTerminal } from './main/processDoctor';
 
 if (started) {
   app.quit();
@@ -43,6 +44,7 @@ let tabManager: TabManager | null = null;
 let controlServerHandle: ControlServerHandle | null = null;
 let serverLifecycleHandle: ServerLifecycleHandle | null = null;
 let currentProxyOrigin: string | null = null;
+const processDoctorTerminal = new ProcessDoctorTerminal();
 
 // Registered once at module scope (not inside createWindow) so a macOS
 // activate-with-no-windows recreate doesn't try to register the same
@@ -61,6 +63,27 @@ ipcMain.handle('health:open-dashboard', () => {
     tabManager?.openDashboard(currentProxyOrigin);
   }
 });
+ipcMain.handle('process-doctor:start', (event, size: { cols: number; rows: number }) => {
+  const repoRoot = resolveRepoRoot();
+  processDoctorTerminal.start(
+    repoRoot,
+    {
+      onData: (data) => {
+        if (!event.sender.isDestroyed()) event.sender.send('process-doctor:data', data);
+      },
+      onExit: (exitCode) => {
+        if (!event.sender.isDestroyed()) event.sender.send('process-doctor:exit', exitCode);
+      },
+    },
+    size.cols,
+    size.rows,
+  );
+});
+ipcMain.on('process-doctor:input', (_event, data: string) => processDoctorTerminal.write(data));
+ipcMain.on('process-doctor:resize', (_event, size: { cols: number; rows: number }) =>
+  processDoctorTerminal.resize(size.cols, size.rows),
+);
+ipcMain.handle('process-doctor:stop', () => processDoctorTerminal.stop());
 
 // Desktop-app release notes (release_manager.py output). Registered at module
 // scope like the other handlers so a macOS activate-with-no-windows recreate
@@ -92,6 +115,7 @@ const createWindow = () => {
   tabManager = new TabManager(mainWindow);
   let tabViewsDisposed = false;
   mainWindow.on('close', (event) => {
+    processDoctorTerminal.stop();
     if (tabViewsDisposed) return;
     event.preventDefault();
     const disposeTabs = tabManager?.dispose() ?? Promise.resolve();
@@ -151,5 +175,6 @@ app.on('activate', () => {
 });
 
 app.on('before-quit', () => {
+  processDoctorTerminal.stop();
   controlServerHandle?.cleanup();
 });

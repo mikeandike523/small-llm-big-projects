@@ -1,24 +1,26 @@
 {
   "name": "slbp-desktop",
   "productName": "SLBP",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Desktop shell for small-llm-big-projects: custom tab strip over the SLBP web UI.",
   "main": ".vite/build/main.js",
   "private": true,
   "scripts": {
     "start": "electron-forge start",
     "build-icons": "node scripts/build-icons.mjs",
-    "package": "pnpm run build-icons && electron-forge package",
+    "package": "node scripts/prepare-package.mjs && pnpm run build-icons && electron-forge package",
     "make": "electron-forge make",
     "publish": "electron-forge publish",
-    "lint": "eslint --ext .ts,.tsx ."
+    "lint": "eslint --ext .ts,.tsx .",
+    "close-desktop": "node scripts/close-desktop.mjs"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
       "electron",
       "esbuild",
       "electron-winstaller",
-      "sharp"
+      "sharp",
+      "node-pty"
     ]
   },
   "keywords": [],
@@ -47,7 +49,10 @@
     "vite": "^5.4.21"
   },
   "dependencies": {
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0",
     "electron-squirrel-startup": "^1.0.1",
+    "node-pty": "^1.1.0",
     "read-last-lines": "^1.10.0"
   }
 }

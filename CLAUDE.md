@@ -1,29 +1,164 @@
 # CLAUDE.md -- Environment and Development Tips for this Project
 
-## project Overview
+## Project Overview
 
 This project is called "small-llm-big-projects" or "slbp" for short.
 The goal is to create an agentic loop that is compatible with smaller models
 and avoids the need for massive 100 or more billion parameter models.
 
-The project uses easy-to-use session and project memory tools to bolster
-and agent's decision making, making smaller models more viable.
+The project uses easy-to-use session and project memory tools to bolster an
+agent's decision making, making smaller models more viable.
 
 ## Project Structure
 
-The project consists of a terminal command and its implementation in `src/**`
-as well as a ui, made in react with vite, in `ui/**`
+The repository has four main application areas:
 
-Some of the most important commands are `slbp server run`
-hich starts the agentic session orchestration server
+- **`src/`** -- the Python CLI, agent/session orchestration, Flask-SocketIO
+  backend, tool implementations, terminal/PTY support, and shared utilities.
+  `main.py` registers the CLI routes and the root `slbp`/`slbp.cmd` launchers
+  activate the project virtualenv before invoking it.
+- **`ui/`** -- the React/Vite browser UI. It contains the dashboard, session
+  chat, configuration pages, and browser terminal UI. Production assets are
+  built into `ui/dist/` and served by `ui/serve.cjs`.
+- **`desktop/`** -- the Electron Forge desktop shell. Its base renderer is
+  vanilla TypeScript/DOM code (not React) and owns the custom title bar,
+  Health page, changelog dialog, and Process Doctor xterm dialog. Session and
+  dashboard tabs are separate `WebContentsView`s that load the React UI from
+  the running SLBP proxy. Main-process lifecycle code, preload IPC bridges,
+  shared log state, packaging configuration, and desktop scripts all live
+  here. Packaged builds are written beneath `desktop/out/`.
+- **`server/`** -- local infrastructure and database operations: Docker Compose
+  for MySQL, Redis, Piston, and phpMyAdmin; versioned SQL migrations; database
+  helpers; and Piston runtime/package setup.
 
-and `slbp session new` which starts a new agentic loop session, and opens the ui
-in a browser with the new session id
+Other important areas are `tests/` for architecture/general pytest coverage,
+`tool_tests/` for end-to-end tool testing, `scripts/` for repository-level
+maintenance, and the three release-note trees (`backend-release-notes/`,
+`ui/public/ui-release-notes/`, and `desktop/desktop-release-notes/`).
+
+Two central runtime commands are `slbp server run`, which starts the agentic
+session orchestration stack, and `slbp session new`, which starts a new agent
+session and opens its UI. `slbp process-doctor` is the manual recovery tool for
+finding and cleaning up orphaned server-stack processes.
 
 ## Development Tips
 
 - Before each new feature, review your recent memory files to know what is going on in the project at this time
-- Prefer to take more memory notes rather than less. Its good to keep track of what is going on
+- Prefer to take more memory notes rather than less. It's good to keep track of what is going on.
+
+## Release Manager
+
+Run the release manager from the repository root through pnpm:
+
+```bash
+pnpm run release-manager bump <ui|backend|desktop> <major|minor|patch> <message...>
+pnpm run release-manager set <ui|backend|desktop> <X.Y.Z> <message...>
+```
+
+Examples:
+
+```bash
+pnpm run release-manager bump ui patch "Fix terminal reconnect handling"
+pnpm run release-manager bump desktop minor "Add the Process Doctor dialog"
+pnpm run release-manager set backend 2.0.0 "New server protocol" --dry-run
+```
+
+Use `--dry-run` to preview either operation. `set` normally requires a version
+greater than the current version; its `--force` flag permits an equal or lower
+version, but it still refuses to overwrite an existing release-note file.
+
+Each invocation changes exactly one target's `package.json`, writes that
+target's `<version>.txt` release note, and rebuilds that target's
+`changelog-index.json`. Targets have independent versions, so one product
+release may reasonably involve one, two, or three separate release-manager
+invocations. Conversely, a version bump does not have to map one-to-one to a
+Git commit.
+
+The release manager deliberately does **not** run `git add`, create a commit or
+tag, push anything, package an application, or deploy. Review the generated
+diff, choose how to group release bumps into commits, and commit/push through
+the normal Git workflow separately.
+
+## Useful Commands and Scripts
+
+Run commands from the directory shown unless the command explicitly changes
+directories itself. Use `pnpm add <package>` in the relevant package directory
+when adding JavaScript dependencies; do not hand-edit dependency entries.
+
+### Repository root (`./`)
+
+```bash
+./slbp --help                              # CLI command overview
+./slbp server run                         # start the backend/UI/proxy stack
+./slbp session new                        # create and open a session
+./slbp process-doctor                     # interactive orphan-process cleanup
+./slbp process-doctor --force-kill-all    # non-interactive cleanup
+pnpm run release-manager ...              # version + release-note management
+pnpm run ui:type-check                    # TypeScript-check the React UI
+pnpm run src:syntax-and-import-check      # parse Python and validate imports
+pnpm run format                           # Black for Python + Prettier for UI
+pnpm run python:check-unused-imports      # report unused Python imports
+pnpm run python:remove-unused-imports     # remove unused Python imports
+pnpm run line-counts-over-500             # enforce the source-file size goal
+pnpm run db-first-time-setup              # run all structure/seed SQL files
+pnpm run update-prod                      # update deps/build/migrations/Piston/systemd
+```
+
+`python_in_env.sh` is the standard way to run a Python command in the project
+virtualenv from Git Bash, for example `bash python_in_env.sh -m pytest ...`.
+`scripts/check_py.py`, `scripts/format.sh`, `scripts/db-first-time-setup.sh`,
+and `scripts/update-prod.sh` back the pnpm commands above. `update-prod` is a
+deployment-oriented script: it installs dependencies, builds the UI, migrates
+the database, configures Piston, and restarts the `slbp` systemd service.
+
+### Browser UI (`./ui`)
+
+```bash
+pnpm run vite       # Vite development server
+pnpm run build      # TypeScript check plus production Vite build
+pnpm run preview    # preview the production build
+pnpm run format     # Prettier over the UI tree
+node serve.cjs      # serve built UI assets (normally started by SLBP)
+```
+
+### Desktop app (`./desktop`)
+
+```bash
+pnpm start               # Electron Forge development mode
+pnpm run lint            # lint desktop TypeScript
+pnpm exec tsc --noEmit   # TypeScript check without emitting files
+pnpm run build-icons     # regenerate ico/icns/png from assets/logo.svg
+pnpm run close-desktop   # gracefully close this repo's app, then force stragglers
+pnpm run package         # clean processes, build icons, package to desktop/out/
+pnpm run make            # run configured Electron Forge makers (currently none)
+pnpm run publish         # Electron Forge publish workflow
+```
+
+`pnpm run package` intentionally runs `slbp process-doctor --force-kill-all`
+and `scripts/close-desktop.mjs` first. Packaging therefore stops the running
+SLBP server stack and closes desktop instances before replacing build output.
+`scripts/prepare-package.mjs` owns that pre-package sequence.
+
+### Infrastructure (`./server`)
+
+```bash
+docker compose up -d                    # start MySQL, Redis, Piston, phpMyAdmin
+docker compose down                     # stop the local infrastructure
+bash migration-runner.sh show           # current and available DB versions
+bash migration-runner.sh up             # apply pending migrations
+bash migration-runner.sh force-set-version S V
+bash run_sql.sh -f path/to/file.sql      # execute an SQL file
+bash run_sql.sh -c "SELECT 1"            # execute inline SQL
+bash run_sql.sh -m path/to/migrations    # execute all SQL files in a directory
+bash reset_db.sh -n                      # dry-run destructive DB reset
+bash reset_db.sh                         # confirmed DB reset
+bash setup_piston.sh                     # install configured Piston runtime/packages
+```
+
+The database scripts read `MYSQL_DATABASE`, `MYSQL_USER`, and
+`MYSQL_PASSWORD`, with local defaults documented in their `--help` output.
+Use `--help` on `migration-runner.sh`, `run_sql.sh`, or `reset_db.sh` before
+unfamiliar or destructive operations.
 
 ## Testing
 
