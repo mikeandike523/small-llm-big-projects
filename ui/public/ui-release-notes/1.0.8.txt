@@ -1,0 +1,1 @@
+Extract auto-scroll shine to shared module; add Phase 2 totalSize-gated scroll with configurable mode.

@@ -3,6 +3,13 @@ import type { Virtualizer } from "@tanstack/react-virtual";
 
 const NEAR_END_THRESHOLD_PX = 32;
 
+// Controls how Phase 2 reacts to total-size changes:
+//   "increase" — only scroll when getTotalSize() grows (monotonically up).
+//                 Ignores decreases and fluctuations from re-measurement.
+//   "change"   — scroll on every getTotalSize() change, matching the
+//                 original behaviour. More aggressive but covers all gaps.
+const PHASE_2_MODE: "increase" | "change" = "increase";
+
 // Replaces @tanstack/react-virtual's built-in anchorTo/followOnAppend for a
 // virtualized list that should behave like a chat/log window: stick to the
 // bottom as content arrives, stop the instant the user scrolls up, and
@@ -15,6 +22,7 @@ export function useStickToEnd<TScrollElement extends Element>(
   virtualizer: Virtualizer<TScrollElement, Element>,
 ): boolean {
   const prevCountRef = useRef(0);
+  const prevTotalSizeRef = useRef(0);
   const stuckRef = useRef(true);
   const lastScrollTopRef = useRef(0);
   const [isAutoScrolling, setIsAutoScrolling] = useState(true);
@@ -63,6 +71,20 @@ export function useStickToEnd<TScrollElement extends Element>(
       vRef.current.scrollToEnd({ behavior: "instant" });
     });
   });
+
+  // Phase 2 — totalSize-gated: catches what Phase 1 misses.
+  //   a) Estimate→actual gap: Phase 1 scrolls with estimates; after paint
+  //      the virtualizer measures true sizes and getTotalSize() changes.
+  //   b) In-place growth: a rendered item gets taller (streaming text) but
+  //      count doesn't change, so Phase 1 skips.
+  // Behaviour controlled by PHASE_2_MODE above.
+  useEffect(() => {
+    if (!stuckRef.current) return;
+    const totalSize = vRef.current.getTotalSize();
+    if (PHASE_2_MODE === "increase" && totalSize <= prevTotalSizeRef.current) return;
+    prevTotalSizeRef.current = totalSize;
+    vRef.current.scrollToEnd({ behavior: "instant" });
+  }, [virtualizer.getTotalSize()]);
 
   return isAutoScrolling;
 }

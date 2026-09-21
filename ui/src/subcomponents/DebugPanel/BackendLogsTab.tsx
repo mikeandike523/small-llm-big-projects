@@ -4,6 +4,7 @@ import { BackendLogEntry } from "../../types/DebugPanel";
 import { placeholderCss } from "../../css/DebugPanel";
 import { css } from "@emotion/react";
 import scrollbarCss from "../../css/scrollBarCss";
+import { autoScrollShineCss, SHINE_HEIGHT_BACKEND_LOGS_PX } from "../../css/autoScrollShineCss";
 import BackendLogEntryItem from "./BackendLogEntryItem";
 import BackendLogMultiCard from "./BackendLogMultiCard";
 import BackendLogObjectModal from "./BackendLogObjectModal";
@@ -64,23 +65,6 @@ const virtualRowCss = css`
   padding-bottom: 4px;
 `;
 
-// Brief glow at the bottom edge, lit while actively auto-scrolling to follow
-// new log entries and faded out via CSS transition once that settles.
-const autoScrollShineCss = (active: boolean) => css`
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: 16px;
-  pointer-events: none;
-  opacity: ${active ? 1 : 0};
-  transition: opacity 220ms ease;
-  background: linear-gradient(
-    to top,
-    rgba(160, 110, 230, 0.55),
-    rgba(160, 110, 230, 0)
-  );
-`;
 
 export default function BackendLogsTab({
   logs,
@@ -148,7 +132,7 @@ export default function BackendLogsTab({
           </div>
         )}
         </div>
-        <div css={autoScrollShineCss(isAutoScrolling)} />
+          <div css={autoScrollShineCss(isAutoScrolling, SHINE_HEIGHT_BACKEND_LOGS_PX)} />
       </div>
       <BackendLogObjectModal
         entry={viewingEntry}

@@ -6,6 +6,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import type { TodoItem, Turn, ToolCallEntry } from "../types";
 
 import scrollbarCss from "../css/scrollBarCss";
+import { autoScrollShineCss, SHINE_HEIGHT_TOOL_CALLS_PX } from "../css/autoScrollShineCss";
 import { TextPresenter } from "./TextPresenter";
 import ToolCallCard from "./ToolCallCard";
 import ToolApprovalBubble from "./ToolApprovalBubble";
@@ -184,24 +185,6 @@ const toolCallsScrollCss = css`
   overflow-x: hidden;
 `;
 
-// Brief glow at the bottom edge of a virtualized list, lit while it's
-// actively auto-scrolling to follow new content and faded out via CSS
-// transition once that settles.
-const autoScrollShineCss = (active: boolean) => css`
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: 16px;
-  pointer-events: none;
-  opacity: ${active ? 1 : 0};
-  transition: opacity 220ms ease;
-  background: linear-gradient(
-    to top,
-    rgba(160, 110, 230, 0.55),
-    rgba(160, 110, 230, 0)
-  );
-`;
 
 const todoColumnCss = css`
   ${scrollbarCss}
@@ -941,7 +924,7 @@ export default function TurnContainer({
                   </div>
                 )}
               </div>
-              <div css={autoScrollShineCss(isToolCallsAutoScrolling)} />
+              <div css={autoScrollShineCss(isToolCallsAutoScrolling, SHINE_HEIGHT_TOOL_CALLS_PX)} />
             </div>
           </div>
         </div>
