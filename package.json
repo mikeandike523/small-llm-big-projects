@@ -11,7 +11,8 @@
     "format": "bash scripts/format.sh",
     "python:remove-unused-imports": "ruff check . --select=F401 --fix",
     "python:check-unused-imports": "ruff check . --select=F401",
-    "release-manager": "bash release_manager.sh"
+    "release-manager": "bash release_manager.sh",
+    "update-prod": "bash scripts/update-prod.sh"
   },
   "keywords": [],
   "author": "",
