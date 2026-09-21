@@ -3,39 +3,22 @@ import type { Virtualizer } from "@tanstack/react-virtual";
 
 const NEAR_END_THRESHOLD_PX = 32;
 
-// How long the "just auto-scrolled" indicator stays lit after the most
-// recent auto-scroll before it's allowed to fade out — long enough to read
-// as one continuous glow during a burst of streaming updates, short enough
-// to read as "just happened" once they stop.
-const INDICATOR_LINGER_MS = 400;
-
 // Replaces @tanstack/react-virtual's built-in anchorTo/followOnAppend for a
 // virtualized list that should behave like a chat/log window: stick to the
 // bottom as content arrives, stop the instant the user scrolls up, and
 // resume once they scroll back down to the bottom themselves.
 //
-// followOnAppend only re-sticks when the row COUNT grows. It does not
-// re-stick when the last (still-live) row grows in place — e.g. a tool
-// call's streamingResult filling in character by character, or a patch
-// rewrite banner appearing mid-row — which is why the list stopped tracking
-// bottom during streaming even with accurate size estimates. This hook
-// re-checks and re-snaps after every render instead, so it responds to
-// whatever state change caused the host component to re-render, not just
-// to new rows being appended.
-//
-// Returns whether it's currently (or very recently) auto-scrolled, for a
-// caller to render as a brief visual indicator — e.g. a fading bottom shine.
+// Returns a boolean reflecting the current lock state — true when the view
+// is auto-scrolling to follow new content, false when the user has scrolled
+// away. Callers typically render this as a bottom-edge shine indicator.
 export function useStickToEnd<TScrollElement extends Element>(
   virtualizer: Virtualizer<TScrollElement, Element>,
 ): boolean {
   const stuckRef = useRef(true);
-  const programmaticScrollRef = useRef(false);
   const lastScrollTopRef = useRef(0);
-  const lingerTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
   const [isAutoScrolling, setIsAutoScrolling] = useState(true);
 
-  // Stable ref so long-lived closures (ResizeObserver callback, etc.)
-  // always call the latest virtualizer instance.
+  // Stable ref so long-lived closures always call the latest virtualizer.
   const vRef = useRef(virtualizer);
   vRef.current = virtualizer;
 
@@ -47,15 +30,16 @@ export function useStickToEnd<TScrollElement extends Element>(
       const distanceFromEnd =
         el.scrollHeight - (el.scrollTop + el.clientHeight);
 
-      if (!programmaticScrollRef.current) {
-        if (el.scrollTop < lastScrollTopRef.current) {
-          stuckRef.current = false; // user scrolled up
-          clearTimeout(lingerTimeoutRef.current);
-          setIsAutoScrolling(false);
-        } else if (distanceFromEnd <= NEAR_END_THRESHOLD_PX) {
-          stuckRef.current = true;
-        }
+      // Scroll-up always unlocks and cancels all future programmatic
+      // scrolling (stuckRef=false blocks both phases from snapping).
+      if (el.scrollTop < lastScrollTopRef.current) {
+        stuckRef.current = false;
+        setIsAutoScrolling(false);
+      } else if (distanceFromEnd <= NEAR_END_THRESHOLD_PX) {
+        stuckRef.current = true;
+        setIsAutoScrolling(true);
       }
+
       lastScrollTopRef.current = el.scrollTop;
     };
 
@@ -63,38 +47,13 @@ export function useStickToEnd<TScrollElement extends Element>(
     return () => el.removeEventListener("scroll", onScroll);
   }, [virtualizer.scrollElement]);
 
-  // Shared helper: programmatic scroll to end + indicator signal.
-  // Returns the RAF id so callers can cancel it on cleanup.
-  const snap = (): number => {
-    programmaticScrollRef.current = true;
-    vRef.current.scrollToEnd({ behavior: "instant" });
-    const id = requestAnimationFrame(() => {
-      programmaticScrollRef.current = false;
-    });
-    setIsAutoScrolling(true);
-    clearTimeout(lingerTimeoutRef.current);
-    lingerTimeoutRef.current = setTimeout(() => {
-      setIsAutoScrolling(false);
-    }, INDICATOR_LINGER_MS);
-    return id;
-  };
-
   // Phase 1 — pre-paint (useLayoutEffect, no deps):
   // On every React render while locked, snap to the end. This is the
   // only hook that catches a row growing taller in place (e.g. streaming
   // tool output) without any dependency we could name changing.
-  //
-  // Cleanup always resets programmaticScrollRef so it can never get
-  // stuck true — e.g. if stuckRef flips to false between snap() posting
-  // and its RAF firing (tight window, but possible during rapid renders).
   useLayoutEffect(() => {
     if (!stuckRef.current) return;
-
-    const rafId = snap();
-    return () => {
-      programmaticScrollRef.current = false;
-      cancelAnimationFrame(rafId);
-    };
+    vRef.current.scrollToEnd({ behavior: "instant" });
   });
 
   // Phase 2 — post-paint (useEffect, watches total size):
@@ -109,28 +68,8 @@ export function useStickToEnd<TScrollElement extends Element>(
   // mount so we're ready when the first real size lands.
   useEffect(() => {
     if (!stuckRef.current) return;
-
-    programmaticScrollRef.current = true;
     vRef.current.scrollToEnd({ behavior: "instant" });
-    const id = requestAnimationFrame(() => {
-      programmaticScrollRef.current = false;
-    });
-
-    setIsAutoScrolling(true);
-    clearTimeout(lingerTimeoutRef.current);
-    lingerTimeoutRef.current = setTimeout(() => {
-      setIsAutoScrolling(false);
-    }, INDICATOR_LINGER_MS);
-
-    return () => {
-      programmaticScrollRef.current = false;
-      cancelAnimationFrame(id);
-    };
   }, [virtualizer.getTotalSize()]);
-
-  useEffect(() => {
-    return () => clearTimeout(lingerTimeoutRef.current);
-  }, []);
 
   return isAutoScrolling;
 }

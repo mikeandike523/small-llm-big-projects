@@ -15,26 +15,34 @@ import { useStickToEnd } from "../../hooks/useStickToEnd";
 // actual width, so this only matters for the first paint's estimate.
 const FALLBACK_LOGS_PANEL_WIDTH_PX = 340;
 
-// Outer wrapper: owns visibility/positioning within the debug panel. Split
-// from the scrollable element below so the autoscroll shine can be pinned
-// to the visible bottom edge without scrolling away with the content.
+// Outer wrapper: handles absolute positioning and tab visibility within the
+// debug panel. Does NOT participate in the grid/flex sizing of its children
+// — that is delegated to the inner wrapper below so the autoscroll shine
+// anchors against a stable position:relative box (matching TurnContainer's
+// toolCallsViewportCss pattern).
 export const logsPanelCss = (visible: boolean) => css`
   position: absolute;
   inset: 0;
   opacity: ${visible ? 1 : 0};
   pointer-events: ${visible ? "auto" : "none"};
   transition: opacity 0.18s ease;
-  display: flex;
-  flex-direction: column;
+`;
+
+// Inner wrapper: establishes a stable containing block (position:relative)
+// for the absolutely-positioned shine, and uses a single grid row to size
+// the scroll viewport to fill the available space.
+const logsInnerCss = css`
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: grid;
+  grid-template-rows: 1fr;
 `;
 
 // The actual scroll viewport — padding/overflow unchanged from before the
 // split, since estimators/backend-log-entry/constants.ts's
 // PANEL_HORIZONTAL_PADDING_PX mirrors this element's padding via clientWidth.
 const logsScrollCss = css`
-  position: relative;
-  flex: 1;
-  min-height: 0;
   overflow-y: auto;
   padding: 6px;
   ${scrollbarCss}
@@ -102,7 +110,8 @@ export default function BackendLogsTab({
 
   return (
     <div css={logsPanelCss(visible)}>
-      <div ref={scrollRef} css={logsScrollCss}>
+      <div css={logsInnerCss}>
+        <div ref={scrollRef} css={logsScrollCss}>
         {logs.length === 0 ? (
           <div css={placeholderCss}>No logs yet.</div>
         ) : (
@@ -136,8 +145,9 @@ export default function BackendLogsTab({
             })}
           </div>
         )}
+        </div>
+        <div css={autoScrollShineCss(isAutoScrolling)} />
       </div>
-      <div css={autoScrollShineCss(isAutoScrolling)} />
       <BackendLogObjectModal
         entry={viewingEntry}
         onClose={() => setViewingEntry(null)}
