@@ -67,7 +67,7 @@ export default function VersionWidget() {
 
   const titleParts: string[] = [];
   if (uiNote) titleParts.push(`UI ${uiNote.version}: ${uiNote.message}`);
-  if (backendNote) titleParts.push(`Backend: ${backendNote}`);
+  if (backendNote) titleParts.push(`Backend ${backendVersion}: ${backendNote}`);
   const title = titleParts.length ? titleParts.join("\n") : "Application version information";
 
   return (
