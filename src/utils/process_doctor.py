@@ -20,6 +20,7 @@ pid on Windows -- verified empirically, it spawns a new process), so every
 hop is independently matchable this way. No parent/child tree-walking is
 needed for discovery; ppid is only carried along for display grouping.
 """
+
 from __future__ import annotations
 
 import os

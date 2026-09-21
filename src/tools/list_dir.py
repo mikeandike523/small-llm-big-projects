@@ -106,12 +106,16 @@ DEFINITION: dict = {
 }
 
 
-def needs_approval(args: dict, session_data: dict | None = None, special_resources: dict | None = None) -> bool:
+def needs_approval(
+    args: dict, session_data: dict | None = None, special_resources: dict | None = None
+) -> bool:
     from src.tools._approval import ApprovalContext, is_full_auto, needs_path_approval
 
     if is_full_auto(special_resources):
         return False
-    return needs_path_approval(args.get("path"), ctx=ApprovalContext.from_special_resources(special_resources))
+    return needs_path_approval(
+        args.get("path"), ctx=ApprovalContext.from_special_resources(special_resources)
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -217,12 +221,18 @@ def _ensure_session_memory(session_data: dict) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def execute(args: dict, session_data: dict, special_resources: dict | None = None) -> str:
+def execute(
+    args: dict, session_data: dict, special_resources: dict | None = None
+) -> str:
     # --- Parse args ---
     sr = special_resources or {}
     session_cwd = sr.get("session_current_working_dir")
     raw_path = args.get("path") or session_cwd or ""
-    path = raw_path if os.path.isabs(raw_path) else os.path.normpath(os.path.join(session_cwd or "", raw_path))
+    path = (
+        raw_path
+        if os.path.isabs(raw_path)
+        else os.path.normpath(os.path.join(session_cwd or "", raw_path))
+    )
 
     recursive = bool(args.get("recursive", False))
     follow_folder_symlinks = bool(args.get("follow_folder_symlinks", False))

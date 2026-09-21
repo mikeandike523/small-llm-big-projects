@@ -2,9 +2,11 @@ from __future__ import annotations
 import os
 
 _dirty_files: dict[str, set[str]] = {}  # session_id -> set[normalized abs path]
-_dirty_mem: dict[str, set[str]] = {}    # session_id -> set[mem key]
-_seen_files: dict[str, set[str]] = {}   # session_id -> set[normalized abs path] (read at least once)
-_seen_mem: dict[str, set[str]] = {}     # session_id -> set[mem key] (read at least once)
+_dirty_mem: dict[str, set[str]] = {}  # session_id -> set[mem key]
+_seen_files: dict[str, set[str]] = (
+    {}
+)  # session_id -> set[normalized abs path] (read at least once)
+_seen_mem: dict[str, set[str]] = {}  # session_id -> set[mem key] (read at least once)
 
 
 def _norm(path: str, cwd: str | None = None) -> str:
@@ -125,18 +127,21 @@ def check_requires_clean(
         [
             _norm(p, cwd)
             for p in effects.get("requires_clean_files", [])
-            if has_file_been_seen(session_id, p, cwd) and is_file_dirty(session_id, p, cwd)
+            if has_file_been_seen(session_id, p, cwd)
+            and is_file_dirty(session_id, p, cwd)
         ]
         if strict
         else []
     )
     unseen_mem = [
-        k for k in effects.get("requires_clean_mem", [])
+        k
+        for k in effects.get("requires_clean_mem", [])
         if not has_mem_been_seen(session_id, k)
     ]
     dirty_mem = (
         [
-            k for k in effects.get("requires_clean_mem", [])
+            k
+            for k in effects.get("requires_clean_mem", [])
             if has_mem_been_seen(session_id, k) and is_mem_dirty(session_id, k)
         ]
         if strict
@@ -173,21 +178,35 @@ def check_requires_clean(
     lines = [f"Error: '{tool_name}' blocked:"]
     for p in unseen_files:
         dp = _display_path(p, cwd)
-        lines.append(f"  File '{dp}' has not been read yet. Your context may be incorrect.")
+        lines.append(
+            f"  File '{dp}' has not been read yet. Your context may be incorrect."
+        )
         lines.append(f"    Run this exact command: read_text_file(path='{dp}')")
         lines.append(_FILE_NOTE)
     for p in dirty_files:
         dp = _display_path(p, cwd)
-        lines.append(f"  File '{dp}' is dirty (modified since last read). Your context may be out of date.")
-        lines.append(f"    Re-read with this exact command: read_text_file(path='{dp}')")
+        lines.append(
+            f"  File '{dp}' is dirty (modified since last read). Your context may be out of date."
+        )
+        lines.append(
+            f"    Re-read with this exact command: read_text_file(path='{dp}')"
+        )
         lines.append(_FILE_NOTE)
     for k in unseen_mem:
-        lines.append(f"  Memory item '{k}' has not been read yet. Your context may be incorrect.")
-        lines.append(f"    Run this exact command: session_memory(action='get', key='{k}')")
+        lines.append(
+            f"  Memory item '{k}' has not been read yet. Your context may be incorrect."
+        )
+        lines.append(
+            f"    Run this exact command: session_memory(action='get', key='{k}')"
+        )
         lines.append(_MEM_NOTE)
     for k in dirty_mem:
-        lines.append(f"  Memory item '{k}' is dirty (modified since last read). Your context may be incorrect.")
-        lines.append(f"    Re-read with this exact command: session_memory(action='get', key='{k}')")
+        lines.append(
+            f"  Memory item '{k}' is dirty (modified since last read). Your context may be incorrect."
+        )
+        lines.append(
+            f"    Re-read with this exact command: session_memory(action='get', key='{k}')"
+        )
         lines.append(_MEM_NOTE)
     return "\n".join(lines)
 

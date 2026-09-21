@@ -66,7 +66,9 @@ _SESSION_DICT_REPAIRERS: dict[tuple[int, int], SessionDictRepairFn] = {}
 _EVENT_LOG_REPAIRERS: dict[tuple[int, int], EventLogRepairFn] = {}
 
 
-def register_schema_repair(from_version: int, to_version: int, fn: SessionDictRepairFn) -> None:
+def register_schema_repair(
+    from_version: int, to_version: int, fn: SessionDictRepairFn
+) -> None:
     """
     Register a single-step repair for the Redis warm-cache path's flat
     session dict: from_version -> to_version (normally to_version ==
@@ -76,7 +78,9 @@ def register_schema_repair(from_version: int, to_version: int, fn: SessionDictRe
     _SESSION_DICT_REPAIRERS[(from_version, to_version)] = fn
 
 
-def register_event_log_repair(from_version: int, to_version: int, fn: EventLogRepairFn) -> None:
+def register_event_log_repair(
+    from_version: int, to_version: int, fn: EventLogRepairFn
+) -> None:
     """
     Register a single-step repair for the durable MySQL path: from_version ->
     to_version. fn receives (meta, rows) in the from_version shape and must
@@ -87,7 +91,9 @@ def register_event_log_repair(from_version: int, to_version: int, fn: EventLogRe
     _EVENT_LOG_REPAIRERS[(from_version, to_version)] = fn
 
 
-def _resolve_chain(registry: dict[tuple[int, int], Callable], from_version: int, to_version: int):
+def _resolve_chain(
+    registry: dict[tuple[int, int], Callable], from_version: int, to_version: int
+):
     """Shared chain-walk: compose registered single steps from_version -> to_version."""
     if from_version == to_version:
         return []
@@ -115,7 +121,9 @@ def repair_session_dict(d: dict, current_version: int) -> dict | None:
     chain, or None if no complete chain is registered -- nothing was
     modified, and the caller decides the fallback.
     """
-    chain = _resolve_chain(_SESSION_DICT_REPAIRERS, d.get("schema_version", 0), current_version)
+    chain = _resolve_chain(
+        _SESSION_DICT_REPAIRERS, d.get("schema_version", 0), current_version
+    )
     if chain is None:
         return None
     repaired = d
@@ -134,7 +142,9 @@ def repair_event_log(
     is registered -- nothing was modified, and the caller decides the
     fallback.
     """
-    chain = _resolve_chain(_EVENT_LOG_REPAIRERS, meta.get("schema_version", 0), current_version)
+    chain = _resolve_chain(
+        _EVENT_LOG_REPAIRERS, meta.get("schema_version", 0), current_version
+    )
     if chain is None:
         return None
     repaired_meta, repaired_rows = meta, rows

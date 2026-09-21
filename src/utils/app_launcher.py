@@ -48,9 +48,7 @@ def _read_app_state() -> dict | None:
 
 def _health_check(port: int) -> bool:
     try:
-        response = httpx.get(
-            f"http://127.0.0.1:{port}/health", timeout=_HEALTH_TIMEOUT
-        )
+        response = httpx.get(f"http://127.0.0.1:{port}/health", timeout=_HEALTH_TIMEOUT)
         return response.status_code == 200
     except httpx.HTTPError:
         return False
@@ -72,7 +70,9 @@ def _platform_arch() -> tuple[str, str]:
     }
     forge_arch = arch_map.get(machine)
     if forge_arch is None:
-        raise click.ClickException(f"Unsupported CPU architecture for the SLBP desktop app: {machine}")
+        raise click.ClickException(
+            f"Unsupported CPU architecture for the SLBP desktop app: {machine}"
+        )
 
     return forge_platform, forge_arch
 
@@ -124,13 +124,19 @@ def install_start_menu_shortcut() -> Path:
     with a right-click on the Start Menu entry.
     """
     if sys.platform != "win32":
-        raise click.ClickException("Start Menu shortcuts are only supported on Windows.")
+        raise click.ClickException(
+            "Start Menu shortcuts are only supported on Windows."
+        )
 
     exe_path = _executable_path()
     _ensure_build_is_fresh(exe_path)
 
     start_menu_programs = (
-        Path(os.environ["APPDATA"]) / "Microsoft" / "Windows" / "Start Menu" / "Programs"
+        Path(os.environ["APPDATA"])
+        / "Microsoft"
+        / "Windows"
+        / "Start Menu"
+        / "Programs"
     )
     shortcut_path = start_menu_programs / f"{_PRODUCT_NAME}.lnk"
 
@@ -211,7 +217,8 @@ def _spawn_app(exe_path: Path) -> None:
     if sys.platform == "win32":
         subprocess.Popen(
             args,
-            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS,
+            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP
+            | subprocess.DETACHED_PROCESS,
             close_fds=True,
         )
     else:

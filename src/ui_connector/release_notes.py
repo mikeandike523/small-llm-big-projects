@@ -98,9 +98,11 @@ def read_release_message(version: str) -> str | None:
 
     `version` must be a plain X.Y.Z semver string — anything else is rejected
     to prevent path traversal."""
-    if not version or not all(
-        part.isdigit() for part in version.split(".")
-    ) or version.count(".") != 2:
+    if (
+        not version
+        or not all(part.isdigit() for part in version.split("."))
+        or version.count(".") != 2
+    ):
         return None
     notes_dir = get_notes_dir()
     if notes_dir is None:

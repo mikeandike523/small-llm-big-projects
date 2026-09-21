@@ -118,7 +118,9 @@ DEFINITION: dict = {
 }
 
 
-def needs_approval(args: dict, session_data: dict | None = None, special_resources: dict | None = None) -> bool:
+def needs_approval(
+    args: dict, session_data: dict | None = None, special_resources: dict | None = None
+) -> bool:
     from src.tools._approval import is_full_auto
 
     if is_full_auto(special_resources):
@@ -128,7 +130,9 @@ def needs_approval(args: dict, session_data: dict | None = None, special_resourc
         return False
     from src.tools._approval import ApprovalContext, is_path_in_scope
 
-    return not is_path_in_scope(raw, ctx=ApprovalContext.from_special_resources(special_resources))
+    return not is_path_in_scope(
+        raw, ctx=ApprovalContext.from_special_resources(special_resources)
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -267,7 +271,9 @@ def _segment_matches_regex(
 # ---------------------------------------------------------------------------
 
 
-def execute(args: dict, _session_data: dict = {}, special_resources: dict | None = None) -> str:
+def execute(
+    args: dict, _session_data: dict = {}, special_resources: dict | None = None
+) -> str:
     sr = special_resources or {}
     session_cwd: str | None = sr.get("session_current_working_dir")
     raw_patterns: list[str] = args.get("patterns") or []
@@ -281,7 +287,11 @@ def execute(args: dict, _session_data: dict = {}, special_resources: dict | None
     if not raw_patterns:
         return "Error: at least one pattern is required."
 
-    root = raw_path if os.path.isabs(raw_path) else os.path.normpath(os.path.join(session_cwd or "", raw_path))
+    root = (
+        raw_path
+        if os.path.isabs(raw_path)
+        else os.path.normpath(os.path.join(session_cwd or "", raw_path))
+    )
     if not os.path.isdir(root):
         return f"Error: {root!r} is not a directory."
 

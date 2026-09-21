@@ -36,6 +36,8 @@ from src.utils.session_events import (
     approval_mode_payload,
     EVT_PROFILE_SET,
     profile_payload,
+    EVT_HEARTBEAT_SETTINGS_SET,
+    heartbeat_settings_payload,
     EVT_TURN_STARTED,
     exchange_hash,
     exchange_payload,
@@ -89,6 +91,16 @@ def compute_events(session: Session, cursor: dict) -> list[tuple[str, dict]]:
             (EVT_APPROVAL_MODE_SET, approval_mode_payload(session.approval_mode))
         )
         cursor["approval_mode"] = session.approval_mode
+
+    heartbeat_settings = session.session_data.get("heartbeat_settings")
+    if (
+        heartbeat_settings is not None
+        and cursor.get("heartbeat_settings") != heartbeat_settings
+    ):
+        events.append(
+            (EVT_HEARTBEAT_SETTINGS_SET, heartbeat_settings_payload(heartbeat_settings))
+        )
+        cursor["heartbeat_settings"] = heartbeat_settings
 
     turns_cursor: dict = cursor.setdefault("turns", {})
 

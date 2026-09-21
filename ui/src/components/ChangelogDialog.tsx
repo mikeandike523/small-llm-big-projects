@@ -134,14 +134,22 @@ export default function ChangelogDialog({
     };
   }, [side]);
 
-  const handleBackdrop = useCallback((e: React.MouseEvent) => {
-    // Clicks on the dialog element itself (outside the card's children) mean
-    // the backdrop was clicked.
-    if (e.target === dialogRef.current) onClose();
-  }, [onClose]);
+  const handleBackdrop = useCallback(
+    (e: React.MouseEvent) => {
+      // Clicks on the dialog element itself (outside the card's children) mean
+      // the backdrop was clicked.
+      if (e.target === dialogRef.current) onClose();
+    },
+    [onClose],
+  );
 
   return (
-    <dialog ref={dialogRef} css={backdropCss} onClick={handleBackdrop} onClose={onClose}>
+    <dialog
+      ref={dialogRef}
+      css={backdropCss}
+      onClick={handleBackdrop}
+      onClose={onClose}
+    >
       <div css={headerCss}>
         <span>{side === "ui" ? "UI" : "Backend"} changelogs</span>
         <button css={closeCss} onClick={onClose} aria-label="Close">

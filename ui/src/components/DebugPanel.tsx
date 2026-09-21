@@ -298,7 +298,12 @@ export function DebugPanel({
             </div>
           </div>
         )}
-        <PanelDivider open={open} onToggle={onToggle} label="Debug" side="left" />
+        <PanelDivider
+          open={open}
+          onToggle={onToggle}
+          label="Debug"
+          side="left"
+        />
       </div>
     </>
   );

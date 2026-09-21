@@ -29,14 +29,16 @@ import {
   tabNameCss,
   terminalsCss,
   titleCss,
-  tooltipCss
+  tooltipCss,
 } from "../css/TerminalPanel";
 import { panelRootCss } from "../css/SidePanelTheme";
 import PanelDivider from "./PanelDivider";
 import TerminalTab from "../subcomponents/TerminalPanel/TerminalTab";
-import { Props, TerminalSessionState, TerminalTabState } from "../types/TerminalPanel";
-
-
+import {
+  Props,
+  TerminalSessionState,
+  TerminalTabState,
+} from "../types/TerminalPanel";
 
 function getScreenOutput(xterm: Terminal | null): string {
   if (!xterm) return "";
@@ -51,7 +53,6 @@ function getScreenOutput(xterm: Terminal | null): string {
   while (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
   return lines.join("\n");
 }
-
 
 function makeTab(
   terminalId: string,
@@ -69,7 +70,13 @@ function makeTab(
   };
 }
 
-export function TerminalPanel({ open, onToggle, socket, busy, variant }: Props) {
+export function TerminalPanel({
+  open,
+  onToggle,
+  socket,
+  busy,
+  variant,
+}: Props) {
   const isPage = variant === "page";
   const isOpen = isPage || !!open;
   const [tabs, setTabs] = useState<TerminalTabState[]>([]);
@@ -515,10 +522,7 @@ export function TerminalPanel({ open, onToggle, socket, busy, variant }: Props) 
       )}
       {!isPage && askModalOpen && (
         <>
-          <div
-            css={modalBackdropCss}
-            onClick={() => setAskModalOpen(false)}
-          />
+          <div css={modalBackdropCss} onClick={() => setAskModalOpen(false)} />
           <div
             css={modalBoxCss}
             role="dialog"
@@ -550,21 +554,19 @@ export function TerminalPanel({ open, onToggle, socket, busy, variant }: Props) 
               />
               <div css={modalFollowupRowCss}>
                 <span css={modalFollowupLabelCss}>Follow-up</span>
-                {(["auto", "follow-up", "new-task"] as const).map(
-                  (opt) => (
-                    <button
-                      key={opt}
-                      css={modalFollowupPillCss(askModalFollowup === opt)}
-                      onClick={() => setAskModalFollowup(opt)}
-                    >
-                      {opt === "auto"
-                        ? "auto-detect"
-                        : opt === "follow-up"
-                          ? "force-follow-up"
-                          : "force-new-task"}
-                    </button>
-                  ),
-                )}
+                {(["auto", "follow-up", "new-task"] as const).map((opt) => (
+                  <button
+                    key={opt}
+                    css={modalFollowupPillCss(askModalFollowup === opt)}
+                    onClick={() => setAskModalFollowup(opt)}
+                  >
+                    {opt === "auto"
+                      ? "auto-detect"
+                      : opt === "follow-up"
+                        ? "force-follow-up"
+                        : "force-new-task"}
+                  </button>
+                ))}
               </div>
             </div>
             <div css={modalActionsRowCss}>

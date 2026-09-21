@@ -33,6 +33,7 @@ from src.utils.session_model import (
     llm_exchange_to_dict,
 )
 from src.utils.approval_modes import APPROVAL_MODE_DEFAULT
+from src.utils.heartbeat_settings import DEFAULT_HEARTBEAT_SETTINGS
 
 # ---------------------------------------------------------------------------
 # Event vocabulary
@@ -50,6 +51,7 @@ EVT_TURN_COMPLETED = "turn_completed"
 EVT_TODO_LIST_SET = "todo_list_set"
 EVT_APPROVAL_MODE_SET = "approval_mode_set"
 EVT_PROFILE_SET = "profile_set"
+EVT_HEARTBEAT_SETTINGS_SET = "heartbeat_settings_set"
 
 
 # ---------------------------------------------------------------------------
@@ -113,6 +115,10 @@ def approval_mode_payload(mode: str) -> dict:
 
 def profile_payload(profile_name: str | None) -> dict:
     return {"profile_name": profile_name}
+
+
+def heartbeat_settings_payload(settings: dict) -> dict:
+    return {"settings": settings}
 
 
 def turn_completed_payload(turn: Turn) -> dict:
@@ -251,6 +257,12 @@ def _on_profile_set(state: ReplayState, p: dict) -> None:
     state.session.profile_name = p.get("profile_name")
 
 
+def _on_heartbeat_settings_set(state: ReplayState, p: dict) -> None:
+    state.session.session_data["heartbeat_settings"] = (
+        p.get("settings") or DEFAULT_HEARTBEAT_SETTINGS
+    )
+
+
 _HANDLERS = {
     EVT_SESSION_CREATED: _on_session_created,
     EVT_TURN_STARTED: _on_turn_started,
@@ -263,6 +275,7 @@ _HANDLERS = {
     EVT_TODO_LIST_SET: _on_todo_list_set,
     EVT_APPROVAL_MODE_SET: _on_approval_mode_set,
     EVT_PROFILE_SET: _on_profile_set,
+    EVT_HEARTBEAT_SETTINGS_SET: _on_heartbeat_settings_set,
 }
 
 

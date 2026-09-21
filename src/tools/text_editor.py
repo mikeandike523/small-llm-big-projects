@@ -73,8 +73,7 @@ def _used_by(*actions: str) -> str:
     return "Used by: " + ", ".join(enabled) + "."
 
 
-_DESCRIPTION_HEADER = dedent(
-    """
+_DESCRIPTION_HEADER = dedent("""
     Structural text-editor operations on a session memory string value OR directly on a file on disk.
     Provide exactly one of: 'key' (session memory key) or 'filepath' (path to a file on disk).
     When 'filepath' is given the file is read into a temporary buffer, the operation is applied,
@@ -85,8 +84,7 @@ _DESCRIPTION_HEADER = dedent(
     Bare \\r is treated as a regular character and is never split on or converted.
     Write actions always re-encode the result to match the existing EOL style
     (CRLF if any CRLF present, else LF).
-    """
-).strip()
+    """).strip()
 
 DEFINITION: dict = {
     "type": "function",
@@ -169,8 +167,7 @@ DEFINITION: dict = {
                 },
                 "patch": {
                     "type": "string",
-                    "description": dedent(
-                        """
+                    "description": dedent("""
                         For apply_patch: a unidiff/git-diff style patch.
                         For search_replace: one or more AIDER-style blocks of the form
                         '<<<<<<< SEARCH' / old lines / '=======' / new lines / '>>>>>>> REPLACE'.
@@ -178,8 +175,7 @@ DEFINITION: dict = {
                         for the divider, and seven '>' before REPLACE. Parsing is lenient and accepts
                         any run of 5 or more of the marker character, so an extra hallucinated '<', '='
                         or '>' is tolerated; the words SEARCH and REPLACE are optional.
-                        """
-                    ).strip(),
+                        """).strip(),
                 },
                 "content": {
                     "type": "string",
@@ -249,7 +245,9 @@ def dirty_effects(args: dict, session_data: dict | None = None) -> dict:
     return {}
 
 
-def needs_approval(args: dict, session_data: dict | None = None, special_resources: dict | None = None) -> bool:
+def needs_approval(
+    args: dict, session_data: dict | None = None, special_resources: dict | None = None
+) -> bool:
     action = args.get("action", "")
     filepath = args.get("filepath")
 
@@ -263,7 +261,9 @@ def needs_approval(args: dict, session_data: dict | None = None, special_resourc
             return False
         from src.tools._approval import ApprovalContext, needs_path_approval
 
-        return needs_path_approval(filepath, ctx=ApprovalContext.from_special_resources(special_resources))
+        return needs_path_approval(
+            filepath, ctx=ApprovalContext.from_special_resources(special_resources)
+        )
 
     if action in _DRYRUN_ACTIONS:
         if filepath is None:
@@ -315,9 +315,11 @@ def needs_approval(args: dict, session_data: dict | None = None, special_resourc
     # Read-only actions: path-based approval (consistent with read_text_file).
     if filepath is not None:
         from src.tools._approval import ApprovalContext, needs_path_approval
-        return needs_path_approval(filepath, ctx=ApprovalContext.from_special_resources(special_resources))
-    return False
 
+        return needs_path_approval(
+            filepath, ctx=ApprovalContext.from_special_resources(special_resources)
+        )
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -325,7 +327,9 @@ def needs_approval(args: dict, session_data: dict | None = None, special_resourc
 # ---------------------------------------------------------------------------
 
 
-def execute(args: dict, session_data: dict | None = None, special_resources: dict | None = None) -> str:
+def execute(
+    args: dict, session_data: dict | None = None, special_resources: dict | None = None
+) -> str:
     if session_data is None:
         session_data = {}
 

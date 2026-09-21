@@ -59,14 +59,14 @@ def _profile_verbose_lines(conn, kv, name: str) -> list[str]:
     visible_param_keys = []
     params_prefix = prefix + "params."
     for k in param_keys:
-        param_name = k[len(params_prefix):]
+        param_name = k[len(params_prefix) :]
         if param_name in _ALLOWED_PARAMS and param_name not in _GLOBAL_PARAMS:
             visible_param_keys.append(k)
 
     if visible_param_keys:
         parts = []
         for key in visible_param_keys:
-            param_name = key[len(params_prefix):]
+            param_name = key[len(params_prefix) :]
             val = kv.get_value(key)
             parts.append(f"{param_name}={val}")
         lines.append(f"  params: {' '.join(parts)}")
@@ -230,7 +230,7 @@ def sub_cmd_copy_to(name: str):
         for src_key in kv.list_keys(prefix=src_prefix):
             val = kv.get_value(src_key)
             if val is not None:
-                kv.set_value(dst_prefix + src_key[len(src_prefix):], val)
+                kv.set_value(dst_prefix + src_key[len(src_prefix) :], val)
 
         if not already_exists:
             with conn.cursor() as cursor:
@@ -247,7 +247,7 @@ def _rename_profile(conn, kv, old_name: str, new_name: str) -> None:
     for src_key in src_keys:
         val = kv.get_value(src_key)
         if val is not None:
-            kv.set_value(dst_prefix + src_key[len(src_prefix):], val)
+            kv.set_value(dst_prefix + src_key[len(src_prefix) :], val)
     for src_key in src_keys:
         kv.delete_value(src_key)
     if get_active_profile(kv) == old_name:
@@ -271,11 +271,15 @@ def sub_cmd_rename(old_name: str, new_name: str):
     with pool.get_connection() as conn:
         kv = KVManager(conn)
         with conn.cursor() as cursor:
-            cursor.execute("SELECT 1 FROM profiles WHERE name = %s LIMIT 1", (old_name,))
+            cursor.execute(
+                "SELECT 1 FROM profiles WHERE name = %s LIMIT 1", (old_name,)
+            )
             if cursor.fetchone() is None:
                 click.echo(f"Error: Profile '{old_name}' does not exist.")
                 raise SystemExit(1)
-            cursor.execute("SELECT 1 FROM profiles WHERE name = %s LIMIT 1", (new_name,))
+            cursor.execute(
+                "SELECT 1 FROM profiles WHERE name = %s LIMIT 1", (new_name,)
+            )
             if cursor.fetchone() is not None:
                 click.echo(f"Error: Profile '{new_name}' already exists.")
                 raise SystemExit(1)
@@ -301,7 +305,9 @@ def sub_cmd_rename_to(new_name: str):
             click.echo("Error: No default profile selected.")
             raise SystemExit(1)
         with conn.cursor() as cursor:
-            cursor.execute("SELECT 1 FROM profiles WHERE name = %s LIMIT 1", (new_name,))
+            cursor.execute(
+                "SELECT 1 FROM profiles WHERE name = %s LIMIT 1", (new_name,)
+            )
             if cursor.fetchone() is not None:
                 click.echo(f"Error: Profile '{new_name}' already exists.")
                 raise SystemExit(1)
@@ -336,13 +342,13 @@ def sub_cmd_list(verbose: bool):
             global_param_keys = [
                 k
                 for k in kv.list_keys(prefix="params.")
-                if k[len("params."):] in _GLOBAL_PARAMS
+                if k[len("params.") :] in _GLOBAL_PARAMS
             ]
             if global_param_keys:
                 click.echo("  Global Parameters:")
                 parts = []
                 for k in sorted(global_param_keys):
-                    param_name = k[len("params."):]
+                    param_name = k[len("params.") :]
                     val = kv.get_value(k)
                     parts.append(f"{param_name}={val}")
                 click.echo(f"    {' '.join(parts)}")

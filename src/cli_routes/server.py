@@ -98,7 +98,11 @@ def _run_preflight_checks(retry_interval: int = 10) -> None:
         )
         if _run_preflight_checks_once():
             return
-        click.echo(colored(f"[slbp] Not ready yet — retrying in {retry_interval}s...", "yellow"))
+        click.echo(
+            colored(
+                f"[slbp] Not ready yet — retrying in {retry_interval}s...", "yellow"
+            )
+        )
         time.sleep(retry_interval)
         attempt += 1
 
@@ -121,7 +125,9 @@ def _maybe_clear_desktop_log() -> None:
             )
     except Exception as exc:
         click.echo(
-            colored(f"Warning: could not check clear-logs-on-start param: {exc}", "yellow")
+            colored(
+                f"Warning: could not check clear-logs-on-start param: {exc}", "yellow"
+            )
         )
         return
     if not enabled:
@@ -133,7 +139,9 @@ def _maybe_clear_desktop_log() -> None:
     except FileNotFoundError:
         pass
     except OSError as exc:
-        click.echo(colored(f"Warning: could not clear {log_path.name}: {exc}", "yellow"))
+        click.echo(
+            colored(f"Warning: could not clear {log_path.name}: {exc}", "yellow")
+        )
 
 
 @cli.group()

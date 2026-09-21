@@ -8,6 +8,7 @@ the same ParamSpec before being handed back. This replaces the ad hoc
 `.get(x, <literal default>)` / `... or <literal default>` sprinkled across call
 sites -- see param_defaults_checklist.md for the audit that motivated this.
 """
+
 from __future__ import annotations
 
 import logging
@@ -72,7 +73,9 @@ def get_param_value(kv: KVManager, name: str, profile_prefix: str | None = None)
     try:
         return spec.parse_value(raw)
     except ValueError as exc:
-        logger.error("param_helper: stored value for '%s' failed validation: %s", name, exc)
+        logger.error(
+            "param_helper: stored value for '%s' failed validation: %s", name, exc
+        )
         raise ValueError(
             "Data in database is not valid according to parameter registry. "
             "Please contact server administrator."

@@ -4,6 +4,7 @@ from dataclasses import dataclass, replace
 import threading
 
 from src.utils.approval_modes import APPROVAL_MODE_DEFAULT
+from src.utils.heartbeat_settings import DEFAULT_HEARTBEAT_SETTINGS
 from src.utils.session_model import Session
 
 
@@ -13,6 +14,8 @@ class RuntimeSettings:
     profile_revision: int
     approval_mode: str
     approval_mode_revision: int
+    heartbeat_settings: dict
+    heartbeat_settings_revision: int
 
 
 _lock = threading.RLock()
@@ -38,6 +41,11 @@ def initialize(session_id: str, session: Session) -> RuntimeSettings:
                 profile_revision=0,
                 approval_mode=session.approval_mode or APPROVAL_MODE_DEFAULT,
                 approval_mode_revision=0,
+                heartbeat_settings=dict(
+                    session.session_data.get("heartbeat_settings")
+                    or DEFAULT_HEARTBEAT_SETTINGS
+                ),
+                heartbeat_settings_revision=0,
             )
             _settings[session_id] = current
         return current
@@ -79,10 +87,27 @@ def set_approval_mode(
         return updated
 
 
+def set_heartbeat_settings(
+    session_id: str, session: Session, heartbeat_settings: dict
+) -> RuntimeSettings:
+    with _lock:
+        current = initialize(session_id, session)
+        if current.heartbeat_settings == heartbeat_settings:
+            return current
+        updated = replace(
+            current,
+            heartbeat_settings=dict(heartbeat_settings),
+            heartbeat_settings_revision=current.heartbeat_settings_revision + 1,
+        )
+        _settings[session_id] = updated
+        return updated
+
+
 def merge_into_session(session_id: str, session: Session) -> RuntimeSettings:
     current = snapshot(session_id, session)
     session.profile_name = current.profile_name
     session.approval_mode = current.approval_mode
+    session.session_data["heartbeat_settings"] = current.heartbeat_settings
     return current
 
 
@@ -92,6 +117,8 @@ def payload(settings: RuntimeSettings) -> dict:
         "profileRevision": settings.profile_revision,
         "approvalMode": settings.approval_mode,
         "approvalModeRevision": settings.approval_mode_revision,
+        "heartbeatSettings": settings.heartbeat_settings,
+        "heartbeatSettingsRevision": settings.heartbeat_settings_revision,
     }
 
 

@@ -1,0 +1,1 @@
+Added heartbeat sequence settings: session-scoped config, dashboard/session-page indicators

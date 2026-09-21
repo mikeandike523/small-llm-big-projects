@@ -27,6 +27,7 @@ def require_active_profile(kv) -> str:
     profile = get_active_profile(kv)
     if profile is None:
         import click
+
         raise click.ClickException(_NO_PROFILE_HINT)
     return profile
 

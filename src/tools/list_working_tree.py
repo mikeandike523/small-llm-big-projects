@@ -35,7 +35,9 @@ DEFINITION: dict = {
 }
 
 
-def needs_approval(args: dict, session_data: dict | None = None, special_resources: dict | None = None) -> bool:
+def needs_approval(
+    args: dict, session_data: dict | None = None, special_resources: dict | None = None
+) -> bool:
     from src.tools._approval import is_full_auto
 
     if is_full_auto(special_resources):
@@ -45,7 +47,9 @@ def needs_approval(args: dict, session_data: dict | None = None, special_resourc
         return False
     from src.tools._approval import ApprovalContext, is_path_in_scope
 
-    return not is_path_in_scope(raw, ctx=ApprovalContext.from_special_resources(special_resources))
+    return not is_path_in_scope(
+        raw, ctx=ApprovalContext.from_special_resources(special_resources)
+    )
 
 
 def execute(args: dict, _session_data={}, special_resources: dict | None = None) -> str:
@@ -54,7 +58,11 @@ def execute(args: dict, _session_data={}, special_resources: dict | None = None)
     path: str | None = args.get("path")
     cmd = ["git", "ls-files", "--cached", "--others", "--exclude-standard"]
     if path is not None:
-        resolved = path if os.path.isabs(path) else os.path.normpath(os.path.join(session_cwd or "", path))
+        resolved = (
+            path
+            if os.path.isabs(path)
+            else os.path.normpath(os.path.join(session_cwd or "", path))
+        )
         cmd += ["--", resolved]
     try:
         result = run_command(cmd, timeout=DEFAULT_TIMEOUT, cwd=session_cwd)

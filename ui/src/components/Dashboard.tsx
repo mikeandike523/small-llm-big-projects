@@ -2,6 +2,7 @@
 import { css, keyframes } from "@emotion/react";
 import React, { useEffect, useRef, useState, useCallback } from "react";
 import { useNavigate, Link } from "react-router-dom";
+import { FaHeartbeat } from "react-icons/fa";
 import NewSessionDialog, { type SessionDefaults } from "./NewSessionDialog";
 import VersionWidget from "./VersionWidget";
 
@@ -20,6 +21,7 @@ interface SessionSummary {
   task_titles: string[];
   skills_path: string | null;
   custom_tools_path: string | null;
+  heartbeat_enabled: boolean;
 }
 
 interface BulkDeleteResponse {
@@ -946,10 +948,7 @@ export default function Dashboard() {
                   </button>
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <button
-                    css={cancelSelectBtnCss}
-                    onClick={cancelSelection}
-                  >
+                  <button css={cancelSelectBtnCss} onClick={cancelSelection}>
                     Cancel
                   </button>
                   <button
@@ -1136,6 +1135,16 @@ function SessionCard({
             flexShrink: 0,
           }}
         >
+          {session.heartbeat_enabled && (
+            <Tooltip label="Heartbeat enabled">
+              <span
+                style={{ display: "flex", color: "#e53e3e" }}
+                aria-label="Heartbeat enabled"
+              >
+                <FaHeartbeat size={13} />
+              </span>
+            </Tooltip>
+          )}
           <Tooltip label={session.active_turn ? "Turn in progress" : "Idle"}>
             <div css={session.active_turn ? activeDotCss : idleDotCss} />
           </Tooltip>

@@ -22,7 +22,6 @@ from src.utils.llm.factory import _call_sampler
 from src.utils.llm.streaming import StreamingLLM
 from src.utils.session_model import Session, Turn, Subturn
 
-
 logger = logging.getLogger(__name__)
 
 FINAL_ANSWER_CANDIDATE_CHAR_LIMIT = 500
@@ -216,7 +215,8 @@ async def _select_best_final_answer(
         if 0 <= idx < len(candidates):
             return idx
     logger.warning(
-        "Final-answer selector returned unparseable result %r — using last candidate", raw
+        "Final-answer selector returned unparseable result %r — using last candidate",
+        raw,
     )
     return len(candidates) - 1
 
@@ -288,7 +288,10 @@ def _compute_subturn_compaction(
     ]
     try:
         result = _call_sampler(
-            streaming_llm, messages, summarizer_params, on_usage=on_usage,
+            streaming_llm,
+            messages,
+            summarizer_params,
+            on_usage=on_usage,
             on_request_log=on_request_log,
             on_reasoning_detected=on_reasoning_detected,
             on_response=on_response,
@@ -404,7 +407,9 @@ async def _is_continuation(
 # ---------------------------------------------------------------------------
 
 
-def _build_skill_selector_transcript(session: Session, current_turn: Turn | None = None) -> str:
+def _build_skill_selector_transcript(
+    session: Session, current_turn: Turn | None = None
+) -> str:
     """Format completed turns AND prior subturns of the current turn into a short context transcript for the skill selector."""
     if not session.completed_turns:
         return ""
@@ -430,9 +435,9 @@ def _build_skill_selector_transcript(session: Session, current_turn: Turn | None
             user = (st.user_text or "").strip()
             final_resp = _subturn_final_response(st)
             if len(user) > _state._SKILL_SELECTOR_TURN_CHARS:
-                user = user[:_state._SKILL_SELECTOR_TURN_CHARS] + "..."
+                user = user[: _state._SKILL_SELECTOR_TURN_CHARS] + "..."
             if len(final_resp) > _state._SKILL_SELECTOR_TURN_CHARS:
-                final_resp = final_resp[:_state._SKILL_SELECTOR_TURN_CHARS] + "..."
+                final_resp = final_resp[: _state._SKILL_SELECTOR_TURN_CHARS] + "..."
             lines.append(f"[Turn {turn_num}, Subturn {j}]")
             lines.append(f"User: {user}")
             if final_resp:

@@ -30,7 +30,9 @@ class RedactionPlugin(ABC):
 
     def score(self, path: str | None, content: str) -> float:
         """Combined match score: mean of filepath and content scores."""
-        return (self.matches_filepath(path, content) + self.matches_content(path, content)) / 2.0
+        return (
+            self.matches_filepath(path, content) + self.matches_content(path, content)
+        ) / 2.0
 
     @abstractmethod
     def redact(self, path: str | None, content: str) -> str:

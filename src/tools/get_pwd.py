@@ -35,11 +35,15 @@ DEFINITION: dict = {
 }
 
 
-def needs_approval(args: dict, session_data: dict | None = None, special_resources: dict | None = None) -> bool:
+def needs_approval(
+    args: dict, session_data: dict | None = None, special_resources: dict | None = None
+) -> bool:
     return False
 
 
-def execute(args: dict, session_data: dict | None = None, special_resources: dict | None = None) -> str:
+def execute(
+    args: dict, session_data: dict | None = None, special_resources: dict | None = None
+) -> str:
     from src.tools._memory import ensure_session_memory
 
     sr = special_resources or {}

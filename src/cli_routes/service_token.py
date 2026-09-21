@@ -63,7 +63,9 @@ def sub_cmd_set(name: str, provider: str, value: str):
     click.echo(f"Saved token for provider={provider!r} name={name!r}")
 
 
-def _resolve_service_token(cursor, provider: str, name: str, yes: bool) -> Optional[str]:
+def _resolve_service_token(
+    cursor, provider: str, name: str, yes: bool
+) -> Optional[str]:
     cursor.execute(
         """
         SELECT name
@@ -195,21 +197,25 @@ def sub_cmd_move(args: tuple[str, ...]):
 
     if len(left) != 2:
         raise click.UsageError(
-            f"Expected 2 args before \"..\" (PROVIDER NAME), got {len(left)}. "
+            f'Expected 2 args before ".." (PROVIDER NAME), got {len(left)}. '
             "Usage: slbp service-token move PROVIDER NAME .. NEW_PROVIDER NEW_NAME"
         )
 
     if len(right) != 2:
         raise click.UsageError(
-            f"Expected 2 args after \"..\" (NEW_PROVIDER NEW_NAME), got {len(right)}. "
+            f'Expected 2 args after ".." (NEW_PROVIDER NEW_NAME), got {len(right)}. '
             "Usage: slbp service-token move PROVIDER NAME .. NEW_PROVIDER NEW_NAME"
         )
 
     old_provider, old_name = left
     new_provider, new_name = right
 
-    old_display = f"{old_provider!r}/{old_name!r}" if old_name else f"{old_provider!r}/\"\""
-    new_display = f"{new_provider!r}/{new_name!r}" if new_name else f"{new_provider!r}/\"\""
+    old_display = (
+        f"{old_provider!r}/{old_name!r}" if old_name else f'{old_provider!r}/""'
+    )
+    new_display = (
+        f"{new_provider!r}/{new_name!r}" if new_name else f'{new_provider!r}/""'
+    )
 
     pool = get_pool()
 
@@ -229,7 +235,7 @@ def sub_cmd_move(args: tuple[str, ...]):
 
             if row is None:
                 click.echo(
-                    f'Service token {old_display} not found. '
+                    f"Service token {old_display} not found. "
                     'Use "slbp service-token list" to see available tokens.'
                 )
                 return
@@ -255,7 +261,7 @@ def sub_cmd_move(args: tuple[str, ...]):
             )
             if cursor.fetchone() is not None:
                 click.echo(
-                    f'Destination {new_display} already exists. '
+                    f"Destination {new_display} already exists. "
                     "Remove it first or choose a different destination."
                 )
                 return
@@ -272,6 +278,4 @@ def sub_cmd_move(args: tuple[str, ...]):
 
         conn.commit()
 
-    click.echo(
-        f"Service token moved from {old_display} to {new_display}."
-    )
+    click.echo(f"Service token moved from {old_display} to {new_display}.")

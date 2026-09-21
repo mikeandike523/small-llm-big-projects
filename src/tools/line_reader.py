@@ -121,7 +121,9 @@ def dirty_effects(args: dict, session_data: dict | None = None) -> dict:
     return {}
 
 
-def needs_approval(args: dict, session_data: dict | None = None, special_resources: dict | None = None) -> bool:
+def needs_approval(
+    args: dict, session_data: dict | None = None, special_resources: dict | None = None
+) -> bool:
     from src.tools._approval import is_full_auto
 
     if is_full_auto(special_resources):
@@ -129,11 +131,15 @@ def needs_approval(args: dict, session_data: dict | None = None, special_resourc
     if args.get("path"):
         from src.tools._approval import ApprovalContext, needs_path_approval
 
-        return needs_path_approval(args["path"], ctx=ApprovalContext.from_special_resources(special_resources))
+        return needs_path_approval(
+            args["path"], ctx=ApprovalContext.from_special_resources(special_resources)
+        )
     return False
 
 
-def _load_text(args: dict, session_data: dict, session_cwd: str | None = None) -> tuple[str, str | None]:
+def _load_text(
+    args: dict, session_data: dict, session_cwd: str | None = None
+) -> tuple[str, str | None]:
     """Return (text, error_string). Exactly one of path/session_memory_key must be set."""
     raw_path = args.get("path")
     key = args.get("session_memory_key")
@@ -191,11 +197,15 @@ def _read_lines_range(text: str, start_line: int | None, end_line: int | None) -
     return "".join(selected)
 
 
-def execute(args: dict, session_data: dict, special_resources: dict | None = None) -> str:
+def execute(
+    args: dict, session_data: dict, special_resources: dict | None = None
+) -> str:
     sr = special_resources or {}
     action = args.get("action")
 
-    text, error = _load_text(args, session_data, session_cwd=sr.get("session_current_working_dir"))
+    text, error = _load_text(
+        args, session_data, session_cwd=sr.get("session_current_working_dir")
+    )
     if error:
         return error
 

@@ -6,7 +6,10 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import type { TodoItem, Turn, ToolCallEntry } from "../types";
 
 import scrollbarCss from "../css/scrollBarCss";
-import { autoScrollShineCss, SHINE_HEIGHT_TOOL_CALLS_PX } from "../css/autoScrollShineCss";
+import {
+  autoScrollShineCss,
+  SHINE_HEIGHT_TOOL_CALLS_PX,
+} from "../css/autoScrollShineCss";
 import { TextPresenter } from "./TextPresenter";
 import ToolCallCard from "./ToolCallCard";
 import ToolApprovalBubble from "./ToolApprovalBubble";
@@ -184,7 +187,6 @@ const toolCallsScrollCss = css`
   overflow-y: auto;
   overflow-x: hidden;
 `;
-
 
 const todoColumnCss = css`
   ${scrollbarCss}
@@ -924,7 +926,12 @@ export default function TurnContainer({
                   </div>
                 )}
               </div>
-              <div css={autoScrollShineCss(isToolCallsAutoScrolling, SHINE_HEIGHT_TOOL_CALLS_PX)} />
+              <div
+                css={autoScrollShineCss(
+                  isToolCallsAutoScrolling,
+                  SHINE_HEIGHT_TOOL_CALLS_PX,
+                )}
+              />
             </div>
           </div>
         </div>

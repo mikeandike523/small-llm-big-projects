@@ -248,7 +248,10 @@ export default function ToolApprovalBubble({
   const [showRedirect, setShowRedirect] = useState(false);
   const [redirectText, setRedirectText] = useState("");
   const [diffStatus, setDiffStatus] = useState<DiffStatus>("idle");
-  const [diffData, setDiffData] = useState<{ before: string; after: string } | null>(null);
+  const [diffData, setDiffData] = useState<{
+    before: string;
+    after: string;
+  } | null>(null);
 
   // Which tools/actions render a diff preview (and where to compute it) is served
   // by the backend and fetched once on session load — no hard-coded list here.
@@ -259,7 +262,8 @@ export default function ToolApprovalBubble({
       previewConfig.find(
         (d) =>
           d.tool_name === item.tool_name &&
-          (d.actions === null || d.actions.includes(item.args.action as string)),
+          (d.actions === null ||
+            d.actions.includes(item.args.action as string)),
       ) ?? null
     );
   }, [previewConfig, item.tool_name, item.args.action]);
@@ -291,12 +295,15 @@ export default function ToolApprovalBubble({
           // New file / new key — nothing to diff against
           setDiffStatus("idle");
         } else {
-          setDiffData({ before: data.before as string, after: data.after as string });
+          setDiffData({
+            before: data.before as string,
+            after: data.after as string,
+          });
           setDiffStatus("loaded");
         }
       })
       .catch(() => setDiffStatus("error"));
-  }, [item.id, previewEndpoint]);  // eslint-disable-line react-hooks/exhaustive-deps
+  }, [item.id, previewEndpoint]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (item.resolved) {
     return (
@@ -327,7 +334,9 @@ export default function ToolApprovalBubble({
             )}
             {diffStatus === "loaded" && diffData && (
               <>
-                {diffLabel && <div css={diffLabelCss}>Preview for: {diffLabel}</div>}
+                {diffLabel && (
+                  <div css={diffLabelCss}>Preview for: {diffLabel}</div>
+                )}
                 <DiffViewer before={diffData.before} after={diffData.after} />
               </>
             )}
@@ -339,7 +348,11 @@ export default function ToolApprovalBubble({
           css={approveButtonCss}
           onClick={() => onApprove(item.id)}
           disabled={wantsDiffPreview && diffStatus === "loading"}
-          style={wantsDiffPreview && diffStatus === "loading" ? { opacity: 0.4, cursor: "default" } : undefined}
+          style={
+            wantsDiffPreview && diffStatus === "loading"
+              ? { opacity: 0.4, cursor: "default" }
+              : undefined
+          }
         >
           Approve
         </button>

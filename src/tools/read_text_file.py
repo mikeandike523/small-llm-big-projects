@@ -55,15 +55,21 @@ def dirty_effects(args: dict) -> dict:
     return effects
 
 
-def needs_approval(args: dict, session_data: dict | None = None, special_resources: dict | None = None) -> bool:
+def needs_approval(
+    args: dict, session_data: dict | None = None, special_resources: dict | None = None
+) -> bool:
     from src.tools._approval import ApprovalContext, is_full_auto, needs_path_approval
 
     if is_full_auto(special_resources):
         return False
-    return needs_path_approval(args.get("path"), ctx=ApprovalContext.from_special_resources(special_resources))
+    return needs_path_approval(
+        args.get("path"), ctx=ApprovalContext.from_special_resources(special_resources)
+    )
 
 
-def execute(args: dict, session_data: dict, special_resources: dict | None = None) -> str:
+def execute(
+    args: dict, session_data: dict, special_resources: dict | None = None
+) -> str:
     sr = special_resources or {}
     path = _resolve_path(args["path"], sr.get("session_current_working_dir"))
     session_memory_key: str | None = args.get("session_memory_key")
@@ -93,6 +99,7 @@ def execute(args: dict, session_data: dict, special_resources: dict | None = Non
         # decision (already accounts for approval + ALLOW_REQUEST_UNREDACTED).
         if not sr.get("request_unredacted"):
             from src.redaction.core import redact as _redact
+
             contents = _redact(path, contents)
 
         memory = session_data.get("memory")

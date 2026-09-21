@@ -23,17 +23,29 @@ DEFINITION: dict = {
 }
 
 
-def needs_approval(args: dict, session_data: dict | None = None, special_resources: dict | None = None) -> bool:
-    from src.tools._approval import ApprovalContext, is_auto_accept_edits, is_full_auto, needs_path_approval
+def needs_approval(
+    args: dict, session_data: dict | None = None, special_resources: dict | None = None
+) -> bool:
+    from src.tools._approval import (
+        ApprovalContext,
+        is_auto_accept_edits,
+        is_full_auto,
+        needs_path_approval,
+    )
 
     if is_full_auto(special_resources):
         return False
     if is_auto_accept_edits(special_resources):
-        return needs_path_approval(args.get("path"), ctx=ApprovalContext.from_special_resources(special_resources))
+        return needs_path_approval(
+            args.get("path"),
+            ctx=ApprovalContext.from_special_resources(special_resources),
+        )
     return True
 
 
-def execute(args: dict, session_data: dict, special_resources: dict | None = None) -> str:
+def execute(
+    args: dict, session_data: dict, special_resources: dict | None = None
+) -> str:
     sr = special_resources or {}
     path = _resolve_path(args["path"], sr.get("session_current_working_dir"))
 

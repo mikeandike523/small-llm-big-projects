@@ -108,7 +108,9 @@ class _OpenAICompatibleBase(DialectAdapter):
             except json.JSONDecodeError:
                 arguments = {}
             tool_calls.append(
-                ToolCall(id=tc.get("id", ""), name=func.get("name", ""), arguments=arguments)
+                ToolCall(
+                    id=tc.get("id", ""), name=func.get("name", ""), arguments=arguments
+                )
             )
         return tool_calls
 
@@ -332,11 +334,19 @@ class OpenRouterDialect(_OpenAICompatibleBase):
         details = message.get("reasoning_details")
         if details:
             reasoning_native = {"dialect": OPENROUTER, "data": details}
-            reasoning = "".join(
-                b.get("text", "") for b in details if b.get("type") == "reasoning.text"
-            ) or "".join(
-                b.get("summary", "") for b in details if b.get("type") == "reasoning.summary"
-            ) or (message.get("reasoning") or "")
+            reasoning = (
+                "".join(
+                    b.get("text", "")
+                    for b in details
+                    if b.get("type") == "reasoning.text"
+                )
+                or "".join(
+                    b.get("summary", "")
+                    for b in details
+                    if b.get("type") == "reasoning.summary"
+                )
+                or (message.get("reasoning") or "")
+            )
         else:
             reasoning = message.get("reasoning") or ""
             reasoning_native = (
@@ -400,7 +410,9 @@ class VLLMDialect(_OpenAICompatibleBase):
         if reasoning:
             state["reasoning_content"] += reasoning
         if content is not None or reasoning is not None:
-            events.append({"type": "on_data", "content": content, "reasoning": reasoning})
+            events.append(
+                {"type": "on_data", "content": content, "reasoning": reasoning}
+            )
 
         finish_reason = choices[0].get("finish_reason")
         if finish_reason is not None:

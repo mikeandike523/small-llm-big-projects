@@ -156,10 +156,14 @@ class OpenAIResponsesDialect(DialectAdapter):
             )
 
         elif etype == "response.output_text.delta":
-            events.append({"type": "on_data", "content": obj.get("delta"), "reasoning": None})
+            events.append(
+                {"type": "on_data", "content": obj.get("delta"), "reasoning": None}
+            )
 
         elif etype == "response.reasoning_summary_text.delta":
-            events.append({"type": "on_data", "content": None, "reasoning": obj.get("delta")})
+            events.append(
+                {"type": "on_data", "content": None, "reasoning": obj.get("delta")}
+            )
 
         elif etype == "response.output_item.done":
             item = obj.get("item") or {}
@@ -202,7 +206,9 @@ class OpenAIResponsesDialect(DialectAdapter):
         reasoning_items = state.get("reasoning_items") or []
         output_items_store = state.get("output_items") or {}
         output_order = state.get("output_item_order") or []
-        output_items = [output_items_store[i] for i in output_order if i in output_items_store]
+        output_items = [
+            output_items_store[i] for i in output_order if i in output_items_store
+        ]
         if not reasoning_items and not output_items:
             return None
         # reasoning_native is the exact ordered Responses output[] replay
@@ -302,7 +308,9 @@ def _convert_messages(messages: list[dict]) -> list[dict]:
             native = msg.get("reasoning_native")
             if native and native.get("dialect") == OPENAI_RESPONSES:
                 data = native.get("data")
-                if isinstance(data, dict) and isinstance(data.get("output_items"), list):
+                if isinstance(data, dict) and isinstance(
+                    data.get("output_items"), list
+                ):
                     # New-shape Responses payload: replay the exact native
                     # output[] items captured for this assistant exchange.
                     out.extend(data["output_items"])

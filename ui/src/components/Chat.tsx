@@ -3,6 +3,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { type Socket } from "socket.io-client";
 import { useStickToBottom } from "use-stick-to-bottom";
+import { FaHeartbeat } from "react-icons/fa";
 import {
   appLayoutCss,
   dashboardButtonCss,
@@ -27,6 +28,7 @@ import {
 import useSocketWiring from "../hooks/useSocketWiring";
 import { fetchToolPreviewConfig } from "../api/toolPreviewConfig";
 import { createSocket } from "../socket";
+import HeartbeatSettingsDialog from "./HeartbeatSettingsDialog";
 import LoadingBackdrop from "../subcomponents/Chat/LoadingBackdrop";
 import ToolModal from "../subcomponents/Chat/ToolModal";
 import { DebugPanel } from "./DebugPanel";
@@ -102,6 +104,7 @@ export default function Chat() {
     sessionCost,
     sessionProfile,
     approvalMode,
+    heartbeatSettings,
     contextUsageData,
     setContextUsageData,
     terminalOpen,
@@ -126,6 +129,7 @@ export default function Chat() {
   ]);
   const [profileChanging, setProfileChanging] = useState(false);
   const [approvalModeChanging, setApprovalModeChanging] = useState(false);
+  const [heartbeatDialogOpen, setHeartbeatDialogOpen] = useState(false);
 
   // Fetch available profile names for the dropdown once on mount.
   React.useEffect(() => {
@@ -269,6 +273,13 @@ export default function Chat() {
           modalContent={modalContent}
           setModalContent={setModalContent}
         />
+        {heartbeatDialogOpen && (
+          <HeartbeatSettingsDialog
+            sessionId={sessionId}
+            settings={heartbeatSettings}
+            onClose={() => setHeartbeatDialogOpen(false)}
+          />
+        )}
         <div css={headerBarCss}>
           <div css={headerSideCss}>
             <button
@@ -336,6 +347,36 @@ export default function Chat() {
                 </option>
               ))}
             </select>
+            {heartbeatSettings.enabled && (
+              <span
+                title={`Heartbeat enabled: every ${heartbeatSettings.interval_minutes} min`}
+                aria-label="Heartbeat enabled"
+                style={{ display: "flex", color: "#e53e3e" }}
+              >
+                <FaHeartbeat size={14} />
+              </span>
+            )}
+            <button
+              onClick={() => setHeartbeatDialogOpen(true)}
+              title={
+                heartbeatSettings.enabled
+                  ? `Heartbeat: every ${heartbeatSettings.interval_minutes} min`
+                  : "Heartbeat: disabled"
+              }
+              aria-label="Heartbeat settings"
+              style={{
+                background: "#101722",
+                border: "1px solid #2a3a6e",
+                borderRadius: 4,
+                color: heartbeatSettings.enabled ? "#8aacff" : "#666",
+                fontFamily: "inherit",
+                fontSize: 11,
+                padding: "3px 6px",
+                cursor: "pointer",
+              }}
+            >
+              ⏱
+            </button>
             {sessionCost !== null && (
               <span
                 css={sessionCostCss}

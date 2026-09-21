@@ -12,7 +12,6 @@ from src.cli_routes.token.helpers import mask_token, resolve_token
 from src.cli_routes.token_obj import token
 
 
-
 @token.command(name="use")
 @click.option(
     "-y",

@@ -22,7 +22,12 @@ export interface ToolsInfo {
 }
 
 export type BackendLogContent =
-  string | number | boolean | null | Record<string, unknown> | unknown[];
+  | string
+  | number
+  | boolean
+  | null
+  | Record<string, unknown>
+  | unknown[];
 
 export interface BackendLogSingleEntry {
   id: number;

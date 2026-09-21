@@ -9,7 +9,9 @@ from src.redaction.types import RedactionPlugin
 # distinguishes an env-style constant from an ordinary lowercase code
 # variable (e.g. bash/python "name = value"). Only the "export" keyword is
 # case-insensitive (scoped inline flag), so a lowercase KEY can never match.
-_DOTENV_LINE_RE = re.compile(r"^\s*(?:(?i:export)\s+)?[A-Z_][A-Z0-9_]*\s*=.*$", re.MULTILINE)
+_DOTENV_LINE_RE = re.compile(
+    r"^\s*(?:(?i:export)\s+)?[A-Z_][A-Z0-9_]*\s*=.*$", re.MULTILINE
+)
 
 # Redact the value portion of each key=value line. Grammar mirrors _DOTENV_LINE_RE.
 _REDACT_VALUE_RE = re.compile(
@@ -20,6 +22,7 @@ _REDACT_VALUE_RE = re.compile(
 
 def _looks_like_dotenv_path(path: str) -> bool:
     import os
+
     name = os.path.basename(path).lower()
     return name == ".env" or name.startswith(".env.")
 

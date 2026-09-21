@@ -14,6 +14,7 @@ from src.utils.approval_modes import (
 
 _APPROVAL_CMD_TIMEOUT = 5  # seconds; deny approval if git commands stall
 
+
 @dataclass(frozen=True)
 class ApprovalContext:
     """Context required for approval-time path checks."""
@@ -22,7 +23,9 @@ class ApprovalContext:
     session_current_working_dir: str | None = None
 
     @classmethod
-    def from_special_resources(cls, special_resources: dict | None) -> "ApprovalContext":
+    def from_special_resources(
+        cls, special_resources: dict | None
+    ) -> "ApprovalContext":
         sr = special_resources or {}
         return cls(
             session_init_working_dir=sr.get("session_init_working_dir"),
@@ -165,7 +168,9 @@ def _git_file_is_included(resolved: str) -> bool:
     try:
         r = run_command(
             [
-                "git", "-C", git_cwd,
+                "git",
+                "-C",
+                git_cwd,
                 "ls-files",
                 "--cached",
                 "--others",
@@ -198,7 +203,9 @@ def _git_dir_is_ignored(resolved: str) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def file_needs_approval(args: dict, path_arg: str = "path", *, ctx: ApprovalContext) -> bool:
+def file_needs_approval(
+    args: dict, path_arg: str = "path", *, ctx: ApprovalContext
+) -> bool:
     """Convenience wrapper: approval check for a single path argument."""
     return needs_path_approval(args.get(path_arg), ctx=ctx)
 
@@ -234,9 +241,7 @@ def needs_path_approval(raw_path: str | None, *, ctx: ApprovalContext) -> bool:
     # The root directories themselves are always approved.
     current_cwd = _get_session_current_cwd(ctx)
     init_cwd = _get_session_init_cwd(ctx)
-    if (current_cwd and resolved == current_cwd) or (
-        init_cwd and resolved == init_cwd
-    ):
+    if (current_cwd and resolved == current_cwd) or (init_cwd and resolved == init_cwd):
         return False
 
     if os.path.isdir(resolved):

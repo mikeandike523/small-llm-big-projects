@@ -104,7 +104,9 @@ DEFINITION = {
 }
 
 
-def needs_approval(args: dict, session_data: dict | None = None, special_resources: dict | None = None) -> bool:
+def needs_approval(
+    args: dict, session_data: dict | None = None, special_resources: dict | None = None
+) -> bool:
     from src.tools._approval import is_full_auto
 
     return not is_full_auto(special_resources)
@@ -210,7 +212,9 @@ def execute(
                     with _active_outputs_lock:
                         _active_outputs.pop(session_id, None)
         else:
-            result = run_command(cmd, timeout, cancel_event=cancel_event, cwd=session_cwd)
+            result = run_command(
+                cmd, timeout, cancel_event=cancel_event, cwd=session_cwd
+            )
     except subprocess.TimeoutExpired:
         # Non-streaming path timeout (run_command); no partial output available.
         raise ToolTimeoutError("host_shell", timeout, hint=TIMEOUT_HINT)
@@ -230,6 +234,7 @@ def execute(
         stored_output = output
         if not sr.get("request_unredacted"):
             from src.redaction.core import redact as _redact
+
             stored_output = _redact(None, stored_output)
 
         memory = session_data.get("memory")

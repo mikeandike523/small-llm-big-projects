@@ -93,7 +93,9 @@ DEFINITION: dict = {
 }
 
 
-def needs_approval(args: dict, session_data: dict | None = None, special_resources: dict | None = None) -> bool:
+def needs_approval(
+    args: dict, session_data: dict | None = None, special_resources: dict | None = None
+) -> bool:
     return False
 
 
@@ -213,7 +215,9 @@ def execute(args: dict, session_data: dict | None = None) -> str:
     target: str = args.get("target", "return_value")
     memory_key: str | None = args.get("memory_key")
     timeout: int = args.get("timeout", DEFAULT_TIMEOUT)
-    validate_timeout("wikipedia", timeout, DEFAULT_TIMEOUT, MAX_TIMEOUT, min_timeout=MIN_TIMEOUT)
+    validate_timeout(
+        "wikipedia", timeout, DEFAULT_TIMEOUT, MAX_TIMEOUT, min_timeout=MIN_TIMEOUT
+    )
 
     if target == "session_memory" and not memory_key:
         return "Error: 'memory_key' is required when target is 'session_memory'."

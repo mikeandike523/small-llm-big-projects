@@ -19,7 +19,9 @@ def _match(pid: int) -> MatchedProcess:
 def test_force_kill_all_is_non_interactive(monkeypatch):
     killed = []
     monkeypatch.setattr(route, "find_slbp_processes", lambda: [_match(12), _match(34)])
-    monkeypatch.setattr(route, "kill_process", lambda pid: (killed.append(pid) is None, f"Killed {pid}"))
+    monkeypatch.setattr(
+        route, "kill_process", lambda pid: (killed.append(pid) is None, f"Killed {pid}")
+    )
 
     result = CliRunner().invoke(cli, ["process-doctor", "--force-kill-all"])
 

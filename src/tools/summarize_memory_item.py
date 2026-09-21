@@ -49,7 +49,9 @@ Do NOT include meta-commentary like "The page discusses..." or "According to the
 Just provide the summary directly."""
 
 
-def needs_approval(args: dict, session_data: dict | None = None, special_resources: dict | None = None) -> bool:
+def needs_approval(
+    args: dict, session_data: dict | None = None, special_resources: dict | None = None
+) -> bool:
     return False
 
 
@@ -77,7 +79,9 @@ def execute(
         on_sampler_usage = (special_resources or {}).get("on_sampler_usage")
         on_sampler_request_log = (special_resources or {}).get("on_sampler_request_log")
         on_sampler_response = (special_resources or {}).get("on_sampler_response")
-    on_sampler_reasoning_detected = (special_resources or {}).get("on_sampler_reasoning_detected")
+    on_sampler_reasoning_detected = (special_resources or {}).get(
+        "on_sampler_reasoning_detected"
+    )
 
     memory = ensure_session_memory(session_data)
     content = memory.get(memory_key)
@@ -96,6 +100,7 @@ def execute(
     llm = (special_resources or {}).get("llm")
     if llm is None:
         from src.utils.llm.factory import make_llm
+
         llm = make_llm()
 
     if llm is None:
@@ -114,7 +119,10 @@ def execute(
 
     try:
         fetch_result = _call_sampler(
-            llm, messages, summarizer_params, on_usage=on_sampler_usage,
+            llm,
+            messages,
+            summarizer_params,
+            on_usage=on_sampler_usage,
             on_request_log=on_sampler_request_log,
             on_reasoning_detected=on_sampler_reasoning_detected,
             on_response=on_sampler_response,

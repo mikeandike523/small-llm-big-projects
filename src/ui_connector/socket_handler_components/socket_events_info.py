@@ -15,7 +15,6 @@ from src.ui_connector.socket_handler_components.session_store import (
 )
 from src.tools import _dirty_cache
 
-
 # ---------------------------------------------------------------------------
 # Read-only session info getters ("get_*" socket events)
 # ---------------------------------------------------------------------------

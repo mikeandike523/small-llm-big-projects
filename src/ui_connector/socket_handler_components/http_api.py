@@ -48,6 +48,7 @@ from src.utils.approval_modes import (
     APPROVAL_MODES,
     is_valid_approval_mode,
 )
+from src.utils.heartbeat_settings import is_valid_heartbeat_settings
 
 logger = logging.getLogger(__name__)
 
@@ -245,6 +246,7 @@ def api_list_sessions():
                 "custom_tools_path": row.get("custom_tools_path") or None,
                 "profile_name": row.get("profile_name") or None,
                 "corrupt": row.get("corrupt", False),
+                "heartbeat_enabled": row.get("heartbeat_enabled", False),
             }
         )
     return jsonify(results)
@@ -379,6 +381,34 @@ def api_session_set_approval_mode(session_id: str):
 
     settings = runtime_settings.set_approval_mode(session_id, session, approval_mode)
     session.approval_mode = settings.approval_mode
+    _save_session(session_id, session)
+    response = {"ok": True, **runtime_settings.payload(settings)}
+    socketio.emit("session_settings_update", response, room=session_id)
+    return jsonify(response)
+
+
+@app.route("/api/sessions/<session_id>/heartbeat-settings", methods=["PATCH"])
+def api_session_set_heartbeat_settings(session_id: str):
+    """Change the heartbeat settings for a session (full replace)."""
+    data = request.get_json(force=True, silent=True) or {}
+    heartbeat_settings = {
+        "enabled": data.get("enabled"),
+        "interval_minutes": data.get("interval_minutes"),
+        "instructions": data.get("instructions"),
+        "heartbeat_approval_policy": data.get("heartbeat_approval_policy"),
+    }
+
+    ok, error = is_valid_heartbeat_settings(heartbeat_settings)
+    if not ok:
+        return jsonify({"error": error}), 400
+
+    session = _load_session(session_id)
+    from src.ui_connector.socket_handler_components import runtime_settings
+
+    settings = runtime_settings.set_heartbeat_settings(
+        session_id, session, heartbeat_settings
+    )
+    session.session_data["heartbeat_settings"] = settings.heartbeat_settings
     _save_session(session_id, session)
     response = {"ok": True, **runtime_settings.payload(settings)}
     socketio.emit("session_settings_update", response, room=session_id)

@@ -68,7 +68,9 @@ export default function VersionWidget() {
   const titleParts: string[] = [];
   if (uiNote) titleParts.push(`UI ${uiNote.version}: ${uiNote.message}`);
   if (backendNote) titleParts.push(`Backend ${backendVersion}: ${backendNote}`);
-  const title = titleParts.length ? titleParts.join("\n") : "Application version information";
+  const title = titleParts.length
+    ? titleParts.join("\n")
+    : "Application version information";
 
   return (
     <div css={widgetCss} title={title}>
@@ -79,14 +81,16 @@ export default function VersionWidget() {
         </button>
       </div>
       <div>
-        Backend:{" "}
-        <span css={valueCss}>{backendVersion ?? "…"}</span>
+        Backend: <span css={valueCss}>{backendVersion ?? "…"}</span>
         <button css={logsBtnCss} onClick={() => setDialogSide("backend")}>
           Changelogs
         </button>
       </div>
       {dialogSide !== null && (
-        <ChangelogDialog side={dialogSide} onClose={() => setDialogSide(null)} />
+        <ChangelogDialog
+          side={dialogSide}
+          onClose={() => setDialogSide(null)}
+        />
       )}
     </div>
   );

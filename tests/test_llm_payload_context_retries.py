@@ -130,7 +130,9 @@ def test_payload_can_keep_prior_current_turn_subturns_live(monkeypatch) -> None:
                 "st2",
                 "second",
                 summary="summary two",
-                exchanges=[LLMExchange(assistant_content="second answer", is_final=True)],
+                exchanges=[
+                    LLMExchange(assistant_content="second answer", is_final=True)
+                ],
             ),
             _subturn("st3", "third"),
         ],
@@ -182,7 +184,9 @@ def test_payload_closes_earliest_prior_current_turn_subturns(monkeypatch) -> Non
                 "st2",
                 "second",
                 summary="summary two",
-                exchanges=[LLMExchange(assistant_content="second answer", is_final=True)],
+                exchanges=[
+                    LLMExchange(assistant_content="second answer", is_final=True)
+                ],
             ),
             _subturn("st3", "third"),
         ],
@@ -214,7 +218,9 @@ def test_context_retry_closes_one_more_prior_subturn(monkeypatch) -> None:
                 "st1",
                 "first",
                 summary="summary one",
-                exchanges=[LLMExchange(assistant_content="first answer", is_final=True)],
+                exchanges=[
+                    LLMExchange(assistant_content="first answer", is_final=True)
+                ],
             ),
             _subturn("st2", "second"),
         ],
@@ -290,7 +296,9 @@ def test_context_retry_fails_fast_on_non_context_error(monkeypatch) -> None:
     assert attempts == 1
 
 
-def test_context_retry_raises_distinct_error_after_all_subturns_closed(monkeypatch) -> None:
+def test_context_retry_raises_distinct_error_after_all_subturns_closed(
+    monkeypatch,
+) -> None:
     monkeypatch.setattr(llm, "_get_session_system_prompt", lambda _sid: "system")
     monkeypatch.setattr(llm, "_get_known_max_context", lambda _profile: None)
     monkeypatch.setattr(llm, "_emit_backend_log", lambda *args, **kwargs: None)

@@ -119,7 +119,11 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
     )
     r = execute_tool(
         "todo_list",
-        {"action": "delete_many_items", "item_paths": ["1", "2"], "cascade_delete": True},
+        {
+            "action": "delete_many_items",
+            "item_paths": ["1", "2"],
+            "cascade_delete": True,
+        },
         sd,
     )
     count = len(_j(execute_tool("todo_list", {"action": "list"}, sd)).get("items", []))

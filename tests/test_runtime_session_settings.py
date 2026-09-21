@@ -47,3 +47,52 @@ def test_profile_change_is_emitted_and_replayed() -> None:
     ]
     restored = session_events.replay_events("s1", rows)
     assert restored.profile_name == "profile-b"
+
+
+def test_heartbeat_settings_are_revisioned_and_merge_into_stale_session() -> None:
+    session_id = "heartbeat-runtime-settings-test"
+    original = Session(session_id=session_id)
+    stale_loop_copy = Session(session_id=session_id)
+    new_settings = {
+        "enabled": True,
+        "interval_minutes": 15,
+        "instructions": "check for CI failures",
+        "heartbeat_approval_policy": "force-fail",
+    }
+    try:
+        heartbeat = runtime_settings.set_heartbeat_settings(
+            session_id, original, new_settings
+        )
+
+        assert heartbeat.heartbeat_settings_revision == 1
+        assert heartbeat.heartbeat_settings == new_settings
+
+        runtime_settings.merge_into_session(session_id, stale_loop_copy)
+        assert stale_loop_copy.session_data["heartbeat_settings"] == new_settings
+    finally:
+        runtime_settings.discard(session_id)
+
+
+def test_heartbeat_settings_change_is_emitted_and_replayed() -> None:
+    session = Session(session_id="s1")
+    cursor: dict = {}
+    initial = compute_events(session, cursor)
+    new_settings = {
+        "enabled": True,
+        "interval_minutes": 45,
+        "instructions": "ping every 45 minutes",
+        "heartbeat_approval_policy": "wait-for-human",
+    }
+    session.session_data["heartbeat_settings"] = new_settings
+
+    changed = compute_events(session, cursor)
+
+    assert changed == [
+        (session_events.EVT_HEARTBEAT_SETTINGS_SET, {"settings": new_settings})
+    ]
+    rows = [
+        {"event_type": event_type, "payload": payload}
+        for event_type, payload in initial + changed
+    ]
+    restored = session_events.replay_events("s1", rows)
+    assert restored.session_data["heartbeat_settings"] == new_settings

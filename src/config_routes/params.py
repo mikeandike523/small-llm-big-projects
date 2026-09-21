@@ -37,13 +37,13 @@ def _get_all_params(kv, profile) -> dict[str, dict]:
     # Collect keys from both scopes; prefer profile-scoped value when both exist.
     profile_keys = {}
     for k in kv.list_keys(prefix=profile_params_prefix):
-        name = k[len(profile_params_prefix):]
+        name = k[len(profile_params_prefix) :]
         if name in ALLOWED_PARAMS and name not in GLOBAL_PARAMS:
             profile_keys[name] = k
 
     global_keys = {}
     for k in kv.list_keys(prefix=global_params_prefix):
-        name = k[len(global_params_prefix):]
+        name = k[len(global_params_prefix) :]
         if name in GLOBAL_PARAMS:
             global_keys[name] = k
 
@@ -52,7 +52,7 @@ def _get_all_params(kv, profile) -> dict[str, dict]:
         val = kv.get_value(k)
         for ns in _NAMESPACES:
             if name.startswith(ns + "."):
-                suffix = name[len(ns) + 1:]
+                suffix = name[len(ns) + 1 :]
                 result[ns][suffix] = val
                 break
         else:

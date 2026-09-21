@@ -339,6 +339,9 @@ def _save_session_locked(session_id: str, session: Session) -> None:
             skills_path=session.skills_path,
             custom_tools_path=session.custom_tools_path,
             memory=memory_snapshot,
+            heartbeat_enabled=bool(
+                (session.session_data.get("heartbeat_settings") or {}).get("enabled")
+            ),
         )
     except Exception as exc:
         logger.warning("DB save failed for session %s: %s", session_id, exc)

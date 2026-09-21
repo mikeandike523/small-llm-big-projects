@@ -58,6 +58,7 @@ def _truncate_columns(text: str) -> str:
         return text
     return truncate_long_lines(text, TOOL_OUTPUT_MAX_COLUMNS)
 
+
 # ---------------------------------------------------------------------------
 # Framework-injected parameters — reserved names no tool may declare itself
 # ---------------------------------------------------------------------------
@@ -89,7 +90,9 @@ def _inject_framework_params(module: object, definition: dict) -> dict:
     allow_unredacted = getattr(module, "ALLOW_REQUEST_UNREDACTED", True)
     if enable_redaction and allow_unredacted:
         params = result.setdefault("function", {}).setdefault("parameters", {})
-        params.setdefault("properties", {})["request_unredacted"] = _REQUEST_UNREDACTED_PARAM
+        params.setdefault("properties", {})[
+            "request_unredacted"
+        ] = _REQUEST_UNREDACTED_PARAM
         # Intentionally NOT added to "required" — it is optional, default false.
     return result
 
@@ -109,7 +112,9 @@ ALL_TOOL_DEFINITIONS: list[dict] = [
     _inject_framework_params(find_files_by_name, find_files_by_name.DEFINITION),
     _inject_framework_params(line_reader, line_reader.DEFINITION),
     _inject_framework_params(get_environment_info, get_environment_info.DEFINITION),
-    _inject_framework_params(get_global_workspace_dir, get_global_workspace_dir.DEFINITION),
+    _inject_framework_params(
+        get_global_workspace_dir, get_global_workspace_dir.DEFINITION
+    ),
     _inject_framework_params(get_pwd, get_pwd.DEFINITION),
     _inject_framework_params(host_check_command, host_check_command.DEFINITION),
     _inject_framework_params(host_shell, host_shell.DEFINITION),
@@ -124,7 +129,9 @@ ALL_TOOL_DEFINITIONS: list[dict] = [
     _inject_framework_params(restore_file, restore_file.DEFINITION),
     _inject_framework_params(scrape_web_page, scrape_web_page.DEFINITION),
     _inject_framework_params(snapshot_file, snapshot_file.DEFINITION),
-    _inject_framework_params(search_filesystem_by_regex, search_filesystem_by_regex.DEFINITION),
+    _inject_framework_params(
+        search_filesystem_by_regex, search_filesystem_by_regex.DEFINITION
+    ),
     _inject_framework_params(session_memory, session_memory.DEFINITION),
     _inject_framework_params(summarize_memory_item, summarize_memory_item.DEFINITION),
     _inject_framework_params(text_editor, text_editor.DEFINITION),
@@ -355,6 +362,7 @@ def execute_tool(
         return _truncate_columns(result)
 
     from src.redaction.core import redact as _redact
+
     _fp = args.get("path") or args.get("filepath") or None
     file_path = _fp if isinstance(_fp, str) else None
     return _truncate_columns(_redact(file_path, result))
@@ -423,7 +431,9 @@ def load_custom_tools(
     if os.path.isfile(exclude_file):
         excl_module_name = f"_slbp_{session_prefix}_exclude_builtin_tools"
         try:
-            excl_spec = importlib.util.spec_from_file_location(excl_module_name, exclude_file)
+            excl_spec = importlib.util.spec_from_file_location(
+                excl_module_name, exclude_file
+            )
             excl_module = importlib.util.module_from_spec(excl_spec)
             excl_spec.loader.exec_module(excl_module)
             loaded = getattr(excl_module, "EXCLUDE", {})

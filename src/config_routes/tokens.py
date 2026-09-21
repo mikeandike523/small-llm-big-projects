@@ -55,7 +55,9 @@ def api_tokens_active():
     with pool.get_connection() as conn:
         kv = KVManager(conn)
         profile = get_active_profile(kv)
-        active_token = kv.get_value(_kv_prefix(profile) + "active_token") if profile else None
+        active_token = (
+            kv.get_value(_kv_prefix(profile) + "active_token") if profile else None
+        )
     if not active_token:
         return jsonify(None)
     return jsonify(

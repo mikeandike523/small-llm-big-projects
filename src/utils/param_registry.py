@@ -2,6 +2,7 @@
 Single source of truth for all slbp parameter definitions.
 Includes names, value types, descriptions, min/max constraints, and Pydantic-based validation.
 """
+
 from __future__ import annotations
 
 import json
@@ -38,7 +39,9 @@ class ParamSpec(BaseModel):
     # aggregate server-start guard (see its docstring for why hasattr specifically).
     default: Any
     system_only: bool = False  # never forwarded to any LLM request
-    scope: Scope = "profile"  # "profile": stored as profiles.<name>.params.* ; "global": stored as params.*
+    scope: Scope = (
+        "profile"  # "profile": stored as profiles.<name>.params.* ; "global": stored as params.*
+    )
     min: float | None = None
     max: float | None = None
     choices: list[str] | None = None  # for value_type "string": allowed values (enum)
@@ -85,7 +88,9 @@ class ParamSpec(BaseModel):
                 try:
                     raw = json.loads(raw)
                 except json.JSONDecodeError as exc:
-                    raise ValueError(f"'{self.name}' must be valid JSON: {exc}") from exc
+                    raise ValueError(
+                        f"'{self.name}' must be valid JSON: {exc}"
+                    ) from exc
             if not isinstance(raw, dict):
                 raise ValueError(f"'{self.name}' must be a JSON object")
             return raw
@@ -94,11 +99,15 @@ class ParamSpec(BaseModel):
             try:
                 coerced = int(raw)
             except (TypeError, ValueError):
-                raise ValueError(f"'{self.name}' must be an integer{self._bounds_str()}")
+                raise ValueError(
+                    f"'{self.name}' must be an integer{self._bounds_str()}"
+                )
             try:
                 return self._adapter.validate_python(coerced)
             except ValidationError:
-                raise ValueError(f"'{self.name}' must be an integer{self._bounds_str()}")
+                raise ValueError(
+                    f"'{self.name}' must be an integer{self._bounds_str()}"
+                )
 
         if self.value_type == "float":
             try:
@@ -110,14 +119,14 @@ class ParamSpec(BaseModel):
             try:
                 return self._adapter.validate_python(coerced)
             except ValidationError:
-                raise ValueError(f"'{self.name}' must be a finite number{self._bounds_str()}")
+                raise ValueError(
+                    f"'{self.name}' must be a finite number{self._bounds_str()}"
+                )
 
         # string (optionally constrained to an enum via choices)
         val = str(raw)
         if self.choices is not None and val not in self.choices:
-            raise ValueError(
-                f"'{self.name}' must be one of: {', '.join(self.choices)}"
-            )
+            raise ValueError(f"'{self.name}' must be one of: {', '.join(self.choices)}")
         return val
 
     def _bounds_str(self) -> str:
@@ -245,7 +254,11 @@ _SAMPLER_MODEL_OVERRIDES: dict[str, str] = {
 }
 for _name, _desc in _SAMPLER_MODEL_OVERRIDES.items():
     REGISTRY[_name] = ParamSpec(
-        name=_name, value_type="string", system_only=True, default=None, description=_desc
+        name=_name,
+        value_type="string",
+        system_only=True,
+        default=None,
+        description=_desc,
     )
 
 # model.* extras (system-only flags, not forwarded to the LLM API)
@@ -386,6 +399,7 @@ REGISTRY["desktop.slbp-process.clear-logs-on-start"] = ParamSpec(
     ),
 )
 
+
 def validate_registry_defaults() -> None:
     """Server-start sanity check: every registered param must declare a default.
 
@@ -401,7 +415,9 @@ def validate_registry_defaults() -> None:
     the *.model.name overrides, etc.) -- the failure this guards against is a spec that
     never got a `default` attribute at all, not one whose default happens to be falsy.
     """
-    missing = sorted(name for name, spec in REGISTRY.items() if not hasattr(spec, "default"))
+    missing = sorted(
+        name for name, spec in REGISTRY.items() if not hasattr(spec, "default")
+    )
     if missing:
         raise RuntimeError(
             "param_registry: the following params are missing a required 'default': "
@@ -418,6 +434,7 @@ validate_registry_defaults()
 # Derived sets (backward-compatible exports)
 # ---------------------------------------------------------------------------
 
+
 def param_storage_key(name: str, profile_prefix: str | None = None) -> str:
     """Return the kv_store key where this param's value lives.
 
@@ -430,7 +447,9 @@ def param_storage_key(name: str, profile_prefix: str | None = None) -> str:
     if spec.scope == "global":
         return f"params.{name}"
     if profile_prefix is None:
-        raise ValueError(f"Param '{name}' is profile-scoped but no profile_prefix was given")
+        raise ValueError(
+            f"Param '{name}' is profile-scoped but no profile_prefix was given"
+        )
     return f"{profile_prefix}params.{name}"
 
 

@@ -125,7 +125,9 @@ DEFINITION: dict = {
 }
 
 
-def needs_approval(args: dict, session_data: dict | None = None, special_resources: dict | None = None) -> bool:
+def needs_approval(
+    args: dict, session_data: dict | None = None, special_resources: dict | None = None
+) -> bool:
     return False
 
 
@@ -136,7 +138,13 @@ def execute(args, session_data):
     method: str = args["method"]
     timeout: int = args.get("timeout", DEFAULT_TIMEOUT)
 
-    validate_timeout("basic_web_request", timeout, DEFAULT_TIMEOUT, MAX_TIMEOUT, min_timeout=MIN_TIMEOUT)
+    validate_timeout(
+        "basic_web_request",
+        timeout,
+        DEFAULT_TIMEOUT,
+        MAX_TIMEOUT,
+        min_timeout=MIN_TIMEOUT,
+    )
 
     headers: dict[str, str] = (args.get("headers") or {}).copy()
     body: str | dict | None = args.get("body")

@@ -40,7 +40,9 @@ def _needs(tool: str, args: dict, root: Path, mode: str) -> bool:
     )
 
 
-def test_auto_accept_edits_write_tools_use_scoped_nonignored_paths(tmp_path: Path) -> None:
+def test_auto_accept_edits_write_tools_use_scoped_nonignored_paths(
+    tmp_path: Path,
+) -> None:
     root = _git_repo(tmp_path)
 
     args = {"path": "tracked.txt", "content": "x"}
@@ -66,7 +68,9 @@ def test_auto_accept_edits_write_tools_use_scoped_nonignored_paths(tmp_path: Pat
     )
 
 
-def test_auto_accept_edits_multi_path_tools_require_both_paths_allowed(tmp_path: Path) -> None:
+def test_auto_accept_edits_multi_path_tools_require_both_paths_allowed(
+    tmp_path: Path,
+) -> None:
     root = _git_repo(tmp_path)
 
     assert not _needs(

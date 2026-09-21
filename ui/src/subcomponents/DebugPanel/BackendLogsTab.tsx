@@ -4,7 +4,10 @@ import { BackendLogEntry } from "../../types/DebugPanel";
 import { placeholderCss } from "../../css/DebugPanel";
 import { css } from "@emotion/react";
 import scrollbarCss from "../../css/scrollBarCss";
-import { autoScrollShineCss, SHINE_HEIGHT_BACKEND_LOGS_PX } from "../../css/autoScrollShineCss";
+import {
+  autoScrollShineCss,
+  SHINE_HEIGHT_BACKEND_LOGS_PX,
+} from "../../css/autoScrollShineCss";
 import BackendLogEntryItem from "./BackendLogEntryItem";
 import BackendLogMultiCard from "./BackendLogMultiCard";
 import BackendLogObjectModal from "./BackendLogObjectModal";
@@ -65,7 +68,6 @@ const virtualRowCss = css`
   padding-bottom: 4px;
 `;
 
-
 export default function BackendLogsTab({
   logs,
   visible,
@@ -98,41 +100,46 @@ export default function BackendLogsTab({
     <div css={logsPanelCss(visible)}>
       <div css={logsInnerCss}>
         <div ref={scrollRef} css={logsScrollCss}>
-        {logs.length === 0 ? (
-          <div css={placeholderCss}>No logs yet.</div>
-        ) : (
-          <div
-            css={virtualInnerCss}
-            style={{ height: virtualizer.getTotalSize() }}
-          >
-            {virtualizer.getVirtualItems().map((virtualRow) => {
-              const entry = logs[virtualRow.index];
-              return (
-                <div
-                  key={entry.id}
-                  data-index={virtualRow.index}
-                  ref={virtualizer.measureElement}
-                  css={virtualRowCss}
-                  style={{ transform: `translateY(${virtualRow.start}px)` }}
-                >
-                  {entry.multiple === true ? (
-                    <BackendLogMultiCard
-                      entry={entry}
-                      onView={setViewingEntry}
-                    />
-                  ) : (
-                    <BackendLogEntryItem
-                      entry={entry}
-                      onView={setViewingEntry}
-                    />
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        )}
+          {logs.length === 0 ? (
+            <div css={placeholderCss}>No logs yet.</div>
+          ) : (
+            <div
+              css={virtualInnerCss}
+              style={{ height: virtualizer.getTotalSize() }}
+            >
+              {virtualizer.getVirtualItems().map((virtualRow) => {
+                const entry = logs[virtualRow.index];
+                return (
+                  <div
+                    key={entry.id}
+                    data-index={virtualRow.index}
+                    ref={virtualizer.measureElement}
+                    css={virtualRowCss}
+                    style={{ transform: `translateY(${virtualRow.start}px)` }}
+                  >
+                    {entry.multiple === true ? (
+                      <BackendLogMultiCard
+                        entry={entry}
+                        onView={setViewingEntry}
+                      />
+                    ) : (
+                      <BackendLogEntryItem
+                        entry={entry}
+                        onView={setViewingEntry}
+                      />
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
-          <div css={autoScrollShineCss(isAutoScrolling, SHINE_HEIGHT_BACKEND_LOGS_PX)} />
+        <div
+          css={autoScrollShineCss(
+            isAutoScrolling,
+            SHINE_HEIGHT_BACKEND_LOGS_PX,
+          )}
+        />
       </div>
       <BackendLogObjectModal
         entry={viewingEntry}

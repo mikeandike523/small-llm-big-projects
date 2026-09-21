@@ -7,7 +7,9 @@ import type {
   TodoItem,
   ApprovalItem,
   PatchRewriteState,
+  HeartbeatSettings,
 } from "../types";
+import { DEFAULT_HEARTBEAT_SETTINGS } from "../types";
 import type { BackendLogEntry, BackendLogContent } from "../types/DebugPanel";
 
 const MAX_LOGS = 100;
@@ -180,6 +182,10 @@ export default function useSocketWiring(
   const profileRevisionRef = useRef(0);
   const approvalModeRevisionRef = useRef(0);
   const [approvalMode, setApprovalMode] = useState<string>("default");
+  const heartbeatSettingsRevisionRef = useRef(0);
+  const [heartbeatSettings, setHeartbeatSettings] = useState<HeartbeatSettings>(
+    DEFAULT_HEARTBEAT_SETTINGS,
+  );
   const [contextUsageData, setContextUsageData] = useState<{
     prompt_tokens: number;
     completion_tokens: number;
@@ -680,6 +686,8 @@ export default function useSocketWiring(
       profileRevision: number;
       approvalMode: string;
       approvalModeRevision: number;
+      heartbeatSettings?: HeartbeatSettings;
+      heartbeatSettingsRevision?: number;
     }) {
       if (data.profileRevision >= profileRevisionRef.current) {
         profileRevisionRef.current = data.profileRevision;
@@ -690,6 +698,15 @@ export default function useSocketWiring(
       if (data.approvalModeRevision >= approvalModeRevisionRef.current) {
         approvalModeRevisionRef.current = data.approvalModeRevision;
         setApprovalMode(data.approvalMode);
+      }
+      if (
+        data.heartbeatSettings !== undefined &&
+        (data.heartbeatSettingsRevision ?? 0) >=
+          heartbeatSettingsRevisionRef.current
+      ) {
+        heartbeatSettingsRevisionRef.current =
+          data.heartbeatSettingsRevision ?? 0;
+        setHeartbeatSettings(data.heartbeatSettings);
       }
     }
     function onBackendLog(entry: BackendLogEntry) {
@@ -752,6 +769,8 @@ export default function useSocketWiring(
       approvalMode?: string;
       profileRevision?: number;
       approvalModeRevision?: number;
+      heartbeatSettings?: HeartbeatSettings;
+      heartbeatSettingsRevision?: number;
     }) {
       if (data.schemaInvalid) {
         // Schema mismatch — no event_replay will follow, so clear loading now
@@ -806,6 +825,11 @@ export default function useSocketWiring(
         setApprovalMode(data.approvalMode);
       }
       approvalModeRevisionRef.current = data.approvalModeRevision ?? 0;
+      if (data.heartbeatSettings !== undefined) {
+        setHeartbeatSettings(data.heartbeatSettings);
+      }
+      heartbeatSettingsRevisionRef.current =
+        data.heartbeatSettingsRevision ?? 0;
     }
 
     // Event replay (always emitted after session_state, possibly with empty list)
@@ -1254,6 +1278,8 @@ export default function useSocketWiring(
     setSessionProfile,
     approvalMode,
     setApprovalMode,
+    heartbeatSettings,
+    setHeartbeatSettings,
     contextUsageData,
     setContextUsageData,
     terminalOpen,

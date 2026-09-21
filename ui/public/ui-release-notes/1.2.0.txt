@@ -1,0 +1,1 @@
+Added heartbeat settings dialog and enabled indicators

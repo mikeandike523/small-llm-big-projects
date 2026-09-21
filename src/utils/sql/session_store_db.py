@@ -96,6 +96,7 @@ def upsert_session_meta(
     skills_path: str | None,
     custom_tools_path: str | None,
     memory: dict,
+    heartbeat_enabled: bool = False,
     last_context_usage: dict | None = None,
 ) -> None:
     """Insert or update the slim metadata row for a session.
@@ -112,9 +113,10 @@ def upsert_session_meta(
                     session_id, created_at, schema_version, profile_name,
                     initial_cwd, current_cwd, total_cost_usd, turn_count,
                     task_titles, interim_response_as_thinking, skills_path,
-                    custom_tools_path, corrupt, memory_json, last_context_usage
+                    custom_tools_path, corrupt, memory_json, last_context_usage,
+                    heartbeat_enabled
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 0, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 0, %s, %s, %s)
                 AS incoming
                 ON DUPLICATE KEY UPDATE
                     schema_version               = incoming.schema_version,
@@ -129,7 +131,8 @@ def upsert_session_meta(
                     custom_tools_path            = incoming.custom_tools_path,
                     corrupt                      = 0,
                     memory_json                  = incoming.memory_json,
-                    last_context_usage           = incoming.last_context_usage
+                    last_context_usage           = incoming.last_context_usage,
+                    heartbeat_enabled            = incoming.heartbeat_enabled
                 """,
                 (
                     session_id,
@@ -145,7 +148,12 @@ def upsert_session_meta(
                     skills_path,
                     custom_tools_path,
                     json.dumps(memory, ensure_ascii=False),
-                    json.dumps(last_context_usage) if last_context_usage is not None else None,
+                    (
+                        json.dumps(last_context_usage)
+                        if last_context_usage is not None
+                        else None
+                    ),
+                    1 if heartbeat_enabled else 0,
                 ),
             )
         conn.commit()
@@ -156,7 +164,8 @@ def upsert_session_meta(
 _META_LIST_COLS = (
     "session_id, created_at, schema_version, profile_name, initial_cwd, "
     "current_cwd, total_cost_usd, turn_count, task_titles, "
-    "interim_response_as_thinking, skills_path, custom_tools_path, corrupt"
+    "interim_response_as_thinking, skills_path, custom_tools_path, corrupt, "
+    "heartbeat_enabled"
 )
 
 
@@ -176,6 +185,7 @@ def _row_to_meta(row: dict, *, include_memory: bool) -> dict:
         "custom_tools_path": row.get("custom_tools_path") or None,
         "corrupt": bool(row.get("corrupt")),
         "last_context_usage": _normalize_json(row.get("last_context_usage")),
+        "heartbeat_enabled": bool(row.get("heartbeat_enabled")),
     }
     if include_memory:
         meta["memory"] = _normalize_json(row.get("memory_json")) or {}

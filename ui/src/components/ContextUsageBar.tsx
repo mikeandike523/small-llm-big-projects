@@ -14,8 +14,7 @@ interface Props {
 export default function ContextUsageBar({ data }: Props) {
   const { prompt_tokens, completion_tokens, total_tokens, known_max_context } =
     data;
-  const currentTotal =
-    total_tokens ?? prompt_tokens + completion_tokens;
+  const currentTotal = total_tokens ?? prompt_tokens + completion_tokens;
   const percentage = (currentTotal / known_max_context) * 100;
 
   // Color based on percentage of context used
@@ -55,7 +54,9 @@ export default function ContextUsageBar({ data }: Props) {
     width: ${Math.min(percentage, 100)}%;
     height: 100%;
     background: ${barColor};
-    transition: width 0.2s ease, background-color 0.2s ease;
+    transition:
+      width 0.2s ease,
+      background-color 0.2s ease;
   `;
 
   const textCss = css`

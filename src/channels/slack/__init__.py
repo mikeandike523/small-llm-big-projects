@@ -20,6 +20,7 @@ from slack_sdk.web import WebClient
 from src.channels.slack.session import get_slack_team_id, resolve_slack_session
 from src.utils.param_helper import get_param_value
 from src.utils.sql.kv_manager import KVManager
+
 logger = logging.getLogger(__name__)
 
 
@@ -94,7 +95,9 @@ def _is_slack_enabled() -> bool:
 _web_client: WebClient | None = None
 
 
-def _handle_socket_request(client: SocketModeClient, request: SocketModeRequest) -> None:
+def _handle_socket_request(
+    client: SocketModeClient, request: SocketModeRequest
+) -> None:
     """Process an incoming Socket Mode request and handle DM messages.
 
     Called by the Slack SDK's event loop for every envelope received
@@ -136,7 +139,9 @@ def _handle_socket_request(client: SocketModeClient, request: SocketModeRequest)
     if channel_type != "im":
         logger.info(
             "Slack: ignoring non-DM message (channel_type=%s, channel=%s, user=%s)",
-            channel_type, channel, user,
+            channel_type,
+            channel,
+            user,
         )
         return
 
@@ -149,7 +154,10 @@ def _handle_socket_request(client: SocketModeClient, request: SocketModeRequest)
         session_id = resolve_slack_session(team_id, user)
         logger.info(
             "Slack DM | user=%s channel=%s session=%s text=%s",
-            user_str, channel_str, session_id, text,
+            user_str,
+            channel_str,
+            session_id,
+            text,
             extra={
                 "slack_user": user_str,
                 "slack_channel": channel_str,
@@ -160,7 +168,9 @@ def _handle_socket_request(client: SocketModeClient, request: SocketModeRequest)
     else:
         logger.warning(
             "Slack DM | user=%s channel=%s — unable to resolve team_id=%r",
-            user_str, channel_str, team_id,
+            user_str,
+            channel_str,
+            team_id,
         )
 
 

@@ -25,9 +25,18 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 TARGETS = {
-    "ui": {"package": ROOT / "ui" / "package.json", "notes_dir": ROOT / "ui" / "public" / "ui-release-notes"},
-    "backend": {"package": ROOT / "package.json", "notes_dir": ROOT / "backend-release-notes"},
-    "desktop": {"package": ROOT / "desktop" / "package.json", "notes_dir": ROOT / "desktop" / "desktop-release-notes"},
+    "ui": {
+        "package": ROOT / "ui" / "package.json",
+        "notes_dir": ROOT / "ui" / "public" / "ui-release-notes",
+    },
+    "backend": {
+        "package": ROOT / "package.json",
+        "notes_dir": ROOT / "backend-release-notes",
+    },
+    "desktop": {
+        "package": ROOT / "desktop" / "package.json",
+        "notes_dir": ROOT / "desktop" / "desktop-release-notes",
+    },
 }
 SEMVER_RE = re.compile(r"^(\d+)\.(\d+)\.(\d+)$")
 
@@ -73,13 +82,23 @@ def load_index(notes_dir: Path) -> list:
 
 def rebuild_index(notes_dir: Path, new_entry: dict) -> None:
     """Rebuild index from existing files (dates carried forward) + new entry."""
-    entries = [e for e in load_index(notes_dir) if e.get("version") != new_entry["version"]]
+    entries = [
+        e for e in load_index(notes_dir) if e.get("version") != new_entry["version"]
+    ]
     entries.append(new_entry)
-    entries.sort(key=lambda e: tuple(int(x) for x in e.get("version", "0.0.0").split(".")), reverse=True)
-    atomic_write(notes_dir / "changelog-index.json", json.dumps({"releases": entries}, indent=2) + "\n")
+    entries.sort(
+        key=lambda e: tuple(int(x) for x in e.get("version", "0.0.0").split(".")),
+        reverse=True,
+    )
+    atomic_write(
+        notes_dir / "changelog-index.json",
+        json.dumps({"releases": entries}, indent=2) + "\n",
+    )
 
 
-def cmd_set(target: str, new_str: str, message: str, dry_run: bool, force: bool = False) -> None:
+def cmd_set(
+    target: str, new_str: str, message: str, dry_run: bool, force: bool = False
+) -> None:
     cfg = TARGETS[target]
     pkg, notes_dir = cfg["package"], cfg["notes_dir"]
     if not SEMVER_RE.match(new_str):
@@ -94,7 +113,9 @@ def cmd_set(target: str, new_str: str, message: str, dry_run: bool, force: bool 
     notes_file = notes_dir / f"{new_str}.txt"
 
     if notes_file.exists():
-        sys.exit(f"ERROR: release notes for {target} {new_str} already exist at {notes_file}")
+        sys.exit(
+            f"ERROR: release notes for {target} {new_str} already exist at {notes_file}"
+        )
 
     print(f"{target}: {new_str}  (set)")
     print(f"  {pkg}: {old[0]}.{old[1]}.{old[2]} -> {new_str}")
@@ -105,7 +126,11 @@ def cmd_set(target: str, new_str: str, message: str, dry_run: bool, force: bool 
         print("(dry run - nothing written)")
         return
 
-    entry = {"version": new_str, "date": date.today().isoformat(), "file": f"{new_str}.txt"}
+    entry = {
+        "version": new_str,
+        "date": date.today().isoformat(),
+        "file": f"{new_str}.txt",
+    }
     atomic_write(notes_file, message + "\n")
     rebuild_index(notes_dir, entry)
 
@@ -136,8 +161,11 @@ def main() -> None:
     s.add_argument("version")
     s.add_argument("message", nargs="+")
     s.add_argument("--dry-run", action="store_true")
-    s.add_argument("--force", action="store_true",
-                   help="allow setting a version lower than or equal to the current one")
+    s.add_argument(
+        "--force",
+        action="store_true",
+        help="allow setting a version lower than or equal to the current one",
+    )
 
     args = p.parse_args()
     message = " ".join(args.message)

@@ -32,7 +32,13 @@ DEFINITION: dict = {
                 },
                 "action": {
                     "type": "string",
-                    "enum": ["preview", "get_node", "get_attribute", "find_nodes", "list_children"],
+                    "enum": [
+                        "preview",
+                        "get_node",
+                        "get_attribute",
+                        "find_nodes",
+                        "list_children",
+                    ],
                     "description": (
                         "preview: Render the DOM tree with truncated values. Good starting point. "
                         "get_node: Return the outer HTML of the target node, truncated by default. Accepts path or selector. "
@@ -92,7 +98,9 @@ DEFINITION: dict = {
 }
 
 
-def needs_approval(args: dict, session_data: dict | None = None, special_resources: dict | None = None) -> bool:
+def needs_approval(
+    args: dict, session_data: dict | None = None, special_resources: dict | None = None
+) -> bool:
     return False
 
 
@@ -114,7 +122,8 @@ def _resolve_path(soup, path: list[str]):
         mt = _STEP_TEXT.match(step)
         if mt:
             text_nodes = [
-                c for c in node.children
+                c
+                for c in node.children
                 if isinstance(c, NavigableString)
                 and not isinstance(c, Comment)
                 and str(c).strip()
@@ -125,14 +134,19 @@ def _resolve_path(soup, path: list[str]):
                     f"Step {i} '{step}': only {len(text_nodes)} non-empty text node(s) found."
                 )
             if i < len(path) - 1:
-                return None, f"Step {i} '{step}': text nodes have no children; path cannot continue past here."
+                return (
+                    None,
+                    f"Step {i} '{step}': text nodes have no children; path cannot continue past here.",
+                )
             return text_nodes[idx], None
 
         m = _STEP_TAG_IDX.match(step)
         m2 = _STEP_IDX_ONLY.match(step)
         if m:
             tag_name, idx = m.group(1), int(m.group(2))
-            matches = [c for c in node.children if isinstance(c, Tag) and c.name == tag_name]
+            matches = [
+                c for c in node.children if isinstance(c, Tag) and c.name == tag_name
+            ]
             if idx >= len(matches):
                 return None, (
                     f"Step {i} '{step}': only {len(matches)} '{tag_name}' child element(s) "
@@ -143,7 +157,10 @@ def _resolve_path(soup, path: list[str]):
             idx = int(m2.group(1))
             children = [c for c in node.children if isinstance(c, Tag)]
             if idx >= len(children):
-                return None, f"Step {i} '[{idx}]': only {len(children)} element children."
+                return (
+                    None,
+                    f"Step {i} '[{idx}]': only {len(children)} element children.",
+                )
             node = children[idx]
         else:
             found = next(
@@ -168,7 +185,11 @@ def _node_to_path(node, soup) -> list[str]:
         if parent is None:
             break
         if isinstance(current, Tag):
-            same = [c for c in parent.children if isinstance(c, Tag) and c.name == current.name]
+            same = [
+                c
+                for c in parent.children
+                if isinstance(c, Tag) and c.name == current.name
+            ]
             idx = same.index(current)
             parts.append(f"{current.name}[{idx}]" if len(same) > 1 else current.name)
         current = parent
@@ -179,6 +200,7 @@ def _node_to_path(node, soup) -> list[str]:
 # ---------------------------------------------------------------------------
 # Truncation
 # ---------------------------------------------------------------------------
+
 
 def _tc(args: dict) -> int:
     """Effective truncation length. 0 = unlimited."""
@@ -195,6 +217,7 @@ def _trunc(s: str, n: int) -> str:
 # Preview tree renderer
 # ---------------------------------------------------------------------------
 
+
 def _attrs_str(tag, tc: int) -> str:
     parts = []
     for k, v in tag.attrs.items():
@@ -205,6 +228,7 @@ def _attrs_str(tag, tc: int) -> str:
 
 def _is_whitespace(node) -> bool:
     from bs4 import NavigableString
+
     return isinstance(node, NavigableString) and not str(node).strip()
 
 
@@ -258,6 +282,7 @@ def _render_tree(node, tc: int, max_depth: Optional[int], indent: int = 0) -> li
 # ---------------------------------------------------------------------------
 # Actions
 # ---------------------------------------------------------------------------
+
 
 def _action_preview(soup, args: dict) -> str:
     path = args.get("path") or []
@@ -411,7 +436,11 @@ def _action_list_children(soup, args: dict) -> str:
     for i, child in enumerate(children):
         child_path = _node_to_path(child, soup)
         key_attrs = {
-            k: (" ".join(child.get(k)) if isinstance(child.get(k), list) else str(child.get(k)))
+            k: (
+                " ".join(child.get(k))
+                if isinstance(child.get(k), list)
+                else str(child.get(k))
+            )
             for k in ("id", "class", "href", "src", "type", "name")
             if child.get(k) is not None
         }
@@ -423,6 +452,7 @@ def _action_list_children(soup, args: dict) -> str:
 # ---------------------------------------------------------------------------
 # execute
 # ---------------------------------------------------------------------------
+
 
 def execute(
     args: dict,

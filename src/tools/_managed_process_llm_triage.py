@@ -81,7 +81,11 @@ def _llm_triage(
         )
     )
 
-    from src.utils.llm.factory import make_llm as _make_llm, load_llm_config, _call_sampler
+    from src.utils.llm.factory import (
+        make_llm as _make_llm,
+        load_llm_config,
+        _call_sampler,
+    )
 
     # Use the inherited session LLM when available; fall back to make_llm()
     # for tests / CLI paths. When inherited, pass timeout_s per-call.
@@ -109,7 +113,11 @@ def _llm_triage(
         "Reply with exactly one word: WAITING or INPUT."
     )
     try:
-        cb1 = make_sampler_callbacks("hang_triage_stage1") if make_sampler_callbacks else {}
+        cb1 = (
+            make_sampler_callbacks("hang_triage_stage1")
+            if make_sampler_callbacks
+            else {}
+        )
         r1 = _call_sampler(
             _llm,
             [
@@ -119,7 +127,9 @@ def _llm_triage(
             _watchdog_params,
             on_usage=cb1.get("on_usage", on_usage),
             on_request_log=cb1.get("on_request_log", on_request_log),
-            on_reasoning_detected=cb1.get("on_reasoning_detected", on_reasoning_detected),
+            on_reasoning_detected=cb1.get(
+                "on_reasoning_detected", on_reasoning_detected
+            ),
             on_response=cb1.get("on_response"),
             **(dict(timeout_s=HANG_DECISION_TIMEOUT) if _is_inherited else {}),
         )
@@ -143,7 +153,11 @@ def _llm_triage(
         )
         chosen_wait = hang_timeout  # fallback if call fails or answer is invalid
         try:
-            cb1b = make_sampler_callbacks("hang_triage_stage1b") if make_sampler_callbacks else {}
+            cb1b = (
+                make_sampler_callbacks("hang_triage_stage1b")
+                if make_sampler_callbacks
+                else {}
+            )
             r1b = _call_sampler(
                 _llm,
                 [
@@ -153,7 +167,9 @@ def _llm_triage(
                 _watchdog_params,
                 on_usage=cb1b.get("on_usage", on_usage),
                 on_request_log=cb1b.get("on_request_log", on_request_log),
-                on_reasoning_detected=cb1b.get("on_reasoning_detected", on_reasoning_detected),
+                on_reasoning_detected=cb1b.get(
+                    "on_reasoning_detected", on_reasoning_detected
+                ),
                 on_response=cb1b.get("on_response"),
                 **(dict(timeout_s=HANG_DECISION_TIMEOUT) if _is_inherited else {}),
             )
@@ -211,7 +227,11 @@ def _llm_triage(
         "Reply with either SIMPLE:<chars> or EXOTIC."
     )
     try:
-        cb2 = make_sampler_callbacks("hang_triage_stage2") if make_sampler_callbacks else {}
+        cb2 = (
+            make_sampler_callbacks("hang_triage_stage2")
+            if make_sampler_callbacks
+            else {}
+        )
         r2 = _call_sampler(
             _llm,
             [
@@ -221,7 +241,9 @@ def _llm_triage(
             _watchdog_params,
             on_usage=cb2.get("on_usage", on_usage),
             on_request_log=cb2.get("on_request_log", on_request_log),
-            on_reasoning_detected=cb2.get("on_reasoning_detected", on_reasoning_detected),
+            on_reasoning_detected=cb2.get(
+                "on_reasoning_detected", on_reasoning_detected
+            ),
             on_response=cb2.get("on_response"),
             **(dict(timeout_s=HANG_DECISION_TIMEOUT) if _is_inherited else {}),
         )

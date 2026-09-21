@@ -167,10 +167,20 @@ def api_write_text_file_preview():
         after = content
     elif session_memory_key:
         if not session_id:
-            return jsonify({"error": "session_id is required when using session_memory_key"}), 400
+            return (
+                jsonify(
+                    {"error": "session_id is required when using session_memory_key"}
+                ),
+                400,
+            )
         after = _read_redis_memory(session_id, session_memory_key)
         if after is None:
-            return jsonify({"error": f"Session memory key {session_memory_key!r} not found"}), 404
+            return (
+                jsonify(
+                    {"error": f"Session memory key {session_memory_key!r} not found"}
+                ),
+                404,
+            )
     else:
         return jsonify({"error": "content or session_memory_key is required"}), 400
 

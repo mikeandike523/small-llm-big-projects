@@ -189,7 +189,7 @@ def api_profiles_rename(profile_name: str):
         for src_key in src_keys:
             val = kv.get_value(src_key)
             if val is not None:
-                kv.set_value(dst_prefix + src_key[len(src_prefix):], val)
+                kv.set_value(dst_prefix + src_key[len(src_prefix) :], val)
         for src_key in src_keys:
             kv.delete_value(src_key)
         if get_active_profile(kv) == profile_name:
@@ -224,7 +224,7 @@ def api_profiles_copy_to(profile_name: str):
         for src_key in kv.list_keys(prefix=src_prefix):
             val = kv.get_value(src_key)
             if val is not None:
-                kv.set_value(dst_prefix + src_key[len(src_prefix):], val)
+                kv.set_value(dst_prefix + src_key[len(src_prefix) :], val)
         with conn.cursor() as cursor:
             cursor.execute("INSERT INTO profiles (name) VALUES (%s)", (new_name,))
         conn.commit()
@@ -236,9 +236,14 @@ def api_profiles_set_param(profile_name: str, param_name: str):
     if param_name not in _ALLOWED_PARAMS:
         return jsonify({"error": f"Unknown param '{param_name}'."}), 400
     if param_name in _GLOBAL_PARAMS:
-        return jsonify({
-            "error": f"Param '{param_name}' is global-scoped; use /api/params/set instead."
-        }), 400
+        return (
+            jsonify(
+                {
+                    "error": f"Param '{param_name}' is global-scoped; use /api/params/set instead."
+                }
+            ),
+            400,
+        )
 
     data = request.get_json(force=True, silent=True) or {}
     try:
@@ -263,9 +268,14 @@ def api_profiles_unset_param(profile_name: str, param_name: str):
     if param_name not in _ALLOWED_PARAMS:
         return jsonify({"error": f"Unknown param '{param_name}'."}), 400
     if param_name in _GLOBAL_PARAMS:
-        return jsonify({
-            "error": f"Param '{param_name}' is global-scoped; use /api/params/unset instead."
-        }), 400
+        return (
+            jsonify(
+                {
+                    "error": f"Param '{param_name}' is global-scoped; use /api/params/unset instead."
+                }
+            ),
+            400,
+        )
 
     pool = get_pool()
     with pool.get_connection() as conn:

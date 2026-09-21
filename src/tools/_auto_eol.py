@@ -11,6 +11,7 @@ cwd (not the current cwd), with this precedence:
 
 The detection is deliberately simple for now; heuristics can be enriched later.
 """
+
 from __future__ import annotations
 
 import glob
@@ -122,5 +123,7 @@ def maybe_apply_auto_eol(
     converted = normalize_eol(content, target)
     if converted == content:
         return content, None
-    note = f"Line endings normalized to {target.upper()}." if mode == "enabled" else None
+    note = (
+        f"Line endings normalized to {target.upper()}." if mode == "enabled" else None
+    )
     return converted, note

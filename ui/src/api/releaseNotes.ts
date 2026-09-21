@@ -15,16 +15,20 @@ export function cmpSemver(a: string, b: string): number {
   return 0;
 }
 
-export type ReleaseIndexEntry = { version: string; date: string; file?: string };
+export type ReleaseIndexEntry = {
+  version: string;
+  date: string;
+  file?: string;
+};
 export type ReleaseNote = { version: string; date: string; message: string };
 
 /** Fetch the changelog index for one side. Empty list when unavailable
  * (e.g. no releases yet — a 404 is not an error). */
-export function fetchReleaseIndex(side: ReleaseSide): Promise<ReleaseIndexEntry[]> {
+export function fetchReleaseIndex(
+  side: ReleaseSide,
+): Promise<ReleaseIndexEntry[]> {
   const url =
-    side === "ui"
-      ? "/ui-release-notes/changelog-index.json"
-      : "/api/changelog";
+    side === "ui" ? "/ui-release-notes/changelog-index.json" : "/api/changelog";
   return fetch(url)
     .then((r) => (r.ok ? r.json() : { releases: [] }))
     .then((d) => d.releases ?? [])
@@ -41,7 +45,13 @@ export function fetchReleaseNote(
       ? `/ui-release-notes/${version}.txt`
       : `/api/changelog/${encodeURIComponent(version)}`;
   return fetch(url)
-    .then((r) => (r.ok ? (side === "ui" ? r.text() : r.json().then((d) => d.message)) : null))
+    .then((r) =>
+      r.ok
+        ? side === "ui"
+          ? r.text()
+          : r.json().then((d) => d.message)
+        : null,
+    )
     .catch(() => null);
 }
 

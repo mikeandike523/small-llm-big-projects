@@ -32,7 +32,10 @@ from src.utils.llm.dialect_openai_family import (
     OpenRouterDialect,
     VLLMDialect,
 )
-from src.utils.llm.dialect_openai_responses import OPENAI_RESPONSES, OpenAIResponsesDialect
+from src.utils.llm.dialect_openai_responses import (
+    OPENAI_RESPONSES,
+    OpenAIResponsesDialect,
+)
 from src.utils.llm.openai_model_dialects import uses_responses_api
 from src.utils.llm.types import DialectAdapter, ToolCall
 

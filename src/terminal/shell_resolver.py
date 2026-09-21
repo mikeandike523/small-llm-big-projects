@@ -88,7 +88,9 @@ def resolve_cmd(command: str, command_args: list[str]) -> list[str] | str:
     # command into a broken "command not found". Detect it up front and run it
     # as a raw shell script instead, exactly as the model intended.
     if any(ch.isspace() for ch in command):
-        shell_cmd = command if not command_args else command + " " + " ".join(command_args)
+        shell_cmd = (
+            command if not command_args else command + " " + " ".join(command_args)
+        )
         return _wrap_in_login_shell(shell_cmd)
 
     resolved = shutil.which(command)

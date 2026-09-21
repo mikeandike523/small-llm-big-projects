@@ -466,11 +466,13 @@ export default function NewSessionDialog({
             value={selectedApprovalMode}
             onChange={(e) => setSelectedApprovalMode(e.target.value)}
           >
-            {(sessionDefaults.approval_modes ?? [
-              "default",
-              "auto-accept-edits",
-              "full-auto",
-            ]).map((mode) => (
+            {(
+              sessionDefaults.approval_modes ?? [
+                "default",
+                "auto-accept-edits",
+                "full-auto",
+              ]
+            ).map((mode) => (
               <option key={mode} value={mode}>
                 {mode}
               </option>

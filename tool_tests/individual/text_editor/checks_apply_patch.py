@@ -34,13 +34,18 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
     env.session_data["memory"]["ap_noop"] = "foo\nbar\n"
     r = execute_tool(
         "text_editor",
-        {"action": "apply_patch", "key": "ap_noop", "patch": "@@ -1,2 +1,2 @@\n foo\n bar"},
+        {
+            "action": "apply_patch",
+            "key": "ap_noop",
+            "patch": "@@ -1,2 +1,2 @@\n foo\n bar",
+        },
         env.session_data,
     )
     cl.check(
         "context-only hunk error",
         "Patch with only context lines (no +/-) returns an error and leaves content unchanged",
-        r.startswith("Error:") and env.session_data["memory"].get("ap_noop") == "foo\nbar\n",
+        r.startswith("Error:")
+        and env.session_data["memory"].get("ap_noop") == "foo\nbar\n",
         f"got: {r!r}",
     )
 

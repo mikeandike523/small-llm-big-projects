@@ -65,21 +65,27 @@ def resolve_slack_session(team_id: str, user_id: str) -> str:
         if _session_exists_in_db(existing):
             logger.info(
                 "Slack: found active session %s for user %s (team %s)",
-                existing, user_id, team_id,
+                existing,
+                user_id,
+                team_id,
             )
             return existing
         else:
             logger.warning(
                 "Slack: session %s found in mapping but missing from DB "
                 "for user %s (team %s) — creating a new one",
-                existing, user_id, team_id,
+                existing,
+                user_id,
+                team_id,
             )
 
     new_session_id = _create_slack_session()
     _store_slack_session_mapping(team_id, user_id, new_session_id)
     logger.info(
         "Slack: mapped user %s (team %s) to new session %s",
-        user_id, team_id, new_session_id,
+        user_id,
+        team_id,
+        new_session_id,
     )
     return new_session_id
 
@@ -194,12 +200,15 @@ def _create_slack_session() -> str:
         )
     except Exception as exc:
         logger.error(
-            "Slack: failed to persist new session %s: %s", session_id, exc,
+            "Slack: failed to persist new session %s: %s",
+            session_id,
+            exc,
         )
         raise
 
     logger.info(
         "Slack: created new session %s (cwd=%s)",
-        session_id, workspace_dir,
+        session_id,
+        workspace_dir,
     )
     return session_id

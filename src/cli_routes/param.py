@@ -53,17 +53,18 @@ def _list_set_params(kv, prefix: str) -> dict[str, str]:
 
     # Profile-scoped params stored under profiles.<name>.params.*
     for k in kv.list_keys(prefix=profile_params_prefix):
-        name = k[len(profile_params_prefix):]
+        name = k[len(profile_params_prefix) :]
         if name in _ALLOWED_PARAMS and name not in _GLOBAL_PARAMS:
             result[name] = k
 
     # Global-scoped params stored under params.*
     for k in kv.list_keys(prefix=global_params_prefix):
-        name = k[len(global_params_prefix):]
+        name = k[len(global_params_prefix) :]
         if name in _GLOBAL_PARAMS:
             result[name] = k
 
     return result
+
 
 def _echo_param(name, val, typestr, terminal_width):
     """Print a single param line with consistent indentation."""
@@ -92,6 +93,7 @@ def _echo_param(name, val, typestr, terminal_width):
         click.echo(f"  {name_colored} ({typestr}):")
         for line in json.dumps(val, indent=2).splitlines():
             click.echo(f"    {line}")
+
 
 @cli.group()
 def param(): ...

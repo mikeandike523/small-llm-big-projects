@@ -195,8 +195,8 @@ def _make_diff(before: str, after: str) -> str:
 _HUNK_HEADER_STRICT_RE = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
 # Lenient: any line starting with @@ (optionally closed by @@) counts as a hunk header.
 _HUNK_HEADER_LENIENT_RE = re.compile(r"^@@.*?(@@)?$")
-_NEW_START_RE = re.compile(r"\+(\d+)")   # +N in header → new-file start
-_ANY_NUMBER_RE = re.compile(r"(\d+)")    # bare integer → last-resort anchor
+_NEW_START_RE = re.compile(r"\+(\d+)")  # +N in header → new-file start
+_ANY_NUMBER_RE = re.compile(r"(\d+)")  # bare integer → last-resort anchor
 _FILE_HEADER_PREFIXES = ("diff ", "index ", "--- ", "+++ ")
 _VALID_BODY_PREFIXES = frozenset(("+", "-", " ", "\\"))
 
@@ -305,15 +305,18 @@ def _parse_patch_file(patch: str) -> list[ParsedHunk]:
         is_pure_insertion = bool(group.tagged) and all(
             p == "+" for p, _ in group.tagged
         )
-        hunks.append(ParsedHunk(
-            start=new_start if is_pure_insertion else None,
-            group=group,
-        ))
+        hunks.append(
+            ParsedHunk(
+                start=new_start if is_pure_insertion else None,
+                group=group,
+            )
+        )
 
     # No-header fallback: treat whole body as a single hunk.
     if not found_any_header:
         body_lines = [
-            l for l in raw_lines
+            l
+            for l in raw_lines
             if not any(l.startswith(p) for p in _FILE_HEADER_PREFIXES)
         ]
         # Same edge-stripping as the header path.
@@ -341,7 +344,9 @@ def _parse_patch_file(patch: str) -> list[ParsedHunk]:
 # Default THRESHOLD=0.50 corresponds to r=0.80, safely below 0.85 → zero false negatives.
 # Tight safe lower bound: ~0.36.  Sensible range: [0.36, 0.55].
 _CANDIDATE_THRESHOLD_DEFAULT = 0.50
-_CANDIDATE_MIN_ABS_TOL = 3  # absolute-char floor so very short lines aren't over-filtered
+_CANDIDATE_MIN_ABS_TOL = (
+    3  # absolute-char floor so very short lines aren't over-filtered
+)
 
 
 def collect_candidates(
@@ -396,9 +401,8 @@ def _compute_leniency(
     anchor_lines: int, max_leniency: float, min_leniency: float = 0.0
 ) -> float:
     """Scale leniency linearly from *min_leniency* (1 line) to *max_leniency* (MAX_LENIENCY_AT_LINES+)."""
-    t = (
-        min(max(anchor_lines - 1, 0), MAX_LENIENCY_AT_LINES - 1)
-        / (MAX_LENIENCY_AT_LINES - 1)
+    t = min(max(anchor_lines - 1, 0), MAX_LENIENCY_AT_LINES - 1) / (
+        MAX_LENIENCY_AT_LINES - 1
     )
     return min_leniency + (max_leniency - min_leniency) * t
 
@@ -522,7 +526,8 @@ def _apply_edits(
 
         if all(p == " " for p, _ in group.tagged):
             _fail(
-                n, hunk,
+                n,
+                hunk,
                 "hunk contains only context lines (no '+' or '-' lines); "
                 "nothing to change. Add the lines to add/remove, or omit this hunk entirely.",
             )
@@ -534,7 +539,8 @@ def _apply_edits(
         if not before_lines:
             if hunk.start is None:
                 _fail(
-                    n, hunk,
+                    n,
+                    hunk,
                     "no context or removed lines to anchor on, and no insertion "
                     "position available. Include at least one context (' ') or "
                     "removed ('-') line, or ensure the @@ header contains a valid line number.",
@@ -562,7 +568,8 @@ def _apply_edits(
                 for h in hits
             )
             _fail(
-                n, hunk,
+                n,
+                hunk,
                 f"context matches {len(hits)} locations ({level}); "
                 f"add more surrounding lines to disambiguate:\n{previews}",
             )

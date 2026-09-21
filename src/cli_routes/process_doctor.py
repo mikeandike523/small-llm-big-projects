@@ -164,14 +164,18 @@ def process_doctor(force_kill_all: bool):
                 continue
             for m in ordered:
                 ok, msg = kill_process(m.pid)
-                click.echo(colored(f"✅ {msg}", "green") if ok else colored(f"❌ {msg}", "red"))
+                click.echo(
+                    colored(f"✅ {msg}", "green") if ok else colored(f"❌ {msg}", "red")
+                )
             click.echo()
             continue
 
         if choice.isdigit() and 1 <= int(choice) <= len(ordered):
             target = ordered[int(choice) - 1]
             ok, msg = kill_process(target.pid)
-            click.echo(colored(f"✅ {msg}", "green") if ok else colored(f"❌ {msg}", "red"))
+            click.echo(
+                colored(f"✅ {msg}", "green") if ok else colored(f"❌ {msg}", "red")
+            )
             click.echo()
             continue
 

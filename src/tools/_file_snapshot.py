@@ -3,7 +3,6 @@ from __future__ import annotations
 import hashlib
 import os
 
-
 _processed: dict[str, set[str]] = {}  # session_id -> set[norm_path]
 
 
@@ -50,7 +49,9 @@ def take_snapshot(session_id: str, path: str, content: str) -> int:
         conn.close()
 
 
-def auto_snapshot_if_first_write(session_id: str, path: str, cwd: str | None = None) -> None:
+def auto_snapshot_if_first_write(
+    session_id: str, path: str, cwd: str | None = None
+) -> None:
     """Take a snapshot of path before its first write this session, if file exists."""
     norm = _norm(path, cwd)
     session_processed = _processed.setdefault(session_id, set())

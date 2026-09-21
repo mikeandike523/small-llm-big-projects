@@ -40,7 +40,6 @@ class RedactionEngine:
 
 from src.redaction.plugins.redaction_plugin_dotenv import DotenvPlugin  # noqa: E402
 
-
 _engine = RedactionEngine([DotenvPlugin()])
 
 

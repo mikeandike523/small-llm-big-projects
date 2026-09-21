@@ -13,6 +13,7 @@ here, under `function`, is correct for Chat Completions dialects as-is (they
 pass `tools` through unmodified); dialect_openai_responses.py's
 _convert_tools() propagates this same key into its flattened shape.
 """
+
 from __future__ import annotations
 
 import copy

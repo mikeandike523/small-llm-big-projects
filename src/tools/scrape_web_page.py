@@ -145,7 +145,9 @@ DEFINITION: dict = {
 }
 
 
-def needs_approval(args: dict, session_data: dict | None = None, special_resources: dict | None = None) -> bool:
+def needs_approval(
+    args: dict, session_data: dict | None = None, special_resources: dict | None = None
+) -> bool:
     return False
 
 
@@ -254,9 +256,7 @@ def _check_robots(
     return True, None
 
 
-_DATA_URI_RE = re.compile(
-    r'data:[a-zA-Z]+/[a-zA-Z0-9.+\-]+;base64,[A-Za-z0-9+/=]+'
-)
+_DATA_URI_RE = re.compile(r"data:[a-zA-Z]+/[a-zA-Z0-9.+\-]+;base64,[A-Za-z0-9+/=]+")
 
 
 def _apply_basic_filters(text: str) -> str:
@@ -308,7 +308,13 @@ def execute(args: dict, session_data: dict | None = None) -> str:
 
     url: str = args["url"]
     timeout: int = args.get("timeout", DEFAULT_TIMEOUT)
-    validate_timeout("scrape_web_page", timeout, DEFAULT_TIMEOUT, MAX_TIMEOUT, min_timeout=MIN_TIMEOUT)
+    validate_timeout(
+        "scrape_web_page",
+        timeout,
+        DEFAULT_TIMEOUT,
+        MAX_TIMEOUT,
+        min_timeout=MIN_TIMEOUT,
+    )
     max_retries: int = args.get("max_retries", DEFAULT_MAX_RETRIES)
     min_delay: float = args.get("min_delay_seconds", DEFAULT_MIN_DELAY)
     check_robots_flag: bool = args.get("check_robots", True)

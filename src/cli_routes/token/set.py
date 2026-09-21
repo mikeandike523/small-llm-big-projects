@@ -12,7 +12,6 @@ from src.cli_routes.token.helpers import mask_token, resolve_token
 from src.cli_routes.token_obj import token
 
 
-
 @token.command(name="set")
 @click.option(
     "--name",
@@ -207,4 +206,3 @@ def sub_cmd_set(name: str, endpoint: Optional[str], provider: str, token: str):
             "Note: token is not yet active. To use it, run:\n"
             f"  slbp token use {provider}" + (f" {token_name}" if token_name else "")
         )
-

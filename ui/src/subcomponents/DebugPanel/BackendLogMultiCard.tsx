@@ -16,9 +16,9 @@ const multiCardCss = css`
 `;
 
 const multiRowCss = (index: number) => css`
-  background: ${
-    index % 2 === 0 ? "rgba(18, 39, 58, 0.78)" : "rgba(24, 49, 72, 0.78)"
-  };
+  background: ${index % 2 === 0
+    ? "rgba(18, 39, 58, 0.78)"
+    : "rgba(24, 49, 72, 0.78)"};
   &:first-of-type {
     border-top-left-radius: 3px;
     border-top-right-radius: 3px;

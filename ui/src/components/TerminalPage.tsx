@@ -4,7 +4,12 @@ import { useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { TerminalPanel } from "./TerminalPanel";
 import { createSocket } from "../socket";
-import { fontMono, spBorder, spHeaderBg, spTextMain } from "../css/SidePanelTheme";
+import {
+  fontMono,
+  spBorder,
+  spHeaderBg,
+  spTextMain,
+} from "../css/SidePanelTheme";
 import { dashboardButtonCss } from "../css/Chat";
 
 const pageBarCss = css`

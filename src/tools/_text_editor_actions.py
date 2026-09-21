@@ -29,7 +29,6 @@ from src.tools._text_editor_utils import (
 )
 from src.utils.text.line_numbers import add_line_numbers
 
-
 # ---------------------------------------------------------------------------
 # Line reconstruction (used by insert/delete/append/prepend line actions)
 # ---------------------------------------------------------------------------
@@ -158,6 +157,7 @@ def apply_search_replace(original_text: str, text: str) -> tuple[str, int]:
 
     return _apply_edits(original_text, hunks, unit="Block"), len(blocks)
 
+
 # ---------------------------------------------------------------------------
 # Read-only action implementations — return str
 # ---------------------------------------------------------------------------
@@ -251,7 +251,10 @@ def _do_normalize_eol(args: dict, value: str, label: str) -> tuple[str, str]:
     if not eol:
         return "Error: 'eol' is required for action 'normalize_eol'.", value
     result = normalize_eol(value, eol)
-    return f"Line endings normalized to {eol.upper()} for {label!r}.\n\n{_make_diff(value, result)}", result
+    return (
+        f"Line endings normalized to {eol.upper()} for {label!r}.\n\n{_make_diff(value, result)}",
+        result,
+    )
 
 
 def _do_convert_indentation(args: dict, value: str, label: str) -> tuple[str, str]:
@@ -260,7 +263,10 @@ def _do_convert_indentation(args: dict, value: str, label: str) -> tuple[str, st
         return "Error: 'to' is required for action 'convert_indentation'.", value
     spaces_per_tab = int(args.get("spaces_per_tab", DEFAULT_SPACES_PER_TAB))
     result = convert_indentation(value, to, spaces_per_tab)
-    return f"Indentation converted to {to} (spaces_per_tab={spaces_per_tab}) for {label!r}.\n\n{_make_diff(value, result)}", result
+    return (
+        f"Indentation converted to {to} (spaces_per_tab={spaces_per_tab}) for {label!r}.\n\n{_make_diff(value, result)}",
+        result,
+    )
 
 
 def _do_apply_patch(args: dict, value: str, label: str) -> tuple[str, str]:

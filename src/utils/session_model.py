@@ -391,9 +391,11 @@ def repair_incomplete_turn(session: Session) -> bool:
     for subturn in turn.subturns:
         if subturn.exchanges:
             last_exchange = subturn.exchanges[-1]
-    if last_exchange is None or last_exchange.tool_calls or not (
-        last_exchange.assistant_content or ""
-    ).strip():
+    if (
+        last_exchange is None
+        or last_exchange.tool_calls
+        or not (last_exchange.assistant_content or "").strip()
+    ):
         # Either no exchanges, or the last action was a tool call / empty answer:
         # append a synthetic final response so the thread reads coherently.
         if turn.subturns:
@@ -407,7 +409,9 @@ def repair_incomplete_turn(session: Session) -> bool:
         else:
             final_content = _INTERRUPTED_ANSWER_MARKER
     else:
-        final_content = f"{last_exchange.assistant_content} {_INTERRUPTED_ANSWER_MARKER}"
+        final_content = (
+            f"{last_exchange.assistant_content} {_INTERRUPTED_ANSWER_MARKER}"
+        )
 
     turn.was_cancelled = True
     turn.completed = True

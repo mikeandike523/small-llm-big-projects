@@ -1,5 +1,23 @@
 // Shared types for the session/turn model
 
+export interface HeartbeatSettings {
+  enabled: boolean;
+  interval_minutes: number;
+  instructions: string;
+  heartbeat_approval_policy: "wait-for-human" | "force-fail";
+}
+
+export const HEARTBEAT_INTERVALS_MINUTES = [5, 15, 20, 25, 30, 45, 60];
+export const HEARTBEAT_APPROVAL_POLICIES: HeartbeatSettings["heartbeat_approval_policy"][] =
+  ["wait-for-human", "force-fail"];
+
+export const DEFAULT_HEARTBEAT_SETTINGS: HeartbeatSettings = {
+  enabled: false,
+  interval_minutes: 30,
+  instructions: "",
+  heartbeat_approval_policy: "wait-for-human",
+};
+
 export interface PatchRewriteState {
   status: "in_progress" | "success" | "failed";
   originalArgs: Record<string, unknown>;
