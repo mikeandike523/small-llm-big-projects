@@ -1,0 +1,1 @@
+Stop with pending approval now resolves approval as denied (Deny & Stop equivalence); deterministic denial recording on cancel; approval widget clears via approval_resolved

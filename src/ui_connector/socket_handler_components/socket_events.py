@@ -198,6 +198,30 @@ def handle_cancel_turn():
     session_id = _state._sid_to_session_id.get(sid)
     if not session_id:
         return
+    # If an approval is pending, pressing Stop is equivalent to "Deny & Stop":
+    # resolve the pending approval as denied so the waiting tool executor
+    # records the standard denial tool result, and emit approval_resolved so
+    # the frontend approval widget clears. event.set() unblocks
+    # _request_approval immediately (otherwise it would only notice the cancel
+    # via its cancel_event poll, and no denial would be recorded).
+    pending = _state._pending_approvals.get(session_id)
+    if pending is not None and pending.get("approved") is None:
+        # Only resolve an approval the user has not already decided: a click
+        # on the dialog that raced with Stop must not be overridden (and if a
+        # decision was already recorded, handle_approval_response already
+        # emitted approval_resolved, so there is nothing left to clear).
+        pending["approved"] = False
+        pending["redirect_message"] = None
+        _emit_and_log(
+            session_id,
+            "approval_resolved",
+            {
+                "id": pending.get("tool_id"),
+                "approved": False,
+                "turn_id": pending.get("turn_id", ""),
+            },
+        )
+        pending["event"].set()
     loop = _state._cancel_loops.get(session_id)
     task = _state._cancel_tasks.get(session_id)
     if loop is not None and task is not None:

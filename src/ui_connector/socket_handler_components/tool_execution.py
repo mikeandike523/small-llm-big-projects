@@ -297,7 +297,7 @@ def _execute_tools(
                 session_data=session.session_data,
                 special_resources=special_resources,
             ):
-                approved, redirect_message = _request_approval(
+                approved, redirect_message, approval_cancelled = _request_approval(
                     session_id,
                     tc.id,
                     tc.name,
@@ -307,7 +307,7 @@ def _execute_tools(
                     cancel_event=cancel_event,
                 )
                 if not approved:
-                    if cancel_event is not None and cancel_event.is_set():
+                    if approval_cancelled:
                         exchange.tool_calls.append(tool_record)
                         return exchange
 
