@@ -1,0 +1,1 @@
+Added force-approve heartbeat approval policy option
