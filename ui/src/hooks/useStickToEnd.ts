@@ -32,24 +32,29 @@ export function useStickToEnd<TScrollElement extends Element>(
   const programmaticScrollRef = useRef(false);
   const lastScrollTopRef = useRef(0);
   const lingerTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
-  const [isAutoScrolling, setIsAutoScrolling] = useState(false);
+  const [isAutoScrolling, setIsAutoScrolling] = useState(true);
+
+  // Stable ref so long-lived closures (ResizeObserver callback, etc.)
+  // always call the latest virtualizer instance.
+  const vRef = useRef(virtualizer);
+  vRef.current = virtualizer;
 
   useEffect(() => {
     const el = virtualizer.scrollElement;
     if (!el) return;
 
     const onScroll = () => {
-      if (programmaticScrollRef.current) return;
-
       const distanceFromEnd =
         el.scrollHeight - (el.scrollTop + el.clientHeight);
 
-      if (distanceFromEnd <= NEAR_END_THRESHOLD_PX) {
-        stuckRef.current = true;
-      } else if (el.scrollTop < lastScrollTopRef.current) {
-        stuckRef.current = false; // user scrolled up
-        clearTimeout(lingerTimeoutRef.current);
-        setIsAutoScrolling(false);
+      if (!programmaticScrollRef.current) {
+        if (el.scrollTop < lastScrollTopRef.current) {
+          stuckRef.current = false; // user scrolled up
+          clearTimeout(lingerTimeoutRef.current);
+          setIsAutoScrolling(false);
+        } else if (distanceFromEnd <= NEAR_END_THRESHOLD_PX) {
+          stuckRef.current = true;
+        }
       }
       lastScrollTopRef.current = el.scrollTop;
     };
@@ -58,16 +63,55 @@ export function useStickToEnd<TScrollElement extends Element>(
     return () => el.removeEventListener("scroll", onScroll);
   }, [virtualizer.scrollElement]);
 
-  // No dependency array: this must re-check on every render, since the last
-  // row can grow taller from streaming content without the row count (or
-  // any single dependency we could name here) changing.
+  // Shared helper: programmatic scroll to end + indicator signal.
+  // Returns the RAF id so callers can cancel it on cleanup.
+  const snap = (): number => {
+    programmaticScrollRef.current = true;
+    vRef.current.scrollToEnd({ behavior: "instant" });
+    const id = requestAnimationFrame(() => {
+      programmaticScrollRef.current = false;
+    });
+    setIsAutoScrolling(true);
+    clearTimeout(lingerTimeoutRef.current);
+    lingerTimeoutRef.current = setTimeout(() => {
+      setIsAutoScrolling(false);
+    }, INDICATOR_LINGER_MS);
+    return id;
+  };
+
+  // Phase 1 — pre-paint (useLayoutEffect, no deps):
+  // On every React render while locked, snap to the end. This is the
+  // only hook that catches a row growing taller in place (e.g. streaming
+  // tool output) without any dependency we could name changing.
+  //
+  // Cleanup always resets programmaticScrollRef so it can never get
+  // stuck true — e.g. if stuckRef flips to false between snap() posting
+  // and its RAF firing (tight window, but possible during rapid renders).
   useLayoutEffect(() => {
     if (!stuckRef.current) return;
 
+    const rafId = snap();
+    return () => {
+      programmaticScrollRef.current = false;
+      cancelAnimationFrame(rafId);
+    };
+  });
+
+  // Phase 2 — post-paint (useEffect, watches total size):
+  // Safety net for the "starts small, floods large" edge case. When a
+  // burst of new items arrives, phase-1 scrollToEnd may use estimated
+  // sizes for items outside the visible range. After paint those items
+  // are rendered, measured by the virtualizer, and getTotalSize() may
+  // grow. Re-snap here to correct onto the true bottom.
+  //
+  // Also serves as the guaranteed first-mount scroll — even when content
+  // hasn't appeared yet (getTotalSize() starts at 0), it fires once on
+  // mount so we're ready when the first real size lands.
+  useEffect(() => {
+    if (!stuckRef.current) return;
+
     programmaticScrollRef.current = true;
-    virtualizer.scrollToEnd({ behavior: "instant" });
-    // Native scroll events from this call fire asynchronously; release the
-    // guard on the next frame so they aren't misread as a user scroll-up.
+    vRef.current.scrollToEnd({ behavior: "instant" });
     const id = requestAnimationFrame(() => {
       programmaticScrollRef.current = false;
     });
@@ -78,8 +122,11 @@ export function useStickToEnd<TScrollElement extends Element>(
       setIsAutoScrolling(false);
     }, INDICATOR_LINGER_MS);
 
-    return () => cancelAnimationFrame(id);
-  });
+    return () => {
+      programmaticScrollRef.current = false;
+      cancelAnimationFrame(id);
+    };
+  }, [virtualizer.getTotalSize()]);
 
   useEffect(() => {
     return () => clearTimeout(lingerTimeoutRef.current);

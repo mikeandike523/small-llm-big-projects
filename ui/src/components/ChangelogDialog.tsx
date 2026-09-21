@@ -2,6 +2,7 @@
 import { css } from "@emotion/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  cmpSemver,
   fetchReleaseIndex,
   fetchReleaseNote,
   type ReleaseIndexEntry,
@@ -117,7 +118,9 @@ export default function ChangelogDialog({
     let cancelled = false;
     fetchReleaseIndex(side).then((list) => {
       if (cancelled) return;
-      setEntries(list);
+      // Sort latest-first so the dialog shows newest release at the top.
+      const sorted = [...list].sort((a, b) => cmpSemver(b.version, a.version));
+      setEntries(sorted);
       // Kick off independent async loads — each fills in its own slot.
       for (const e of list) {
         fetchReleaseNote(side, e.version).then((msg) => {

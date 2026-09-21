@@ -75,7 +75,7 @@ def rebuild_index(notes_dir: Path, new_entry: dict) -> None:
     """Rebuild index from existing files (dates carried forward) + new entry."""
     entries = [e for e in load_index(notes_dir) if e.get("version") != new_entry["version"]]
     entries.append(new_entry)
-    entries.sort(key=lambda e: e.get("date", ""), reverse=True)
+    entries.sort(key=lambda e: tuple(int(x) for x in e.get("version", "0.0.0").split(".")), reverse=True)
     atomic_write(notes_dir / "changelog-index.json", json.dumps({"releases": entries}, indent=2) + "\n")
 
 

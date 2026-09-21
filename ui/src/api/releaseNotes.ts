@@ -4,6 +4,17 @@ import { useEffect, useState } from "react";
  * /ui-release-notes/) or the backend (JSON API under /api/changelog/). */
 export type ReleaseSide = "ui" | "backend";
 
+/** Compare two semver strings (e.g. "1.2.3"). Returns negative if a < b, 0 if equal, positive if a > b. */
+export function cmpSemver(a: string, b: string): number {
+  const pa = a.split(".").map(Number);
+  const pb = b.split(".").map(Number);
+  for (let i = 0; i < 3; i++) {
+    const d = (pa[i] ?? 0) - (pb[i] ?? 0);
+    if (d !== 0) return d;
+  }
+  return 0;
+}
+
 export type ReleaseIndexEntry = { version: string; date: string; file?: string };
 export type ReleaseNote = { version: string; date: string; message: string };
 
@@ -41,7 +52,12 @@ export function useLatestReleaseNote(side: ReleaseSide): ReleaseNote | null {
     let cancelled = false;
     fetchReleaseIndex(side).then(async (entries) => {
       if (cancelled || entries.length === 0) return;
-      const top = entries[0];
+      // Sort by semver descending so index[0] is always the latest,
+      // regardless of the order the server returns.
+      const sorted = [...entries].sort((a, b) =>
+        cmpSemver(b.version, a.version),
+      );
+      const top = sorted[0];
       const raw = await fetchReleaseNote(side, top.version);
       if (!cancelled && raw != null) {
         setNote({ version: top.version, date: top.date, message: raw.trim() });

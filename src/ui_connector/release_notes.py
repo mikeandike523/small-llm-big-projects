@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import pathlib
+import re
 
 NOTES_DIR_NAME = "backend-release-notes"
 
@@ -64,8 +65,19 @@ def read_backend_version() -> str:
         return "unknown"
 
 
+_SEMVER_RE = re.compile(r"^(\d+)\.(\d+)\.(\d+)$")
+
+
+def _semver_key(release: dict) -> tuple[int, ...]:
+    """Extract a sortable semver tuple from a release dict (newest first)."""
+    m = _SEMVER_RE.match(str(release.get("version", "")))
+    if not m:
+        return (0, 0, 0)
+    return tuple(int(x) for x in m.groups())
+
+
 def read_changelog_index() -> list[dict]:
-    """Parsed changelog-index.json releases list ([] when unavailable)."""
+    """Parsed changelog-index.json releases list, newest-first ([] when unavailable)."""
     notes_dir = get_notes_dir()
     if notes_dir is None:
         return []
@@ -73,7 +85,10 @@ def read_changelog_index() -> list[dict]:
         idx = json.loads(
             (notes_dir / "changelog-index.json").read_text(encoding="utf-8")
         )
-        return idx.get("releases", [])
+        releases = idx.get("releases", [])
+        # Sort newest-first; the index on disk may be in any order.
+        releases.sort(key=_semver_key, reverse=True)
+        return releases
     except Exception:
         return []
 

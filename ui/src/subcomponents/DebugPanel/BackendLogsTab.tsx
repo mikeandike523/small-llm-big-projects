@@ -61,14 +61,14 @@ const autoScrollShineCss = (active: boolean) => css`
   left: 0;
   right: 0;
   bottom: 0;
-  height: 24px;
+  height: 16px;
   pointer-events: none;
   opacity: ${active ? 1 : 0};
   transition: opacity 220ms ease;
   background: linear-gradient(
     to top,
-    rgba(107, 159, 228, 0.4),
-    rgba(107, 159, 228, 0)
+    rgba(160, 110, 230, 0.55),
+    rgba(160, 110, 230, 0)
   );
 `;
 
