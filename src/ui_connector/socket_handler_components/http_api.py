@@ -24,6 +24,7 @@ from src.ui_connector.socket_handler_components.session_store import (
 from src.ui_connector.socket_handler_components.terminal import (
     _build_starting_environment_info,
 )
+from src.ui_connector.socket_handler_components.state import SessionToolManifest
 from src.utils.sql.session_store_db import list_session_meta
 from src.data import get_pool
 from src.tools import (
@@ -164,37 +165,47 @@ def api_create_session():
     if _builtin_err:
         return jsonify({"error": _builtin_err}), 400
 
-    # Pre-validate and cache custom tools so errors surface at creation time.
-    if custom_tools_path:
-        try:
-            extra_defs, extra_map, plugins, custom_exclusions = load_custom_tools(
-                tools_dir=custom_tools_path,
-                workspace_root=initial_cwd or None,
-                session_prefix=session_id[:8],
-            )
-            _excl_load = {n for n, f in custom_exclusions.items() if f.get("loading")}
-            base_defs = [
-                d
-                for d in ALL_TOOL_DEFINITIONS
-                if d.get("function", {}).get("name") not in _excl_load
-            ]
-            base_map = {k: v for k, v in _TOOL_MAP.items() if k not in _excl_load}
-            _state._session_tool_sets[session_id] = (
-                base_defs + extra_defs,
-                {**base_map, **extra_map},
-                plugins,
-            )
-        except RuntimeError as exc:
-            return jsonify({"error": f"Custom tool loading failed: {exc}"}), 400
-    else:
-        _state._session_tool_sets[session_id] = (ALL_TOOL_DEFINITIONS, _TOOL_MAP, [])
-
+    # Skills are built before tools: tool loading validates skill-scoped plugin
+    # namespaces against the resolved skill id set (see load_custom_tools).
     try:
         registry = build_skill_registry(custom_skills_path=skills_path)
     except SkillManifestError as exc:
         return jsonify({"error": f"Skill loading failed: {exc}"}), 400
     _state._session_skill_registries[session_id] = registry
     session.session_data["__skill_files__"] = registry
+
+    # Pre-validate and cache custom tools so errors surface at creation time.
+    if custom_tools_path:
+        try:
+            result = load_custom_tools(
+                tools_dir=custom_tools_path,
+                workspace_root=initial_cwd or None,
+                session_prefix=session_id[:8],
+                known_skill_ids=frozenset(e["id"] for e in registry),
+            )
+            _excl_load = {
+                n for n, f in result.custom_exclusions.items() if f.get("loading")
+            }
+            base_defs = [
+                d
+                for d in ALL_TOOL_DEFINITIONS
+                if d.get("function", {}).get("name") not in _excl_load
+            ] + result.unscoped_defs
+            base_map = {k: v for k, v in _TOOL_MAP.items() if k not in _excl_load}
+            base_map.update(result.unscoped_map)
+            _state._session_tool_sets[session_id] = SessionToolManifest(
+                base_defs=base_defs,
+                base_map=base_map,
+                by_skill=result.by_skill,
+                plugins=result.plugins,
+            )
+        except RuntimeError as exc:
+            return jsonify({"error": f"Custom tool loading failed: {exc}"}), 400
+    else:
+        _state._session_tool_sets[session_id] = SessionToolManifest(
+            base_defs=list(ALL_TOOL_DEFINITIONS), base_map=dict(_TOOL_MAP)
+        )
+
     _state._session_system_prompts[session_id] = build_system_prompt(
         starting_environment_info=_build_starting_environment_info(session),
         autoload_entries=get_autoload_skill_entries(registry),

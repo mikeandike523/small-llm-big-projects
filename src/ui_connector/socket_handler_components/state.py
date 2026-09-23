@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import os
 import threading
+from dataclasses import dataclass, field
 
 import redis
 
@@ -14,6 +15,24 @@ from src.logic.system_prompt import (
     build_system_prompt,
     get_autoload_skill_entries,
 )
+
+
+@dataclass
+class SessionToolManifest:
+    """A session's fully-validated custom tool set, grouped by activation scope.
+
+    base_defs/base_map: built-ins (minus load exclusions) + unscoped custom
+    tools — always included in every subturn's active tool set.
+    by_skill: skill_id -> (defs, tool_map) for each skill-scoped plugin —
+    only included in a subturn where that skill id is active.
+    plugins: debug-panel-facing plugin info ({name, count, path}).
+    """
+
+    base_defs: list[dict] = field(default_factory=list)
+    base_map: dict = field(default_factory=dict)
+    by_skill: dict[str, tuple[list[dict], dict]] = field(default_factory=dict)
+    plugins: list[dict] = field(default_factory=list)
+
 
 # ---------------------------------------------------------------------------
 # Base skill registry and system prompt (built once at server start)
@@ -33,8 +52,8 @@ _hotfix_void_call: bool = os.environ.get("SLBP_HOTFIX_GPT_OSS_20B_BAD_VOID_CALL"
 # Per-session state caches (rebuilt from session data on load)
 # ---------------------------------------------------------------------------
 
-# session_id -> (tool_definitions, tool_map, plugin_info_list)
-_session_tool_sets: dict[str, tuple[list, dict, list]] = {}
+# session_id -> SessionToolManifest
+_session_tool_sets: dict[str, SessionToolManifest] = {}
 # session_id -> system_prompt_string
 _session_system_prompts: dict[str, str] = {}
 # session_id -> list of skill descriptors

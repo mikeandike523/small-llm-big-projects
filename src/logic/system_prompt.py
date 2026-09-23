@@ -402,6 +402,12 @@ Do not give up to avoid difficult steps — try alternatives first.
 Results beginning with “TIMEOUT:” or “HANG:” indicate the tool timed out or hung. Try a different
 approach before giving up. Keep the todo item open until the step actually succeeds.
 
+== DYNAMIC TOOL LIST ==
+
+The list of tools available to you can change between turns, tied to which skills are currently
+active. Be aware that some tool call history may involve tools not currently in your skill/tool
+set. Try to guess their significance in context.
+
 == OUTPUT TRUNCATION ==
 
 Every tool result has each line capped at 500 characters. When a line is longer, it is cut and a

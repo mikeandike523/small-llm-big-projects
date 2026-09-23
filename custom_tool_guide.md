@@ -1,0 +1,602 @@
+# Custom Tool Guide
+
+How to write custom tool plugins for `slbp`, what the loader requires for a
+tool to be *compliant* (loads without error) and *complete* (behaves like a
+first-class tool — approvals, redaction, dirty-tracking, etc. all work), and
+how imports resolve inside custom tool code.
+
+This guide describes the loading scheme as implemented in
+`src/tools/__init__.py` (`load_custom_tools`) and the tool-execution contract
+in `src/ui_connector/socket_handler_components/tool_execution.py`. When in
+doubt, those two files are the source of truth — this guide just organizes
+what they already enforce.
+
+Custom tools are **session-scoped**, loaded once at session-creation time
+(`POST /api/sessions`), not at server startup. There is nothing to restart —
+each new session re-reads the `tools/` directory.
+
+**This is now a coupled system with custom skills, not two independent
+ones.** A skill-scoped tool plugin's tools are only offered to the LLM on
+subturns where its matching skill is active — see §6, and read
+`./custom_skill_guide.md` alongside this guide if you haven't already.
+
+---
+
+## 1. Directory layout
+
+```text
+<project-cwd>/
+  tools/
+    __init__.py                  # optional: runs once, before any plugin loads
+    _exclude_builtin_tools.py    # optional: disable specific built-in tools
+    root_tool.py                 # unscoped: no namespace, always active
+    my_plugin/                   # skill-scoped plugin
+      __init__.py                # required (content now optional — see §2)
+      do_thing.py                # a tool (has DEFINITION + execute)
+      _helpers.py                # a helper module (no DEFINITION — not a tool, see §3)
+    another_plugin/
+      __init__.py
+      ...
+```
+
+- `tools/` is enabled per-session via `slbp session new --load-tools --cwd <dir>`,
+  which sets `custom_tools_path = <dir>/tools` (see `src/cli_routes/session.py`).
+  The raw `POST /api/sessions` API also accepts an arbitrary
+  `custom_tools_path`, but the CLI always uses this `{cwd}/tools` convention —
+  assume it unless you have a reason not to (see §12 on imports, where it
+  matters).
+- Three loadable categories, all validated together at session creation:
+  1. **Unscoped tools** — `.py` files directly in `tools/` (excluding the two
+     reserved filenames below). No namespace prefix; the tool's final name is
+     its bare `DEFINITION['function']['name']`. Always included in every
+     subturn's tool set, independent of skill selection.
+  2. **Skill-scoped plugins** — immediate subdirectories of `tools/` that
+     contain an `__init__.py`. Every tool file in one is namespace-prefixed
+     and only active while its matching skill is active — see §2 and §6.
+     Subdirectories without an `__init__.py` are ignored. Both categories are
+     discovered in sorted order, and this scan is exactly one level deep —
+     files nested further inside a plugin folder are not scanned as tools.
+  3. Files without a top-level `DEFINITION` attribute, in either category,
+     are silently treated as **helper modules**, not tools (see §3).
+- `tools/__init__.py` (directly under `tools/`, not inside a plugin) is
+  optional and runs exactly once per session, before anything else is loaded —
+  the intended use is adding a vendored dependency directory to `sys.path`.
+  It is not itself scanned as an unscoped tool file.
+- `tools/_exclude_builtin_tools.py` is optional and lets a session disable
+  specific **built-in** tools (not custom ones). Format:
+
+  ```python
+  EXCLUDE: dict[str, dict] = {
+      "brave_web_search": {"loading": True},
+  }
+  ```
+
+  Only the `"loading"` flag is honored here (the `"testing"` flag exists for
+  the repo's own root-level `src/tools/_exclude_builtin_tools.py`, used by
+  `tool_tests/`, and has no effect on a session's custom exclude file).
+
+---
+
+## 2. Anatomy of a plugin `__init__.py`
+
+`TOOL_NAMESPACE` is **optional**:
+
+```python
+TOOL_NAMESPACE = "my_plugin"   # optional — defaults to the plugin's folder name
+```
+
+If omitted, the plugin's namespace defaults to its **folder name**. An
+explicit `TOOL_NAMESPACE` overrides that default (e.g. for a folder name that
+isn't a valid/desired namespace string). Either way, every tool this plugin
+defines is exposed to the LLM as
+`f"{tool_namespace}_{DEFINITION['function']['name']}"`. For example, a tool
+file with `DEFINITION.function.name == "do_thing"` inside a plugin folder
+named `my_plugin` (no explicit `TOOL_NAMESPACE`) becomes the callable tool
+`my_plugin_do_thing`.
+
+**The resolved namespace must match a known skill id** (built-in or custom,
+from this same session's skill registry) — see §6. This is the one thing
+that still hard-fails session creation the way a missing `TOOL_NAMESPACE`
+used to.
+
+The `__init__.py` file itself must still exist (that's what makes a folder a
+plugin at all — see §1) but its *content* is now fully optional; an empty
+file is valid as long as the folder name happens to match a skill id.
+
+Anything else the `__init__.py` does (imports, setup code, `sys.path`
+manipulation local to this plugin) runs once when the plugin is discovered.
+
+---
+
+## 3. Anatomy of a tool file
+
+A minimal, compliant tool file:
+
+```python
+from __future__ import annotations
+
+DEFINITION: dict = {
+    "type": "function",
+    "function": {
+        "name": "do_thing",
+        "description": "Does a thing.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "target": {
+                    "type": "string",
+                    "description": "What to do the thing to.",
+                },
+            },
+            "required": ["target"],
+            "additionalProperties": False,
+        },
+    },
+}
+
+
+def execute(args: dict, session_data: dict, special_resources: dict | None = None) -> str:
+    return f"Did the thing to {args['target']!r}."
+```
+
+Two things are load-time requirements:
+
+1. **`DEFINITION`** must be present as a module-level attribute for the file
+   to be treated as a tool at all (absence just means "this is a helper file,
+   skip it" — not an error). This applies identically to unscoped root-level
+   files and files inside a skill-scoped plugin.
+2. **`execute`** must exist once `DEFINITION` is present. A `DEFINITION`
+   without `execute` raises `RuntimeError` at load time.
+
+Everything else (`needs_approval`, `dirty_effects`, `ENABLE_REDACTION`,
+`NO_STUB`, …) is optional, module-level, and described below.
+
+---
+
+## 4. The `DEFINITION` schema
+
+`DEFINITION` is an OpenAI-style function-calling tool definition. The
+project's validator (`src/utils/tool_calling/arguments.py:validate_tool_args`)
+enforces a **subset** of JSON Schema against incoming arguments at call time —
+write to this subset, since anything outside it is accepted syntactically but
+never actually validated:
+
+| Field | Notes |
+|---|---|
+| `type` | Must be the literal string `"function"`. |
+| `function.name` | Required. This is the *base* name — the final callable name gets a namespace prefix prepended by the loader for skill-scoped plugins (unscoped tools use it verbatim — see §5). Don't include the namespace yourself. |
+| `function.description` | Free text. This is the LLM's only guidance on when/how to call the tool — be as explicit as a built-in tool's description (see any file in `src/tools/` for the house style: explicit preconditions, mutually-exclusive-argument notes, examples). |
+| `function.parameters.type` | Must be `"object"` — this is checked and will hard-fail (`ToolValidationError`) if wrong. |
+| `function.parameters.properties` | Per-property schemas. Supported `type` values: `string`, `integer`, `number`, `boolean`, `object`, `array`, `null`. |
+| `function.parameters.required` | List of required property names. |
+| `function.parameters.additionalProperties` | Set `false` to reject unknown keys (recommended — matches every built-in tool). Omitted/`true` allows extras through unvalidated. |
+| per-property `enum` | Value must be one of the listed values. |
+| per-property `minLength`/`maxLength`/`pattern` | String constraints (`pattern` is a `re.search`, not full-match). |
+| per-property `minimum`/`maximum` | Number/integer constraints. |
+| nested `object` properties | One level of `properties`/`required`/`additionalProperties` is validated; deeper nesting is not. |
+
+**Do not set `function.strict` yourself.** It's set automatically per-model by
+`src/utils/tool_calling/strict_mode.py` based on the active dialect — write
+normal `required`/optional properties and the framework handles strict-mode
+transformation.
+
+**Reserved parameter names — never declare these in `properties`:**
+
+```python
+_RESERVED_TOOL_PARAMS = {"request_unredacted"}
+```
+
+Declaring `request_unredacted` yourself raises `RuntimeError` at load time
+(custom tools) or is checked separately for built-ins. This parameter is
+injected automatically for tools that opt into redaction — see §10.
+
+---
+
+## 5. Naming and collision rules
+
+- **Skill-scoped**: final tool name = `f"{tool_namespace}_{DEFINITION['function']['name']}"`
+  (see §2 for how `tool_namespace` resolves).
+- **Unscoped**: final tool name = `DEFINITION['function']['name']` verbatim —
+  no prefix.
+- If that name already exists — a built-in tool, an unscoped custom tool, or
+  a tool from *any* skill-scoped plugin in this session, regardless of
+  namespace — loading raises `RuntimeError`. Rename one of them. This check
+  is global across all three categories, not scoped per-plugin.
+- Each tool *file* is loaded as a Python module under a private, generated
+  name (unscoped: `_slbp_{session_prefix}_{file_stem}`; skill-scoped:
+  `_slbp_{session_prefix}_{tool_namespace}_{file_stem}`, where
+  `session_prefix` is the first 8 chars of the session id). If that module
+  name is already registered in `sys.modules`, loading raises `RuntimeError`
+  telling you to rename the file. You will essentially never hit this by
+  accident with sensible file names.
+
+A load failure anywhere (a skill-scoped plugin's namespace not matching a
+known skill id, missing `execute`, missing `function.name`, a name collision,
+a reserved-param violation, a Python exception while importing the file)
+aborts the **entire** `tools/` load for that session — `POST /api/sessions`
+returns `400` with the `RuntimeError` message, and the session is never
+created. There's no partial-load fallback, so one broken tool file blocks
+everything else too. Test each new tool file in isolation before adding more.
+
+---
+
+## 6. Skill-gating — tools tied to a skill's activation
+
+A skill-scoped plugin's namespace (§2) must equal a **known skill id** —
+built-in or custom, from this session's fully resolved skill registry (see
+`./custom_skill_guide.md` for how that registry and its ids are built). If
+it doesn't, session creation hard-fails with an actionable error naming the
+offending plugin and three ways to fix it: make the tools unscoped instead
+(§1), add a matching skill (even empty/placeholder content is enough — see
+`custom_skill_guide.md` §1), or rename the plugin/`TOOL_NAMESPACE` to an
+existing skill id. This is deliberately a hard error, not a silent no-op —
+a tool plugin nobody can ever reach is almost always a mistake, not an
+intentional feature.
+
+**What "active" means, per subturn:** exactly the same resolved skill
+snapshot that decides which skill *guidance text* is injected that subturn
+(autoloaded skills, this subturn's selector picks, plus their combined
+dependency closure — see `custom_skill_guide.md` §5, §7). A plugin's tools are
+in the LLM's `tools` array whenever, and only when, its matching skill is in
+that snapshot:
+
+- Attached to an **autoloaded** skill (`autoload: true`) → effectively always
+  active, since an autoloaded skill never leaves the baseline active set for
+  the life of the session.
+- Attached to a **selector-visible** skill (the default, `autoload: false`)
+  → active only on subturns where the selector actually picks that skill (or
+  it's pulled in as another active skill's dependency). It can appear and
+  disappear turn to turn.
+
+This is recomputed **fresh every subturn — not sticky**. Once a skill stops
+being active, its tools are simply absent from the next subturn's `tools`
+array; there's no accumulation. The model has its own awareness of this
+(see the `== DYNAMIC TOOL LIST ==` section of the system prompt,
+`src/logic/system_prompt.py`) so it doesn't treat a since-vanished tool's
+earlier appearance in the conversation as an error.
+
+Unscoped tools (§1) sidestep all of this — they have no matching skill to be
+tied to and are simply always present.
+
+---
+
+## 7. `execute` — the required entry point
+
+```python
+def execute(args: dict, session_data: dict, special_resources: dict | None = None) -> str:
+    ...
+```
+
+- Called as `execute(clean_args, session_data)` or
+  `execute(clean_args, session_data, special_resources)` — the framework
+  inspects your function's signature (`inspect.signature`) and passes
+  `special_resources` **only if your function declares 3+ parameters**. If you
+  don't need it, omit the parameter entirely rather than accepting and
+  ignoring it.
+- `args` has already been schema-validated against `DEFINITION` and has the
+  `request_unredacted` framework param stripped out — you never see it.
+- `session_data` is the session's mutable state dict (persisted). Its
+  `session_data["memory"]` sub-dict is the conventional home for the
+  `session_memory_key` read/write pattern used throughout the built-in tools
+  (see `write_text_file.py` for the canonical shape: accept either raw
+  `content` or a `session_memory_key`, mutually exclusive).
+- **Return a `str`.** There is no structured/JSON return channel — errors are
+  communicated as strings, conventionally prefixed `"Error: ..."` (dirty-cache
+  effects are skipped for any result starting with `"Error"` — see §9).
+- Do not catch and swallow `ToolHangError`/`ToolTimeoutError` — let them
+  propagate; the framework has dedicated handling for both (`src.utils.exceptions`).
+- Long return values are automatically truncated per-line
+  (`TOOL_OUTPUT_MAX_COLUMNS`) and, above a size threshold, "stubbed" into
+  session memory with a preview (see `_stub_tool_result` in
+  `tool_execution.py`). Set `NO_STUB = True` at module level to opt out for
+  tools whose full output the agent must always see verbatim (used by
+  `dom_analyzer.py`, `snapshot_file.py`, `restore_file.py`):
+
+  ```python
+  NO_STUB = True
+  ```
+
+### Progress streaming (optional)
+
+If `special_resources` is accepted, `special_resources["on_chunk"]` is always
+present during execution — call it with incremental text to stream progress
+to the UI before your final return value is ready:
+
+```python
+def execute(args, session_data, special_resources=None):
+    on_chunk = (special_resources or {}).get("on_chunk")
+    if on_chunk:
+        on_chunk("starting...\n")
+    ...
+    return "done"
+```
+
+---
+
+## 8. `needs_approval` (optional)
+
+```python
+def needs_approval(args: dict, session_data: dict | None = None, special_resources: dict | None = None) -> bool:
+    ...
+```
+
+- Optional — a tool with no `needs_approval` is never gated (always runs
+  immediately). This is the default a plugin author almost never wants for
+  anything that touches the filesystem, network, or shell — be deliberate
+  about omitting it.
+- Arity is flexible and introspected the same way as `execute`: 1, 2, or 3
+  positional parameters are all accepted (`fn(args)`, `fn(args, session_data)`,
+  or `fn(args, session_data, special_resources)`), matched by how many
+  parameters your function declares.
+- Return a `bool`. `True` means "prompt the user before running."
+- `special_resources.get("approval_mode")` holds the session's live approval
+  mode (`"default"`, `"auto-accept-edits"`, `"full-auto"`). Use the helpers in
+  `src.tools._approval` to stay consistent with built-in behavior instead of
+  hand-rolling the mode checks:
+
+  ```python
+  from src.tools._approval import (
+      ApprovalContext,
+      is_full_auto,
+      is_auto_accept_edits,
+      needs_path_approval,
+  )
+
+  def needs_approval(args, session_data=None, special_resources=None):
+      if is_full_auto(special_resources):
+          return False
+      if is_auto_accept_edits(special_resources):
+          return needs_path_approval(
+              args.get("path"),
+              ctx=ApprovalContext.from_special_resources(special_resources),
+          )
+      return True
+  ```
+
+  `needs_path_approval` auto-approves paths inside the session's current/
+  initial CWD that aren't git-ignored, and requires approval for everything
+  else — the same logic every built-in file-editing tool uses.
+  (`src/tools/_approval.py` is a leading-underscore "internal" module, same as
+  the rest of `src/tools/_*.py` — it's stable enough that built-ins depend on
+  it, but treat it as internal API that could change shape, not a frozen
+  public contract.)
+
+- `request_unredacted=True` in the incoming args **always** forces approval
+  regardless of your `needs_approval` — that check happens before your
+  function is even called, so you don't need to handle it.
+
+---
+
+## 9. `dirty_effects` (optional)
+
+```python
+def dirty_effects(args: dict, session_data: dict | None = None) -> dict:
+    ...
+```
+
+- Optional — declares which files/session-memory-keys this call reads or
+  writes, feeding the "dirty cache" that blocks stale edits (e.g. writing to
+  a file the agent hasn't re-read since it last changed).
+- Arity: 1 or 2 params only (no `special_resources` variant).
+- Return a dict using any of these keys (all optional, all lists):
+
+  | Key | Meaning |
+  |---|---|
+  | `dirties_files` | Paths this call writes/mutates. |
+  | `cleans_files` | Paths this call fully re-reads (clears their dirty flag). |
+  | `requires_clean_files` | Paths that must have been read, and not dirty, before this call is allowed to run. |
+  | `dirties_mem` | Session-memory keys this call writes. |
+  | `cleans_mem` | Session-memory keys this call fully reads. |
+  | `requires_clean_mem` | Session-memory keys that must be clean before this call runs. |
+
+  See `write_text_file.dirty_effects` for the simplest real example
+  (`{"dirties_files": [path]}`), and `src/tools/_dirty_cache.py` for the full
+  mechanics. If your tool doesn't touch anything another tool would care
+  about staleness for, omit `dirty_effects` entirely — that's the majority
+  case (read-only, non-file tools).
+
+---
+
+## 10. Redaction opt-in (optional)
+
+By default a tool's return value is **not** passed through the secret
+redactor. To opt in:
+
+```python
+ENABLE_REDACTION = True            # default False
+ALLOW_REQUEST_UNREDACTED = True    # default True; only meaningful if ENABLE_REDACTION=True
+```
+
+- `ENABLE_REDACTION = True` runs your tool's return value through
+  `src.redaction.core.redact` before it reaches the agent, and — only in this
+  case — the framework auto-injects an optional `request_unredacted: boolean`
+  parameter into your `DEFINITION` for the LLM to request a bypass (approval
+  is then forced regardless of your `needs_approval`, per §8).
+- `ALLOW_REQUEST_UNREDACTED = False` keeps redaction on but removes the
+  bypass entirely — no `request_unredacted` param is injected, so there's no
+  way to see the unredacted output, not even with approval.
+- Do **not** add `request_unredacted` to your own `properties` — see §4.
+
+---
+
+## 11. `special_resources` reference
+
+Passed as the 3rd positional argument to `execute`/`needs_approval` when your
+function's signature declares enough parameters to receive it (see §7/§8).
+Built by `_execute_tools` in `tool_execution.py`; treat this table as
+reflecting that function, not a frozen public API:
+
+| Key | Type | Notes |
+|---|---|---|
+| `session_id` | `str` | |
+| `session_init_working_dir` | `str` | The session's original `--cwd`. Always a valid approved root. |
+| `session_current_working_dir` | `str` | Current cwd, tracked across `change_pwd` calls. Prefer this over `session_init_working_dir` for resolving relative paths. |
+| `approval_mode` | `str` | Live, re-read before every tool call in a turn — see §8. |
+| `create_file_auto_eol` | `str \| None` | Auto-EOL policy for newly-created files (see `src/tools/_auto_eol.py`). |
+| `request_unredacted` | `bool` | Resolved bypass decision (only meaningful if `ENABLE_REDACTION=True`); set right before `execute` is called. |
+| `on_chunk` | `callable(str) -> None` | Stream progress text (§7). Only present during `execute`, not `needs_approval`. |
+| `on_cwd_change` | `callable(str) -> None` | Call this if your tool changes the session's cwd (see `change_pwd.py`). |
+| `cancel_event` | `threading.Event \| None` | Set if the user cancels the turn — long-running tools should poll it. |
+| `emit_backend_log` | `callable(*msgs) -> None` | Writes to the session's Debug Panel log stream. |
+| `llm` | object | The session's configured LLM client, for tools that want to make their own sampling calls (e.g. a summarizer). |
+| `create_terminal` / `get_terminal_output` / `get_terminals_state` | callables | Terminal-panel integration — see `open_in_terminal.py`/`check_terminal_state.py` for real usage. |
+| `summarizer_params` / `patchrewriter_params` | `dict` | Config passthrough for tools that invoke those subsystems directly. |
+| `on_sampler_usage` / `on_sampler_request_log` / `on_sampler_response` / `make_sampler_callbacks` | callables | Cost/usage tracking hooks for any LLM call your tool makes. |
+
+---
+
+## 12. Imports — where your code can pull from
+
+This is the part specific to how the SLBP runtime wires `sys.path`, and it
+has **two independent guarantees** plus one manual pattern.
+
+### 12.1 Importing SLBP internals (`from src.xxx import yyy`) — always works
+
+The running `slbp server` process always has the **repository root** on its
+`sys.path`, regardless of anything the tool loader does:
+
+- The `slbp`/`slbp.cmd` launcher and `python_in_env.sh` both `export
+  PYTHONPATH="$REPO_ROOT:$PYTHONPATH"` before starting Python.
+- `src/ui_connector/main.py` also does
+  `sys.path.insert(0, <repo root>)` directly as a second, redundant
+  guarantee, at process start.
+
+Because your custom tool code executes *inside that same running process*
+(the loader `exec`s your file in-process via `importlib.util`, it does not
+spawn a subprocess), this means **every custom tool can freely do**:
+
+```python
+from src.utils.env_info import get_default_workspace_dir
+from src.tools._approval import ApprovalContext, is_full_auto
+from src.utils.exceptions import ToolTimeoutError
+```
+
+— exactly like a built-in tool does, with no extra setup. This works
+regardless of where `tools/` lives, how the session was created, or what
+`workspace_root` was passed to the loader.
+
+The caveat is stability, not availability: everything under `src/` is this
+project's own implementation, not a published package with a compatibility
+contract. Public-looking modules (`src.utils.env_info`, etc.) are reasonably
+safe to lean on; leading-underscore modules (`src.tools._approval`, and every
+other `src/tools/_*.py`) are internal by convention, even though built-in
+tools themselves depend on them. Treat either like depending on another
+team's internal module — fine, but expect it to move if the project
+refactors.
+
+### 12.2 Importing from your own plugin's location — not automatic, two patterns
+
+Unlike `src/`, **your plugin's own directory is not added to `sys.path`
+automatically.** The loader only ever adds one directory to `sys.path`:
+`workspace_root` (whatever the caller of `load_custom_tools` passed — in
+practice, the session's `initial_cwd`, i.e. `--cwd`), and only for the
+duration of that session's process lifetime. Each tool *file* is imported
+individually via `importlib.util.spec_from_file_location` under a private,
+auto-generated module name — it is never imported as `my_plugin.do_thing`,
+so a plain `import do_thing` or `from . import _helpers` from inside a tool
+file will **not** find sibling files in the same folder by default.
+
+**Pattern A — self-locate (recommended; works unconditionally):**
+
+Add your own directory to `sys.path` at the top of the tool file, using
+`__file__`, then import normally. This works no matter where `tools/` lives
+relative to the session's cwd:
+
+```python
+# tools/my_plugin/do_thing.py
+import os
+import sys
+
+_here = os.path.dirname(os.path.abspath(__file__))
+if _here not in sys.path:
+    sys.path.insert(0, _here)
+
+from _helpers import format_target  # tools/my_plugin/_helpers.py
+
+DEFINITION = {...}
+
+def execute(args, session_data, special_resources=None):
+    return format_target(args["target"])
+```
+
+`_helpers.py` here has no `DEFINITION`, so the loader executes it once (to
+satisfy your `import`) and otherwise ignores it as a tool — see §3 for the
+helper-file mechanics that make this safe.
+
+**Pattern B — package-style import via `workspace_root` (only when
+`tools/` is directly under the session's cwd):**
+
+If you're using the standard `slbp session new --load-tools --cwd <dir>`
+flow, `custom_tools_path` is always `<dir>/tools` and `workspace_root` is
+always `<dir>` — i.e. `tools/` is guaranteed to be a direct child of the
+directory that's on `sys.path`. In that (default) case, as long as
+`tools/__init__.py` and `tools/my_plugin/__init__.py` both exist (which they
+must anyway — see §1), you can use ordinary package imports from anywhere in
+your plugin code:
+
+```python
+from tools.my_plugin import _helpers
+```
+
+This is a plain Python import resolved independently of SLBP's own loader —
+it creates its own `sys.modules["tools"]`/`sys.modules["tools.my_plugin"]`
+entries, separate from the private `_slbp_{prefix}_...` names the loader
+uses internally. Don't rely on this if you can't guarantee `custom_tools_path
+== workspace_root + "/tools"` (e.g. a hand-rolled `POST /api/sessions` call
+with a nonstandard path) — prefer Pattern A for anything you want to be
+portable.
+
+**Vendoring third-party dependencies:** use `tools/__init__.py` (§1) to
+`sys.path.insert` a vendored `site-packages`-style directory once per
+session, before any plugin's tool files are imported:
+
+```python
+# tools/__init__.py
+import os
+import sys
+
+_vendor = os.path.join(os.path.dirname(os.path.abspath(__file__)), "_vendor")
+if _vendor not in sys.path:
+    sys.path.insert(0, _vendor)
+```
+
+---
+
+## 13. Pre-flight checklist
+
+Before wiring a new tool file into a session, confirm:
+
+- [ ] `DEFINITION["type"] == "function"`.
+- [ ] `DEFINITION["function"]["name"]` is set (base name — no namespace prefix).
+- [ ] `DEFINITION["function"]["description"]` is explicit about preconditions,
+      mutually-exclusive args, and when to use this tool vs. an alternative.
+- [ ] `DEFINITION["function"]["parameters"]["type"] == "object"`.
+- [ ] `properties` covers every arg your `execute` reads from `args`;
+      `required` lists the mandatory ones; `additionalProperties: False` set.
+- [ ] No property named `request_unredacted`.
+- [ ] `execute(args, session_data, special_resources=None)` exists, returns a
+      `str` in every code path (including error paths — return `"Error: ..."`
+      strings, don't raise for expected failure modes).
+- [ ] Deliberately chosen: unscoped (root-level, always active) or
+      skill-scoped (namespaced plugin folder, active only with its skill —
+      see §6).
+- [ ] If skill-scoped: the resolved namespace (folder name, or explicit
+      `TOOL_NAMESPACE`) matches an existing skill id — built-in or custom.
+- [ ] The resulting final tool name doesn't collide with a built-in, an
+      unscoped custom tool, or another plugin's tool.
+- [ ] `needs_approval` added (or deliberately omitted) for anything that
+      writes, deletes, executes, or makes network calls.
+- [ ] `dirty_effects` added if this tool reads/writes files or memory keys
+      that other tools' staleness-checks should know about.
+- [ ] `ENABLE_REDACTION = True` set if output might contain secrets scraped
+      from files/commands/network responses.
+- [ ] `NO_STUB = True` set only if truncated/stubbed output would break the
+      agent's ability to use the result (structured dumps, confirmations that
+      must be read in full).
+- [ ] Any cross-file import inside a plugin uses Pattern A or B from §12.2,
+      not a bare `import sibling_file`.
+
+A tool file that satisfies the required items (`DEFINITION`, `execute`, a
+skill-scoped plugin's namespace matching a real skill id) will load; the
+optional items are what separates "loads without error" from "behaves
+correctly" once real users and real approval modes are in play.

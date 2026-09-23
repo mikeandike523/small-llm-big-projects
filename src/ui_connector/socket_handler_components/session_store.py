@@ -6,9 +6,11 @@ import os
 
 import src.ui_connector.socket_handler_components.state as _state
 from src.ui_connector.app import socketio
+from src.ui_connector.socket_handler_components.emit import _emit_and_log
 from src.ui_connector.socket_handler_components.terminal import (
     _build_starting_environment_info,
 )
+from src.ui_connector.socket_handler_components.state import SessionToolManifest
 from src.tools import ALL_TOOL_DEFINITIONS, _TOOL_MAP, load_custom_tools
 from src.logic.system_prompt import (
     build_skill_registry,
@@ -48,22 +50,56 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 
+def _get_session_tool_manifest(session_id: str) -> SessionToolManifest:
+    manifest = _state._session_tool_sets.get(session_id)
+    if manifest is None:
+        return SessionToolManifest(
+            base_defs=list(ALL_TOOL_DEFINITIONS), base_map=dict(_TOOL_MAP)
+        )
+    return manifest
+
+
 def _get_session_tool_defs(session_id: str) -> list[dict]:
-    return _state._session_tool_sets.get(
-        session_id, (ALL_TOOL_DEFINITIONS, _TOOL_MAP, [])
-    )[0]
+    """Full validated tool manifest for this session (every skill's tools, not
+    just the currently-active subset). Used by the debug panel and startup
+    tool calls — for the per-subturn active subset, see
+    _get_active_session_tool_defs_and_map.
+    """
+    manifest = _get_session_tool_manifest(session_id)
+    defs = list(manifest.base_defs)
+    for skill_defs, _ in manifest.by_skill.values():
+        defs.extend(skill_defs)
+    return defs
 
 
 def _get_session_tool_map(session_id: str) -> dict:
-    return _state._session_tool_sets.get(
-        session_id, (ALL_TOOL_DEFINITIONS, _TOOL_MAP, [])
-    )[1]
+    """Full validated tool map for this session — see _get_session_tool_defs."""
+    manifest = _get_session_tool_manifest(session_id)
+    tool_map = dict(manifest.base_map)
+    for _, skill_map in manifest.by_skill.values():
+        tool_map.update(skill_map)
+    return tool_map
 
 
 def _get_session_plugins(session_id: str) -> list[dict]:
-    return _state._session_tool_sets.get(
-        session_id, (ALL_TOOL_DEFINITIONS, _TOOL_MAP, [])
-    )[2]
+    return _get_session_tool_manifest(session_id).plugins
+
+
+def _get_active_session_tool_defs_and_map(
+    session_id: str, active_skill_ids: set[str]
+) -> tuple[list[dict], dict]:
+    """Tool defs/map for one subturn, narrowed to base tools + only the
+    currently-active skills' tools. Recomputed fresh per subturn — see
+    agent_loop.py, called right after that subturn's skill snapshot.
+    """
+    manifest = _get_session_tool_manifest(session_id)
+    defs = list(manifest.base_defs)
+    tool_map = dict(manifest.base_map)
+    for skill_id in active_skill_ids:
+        skill_defs, skill_map = manifest.by_skill.get(skill_id, ([], {}))
+        defs.extend(skill_defs)
+        tool_map.update(skill_map)
+    return defs, tool_map
 
 
 def _get_session_system_prompt(session_id: str) -> str:
@@ -79,39 +115,12 @@ def _get_autoloaded_session_skills(session_id: str) -> list[dict]:
 
 
 def _init_session_caches(session: Session, session_id: str) -> None:
-    """Build per-session tool set and system prompt caches (idempotent — skips if already done)."""
-    if session_id not in _state._session_tool_sets:
-        if session.custom_tools_path:
-            try:
-                extra_defs, extra_map, plugins, custom_exclusions = load_custom_tools(
-                    tools_dir=session.custom_tools_path,
-                    workspace_root=session.initial_cwd or None,
-                    session_prefix=session_id[:8],
-                )
-                _excl_load = {
-                    n for n, f in custom_exclusions.items() if f.get("loading")
-                }
-                base_defs = [
-                    d
-                    for d in ALL_TOOL_DEFINITIONS
-                    if d.get("function", {}).get("name") not in _excl_load
-                ]
-                base_map = {k: v for k, v in _TOOL_MAP.items() if k not in _excl_load}
-                tool_defs = base_defs + extra_defs
-                tool_map = {**base_map, **extra_map}
-            except RuntimeError as exc:
-                logger.error(
-                    "Custom tool loading failed for session %s: %s", session_id, exc
-                )
-                tool_defs = list(ALL_TOOL_DEFINITIONS)
-                tool_map = dict(_TOOL_MAP)
-                plugins = []
-        else:
-            tool_defs = ALL_TOOL_DEFINITIONS
-            tool_map = _TOOL_MAP
-            plugins = []
-        _state._session_tool_sets[session_id] = (tool_defs, tool_map, plugins)
+    """Build per-session skill registry, tool set, and system prompt caches
+    (idempotent — skips if already done).
 
+    Skill registry is built before tool loading: tool loading needs the
+    resolved skill id set to validate skill-scoped plugin namespaces against.
+    """
     if session_id not in _state._session_skill_registries:
         registry = build_skill_registry(custom_skills_path=session.skills_path)
         _state._session_skill_registries[session_id] = registry
@@ -119,6 +128,55 @@ def _init_session_caches(session: Session, session_id: str) -> None:
     else:
         registry = _state._session_skill_registries[session_id]
         session.session_data["__skill_files__"] = registry
+
+    if session_id not in _state._session_tool_sets:
+        if session.custom_tools_path:
+            known_skill_ids = frozenset(e["id"] for e in registry)
+            try:
+                result = load_custom_tools(
+                    tools_dir=session.custom_tools_path,
+                    workspace_root=session.initial_cwd or None,
+                    session_prefix=session_id[:8],
+                    known_skill_ids=known_skill_ids,
+                )
+                _excl_load = {
+                    n for n, f in result.custom_exclusions.items() if f.get("loading")
+                }
+                base_defs = [
+                    d
+                    for d in ALL_TOOL_DEFINITIONS
+                    if d.get("function", {}).get("name") not in _excl_load
+                ] + result.unscoped_defs
+                base_map = {k: v for k, v in _TOOL_MAP.items() if k not in _excl_load}
+                base_map.update(result.unscoped_map)
+                manifest = SessionToolManifest(
+                    base_defs=base_defs,
+                    base_map=base_map,
+                    by_skill=result.by_skill,
+                    plugins=result.plugins,
+                )
+            except RuntimeError as exc:
+                # Never fail silently — a resumed session with a broken custom
+                # tool setup must be just as visible as a freshly-created one
+                # (POST /api/sessions hard-fails on this same error). Surface
+                # it to the client, then fall back to built-in-only tools so
+                # an existing conversation isn't bricked.
+                logger.error(
+                    "Custom tool loading failed for session %s: %s", session_id, exc
+                )
+                _emit_and_log(
+                    session_id,
+                    "error",
+                    {"message": f"Custom tool loading failed: {exc}"},
+                )
+                manifest = SessionToolManifest(
+                    base_defs=list(ALL_TOOL_DEFINITIONS), base_map=dict(_TOOL_MAP)
+                )
+        else:
+            manifest = SessionToolManifest(
+                base_defs=list(ALL_TOOL_DEFINITIONS), base_map=dict(_TOOL_MAP)
+            )
+        _state._session_tool_sets[session_id] = manifest
 
     if session_id not in _state._session_system_prompts:
         autoload_entries = get_autoload_skill_entries(registry)

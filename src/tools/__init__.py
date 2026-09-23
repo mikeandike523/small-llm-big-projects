@@ -5,6 +5,7 @@ import inspect
 import os
 import sys
 import traceback
+from dataclasses import dataclass, field
 from src.utils.exceptions import ToolHangError, ToolTimeoutError
 from src.tools import basic_web_request
 from src.tools import code_interpreter
@@ -379,18 +380,120 @@ _custom_tool_plugins: list[dict] = []
 # ---------------------------------------------------------------------------
 
 
+@dataclass
+class CustomToolLoadResult:
+    """Result of load_custom_tools, grouped by activation scope.
+
+    unscoped_defs/unscoped_map: tools loaded from .py files directly in
+    tools_dir (no namespace prefix, always active regardless of skill
+    selection).
+    by_skill: skill_id -> (defs, tool_map) for each namespaced plugin
+    folder — only active in a subturn where that skill id is active.
+    """
+
+    unscoped_defs: list[dict] = field(default_factory=list)
+    unscoped_map: dict = field(default_factory=dict)
+    by_skill: dict[str, tuple[list[dict], dict]] = field(default_factory=dict)
+    plugins: list[dict] = field(default_factory=list)
+    custom_exclusions: dict = field(default_factory=dict)
+
+
+def _load_tool_module(tool_path: str, module_name: str) -> object | None:
+    """Import a tool file as a fresh module.
+
+    Returns the module, or None if it has no DEFINITION (a plain helper file,
+    not a tool — it still executes, so a sibling file can `import` it, but it
+    is dropped from sys.modules since it isn't itself a tool). Raises
+    RuntimeError on any import failure or a DEFINITION without execute.
+    """
+    if module_name in sys.modules:
+        raise RuntimeError(
+            f"Custom tool file {tool_path!r} would be loaded as module {module_name!r},"
+            f" but that name is already in sys.modules. Rename the file to resolve this collision."
+        )
+
+    try:
+        spec = importlib.util.spec_from_file_location(module_name, tool_path)
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[module_name] = module
+        spec.loader.exec_module(module)
+    except Exception as e:
+        sys.modules.pop(module_name, None)
+        raise RuntimeError(f"Failed to import custom tool {tool_path!r}: {e}") from e
+
+    if not hasattr(module, "DEFINITION"):
+        sys.modules.pop(module_name, None)
+        return None
+
+    if not hasattr(module, "execute"):
+        sys.modules.pop(module_name, None)
+        raise RuntimeError(
+            f"Custom tool {tool_path!r} has DEFINITION but is missing required function 'execute'."
+        )
+    return module
+
+
+def _base_tool_name(module: object, tool_path: str) -> str:
+    base_tool_name = module.DEFINITION.get("function", {}).get("name")
+    if not base_tool_name:
+        raise RuntimeError(
+            f"Custom tool {tool_path!r} has a DEFINITION dict that is missing 'function.name'."
+        )
+    return base_tool_name
+
+
+def _finalize_tool_def(
+    module: object, tool_path: str, tool_name: str, all_seen_names: set[str]
+) -> dict:
+    """Validate a loaded tool module and build its final, framework-injected DEFINITION.
+
+    Does not mutate all_seen_names — the caller adds tool_name on success.
+    """
+    if tool_name in all_seen_names:
+        raise RuntimeError(
+            f"Custom tool {tool_name!r} (from {tool_path!r}) collides with an existing tool."
+            f" Rename the tool to resolve this collision."
+        )
+
+    raw_props = (
+        module.DEFINITION.get("function", {})
+        .get("parameters", {})
+        .get("properties", {})
+        or {}
+    )
+    for _reserved in _RESERVED_TOOL_PARAMS:
+        if _reserved in raw_props:
+            raise RuntimeError(
+                f"Custom tool {tool_path!r} explicitly declares reserved parameter "
+                f"'{_reserved}'. This parameter is managed by the framework and "
+                "must not be defined in tool source code."
+            )
+
+    prefixed_def = _inject_framework_params(module, module.DEFINITION)
+    prefixed_def["function"]["name"] = tool_name
+    return prefixed_def
+
+
 def load_custom_tools(
     tools_dir: str,
     workspace_root: str | None = None,
     session_prefix: str = "",
-) -> tuple[list[dict], dict, list[dict], dict]:
+    known_skill_ids: frozenset[str] | None = None,
+) -> CustomToolLoadResult:
     """
     Load custom tool plugins from tools_dir.
 
-    Returns (extra_definitions, extra_tool_map, plugin_info_list, custom_exclusions).
-    extra_definitions and extra_tool_map contain only the newly loaded tools —
-    callers merge them with the base ALL_TOOL_DEFINITIONS / _TOOL_MAP after applying
-    custom_exclusions (same format as _exclude_builtin_tools.EXCLUDE).
+    Two categories of custom tools:
+      - Unscoped: .py files directly in tools_dir. No namespace prefix,
+        always active regardless of skill selection.
+      - Skill-scoped: .py files inside a namespaced plugin folder
+        (tools_dir/<plugin>/__init__.py + tool files). Namespace defaults to
+        the plugin folder name; an explicit TOOL_NAMESPACE in __init__.py
+        overrides it. If known_skill_ids is provided, the resolved namespace
+        must be a member of it, or loading raises RuntimeError — every
+        skill-scoped plugin must correspond to an active skill so its tools
+        have a defined activation condition. Pass known_skill_ids=None to
+        skip this check (e.g. tests that don't care about skill-gating).
 
     session_prefix is prepended to sys.modules keys to prevent collisions when
     multiple sessions load tools from the same path simultaneously.
@@ -399,14 +502,19 @@ def load_custom_tools(
     """
     if not os.path.isdir(tools_dir):
         # No tools/ directory present — silently load nothing.
-        return [], {}, [], {}
+        return CustomToolLoadResult()
 
     if workspace_root and workspace_root not in sys.path:
         sys.path.insert(0, workspace_root)
 
-    extra_defs: list[dict] = []
-    extra_map: dict = {}
+    unscoped_defs: list[dict] = []
+    unscoped_map: dict = {}
+    by_skill_defs: dict[str, list[dict]] = {}
+    by_skill_map: dict[str, dict] = {}
     plugins: list[dict] = []
+    all_seen_names: set[str] = set(_TOOL_MAP.keys())
+
+    _RESERVED_ROOT_FILES = {"__init__.py", "_exclude_builtin_tools.py"}
 
     # Execute tools-level __init__.py if present (e.g. to add site-packages to sys.path).
     tools_init = os.path.join(tools_dir, "__init__.py")
@@ -449,6 +557,40 @@ def load_custom_tools(
                 f"Failed to load _exclude_builtin_tools.py at {exclude_file!r}: {e}"
             ) from e
 
+    # Unscoped tools: .py files directly in tools_dir, no namespace, always active.
+    try:
+        root_files = sorted(
+            f
+            for f in os.listdir(tools_dir)
+            if f.lower().endswith(".py") and f not in _RESERVED_ROOT_FILES
+        )
+    except (FileNotFoundError, OSError) as e:
+        raise RuntimeError(f"Cannot list tools/ directory at {tools_dir!r}: {e}") from e
+
+    for tool_file in root_files:
+        tool_path = os.path.join(tools_dir, tool_file)
+        stem = os.path.splitext(tool_file)[0]
+        module_name = f"_slbp_{session_prefix}_{stem}"
+
+        module = _load_tool_module(tool_path, module_name)
+        if module is None:
+            continue  # helper file, not a tool
+
+        base_tool_name = _base_tool_name(module, tool_path)
+        tool_name = base_tool_name  # unscoped: no namespace prefix
+
+        try:
+            prefixed_def = _finalize_tool_def(
+                module, tool_path, tool_name, all_seen_names
+            )
+        except RuntimeError:
+            sys.modules.pop(module_name, None)
+            raise
+
+        unscoped_defs.append(prefixed_def)
+        unscoped_map[tool_name] = module
+        all_seen_names.add(tool_name)
+
     try:
         plugin_candidates = sorted(
             entry
@@ -477,12 +619,36 @@ def load_custom_tools(
                 f"Failed to import plugin __init__.py at {plugin_init!r}: {e}"
             ) from e
 
-        if not hasattr(init_module, "TOOL_NAMESPACE"):
-            raise RuntimeError(
-                f"Plugin __init__.py at {plugin_init!r} is missing required attribute 'TOOL_NAMESPACE'."
-            )
+        explicit_namespace = getattr(init_module, "TOOL_NAMESPACE", None)
+        if explicit_namespace is not None:
+            if (
+                not isinstance(explicit_namespace, str)
+                or not explicit_namespace.strip()
+            ):
+                raise RuntimeError(
+                    f"Plugin __init__.py at {plugin_init!r} declares TOOL_NAMESPACE, "
+                    "but it must be a non-empty string."
+                )
+            tool_namespace = explicit_namespace
+        else:
+            # No explicit TOOL_NAMESPACE — default to the plugin folder name.
+            tool_namespace = plugin_name
 
-        tool_namespace: str = init_module.TOOL_NAMESPACE
+        if known_skill_ids is not None and tool_namespace not in known_skill_ids:
+            raise RuntimeError(
+                f"Custom tool plugin {plugin_dir!r} resolves to namespace {tool_namespace!r}, "
+                f"which does not match any known skill id (built-in or custom). Every "
+                f"skill-scoped tool plugin must correspond to an active skill so its tools "
+                f"have a defined activation condition.\n"
+                f"Fix by one of:\n"
+                f"  - If these tools should always be available regardless of skill "
+                f"selection, move the file(s) directly into {tools_dir!r} (no "
+                f"subdirectory) instead of under a namespaced plugin folder.\n"
+                f"  - Add a matching skill with id {tool_namespace!r} (a skill file can be "
+                f"empty/placeholder content) so the namespace has something to attach to.\n"
+                f"  - Rename the plugin folder (or its explicit TOOL_NAMESPACE) to match an "
+                f"existing skill id."
+            )
 
         try:
             plugin_files = sorted(
@@ -496,76 +662,32 @@ def load_custom_tools(
             ) from e
 
         plugin_tool_count = 0
+        skill_defs = by_skill_defs.setdefault(tool_namespace, [])
+        skill_map = by_skill_map.setdefault(tool_namespace, {})
 
         for tool_file in plugin_files:
             tool_path = os.path.join(plugin_dir, tool_file)
             stem = os.path.splitext(tool_file)[0]
             module_name = f"_slbp_{session_prefix}_{tool_namespace}_{stem}"
 
-            if module_name in sys.modules:
-                raise RuntimeError(
-                    f"Custom tool file {tool_path!r} would be loaded as module {module_name!r},"
-                    f" but that name is already in sys.modules. Rename the file to resolve this collision."
-                )
+            module = _load_tool_module(tool_path, module_name)
+            if module is None:
+                continue  # helper file, not a tool
 
-            try:
-                spec = importlib.util.spec_from_file_location(module_name, tool_path)
-                module = importlib.util.module_from_spec(spec)
-                sys.modules[module_name] = module
-                spec.loader.exec_module(module)
-            except Exception as e:
-                sys.modules.pop(module_name, None)
-                raise RuntimeError(
-                    f"Failed to import custom tool {tool_path!r}: {e}"
-                ) from e
-
-            if not hasattr(module, "DEFINITION"):
-                sys.modules.pop(module_name, None)
-                continue
-
-            if not hasattr(module, "execute"):
-                sys.modules.pop(module_name, None)
-                raise RuntimeError(
-                    f"Custom tool {tool_path!r} has DEFINITION but is missing required function 'execute'."
-                )
-
-            base_tool_name = module.DEFINITION.get("function", {}).get("name")
-            if not base_tool_name:
-                sys.modules.pop(module_name, None)
-                raise RuntimeError(
-                    f"Custom tool {tool_path!r} has a DEFINITION dict that is missing 'function.name'."
-                )
-
+            base_tool_name = _base_tool_name(module, tool_path)
             tool_name = f"{tool_namespace}_{base_tool_name}"
 
-            if tool_name in _TOOL_MAP or tool_name in extra_map:
-                sys.modules.pop(module_name, None)
-                raise RuntimeError(
-                    f"Custom tool {tool_name!r} (from {tool_path!r}) collides with an existing tool."
-                    f" Rename the tool to resolve this collision."
+            try:
+                prefixed_def = _finalize_tool_def(
+                    module, tool_path, tool_name, all_seen_names
                 )
+            except RuntimeError:
+                sys.modules.pop(module_name, None)
+                raise
 
-            # Validate before injection: reserved params must not be declared by the tool.
-            raw_props = (
-                module.DEFINITION.get("function", {})
-                .get("parameters", {})
-                .get("properties", {})
-                or {}
-            )
-            for _reserved in _RESERVED_TOOL_PARAMS:
-                if _reserved in raw_props:
-                    sys.modules.pop(module_name, None)
-                    raise RuntimeError(
-                        f"Custom tool {tool_path!r} explicitly declares reserved parameter "
-                        f"'{_reserved}'. This parameter is managed by the framework and "
-                        "must not be defined in tool source code."
-                    )
-
-            # Inject framework params into a copy, then set the namespaced tool name.
-            prefixed_def = _inject_framework_params(module, module.DEFINITION)
-            prefixed_def["function"]["name"] = tool_name
-            extra_defs.append(prefixed_def)
-            extra_map[tool_name] = module
+            skill_defs.append(prefixed_def)
+            skill_map[tool_name] = module
+            all_seen_names.add(tool_name)
             plugin_tool_count += 1
 
         plugins.append(
@@ -576,4 +698,11 @@ def load_custom_tools(
             }
         )
 
-    return extra_defs, extra_map, plugins, custom_exclusions
+    by_skill = {ns: (by_skill_defs[ns], by_skill_map[ns]) for ns in by_skill_defs}
+    return CustomToolLoadResult(
+        unscoped_defs=unscoped_defs,
+        unscoped_map=unscoped_map,
+        by_skill=by_skill,
+        plugins=plugins,
+        custom_exclusions=custom_exclusions,
+    )

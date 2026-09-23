@@ -19,8 +19,7 @@ from src.ui_connector.socket_handler_components.emit import (
 )
 from src.ui_connector.socket_handler_components.session_store import (
     _save_session,
-    _get_session_tool_defs,
-    _get_session_tool_map,
+    _get_active_session_tool_defs_and_map,
     _get_session_skill_registry,
     _get_autoloaded_session_skills,
 )
@@ -87,9 +86,6 @@ async def _async_agent_loop(
     # See src.utils.request_error_formatting.classify_llm_request_error.
     abnormal_end: dict | None = None
 
-    session_tool_defs = _get_session_tool_defs(session_id)
-    session_tool_map = _get_session_tool_map(session_id)
-
     skill_registry = _get_session_skill_registry(session_id)
     baseline_skills = _get_autoloaded_session_skills(session_id)
     baseline_skill_ids = {entry["id"] for entry in baseline_skills}
@@ -123,6 +119,15 @@ async def _async_agent_loop(
             if entry["id"] not in baseline_skill_ids
         ]
         loaded_skills = baseline_skills + turn_only_skills
+
+        # Tool set is skill-gated: recomputed fresh from this subturn's resolved
+        # skill snapshot (autoload baseline + this subturn's selection, dependency-
+        # closure-expanded), non-sticky by design — see custom_tool_guide.md.
+        active_skill_ids = {entry["id"] for entry in loaded_skills}
+        session_tool_defs, session_tool_map = _get_active_session_tool_defs_and_map(
+            session_id, active_skill_ids
+        )
+
         if loaded_skills:
             _emit_and_log(
                 session_id,
