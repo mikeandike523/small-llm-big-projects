@@ -26,6 +26,30 @@ ones.** A `tools/<skill_id>/` plugin folder ties its tools to this skill's
 own activation state — read `./custom_tool_guide.md` alongside this guide;
 see §6 here for how the two connect.
 
+### Live reload (no new session needed)
+
+A running session no longer has to be restarted to pick up `skills/` edits.
+The sync-icon button in the session header (only enabled when the session
+was created with `--load-custom-skills-tools`, and only while no turn is
+active) posts to `POST /api/sessions/<id>/reload-custom-skills-tools`
+(`session_customizations.py:reload_session_customizations`), which:
+
+1. Rebuilds the skill registry from disk (`build_skill_registry`) — this
+   picks up brand-new/removed/renamed `.md` files and `skills.json` edits,
+   not just content edits to files the registry already knew about. Session
+   creation used to be the *only* time the registry was ever discovered from
+   disk; this is no longer true.
+2. Rebuilds the session's custom tool set the same way (see the matching
+   note in `custom_tool_guide.md`'s intro).
+3. Rebuilds the static system prompt from the fresh registry, so
+   **autoloaded skill edits now take effect immediately** without a new
+   session — see the caveat in §5 below.
+
+A failure (a broken `skills.json`, an id collision, etc. — §4/§9) leaves the
+session's previous registry, tools, and system prompt untouched (the swap
+only happens after the new generation validates cleanly) and is written to
+the Debug Panel log rather than silently dropped.
+
 ---
 
 ## 1. Directory layout
@@ -169,8 +193,9 @@ reaches the model* and *when file edits take effect*:
   `_state._session_system_prompts[session_id]`). It is present on every
   single turn, for the life of the session, whether or not it's relevant.
   **Editing an autoloaded skill's `.md` file after the session was created
-  has no effect on that session** — the content was already read and baked
-  in. You need a new session to see the change.
+  has no effect on that session** until you either start a new session or
+  use the live-reload button described above — the content was already read
+  and baked in.
 - **`autoload: false`** (default): invisible to the static system prompt.
   Instead it's a *candidate* for a lightweight LLM call
   (`_select_skills_for_turn` in `watchdogs.py`) that runs at the start of
@@ -238,22 +263,29 @@ A skill paired with a tool that **wraps** a built-in
 <!-- skills/stock_info.md -->
 ## Skill: Stock Quotes
 
-Use `stock_info_get_quote` to fetch a free stock quote (date, time,
-open/high/low/close, volume) for a ticker symbol.
+Use `stock_info_get_quote` to fetch a free stock quote (price, open/high/low/
+close, previous close, volume) for a ticker symbol.
 
 ### Workflow
 
 1. Call `stock_info_get_quote(ticker="AAPL")` (or whichever ticker).
-2. The result is raw CSV text — the first line is a header, the second is
-   the data row. Parse it directly; no further tool call is needed for a
-   simple quote lookup.
+2. The result is raw JSON from Yahoo Finance's chart endpoint. The quote data
+   lives at `chart.result[0]`:
+   - `meta` — `regularMarketPrice`, `regularMarketTime`, `currency`,
+     `exchangeName`, `shortName`, `fiftyTwoWeekHigh/Low`, and
+     `chartPreviousClose` (previous session's close).
+   - `indicators.quote[0]` — arrays (single element for `range=1d`) with
+     `open`, `high`, `low`, `close`, `volume`.
+   Convert `meta.regularMarketTime` (epoch seconds, in
+   `meta.exchangeTimezoneName`) to a readable date if needed; no further
+   tool call is required for a simple quote lookup.
 
 ### Tips
 
-- Ticker symbols are case-insensitive.
-- This wraps `basic_web_request` against a free, no-key quote endpoint —
-  treat a fetch failure as a possible upstream/network issue, not a bug in
-  the ticker itself, before assuming the symbol is wrong.
+- Ticker symbols are case-insensitive (normalized internally).
+- This wraps `basic_web_request` against Yahoo Finance's key-less chart
+  endpoint. Treat a fetch failure as a possible upstream/network issue, not
+  a bug in the ticker itself, before assuming the symbol is wrong.
 ```
 
 Paired with a `skills.json` (§4) giving it a purpose-written `name`/`blurb`

@@ -13,13 +13,42 @@ doubt, those two files are the source of truth — this guide just organizes
 what they already enforce.
 
 Custom tools are **session-scoped**, loaded once at session-creation time
-(`POST /api/sessions`), not at server startup. There is nothing to restart —
-each new session re-reads the `tools/` directory.
+(`POST /api/sessions`), not at server startup. Each new session re-reads the
+`tools/` directory — and, as of the live-reload feature below, an existing
+session can now re-read it too, without restarting.
 
 **This is now a coupled system with custom skills, not two independent
 ones.** A skill-scoped tool plugin's tools are only offered to the LLM on
 subturns where its matching skill is active — see §6, and read
 `./custom_skill_guide.md` alongside this guide if you haven't already.
+
+### Live reload (no new session needed)
+
+The same reload endpoint described in `custom_skill_guide.md`'s intro
+(`POST /api/sessions/<id>/reload-custom-skills-tools`, wired to a sync-icon
+button in the session header) also refreshes this session's custom tools.
+Internally (`reload_custom_tools` in `src/tools/__init__.py`, backed by
+`src/tools/_custom_tool_reload.py`) it:
+
+- Evicts every previously-loaded module that belongs to this session's
+  `tools/` directory from `sys.modules` — both the session-prefixed tool/
+  plugin modules (§5) *and* any helper module a tool file pulled in via
+  `import_local` (§13.2) from somewhere under that same directory — then
+  re-runs the normal `load_custom_tools` load from scratch, so edited source
+  (including edited helpers) is actually re-executed rather than served from
+  a cached module object.
+- Re-validates everything exactly as a fresh session creation would (§5's
+  collision rules, §6's skill-gating, etc.). If validation fails, the old
+  modules are restored into `sys.modules` and the session's previous tool
+  set is left in place untouched — a bad edit never leaves a session with
+  half-loaded or missing tools.
+- Is rejected outright (`409`) if a turn is currently active on the session,
+  or if the session wasn't started with `--load-custom-skills-tools`.
+
+This doesn't change anything about how you *write* a tool — it just means
+you no longer need a brand-new session to see edits to existing files, or to
+have a brand-new tool file/plugin folder recognized at all (session creation
+used to be the only time the tool set was ever discovered from disk).
 
 ---
 
@@ -524,8 +553,10 @@ both the merged `properties` and the merged `required`.
 A `stock_info` skill (`skills/stock_info.md`) with a matching skill-scoped
 plugin (`custom_tool_guide.md` §6) that turns the general-purpose
 `basic_web_request` into a single-argument `ticker` lookup against a free,
-no-key quote endpoint (Stooq's CSV endpoint — illustrative; verify a real
-provider's terms/stability before depending on one):
+no-key quote endpoint (Yahoo Finance's chart endpoint — illustrative; verify
+a real provider's terms/stability before depending on one. This example
+originally wrapped Stooq's CSV quote endpoint until it stopped responding —
+exactly the kind of drift this caveat is warning about):
 
 ```text
 skills/
@@ -565,8 +596,9 @@ DEFINITION = extend_tool_definition(
         "function": {
             "name": "get_quote",
             "description": (
-                "Fetch a free stock quote (date, time, open/high/low/close, volume) "
-                "for a ticker symbol via Stooq's CSV quote endpoint."
+                "Fetch a free stock quote (date/time, open/high/low/close, previous "
+                "close, volume) for a ticker symbol via Yahoo Finance's "
+                "key-less chart endpoint. Returns raw JSON."
             ),
             "parameters": {
                 "properties": {
@@ -580,7 +612,7 @@ DEFINITION = extend_tool_definition(
         },
     },
     # Drop everything request-shape-specific; keep what's still generically
-    # useful (accept/timeout).
+    # useful (timeout).
     remove_keys=[
         "url", "method", "content_type", "headers", "body",
         "debug_show_bad_json", "load_service_tokens", "target", "memory_key",
@@ -589,9 +621,17 @@ DEFINITION = extend_tool_definition(
 
 
 def execute(args, session_data, special_resources=None):
-    ticker = args["ticker"]
-    url = f"https://stooq.com/q/l/?s={ticker.lower()}&f=sd2t2ohlcv&h&e=csv"
-    return NextTool("basic_web_request", {"url": url, "method": "GET", "accept": "text/csv"})
+    ticker = args["ticker"].strip().upper()
+    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}?range=1d&interval=1d"
+    return NextTool(
+        "basic_web_request",
+        {
+            "url": url,
+            "method": "GET",
+            "accept": "application/json",
+            "headers": {"User-Agent": "Mozilla/5.0"},
+        },
+    )
 ```
 
 No `needs_approval` override needed — `basic_web_request` doesn't define one
