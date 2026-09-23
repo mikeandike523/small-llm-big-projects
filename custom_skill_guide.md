@@ -256,7 +256,29 @@ open/high/low/close, volume) for a ticker symbol.
   the ticker itself, before assuming the symbol is wrong.
 ```
 
+Paired with a `skills.json` (§4) giving it a purpose-written `name`/`blurb`
+rather than relying on the inferred ones (§3) — worth doing here since the
+inferred title/blurb would just be "Skill: Stock Quotes" / the first three
+lines of body text, and the selector (§5) only ever sees the `blurb`, so
+it's worth writing one that states exactly when to reach for this skill and
+when not to:
+
+```json
+// skills/skills.json
+{
+  "stock_info": {
+    "name": "Stock Quotes",
+    "blurb": "Fetch a live stock quote (price, volume, OHLC) for a ticker symbol -- e.g. 'what's AAPL trading at' or 'give me a quote for MSFT'. Not for historical data, charts, or company fundamentals.",
+    "dependencies": [],
+    "autoload": false
+  }
+}
+```
+
 ```text
+skills/
+  skills.json
+  stock_info.md
 tools/
   stock_info/
     __init__.py        # empty — namespace defaults to "stock_info"
@@ -266,9 +288,10 @@ tools/
 The tool side (`extend_tool_definition`, the `execute` implementation that
 returns `NextTool("basic_web_request", ...)`) is the full example in
 `custom_tool_guide.md` §11.5 — this skill file is what makes
-`tools/stock_info/` a valid namespace (§6) and is what the per-subturn
-selector actually sees (`id -- name -- blurb`, §5) when deciding whether
-`stock_info_get_quote` should be offered for a given request.
+`tools/stock_info/` a valid namespace (§6) and, together with `skills.json`'s
+`blurb`, is what the per-subturn selector actually sees (`id -- name --
+blurb`, §5) when deciding whether `stock_info_get_quote` should be offered
+for a given request.
 
 ---
 

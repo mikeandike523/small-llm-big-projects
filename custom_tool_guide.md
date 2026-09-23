@@ -531,12 +531,31 @@ provider's terms/stability before depending on one):
 
 ```text
 skills/
+  skills.json               # gives the skill a purpose-written name/blurb
   stock_info.md
 tools/
   stock_info/
     __init__.py              # empty — namespace defaults to "stock_info"
     get_quote.py
 ```
+
+```json
+// skills/skills.json
+{
+  "stock_info": {
+    "name": "Stock Quotes",
+    "blurb": "Fetch a live stock quote (price, volume, OHLC) for a ticker symbol -- e.g. 'what's AAPL trading at' or 'give me a quote for MSFT'. Not for historical data, charts, or company fundamentals.",
+    "dependencies": [],
+    "autoload": false
+  }
+}
+```
+
+The `blurb` here matters more than it might look — it's the *only* thing
+the per-subturn skill selector sees when deciding whether this skill (and
+therefore `stock_info_get_quote`, §6) should be active for a given request;
+see `custom_skill_guide.md` §4/§5 for why a specific, boundary-stating blurb
+like this one beats the inferred default.
 
 ```python
 # tools/stock_info/get_quote.py
