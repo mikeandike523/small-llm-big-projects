@@ -49,6 +49,7 @@ from src.utils.tool_calling.arguments import validate_tool_args
 from src.tools.config import TOOL_OUTPUT_MAX_COLUMNS
 from src.config.tool_execution import MAX_TOOL_DELEGATION_HOPS
 from src.utils.text_truncation import truncate_long_lines
+from src.tools._custom_tool_reload import reload_modules
 
 
 def _truncate_columns(text: str) -> str:
@@ -69,6 +70,13 @@ def _truncate_columns(text: str) -> str:
 
 _import_local_lock = threading.RLock()  # reentrant: an imported file's own top-level
 # code may itself call import_local for a further sibling, from the same thread
+
+
+def _exec_module_source(module: object, path: str) -> None:
+    """Execute current source bytes directly, bypassing timestamp-based pyc reuse."""
+    with open(path, "rb") as source_file:
+        code = compile(source_file.read(), path, "exec")
+    exec(code, module.__dict__)
 
 
 def import_local(path: str) -> object:
@@ -118,7 +126,7 @@ def import_local(path: str) -> object:
         module = importlib.util.module_from_spec(spec)
         sys.modules[module_name] = module
         try:
-            spec.loader.exec_module(module)
+            _exec_module_source(module, path)
         except Exception:
             sys.modules.pop(module_name, None)
             raise
@@ -713,7 +721,7 @@ def _load_tool_module(tool_path: str, module_name: str) -> object | None:
         spec = importlib.util.spec_from_file_location(module_name, tool_path)
         module = importlib.util.module_from_spec(spec)
         sys.modules[module_name] = module
-        spec.loader.exec_module(module)
+        _exec_module_source(module, tool_path)
     except Exception as e:
         sys.modules.pop(module_name, None)
         raise RuntimeError(f"Failed to import custom tool {tool_path!r}: {e}") from e
@@ -823,7 +831,7 @@ def load_custom_tools(
             )
             tools_init_module = importlib.util.module_from_spec(tools_init_spec)
             sys.modules[tools_init_module_name] = tools_init_module
-            tools_init_spec.loader.exec_module(tools_init_module)
+            _exec_module_source(tools_init_module, tools_init)
         except Exception as e:
             sys.modules.pop(tools_init_module_name, None)
             raise RuntimeError(
@@ -840,7 +848,7 @@ def load_custom_tools(
                 excl_module_name, exclude_file
             )
             excl_module = importlib.util.module_from_spec(excl_spec)
-            excl_spec.loader.exec_module(excl_module)
+            _exec_module_source(excl_module, exclude_file)
             loaded = getattr(excl_module, "EXCLUDE", {})
             if not isinstance(loaded, dict):
                 raise RuntimeError(
@@ -910,7 +918,7 @@ def load_custom_tools(
                 init_module_name, plugin_init
             )
             init_module = importlib.util.module_from_spec(init_spec)
-            init_spec.loader.exec_module(init_module)
+            _exec_module_source(init_module, plugin_init)
         except Exception as e:
             raise RuntimeError(
                 f"Failed to import plugin __init__.py at {plugin_init!r}: {e}"
@@ -1002,4 +1010,32 @@ def load_custom_tools(
         by_skill=by_skill,
         plugins=plugins,
         custom_exclusions=custom_exclusions,
+    )
+
+
+def reload_custom_tools(
+    tools_dir: str,
+    workspace_root: str | None = None,
+    session_prefix: str = "",
+    known_skill_ids: frozenset[str] | None = None,
+) -> CustomToolLoadResult:
+    """Reload one session's custom tools while preserving its prior modules on error.
+
+    Modules loaded from ``tools_dir`` include tool files, package initializers,
+    and helpers imported through either normal Python imports or ``import_local``.
+    They must all leave ``sys.modules`` before loading so changed source is
+    executed. Existing tool maps retain references to their old module objects,
+    which lets us restore the module cache if validation of the new generation
+    fails.
+    """
+
+    return reload_modules(
+        tools_dir=tools_dir,
+        session_prefix=session_prefix,
+        load=lambda: load_custom_tools(
+            tools_dir=tools_dir,
+            workspace_root=workspace_root,
+            session_prefix=session_prefix,
+            known_skill_ids=known_skill_ids,
+        ),
     )

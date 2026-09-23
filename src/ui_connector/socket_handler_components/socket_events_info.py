@@ -9,9 +9,8 @@ from src.ui_connector.app import socketio
 from src.ui_connector.socket_handler_components.session_store import (
     _load_session,
     _get_session_system_prompt,
-    _get_session_skill_registry,
-    _get_session_tool_defs,
-    _get_session_plugins,
+    _get_skills_info_payload,
+    _get_tools_info_payload,
 )
 from src.tools import _dirty_cache
 
@@ -33,43 +32,11 @@ def handle_get_skills_info():
     sid = request.sid
     session_id = _state._sid_to_session_id.get(sid, sid)
     session = _load_session(session_id)
-    skills_path = (
-        os.path.join(session.initial_cwd, "skills")
-        if session.load_custom_skills_tools
-        else None
+    socketio.emit(
+        "skills_info",
+        _get_skills_info_payload(session, session_id),
+        room=session_id,
     )
-    if skills_path:
-        custom_skills = [
-            entry
-            for entry in _get_session_skill_registry(session_id)
-            if entry["source"] == "custom"
-        ]
-        skill_labels = sorted(
-            f"{entry['name']} ({entry['id']})"
-            + (" [autoload]" if entry["autoload"] else "")
-            for entry in custom_skills
-        )
-        socketio.emit(
-            "skills_info",
-            {
-                "enabled": True,
-                "count": len(skill_labels),
-                "path": skills_path.replace("\\", "/"),
-                "files": skill_labels,
-            },
-            room=session_id,
-        )
-    else:
-        socketio.emit(
-            "skills_info",
-            {
-                "enabled": False,
-                "count": 0,
-                "path": None,
-                "files": [],
-            },
-            room=session_id,
-        )
 
 
 @socketio.on("get_system_prompt")
@@ -140,18 +107,8 @@ def handle_get_dirty_cache():
 def handle_get_tools_info():
     sid = request.sid
     session_id = _state._sid_to_session_id.get(sid, sid)
-    tool_defs = _get_session_tool_defs(session_id)
-    plugins = _get_session_plugins(session_id)
-    total = len(tool_defs)
-    custom_count = sum(p["count"] for p in plugins)
     socketio.emit(
         "tools_info",
-        {
-            "totalCount": total,
-            "builtinCount": total - custom_count,
-            "builtinPath": "src/tools/",
-            "names": [d["function"]["name"] for d in tool_defs],
-            "customPlugins": plugins if plugins else None,
-        },
+        _get_tools_info_payload(session_id),
         room=session_id,
     )

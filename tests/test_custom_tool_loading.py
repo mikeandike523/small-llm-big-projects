@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from src.tools import load_custom_tools
+from src.tools import load_custom_tools, reload_custom_tools
 
 
 def _write(path: Path, text: str) -> None:
@@ -132,3 +132,39 @@ def test_helper_file_without_definition_is_skipped_not_a_tool(tmp_path: Path) ->
     defs, _ = result.by_skill["web_browsing"]
     assert [d["function"]["name"] for d in defs] == ["web_browsing_do_thing"]
     assert result.unscoped_defs == []
+
+
+def test_reload_reimports_changed_tool_and_import_local_helper(tmp_path: Path) -> None:
+    prefix = _prefix()
+    helper = tmp_path / "_helper.py"
+    tool = tmp_path / "root_tool.py"
+    _write(helper, 'VALUE = "before"\n')
+    _write(
+        tool,
+        "from src.tools import import_local\n"
+        'HELPER = import_local("_helper.py")\n'
+        + _tool_file("root_tool").replace('return "ok"', "return HELPER.VALUE"),
+    )
+    first = load_custom_tools(str(tmp_path), session_prefix=prefix)
+    old_module = first.unscoped_map["root_tool"]
+    assert old_module.execute({}, {}) == "before"
+
+    _write(helper, 'VALUE = "after"\n')
+    second = reload_custom_tools(str(tmp_path), session_prefix=prefix)
+
+    assert second.unscoped_map["root_tool"].execute({}, {}) == "after"
+    assert old_module.execute({}, {}) == "before"
+
+
+def test_failed_reload_leaves_previous_tool_generation_usable(tmp_path: Path) -> None:
+    prefix = _prefix()
+    tool = tmp_path / "root_tool.py"
+    _write(tool, _tool_file("root_tool"))
+    first = load_custom_tools(str(tmp_path), session_prefix=prefix)
+    old_module = first.unscoped_map["root_tool"]
+
+    _write(tool, "this is not valid python")
+    with pytest.raises(RuntimeError, match="Failed to import custom tool"):
+        reload_custom_tools(str(tmp_path), session_prefix=prefix)
+
+    assert old_module.execute({}, {}) == "ok"

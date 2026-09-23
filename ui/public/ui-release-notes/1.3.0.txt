@@ -1,0 +1,1 @@
+Add session toolbar reload controls and toast feedback

@@ -152,6 +152,7 @@ export default function useSocketWiring(
   const [startupDone, setStartupDone] = useState(false);
   const [connected, setConnected] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [loadCustomSkillsTools, setLoadCustomSkillsTools] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [pwd, setPwd] = useState<string>("");
   const [skillsInfo, setSkillsInfo] = useState<{
@@ -771,6 +772,7 @@ export default function useSocketWiring(
       approvalModeRevision?: number;
       heartbeatSettings?: HeartbeatSettings;
       heartbeatSettingsRevision?: number;
+      loadCustomSkillsTools?: boolean;
     }) {
       if (data.schemaInvalid) {
         // Schema mismatch — no event_replay will follow, so clear loading now
@@ -830,6 +832,9 @@ export default function useSocketWiring(
       }
       heartbeatSettingsRevisionRef.current =
         data.heartbeatSettingsRevision ?? 0;
+      if (data.loadCustomSkillsTools !== undefined) {
+        setLoadCustomSkillsTools(data.loadCustomSkillsTools);
+      }
     }
 
     // Event replay (always emitted after session_state, possibly with empty list)
@@ -1264,6 +1269,7 @@ export default function useSocketWiring(
     connected,
     busy,
     setBusy,
+    loadCustomSkillsTools,
     cancelling,
     setCancelling,
     pwd,

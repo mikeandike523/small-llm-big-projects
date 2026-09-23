@@ -41,6 +41,13 @@ from src.ui_connector.socket_handler_components._session_event_emit import (
     load_cursor,
     save_cursor,
 )
+from src.ui_connector.socket_handler_components.session_customizations import (
+    manifest_from_custom_tools,
+)
+from src.ui_connector.socket_handler_components.session_info import (
+    skills_info_payload,
+    tools_info_payload,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -114,6 +121,16 @@ def _get_autoloaded_session_skills(session_id: str) -> list[dict]:
     return get_autoload_skill_entries(_get_session_skill_registry(session_id))
 
 
+def _get_skills_info_payload(session: Session, session_id: str) -> dict:
+    return skills_info_payload(session, _get_session_skill_registry(session_id))
+
+
+def _get_tools_info_payload(session_id: str) -> dict:
+    return tools_info_payload(
+        _get_session_tool_defs(session_id), _get_session_plugins(session_id)
+    )
+
+
 def _init_session_caches(session: Session, session_id: str) -> None:
     """Build per-session skill registry, tool set, and system prompt caches
     (idempotent — skips if already done).
@@ -149,22 +166,7 @@ def _init_session_caches(session: Session, session_id: str) -> None:
                     session_prefix=session_id[:8],
                     known_skill_ids=known_skill_ids,
                 )
-                _excl_load = {
-                    n for n, f in result.custom_exclusions.items() if f.get("loading")
-                }
-                base_defs = [
-                    d
-                    for d in ALL_TOOL_DEFINITIONS
-                    if d.get("function", {}).get("name") not in _excl_load
-                ] + result.unscoped_defs
-                base_map = {k: v for k, v in _TOOL_MAP.items() if k not in _excl_load}
-                base_map.update(result.unscoped_map)
-                manifest = SessionToolManifest(
-                    base_defs=base_defs,
-                    base_map=base_map,
-                    by_skill=result.by_skill,
-                    plugins=result.plugins,
-                )
+                manifest = manifest_from_custom_tools(result)
             except RuntimeError as exc:
                 # Never fail silently — a resumed session with a broken custom
                 # tool setup must be just as visible as a freshly-created one

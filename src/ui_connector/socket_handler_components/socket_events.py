@@ -114,6 +114,7 @@ def handle_resume_session(data: dict):
             "completedTurns": completed_turns_data,
             "currentTurn": current_turn_data,
             "isTurnActive": is_turn_active,
+            "loadCustomSkillsTools": session.load_custom_skills_tools,
             **runtime_settings.payload(runtime_settings.snapshot(session_id, session)),
         },
     )

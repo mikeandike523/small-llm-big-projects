@@ -1,6 +1,7 @@
 /** @jsxImportSource @emotion/react */
 import { Global, css } from "@emotion/react";
 import { Routes, Route } from "react-router-dom";
+import { Toaster } from "sonner";
 import Chat from "./components/Chat";
 import Dashboard from "./components/Dashboard";
 import ConfigPage from "./components/ConfigPage";
@@ -30,6 +31,7 @@ export default function App() {
   return (
     <>
       <Global styles={globalCss} />
+      <Toaster theme="dark" position="top-right" richColors closeButton />
       <Routes>
         <Route path="/" element={<Dashboard />} />
         <Route path="/session" element={<Chat />} />

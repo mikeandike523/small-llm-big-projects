@@ -3,7 +3,8 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { type Socket } from "socket.io-client";
 import { useStickToBottom } from "use-stick-to-bottom";
-import { FaHeartbeat } from "react-icons/fa";
+import { FaHeartbeat, FaSyncAlt } from "react-icons/fa";
+import { toast } from "sonner";
 import {
   appLayoutCss,
   dashboardButtonCss,
@@ -92,6 +93,7 @@ export default function Chat() {
     connected,
     busy,
     setBusy,
+    loadCustomSkillsTools,
     cancelling,
     setCancelling,
     pwd,
@@ -130,6 +132,7 @@ export default function Chat() {
   const [profileChanging, setProfileChanging] = useState(false);
   const [approvalModeChanging, setApprovalModeChanging] = useState(false);
   const [heartbeatDialogOpen, setHeartbeatDialogOpen] = useState(false);
+  const [customizationsReloading, setCustomizationsReloading] = useState(false);
 
   // Fetch available profile names for the dropdown once on mount.
   React.useEffect(() => {
@@ -180,6 +183,29 @@ export default function Chat() {
       // silently ignore — user can retry
     } finally {
       setApprovalModeChanging(false);
+    }
+  }
+
+  async function handleReloadCustomizations() {
+    if (busy || customizationsReloading || !connected || !loadCustomSkillsTools)
+      return;
+    setCustomizationsReloading(true);
+    try {
+      const response = await fetch(
+        `/api/sessions/${sessionId}/reload-custom-skills-tools`,
+        { method: "POST" },
+      );
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(body.error || `Reload failed (${response.status})`);
+      }
+      toast.success("Custom skills and tools reloaded");
+    } catch {
+      toast.error("Custom skills and tools could not be reloaded", {
+        description: "See the Debug Panel logs for details.",
+      });
+    } finally {
+      setCustomizationsReloading(false);
     }
   }
 
@@ -299,6 +325,51 @@ export default function Chat() {
           </span>
           {contextUsageData && <ContextUsageBar data={contextUsageData} />}
           <div css={headerSideCss}>
+            <button
+              onClick={handleReloadCustomizations}
+              disabled={
+                busy ||
+                customizationsReloading ||
+                !connected ||
+                !loadCustomSkillsTools
+              }
+              title={
+                !loadCustomSkillsTools
+                  ? "Custom skills and tools are disabled for this session"
+                  : busy
+                    ? "Cannot reload skills and tools during an active subturn"
+                    : customizationsReloading
+                      ? "Reloading custom skills and tools…"
+                      : "Reload custom skills and tools"
+              }
+              aria-label="Reload custom skills and tools"
+              style={{
+                background: "#101722",
+                border: "1px solid #2a3a6e",
+                borderRadius: 4,
+                color: "#8aacff",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                padding: "5px 7px",
+                cursor:
+                  busy ||
+                  customizationsReloading ||
+                  !connected ||
+                  !loadCustomSkillsTools
+                    ? "not-allowed"
+                    : "pointer",
+                opacity:
+                  busy ||
+                  customizationsReloading ||
+                  !connected ||
+                  !loadCustomSkillsTools
+                    ? 0.35
+                    : 1,
+              }}
+            >
+              <FaSyncAlt size={12} />
+            </button>
             {profiles.length > 0 && (
               <select
                 value={sessionProfile ?? ""}

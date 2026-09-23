@@ -9,6 +9,7 @@ import sys
 import uuid as _uuid_module
 
 from flask import request, jsonify
+from termcolor import colored
 
 import src.ui_connector.socket_handler_components.state as _state
 from src.ui_connector.app import app, socketio
@@ -21,7 +22,14 @@ from src.ui_connector.socket_handler_components.session_store import (
     _init_session_caches,
     _get_session_skill_registry,
     _get_session_tool_map,
+    _get_skills_info_payload,
+    _get_tools_info_payload,
+    _get_session_system_prompt,
 )
+from src.ui_connector.socket_handler_components.session_customizations import (
+    reload_session_customizations,
+)
+from src.ui_connector.socket_handler_components.emit import _emit_backend_log
 from src.ui_connector.socket_handler_components.terminal import (
     _build_starting_environment_info,
 )
@@ -273,9 +281,7 @@ def api_list_sessions():
                 "interim_response_as_thinking": row.get(
                     "interim_response_as_thinking", False
                 ),
-                "load_custom_skills_tools": row.get(
-                    "load_custom_skills_tools", False
-                ),
+                "load_custom_skills_tools": row.get("load_custom_skills_tools", False),
                 "profile_name": row.get("profile_name") or None,
                 "corrupt": row.get("corrupt", False),
                 "heartbeat_enabled": row.get("heartbeat_enabled", False),
@@ -292,6 +298,61 @@ def api_delete_session(session_id: str):
     _delete_session(session_id)
     logger.info("Session deleted via API: %s", session_id)
     return jsonify({"ok": True})
+
+
+@app.route("/api/sessions/<session_id>/reload-custom-skills-tools", methods=["POST"])
+def api_reload_custom_skills_tools(session_id: str):
+    """Reload cwd/skills and cwd/tools for an idle, opted-in session."""
+    if session_id in _state._session_active_turns:
+        _emit_backend_log(
+            session_id,
+            colored(
+                "Custom skills/tools reload rejected: a turn is active.",
+                "red",
+                force_color=True,
+            ),
+        )
+        return jsonify({"error": "Cannot reload during an active turn."}), 409
+
+    session = _load_session(session_id)
+    if not session.load_custom_skills_tools:
+        _emit_backend_log(
+            session_id,
+            colored(
+                "Custom skills/tools reload rejected: loading is disabled for this session.",
+                "red",
+                force_color=True,
+            ),
+        )
+        return (
+            jsonify({"error": "Custom skills and tools are disabled."}),
+            409,
+        )
+
+    try:
+        reload_session_customizations(session, session_id)
+    except Exception as exc:
+        message = f"Custom skills/tools reload failed: {exc}"
+        logger.warning("%s (session %s)", message, session_id)
+        _emit_backend_log(session_id, colored(message, "red", force_color=True))
+        status = 409 if session_id in _state._session_active_turns else 400
+        return jsonify({"error": "Reload failed. See Debug Panel logs."}), status
+
+    _save_session(session_id, session)
+    skills_info = _get_skills_info_payload(session, session_id)
+    tools_info = _get_tools_info_payload(session_id)
+    system_prompt = {"text": _get_session_system_prompt(session_id)}
+    socketio.emit("skills_info", skills_info, room=session_id)
+    socketio.emit("tools_info", tools_info, room=session_id)
+    socketio.emit("system_prompt", system_prompt, room=session_id)
+    logger.info("Reloaded custom skills and tools for session %s", session_id)
+    return jsonify(
+        {
+            "ok": True,
+            "skills": skills_info["count"],
+            "tools": tools_info["totalCount"] - tools_info["builtinCount"],
+        }
+    )
 
 
 @app.route("/api/sessions/bulk-delete", methods=["POST"])
