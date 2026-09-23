@@ -20,6 +20,7 @@ from src.ui_connector.socket_handler_components.session_store import (
     _delete_sessions,
     _init_session_caches,
     _get_session_skill_registry,
+    _get_session_tool_map,
 )
 from src.ui_connector.socket_handler_components.terminal import (
     _build_starting_environment_info,
@@ -50,6 +51,7 @@ from src.utils.approval_modes import (
     is_valid_approval_mode,
 )
 from src.utils.heartbeat_settings import is_valid_heartbeat_settings
+from src.utils.startup_tool_calls import validate_startup_tool_calls
 
 logger = logging.getLogger(__name__)
 
@@ -135,10 +137,12 @@ def api_create_session():
             profile_name = None
 
     startup_tool_calls: list = []
+    _startup_calls_present = False
     if startup_tool_calls_path:
         try:
             with open(startup_tool_calls_path, "r", encoding="utf-8") as fh:
                 startup_tool_calls = json.load(fh)
+            _startup_calls_present = True
         except FileNotFoundError:
             # No startup_tool_calls.json present — silently skip (no startup tool calls).
             startup_tool_calls = []
@@ -214,6 +218,19 @@ def api_create_session():
         "initial_cwd": initial_cwd,
     }
     _state._session_current_cwd[session_id] = initial_cwd
+
+    # Hard-validate startup_tool_calls against the now-fully-built tool set —
+    # same fail-at-creation guarantee as custom tools/skills, rather than a
+    # soft "Unknown tool"/"Error executing" string the first time it runs.
+    if _startup_calls_present:
+        _startup_err = validate_startup_tool_calls(
+            session.startup_tool_calls, _get_session_tool_map(session_id)
+        )
+        if _startup_err:
+            return (
+                jsonify({"error": f"Invalid startup_tool_calls.json: {_startup_err}"}),
+                400,
+            )
 
     _save_session(session_id, session)
 

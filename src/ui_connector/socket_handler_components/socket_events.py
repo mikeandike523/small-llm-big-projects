@@ -303,6 +303,10 @@ def handle_run_startup_tool_calls():
 
     for i, tc_spec in enumerate(session.startup_tool_calls):
         name = tc_spec.get("name", "")
+        # A hand-authored entry in startup_tool_calls.json IS the human's
+        # approval for it — request_unredacted (if set) is honored here
+        # exactly as execute_tool would honor it for any already-approved
+        # call, no stripping.
         args = tc_spec.get("args", {})
         tc_id = f"startup-{i}"
 
