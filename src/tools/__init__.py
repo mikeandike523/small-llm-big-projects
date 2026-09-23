@@ -1,9 +1,11 @@
 from __future__ import annotations
 import copy
+import hashlib
 import importlib.util
 import inspect
 import os
 import sys
+import threading
 import traceback
 from dataclasses import dataclass, field
 from src.utils.exceptions import ToolHangError, ToolTimeoutError
@@ -58,6 +60,68 @@ def _truncate_columns(text: str) -> str:
     if not isinstance(text, str):
         return text
     return truncate_long_lines(text, TOOL_OUTPUT_MAX_COLUMNS)
+
+
+# ---------------------------------------------------------------------------
+# Safe sibling-file imports for custom tool authors
+# ---------------------------------------------------------------------------
+
+_import_local_lock = threading.RLock()  # reentrant: an imported file's own top-level
+# code may itself call import_local for a further sibling, from the same thread
+
+
+def import_local(path: str) -> object:
+    """Import a local Python file by path, safe to use from custom tool code.
+
+    `path` may be absolute, or relative to the caller's own file (resolved
+    against the caller's __file__ via the call stack) — so from a tool file,
+    `import_local("_helpers.py")` imports the sibling file in the same
+    directory.
+
+    Unlike a bare `import _helpers` statement, this never depends on the
+    filename being globally unique. sys.modules is one flat, process-wide
+    namespace shared by every session and every plugin, so two different
+    files that happen to share a name (a very plausible collision — this
+    project's own docs use "_helpers.py" as the example) would otherwise
+    silently resolve to whichever one was imported first, for the rest of
+    the process's life, in every other session. The module name generated
+    here is instead derived from the resolved absolute path, so two
+    different files never collide, and repeated calls for the SAME path —
+    by the same or a different session — return the same cached module,
+    same semantics as a normal top-level `import`, just collision-safe.
+
+    Because the cache is path-keyed (not session-keyed), a helper module
+    imported this way is shared process-wide, like any other Python module —
+    don't rely on this for a helper with mutable module-level state that
+    must stay isolated per session.
+
+    Raises ImportError/OSError if the file doesn't exist or fails to import
+    (the underlying exception propagates; import errors are not swallowed).
+    """
+    if not os.path.isabs(path):
+        caller_file = inspect.stack()[1].filename
+        path = os.path.join(os.path.dirname(os.path.abspath(caller_file)), path)
+    path = os.path.normcase(os.path.normpath(os.path.abspath(path)))
+
+    digest = hashlib.sha1(path.encode("utf-8")).hexdigest()[:16]
+    module_name = f"_slbp_local_{digest}"
+
+    with _import_local_lock:
+        cached = sys.modules.get(module_name)
+        if cached is not None:
+            return cached
+
+        spec = importlib.util.spec_from_file_location(module_name, path)
+        if spec is None or spec.loader is None:
+            raise ImportError(f"Cannot import local file: {path!r}")
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[module_name] = module
+        try:
+            spec.loader.exec_module(module)
+        except Exception:
+            sys.modules.pop(module_name, None)
+            raise
+        return module
 
 
 # ---------------------------------------------------------------------------

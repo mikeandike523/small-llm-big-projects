@@ -484,67 +484,85 @@ tools themselves depend on them. Treat either like depending on another
 team's internal module — fine, but expect it to move if the project
 refactors.
 
-### 12.2 Importing from your own plugin's location — not automatic, two patterns
+**Wrapping/composing another tool — not yet a supported pattern.** This
+same blanket rule technically lets you `from src.tools.read_text_file import
+execute` and call it directly, but doing so bypasses everything
+`execute_tool` normally wraps it with — arg schema validation, reserved-
+param stripping, redaction (`ENABLE_REDACTION`/`ALLOW_REQUEST_UNREDACTED`
+are applied by `execute_tool`, not by `execute()` itself), truncation, and
+stubbing. Calling `execute_tool()` itself instead (also exported from
+`src.tools`, alongside `_TOOL_MAP`) recovers full framework treatment for
+wrapping a *built-in*, but there's currently no clean way to reach another
+*custom* tool's full merged map from inside a tool's own `execute()` — it
+isn't exposed via `special_resources`. Robust tool-wrapping/composition is
+a deliberately deferred feature, not implemented yet — don't build on it.
+
+### 12.2 Importing from your own plugin's location
 
 Unlike `src/`, **your plugin's own directory is not added to `sys.path`
 automatically.** The loader only ever adds one directory to `sys.path`:
 `workspace_root` (whatever the caller of `load_custom_tools` passed — in
-practice, the session's `initial_cwd`, i.e. `--cwd`), and only for the
-duration of that session's process lifetime. Each tool *file* is imported
-individually via `importlib.util.spec_from_file_location` under a private,
-auto-generated module name — it is never imported as `my_plugin.do_thing`,
-so a plain `import do_thing` or `from . import _helpers` from inside a tool
-file will **not** find sibling files in the same folder by default.
+practice, the session's `initial_cwd`, i.e. `--cwd`), and never removes it —
+over a long-running server it just accumulates every workspace root ever
+seen. Each tool *file* is imported individually via
+`importlib.util.spec_from_file_location` under a private, auto-generated
+module name — it is never imported as `my_plugin.do_thing`, so a plain
+`import do_thing` or `from . import _helpers` from inside a tool file will
+**not** find sibling files in the same folder by default.
 
-**Pattern A — self-locate (recommended; works unconditionally):**
-
-Add your own directory to `sys.path` at the top of the tool file, using
-`__file__`, then import normally. This works no matter where `tools/` lives
-relative to the session's cwd:
+**Use `import_local` (recommended — the only pattern safe under concurrent
+sessions):**
 
 ```python
 # tools/my_plugin/do_thing.py
-import os
-import sys
+from src.tools import import_local
 
-_here = os.path.dirname(os.path.abspath(__file__))
-if _here not in sys.path:
-    sys.path.insert(0, _here)
-
-from _helpers import format_target  # tools/my_plugin/_helpers.py
+_helpers = import_local("_helpers.py")  # resolved against this file's own directory
 
 DEFINITION = {...}
 
 def execute(args, session_data, special_resources=None):
-    return format_target(args["target"])
+    return _helpers.format_target(args["target"])
 ```
 
-`_helpers.py` here has no `DEFINITION`, so the loader executes it once (to
-satisfy your `import`) and otherwise ignores it as a tool — see §3 for the
-helper-file mechanics that make this safe.
+`import_local(path)` (`src/tools/__init__.py`) imports a file by path —
+absolute, or relative to *your* file (resolved via the caller's `__file__`
+through the call stack, so a relative path always means "next to me," not
+"next to whoever happens to call this"). `_helpers.py` here has no
+`DEFINITION`, so the loader itself still executes it once at plugin-load
+time (to satisfy any earlier `import_local` calls) and otherwise ignores it
+as a tool — see §3 for the helper-file mechanics that make that safe.
 
-**Pattern B — package-style import via `workspace_root` (only when
-`tools/` is directly under the session's cwd):**
+**Why not a bare `import` statement, or manual `sys.path` manipulation?**
+`sys.modules` is one flat, process-wide namespace, shared by every thread
+and every session in the running server — there is no per-thread or
+per-session `sys.path`/`sys.modules` in Python (the "each session gets its
+own thread" threading model doesn't extend to imports). Two *different*
+plugins that happen to name a helper file the same thing — `_helpers.py` is
+a very plausible collision, it's the example used throughout this guide —
+would otherwise resolve to whichever one was imported *first*, for every
+other session, for the rest of the process's life, silently. `import_local`
+sidesteps this entirely: the module name it generates is derived from the
+file's own resolved absolute path (hashed), so two different files never
+collide regardless of what they're named. Repeated calls for the *same*
+path — by the same or a different session — correctly return the same
+cached module, same semantics as an ordinary top-level `import`, just with
+a collision-safe name driving the cache key. Because that cache is
+path-keyed rather than session-keyed, treat an `import_local`-loaded module
+like any other shared Python module: fine for stateless helpers (the
+overwhelmingly common case), not a place to keep mutable state that must
+stay isolated per session.
 
-If you're using the standard `slbp session new --load-tools --cwd <dir>`
-flow, `custom_tools_path` is always `<dir>/tools` and `workspace_root` is
-always `<dir>` — i.e. `tools/` is guaranteed to be a direct child of the
-directory that's on `sys.path`. In that (default) case, as long as
-`tools/__init__.py` and `tools/my_plugin/__init__.py` both exist (which they
-must anyway — see §1), you can use ordinary package imports from anywhere in
-your plugin code:
-
-```python
-from tools.my_plugin import _helpers
-```
-
-This is a plain Python import resolved independently of SLBP's own loader —
-it creates its own `sys.modules["tools"]`/`sys.modules["tools.my_plugin"]`
-entries, separate from the private `_slbp_{prefix}_...` names the loader
-uses internally. Don't rely on this if you can't guarantee `custom_tools_path
-== workspace_root + "/tools"` (e.g. a hand-rolled `POST /api/sessions` call
-with a nonstandard path) — prefer Pattern A for anything you want to be
-portable.
+If you're reading older custom tool code (or examples predating this
+guide's current revision) that instead does manual
+`sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))` followed
+by a bare `import _helpers`, or a package-style
+`from tools.my_plugin import _helpers` relying on `workspace_root` being on
+`sys.path` — both still run, but both have exactly the collision problem
+above (the package-style form is worse: `tools` itself is a name *every*
+session using `--load-tools` shares, so the very first `import tools`
+anywhere in the process wins for everyone, permanently). Migrate them to
+`import_local` rather than copying the pattern forward.
 
 **Vendoring third-party dependencies:** use `tools/__init__.py` (§1) to
 `sys.path.insert` a vendored `site-packages`-style directory once per
@@ -593,8 +611,8 @@ Before wiring a new tool file into a session, confirm:
 - [ ] `NO_STUB = True` set only if truncated/stubbed output would break the
       agent's ability to use the result (structured dumps, confirmations that
       must be read in full).
-- [ ] Any cross-file import inside a plugin uses Pattern A or B from §12.2,
-      not a bare `import sibling_file`.
+- [ ] Any cross-file import inside a plugin uses `import_local` (§12.2), not
+      a bare `import sibling_file` or manual `sys.path` manipulation.
 
 A tool file that satisfies the required items (`DEFINITION`, `execute`, a
 skill-scoped plugin's namespace matching a real skill id) will load; the
