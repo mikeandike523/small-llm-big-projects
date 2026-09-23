@@ -7,14 +7,14 @@ from src.tools import execute_tool
 def add_checks(cl: CheckList, env: TestEnv) -> None:
     env.session_data["memory"]["mykey"] = "hello world"
 
-    r = execute_tool(
+    r, _ = execute_tool(
         "session_memory", {"action": "get", "key": "mykey"}, env.session_data
     )
     cl.check(
         "get: existing", "Returns the stored value", r == "hello world", f"got: {r!r}"
     )
 
-    r2 = execute_tool(
+    r2, _ = execute_tool(
         "session_memory", {"action": "get", "key": "nosuchkey"}, env.session_data
     )
     cl.check(
@@ -25,7 +25,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
     )
 
     env.session_data["memory"]["lines"] = "line1\nline2\nline3"
-    r3 = execute_tool(
+    r3, _ = execute_tool(
         "session_memory",
         {"action": "get", "key": "lines", "number_lines": True},
         env.session_data,

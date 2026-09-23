@@ -7,7 +7,7 @@ from src.tools import execute_tool
 def add_checks(cl: CheckList, env: TestEnv) -> None:
     # Basic replace: swap "beta" for "BETA" using surrounding context lines
     env.session_data["memory"]["ap_basic"] = "alpha\nbeta\ngamma\n"
-    r = execute_tool(
+    r, _ = execute_tool(
         "text_editor",
         {
             "action": "apply_patch",
@@ -32,7 +32,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
 
     # Context-only hunk → error (nothing to change), content unchanged
     env.session_data["memory"]["ap_noop"] = "foo\nbar\n"
-    r = execute_tool(
+    r, _ = execute_tool(
         "text_editor",
         {
             "action": "apply_patch",
@@ -88,7 +88,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
 
     # Context not found → error
     env.session_data["memory"]["ap_nomatch"] = "alpha\nbeta\ngamma\n"
-    r = execute_tool(
+    r, _ = execute_tool(
         "text_editor",
         {
             "action": "apply_patch",
@@ -106,7 +106,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
 
     # Ambiguous context → error
     env.session_data["memory"]["ap_ambig"] = "foo\nbar\nfoo\nbar\n"
-    r = execute_tool(
+    r, _ = execute_tool(
         "text_editor",
         {
             "action": "apply_patch",
@@ -124,7 +124,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
 
     # Missing patch arg
     env.session_data["memory"]["ap_nopatch"] = "x\n"
-    r = execute_tool(
+    r, _ = execute_tool(
         "text_editor", {"action": "apply_patch", "key": "ap_nopatch"}, env.session_data
     )
     cl.check(
@@ -136,7 +136,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
 
     # Pure insertion without position anchor (no @@ header) → error
     env.session_data["memory"]["ap_nopos"] = "x\n"
-    r = execute_tool(
+    r, _ = execute_tool(
         "text_editor",
         {
             "action": "apply_patch",

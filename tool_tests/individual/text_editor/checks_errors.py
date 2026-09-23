@@ -12,7 +12,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
         f.write("x")
 
     # Both key and filepath provided
-    r = execute_tool(
+    r, _ = execute_tool(
         "text_editor",
         {"action": "count_lines", "key": "err_key", "filepath": fp},
         env.session_data,
@@ -25,7 +25,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
     )
 
     # Neither key nor filepath
-    r = execute_tool("text_editor", {"action": "count_lines"}, env.session_data)
+    r, _ = execute_tool("text_editor", {"action": "count_lines"}, env.session_data)
     cl.check(
         "neither key nor filepath",
         "Returns error when neither key nor filepath is given",
@@ -34,7 +34,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
     )
 
     # Key not in session memory
-    r = execute_tool(
+    r, _ = execute_tool(
         "text_editor",
         {"action": "count_lines", "key": "err_no_such_key_xyz"},
         env.session_data,

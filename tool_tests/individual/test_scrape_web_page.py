@@ -9,7 +9,7 @@ from src.tools import execute_tool
 def run(env: TestEnv, server: MicroServer | None = None):
     cl = CheckList("scrape_web_page")
     try:
-        r = execute_tool(
+        r, _ = execute_tool(
             "scrape_web_page",
             {
                 "url": "http://example.com",
@@ -24,7 +24,7 @@ def run(env: TestEnv, server: MicroServer | None = None):
             f"got: {r!r}",
         )
 
-        r = execute_tool(
+        r, _ = execute_tool(
             "scrape_web_page",
             {
                 "url": "not-a-url",
@@ -43,7 +43,7 @@ def run(env: TestEnv, server: MicroServer | None = None):
             return cl.result()
 
         # Default format is 'raw' — returns the original response body.
-        r = execute_tool(
+        r, _ = execute_tool(
             "scrape_web_page",
             {
                 "url": f"{server.base_url}/article",
@@ -66,7 +66,7 @@ def run(env: TestEnv, server: MicroServer | None = None):
         )
 
         # Explicit xml format extracts readable content and strips wrapper tags.
-        r = execute_tool(
+        r, _ = execute_tool(
             "scrape_web_page",
             {
                 "url": f"{server.base_url}/article",

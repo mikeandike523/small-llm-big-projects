@@ -19,7 +19,7 @@ def _j(r: str) -> dict:
 
 def add_checks(cl: CheckList, env: TestEnv) -> None:
     as_: dict = {}
-    r = execute_tool(
+    r, _ = execute_tool(
         "todo_list",
         {"action": "add_item", "parent_path": "", "text": "1. numbered item"},
         as_,
@@ -31,7 +31,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
         f"got: {r!r}",
     )
 
-    r = execute_tool(
+    r, _ = execute_tool(
         "todo_list",
         {"action": "add_item", "parent_path": "", "text": "1.2. dot-delimited"},
         as_,
@@ -43,7 +43,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
         f"got: {r!r}",
     )
 
-    r = execute_tool(
+    r, _ = execute_tool(
         "todo_list",
         {"action": "add_item", "parent_path": "", "text": "3) paren style"},
         as_,
@@ -55,7 +55,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
         f"got: {r!r}",
     )
 
-    r = execute_tool(
+    r, _ = execute_tool(
         "todo_list",
         {
             "action": "add_item",
@@ -72,7 +72,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
         f"got: {r!r}",
     )
 
-    r = execute_tool(
+    r, _ = execute_tool(
         "todo_list",
         {"action": "add_item", "parent_path": "", "text": "2.2 no-trailing-marker"},
         as_,
@@ -84,7 +84,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
         f"got: {r!r}",
     )
 
-    r = execute_tool(
+    r, _ = execute_tool(
         "todo_list",
         {"action": "add_item", "parent_path": "", "text": "1.1.) dot-paren"},
         as_,
@@ -96,7 +96,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
         f"got: {r!r}",
     )
 
-    r = execute_tool(
+    r, _ = execute_tool(
         "todo_list",
         {"action": "add_item", "parent_path": "", "text": "1 bare digit not stripped"},
         as_,
@@ -108,7 +108,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
         f"got: {r!r}",
     )
 
-    r = execute_tool(
+    r, _ = execute_tool(
         "todo_list",
         {
             "action": "add_many_items",

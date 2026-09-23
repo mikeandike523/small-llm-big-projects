@@ -11,7 +11,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
         f.write("line1\nline2\nline3\n")
 
     # Read action via filepath
-    r = execute_tool(
+    r, _ = execute_tool(
         "text_editor", {"action": "count_lines", "filepath": path}, env.session_data
     )
     cl.check(
@@ -21,7 +21,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
         f"got: {r!r}",
     )
 
-    r = execute_tool(
+    r, _ = execute_tool(
         "text_editor",
         {"action": "read_lines", "filepath": path, "start_line": 2, "end_line": 2},
         env.session_data,
@@ -33,7 +33,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
         f"got: {r!r}",
     )
 
-    r = execute_tool(
+    r, _ = execute_tool(
         "text_editor", {"action": "check_eol", "filepath": path}, env.session_data
     )
     cl.check(
@@ -44,7 +44,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
     )
 
     # Write action via filepath: apply_patch modifies the file on disk
-    r = execute_tool(
+    r, _ = execute_tool(
         "text_editor",
         {
             "action": "apply_patch",
@@ -78,7 +78,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
     )
 
     # Missing file → error
-    r = execute_tool(
+    r, _ = execute_tool(
         "text_editor",
         {"action": "count_lines", "filepath": path + ".missing"},
         env.session_data,

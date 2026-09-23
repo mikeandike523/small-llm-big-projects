@@ -7,7 +7,7 @@ from src.tools import execute_tool
 def add_checks(cl: CheckList, env: TestEnv) -> None:
     # LF-only content
     env.session_data["memory"]["eol_lf"] = "line1\nline2\nline3\n"
-    r = execute_tool(
+    r, _ = execute_tool(
         "text_editor", {"action": "check_eol", "key": "eol_lf"}, env.session_data
     )
     cl.check(
@@ -31,7 +31,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
 
     # CRLF content
     env.session_data["memory"]["eol_crlf"] = "line1\r\nline2\r\nline3\r\n"
-    r = execute_tool(
+    r, _ = execute_tool(
         "text_editor", {"action": "check_eol", "key": "eol_crlf"}, env.session_data
     )
     cl.check(
@@ -49,7 +49,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
 
     # Mixed content
     env.session_data["memory"]["eol_mixed"] = "line1\nline2\r\nline3\n"
-    r = execute_tool(
+    r, _ = execute_tool(
         "text_editor", {"action": "check_eol", "key": "eol_mixed"}, env.session_data
     )
     cl.check(
@@ -61,7 +61,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
 
     # Empty string
     env.session_data["memory"]["eol_empty"] = ""
-    r = execute_tool(
+    r, _ = execute_tool(
         "text_editor", {"action": "check_eol", "key": "eol_empty"}, env.session_data
     )
     cl.check(

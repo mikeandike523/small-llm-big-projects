@@ -32,12 +32,13 @@ def _sr(root: Path, mode: str) -> dict:
 
 
 def _needs(tool: str, args: dict, root: Path, mode: str) -> bool:
-    return check_needs_approval(
+    needs_approval, _hop_path = check_needs_approval(
         tool,
         args,
         special_resources=_sr(root, mode),
         session_data={"memory": {}},
     )
+    return needs_approval
 
 
 def test_auto_accept_edits_write_tools_use_scoped_nonignored_paths(

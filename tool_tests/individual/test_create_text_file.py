@@ -11,7 +11,7 @@ def run(env: TestEnv, server: MicroServer | None = None):
     try:
         # create a file in tmp_dir
         target_path = os.path.join(env.tmp_dir, "hello.txt")
-        r = execute_tool("create_text_file", {"path": target_path}, env.session_data)
+        r, _ = execute_tool("create_text_file", {"path": target_path}, env.session_data)
         cl.check(
             "create result",
             "Result mentions the file was created",
@@ -36,7 +36,7 @@ def run(env: TestEnv, server: MicroServer | None = None):
         )
 
         # creating the same file again should yield an error
-        r2 = execute_tool("create_text_file", {"path": target_path}, env.session_data)
+        r2, _ = execute_tool("create_text_file", {"path": target_path}, env.session_data)
         cl.check(
             "duplicate create error",
             "Returns error when file already exists",
@@ -46,7 +46,7 @@ def run(env: TestEnv, server: MicroServer | None = None):
 
         # error when parent directory does not exist (without create_parents)
         bad_path = os.path.join(env.tmp_dir, "nonexistent_parent_xyz", "file.txt")
-        r3 = execute_tool("create_text_file", {"path": bad_path}, env.session_data)
+        r3, _ = execute_tool("create_text_file", {"path": bad_path}, env.session_data)
         cl.check(
             "missing parent error",
             "Returns error when parent directory does not exist",
@@ -56,7 +56,7 @@ def run(env: TestEnv, server: MicroServer | None = None):
 
         # create_parents=True creates missing ancestor directories
         parents_path = os.path.join(env.tmp_dir, "deep", "nested", "dir", "file.txt")
-        r4 = execute_tool(
+        r4, _ = execute_tool(
             "create_text_file",
             {"path": parents_path, "create_parents": True},
             env.session_data,
@@ -76,7 +76,7 @@ def run(env: TestEnv, server: MicroServer | None = None):
 
         # initial_content writes text into the file on creation
         content_path = os.path.join(env.tmp_dir, "with_content.txt")
-        r5 = execute_tool(
+        r5, _ = execute_tool(
             "create_text_file",
             {"path": content_path, "initial_content": "hello content"},
             env.session_data,

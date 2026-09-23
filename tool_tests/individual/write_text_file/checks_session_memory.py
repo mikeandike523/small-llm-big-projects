@@ -9,7 +9,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
     env.session_data["memory"]["file_content"] = "write me to disk"
     path = os.path.join(env.tmp_dir, "from_memory.txt")
 
-    r = execute_tool(
+    r, _ = execute_tool(
         "write_text_file",
         {"path": path, "session_memory_key": "file_content"},
         env.session_data,
@@ -55,7 +55,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
     )
 
     # key not in memory
-    r = execute_tool(
+    r, _ = execute_tool(
         "write_text_file",
         {"path": path, "session_memory_key": "no_such_key"},
         env.session_data,

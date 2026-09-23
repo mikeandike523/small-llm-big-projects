@@ -7,7 +7,7 @@ from src.tools import execute_tool
 def add_checks(cl: CheckList, env: TestEnv) -> None:
     env.session_data["memory"]["todelete"] = "x"
 
-    r = execute_tool(
+    r, _ = execute_tool(
         "session_memory", {"action": "delete", "key": "todelete"}, env.session_data
     )
     cl.check(
@@ -23,7 +23,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
         "key still present",
     )
 
-    r2 = execute_tool(
+    r2, _ = execute_tool(
         "session_memory", {"action": "delete", "key": "nosuchkey"}, env.session_data
     )
     cl.check(

@@ -317,7 +317,7 @@ def handle_run_startup_tool_calls():
         )
 
         try:
-            result = execute_tool(
+            result, _ = execute_tool(
                 name,
                 args,
                 session.session_data,

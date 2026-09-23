@@ -9,7 +9,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
     mem["part1"] = "hello "
     mem["part2"] = "world"
 
-    r = execute_tool(
+    r, _ = execute_tool(
         "session_memory",
         {
             "action": "concat",
@@ -34,7 +34,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
         f"got: {combined!r}",
     )
 
-    r2 = execute_tool(
+    r2, _ = execute_tool(
         "session_memory",
         {
             "action": "concat",

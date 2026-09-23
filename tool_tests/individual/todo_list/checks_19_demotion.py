@@ -32,7 +32,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
     execute_tool("todo_list", {"action": "delete_item", "item_path": "1.1"}, dm)
 
     # Item 1 should now be a plain leaf (no children)
-    r = execute_tool("todo_list", {"action": "list"}, dm)
+    r, _ = execute_tool("todo_list", {"action": "list"}, dm)
     items = _j(r).get("items", [])
     cl.check(
         "demotion leaf after last child deleted",
@@ -42,7 +42,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
     )
 
     # Should be closeable again as a leaf
-    r = execute_tool("todo_list", {"action": "close_item", "item_path": "1"}, dm)
+    r, _ = execute_tool("todo_list", {"action": "close_item", "item_path": "1"}, dm)
     cl.check(
         "demotion leaf closeable",
         "Demoted item can be closed as a leaf",
@@ -62,7 +62,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
     )
     execute_tool("todo_list", {"action": "close_item", "item_path": "1.1"}, dm2)
     execute_tool("todo_list", {"action": "delete_item", "item_path": "1.1"}, dm2)
-    r = execute_tool("todo_list", {"action": "list"}, dm2)
+    r, _ = execute_tool("todo_list", {"action": "list"}, dm2)
     items = _j(r).get("items", [])
     cl.check(
         "demotion captures closed status",
@@ -83,7 +83,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
     )
     # child remains open; delete it
     execute_tool("todo_list", {"action": "delete_item", "item_path": "1.1"}, dm3)
-    r = execute_tool("todo_list", {"action": "list"}, dm3)
+    r, _ = execute_tool("todo_list", {"action": "list"}, dm3)
     items = _j(r).get("items", [])
     cl.check(
         "demotion captures open status",
@@ -104,7 +104,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
         "todo_list", {"action": "add_item", "parent_path": "1", "text": "child B"}, dm4
     )
     execute_tool("todo_list", {"action": "delete_item", "item_path": "1.1"}, dm4)
-    r = execute_tool("todo_list", {"action": "list"}, dm4)
+    r, _ = execute_tool("todo_list", {"action": "list"}, dm4)
     items = _j(r).get("items", [])
     cl.check(
         "no demotion with remaining child",
@@ -114,7 +114,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
     )
 
     # Unknown action (schema validation rejects removed actions before execution)
-    r = execute_tool("todo_list", {"action": "get_all"}, {})
+    r, _ = execute_tool("todo_list", {"action": "get_all"}, {})
     cl.check(
         "unknown action",
         "Old action 'get_all' is rejected",

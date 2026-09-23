@@ -21,7 +21,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
     sd: dict = {}
 
     # add_item appends a reminder showing the resulting list.
-    r = execute_tool(
+    r, _ = execute_tool(
         "todo_list", {"action": "add_item", "parent_path": "", "text": "one"}, sd
     )
     cl.check(
@@ -32,7 +32,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
     )
 
     # add_many_items appends a reminder.
-    r = execute_tool(
+    r, _ = execute_tool(
         "todo_list",
         {"action": "add_many_items", "parent_path": "", "texts": ["two", "three"]},
         sd,
@@ -45,7 +45,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
     )
 
     # delete_item appends a reminder.
-    r = execute_tool("todo_list", {"action": "delete_item", "item_path": "3"}, sd)
+    r, _ = execute_tool("todo_list", {"action": "delete_item", "item_path": "3"}, sd)
     reminder = r.split("\n\n" + _MARKER, 1)[1] if _MARKER in r else ""
     cl.check(
         "reminder on delete_item",
@@ -55,7 +55,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
     )
 
     # update_item changes text only (not structure) -> NO reminder.
-    r = execute_tool(
+    r, _ = execute_tool(
         "todo_list", {"action": "update_item", "item_path": "1", "text": "one!"}, sd
     )
     cl.check(
@@ -66,7 +66,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
     )
 
     # close_item is status-only -> NO reminder.
-    r = execute_tool("todo_list", {"action": "close_item", "item_path": "1"}, sd)
+    r, _ = execute_tool("todo_list", {"action": "close_item", "item_path": "1"}, sd)
     cl.check(
         "no reminder on close_item",
         "close_item does not append a reminder",
@@ -75,7 +75,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
     )
 
     # reopen_item is status-only -> NO reminder.
-    r = execute_tool("todo_list", {"action": "reopen_item", "item_path": "1"}, sd)
+    r, _ = execute_tool("todo_list", {"action": "reopen_item", "item_path": "1"}, sd)
     cl.check(
         "no reminder on reopen_item",
         "reopen_item does not append a reminder",
@@ -84,7 +84,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
     )
 
     # close_many_items is status-only -> NO reminder.
-    r = execute_tool(
+    r, _ = execute_tool(
         "todo_list", {"action": "close_many_items", "item_paths": ["1"]}, sd
     )
     cl.check(
@@ -95,8 +95,8 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
     )
 
     # list / list_formatted / get_item are read-only -> NO reminder.
-    r_list = execute_tool("todo_list", {"action": "list"}, sd)
-    r_fmt = execute_tool("todo_list", {"action": "list_formatted"}, sd)
+    r_list, _ = execute_tool("todo_list", {"action": "list"}, sd)
+    r_fmt, _ = execute_tool("todo_list", {"action": "list_formatted"}, sd)
     cl.check(
         "no reminder on reads",
         "Read-only actions do not append a reminder",
@@ -105,7 +105,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
     )
 
     # clear appends a reminder showing the now-empty list.
-    r = execute_tool("todo_list", {"action": "clear"}, sd)
+    r, _ = execute_tool("todo_list", {"action": "clear"}, sd)
     cl.check(
         "reminder on clear",
         "clear appends the resulting-list reminder (empty list)",

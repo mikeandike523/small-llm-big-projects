@@ -15,7 +15,7 @@ def run(env: TestEnv, server: MicroServer | None = None):
             f.write("apple banana cherry")
 
         # matching pattern
-        r = execute_tool(
+        r, _ = execute_tool(
             "search_filesystem_by_regex",
             {"pattern": "banana", "path": env.tmp_dir},
             env.session_data,
@@ -28,7 +28,7 @@ def run(env: TestEnv, server: MicroServer | None = None):
         )
 
         # non-matching pattern
-        r2 = execute_tool(
+        r2, _ = execute_tool(
             "search_filesystem_by_regex",
             {"pattern": "mango_xyz_not_here", "path": env.tmp_dir},
             env.session_data,

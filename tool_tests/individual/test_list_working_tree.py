@@ -26,7 +26,7 @@ def run(env: TestEnv, server: MicroServer | None = None):
     try:
         os.chdir(project_root)
 
-        r = execute_tool("list_working_tree", {}, env.session_data)
+        r, _ = execute_tool("list_working_tree", {}, env.session_data)
         cl.check(
             "non-empty result",
             "Returns a non-empty listing of the working tree",

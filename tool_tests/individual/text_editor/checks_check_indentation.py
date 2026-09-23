@@ -7,7 +7,7 @@ from src.tools import execute_tool
 def add_checks(cl: CheckList, env: TestEnv) -> None:
     # Spaces-indented code
     env.session_data["memory"]["ci_spaces"] = "def foo():\n    pass\n    return 1\n"
-    r = execute_tool(
+    r, _ = execute_tool(
         "text_editor",
         {"action": "check_indentation", "key": "ci_spaces"},
         env.session_data,
@@ -24,7 +24,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
 
     # Tabs-indented code
     env.session_data["memory"]["ci_tabs"] = "def foo():\n\tpass\n\treturn 1\n"
-    r = execute_tool(
+    r, _ = execute_tool(
         "text_editor",
         {"action": "check_indentation", "key": "ci_tabs"},
         env.session_data,
@@ -39,7 +39,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
 
     # No indentation
     env.session_data["memory"]["ci_flat"] = "foo\nbar\nbaz\n"
-    r = execute_tool(
+    r, _ = execute_tool(
         "text_editor",
         {"action": "check_indentation", "key": "ci_flat"},
         env.session_data,

@@ -18,7 +18,7 @@ def _j(r: str) -> dict:
 
 
 def add_checks(cl: CheckList, env: TestEnv) -> None:
-    r = execute_tool(
+    r, _ = execute_tool(
         "todo_list", {"action": "close_item", "item_path": "1"}, env.session_data
     )
     d = _j(r)
@@ -29,7 +29,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
         f"got: {r!r}",
     )
 
-    r = execute_tool("todo_list", {"action": "list"}, env.session_data)
+    r, _ = execute_tool("todo_list", {"action": "list"}, env.session_data)
     items = _j(r).get("items", [])
     cl.check(
         "close_item reflected in list",
@@ -38,7 +38,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
         f"got: {items!r}",
     )
 
-    r = execute_tool("todo_list", {"action": "list_formatted"}, env.session_data)
+    r, _ = execute_tool("todo_list", {"action": "list_formatted"}, env.session_data)
     cl.check(
         "list_formatted closed checkbox",
         "Closed item shows [x] in formatted output",
@@ -46,7 +46,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
         f"got: {r!r}",
     )
 
-    r = execute_tool(
+    r, _ = execute_tool(
         "todo_list", {"action": "reopen_item", "item_path": "1"}, env.session_data
     )
     cl.check(

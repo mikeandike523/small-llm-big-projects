@@ -9,7 +9,7 @@ def run(env: TestEnv, server: MicroServer | None = None):
     cl = CheckList("report_impossible")
     try:
         reason_text = "Cannot complete the task because required data is unavailable."
-        r = execute_tool("report_impossible", {"reason": reason_text}, env.session_data)
+        r, _ = execute_tool("report_impossible", {"reason": reason_text}, env.session_data)
 
         cl.check(
             "returns reason string",

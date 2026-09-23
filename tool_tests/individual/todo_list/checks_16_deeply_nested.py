@@ -31,7 +31,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
         gn,
     )
 
-    r = execute_tool("todo_list", {"action": "get_item", "item_path": "1.1.1"}, gn)
+    r, _ = execute_tool("todo_list", {"action": "get_item", "item_path": "1.1.1"}, gn)
     cl.check(
         "grandchild get_item",
         "Grandchild text is 'grandchild'",
@@ -39,7 +39,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
         f"got: {r!r}",
     )
 
-    r = execute_tool("todo_list", {"action": "list_formatted"}, gn)
+    r, _ = execute_tool("todo_list", {"action": "list_formatted"}, gn)
     cl.check(
         "grandchild in formatted tree",
         "Full tree shows grandchild at path 1.1.1.",

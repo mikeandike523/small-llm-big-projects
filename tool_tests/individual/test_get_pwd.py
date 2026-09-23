@@ -13,7 +13,7 @@ def run(env: TestEnv, server: MicroServer | None = None):
     expected = env.tmp_dir.replace("\\", "/")
     try:
         # basic call — should return the session cwd (forward-slash form)
-        r = execute_tool("get_pwd", {}, env.session_data, sr)
+        r, _ = execute_tool("get_pwd", {}, env.session_data, sr)
         cl.check(
             "returns session cwd",
             "Returns the session cwd as a forward-slash path",
@@ -22,7 +22,7 @@ def run(env: TestEnv, server: MicroServer | None = None):
         )
 
         # target=session_memory stores result in memory
-        r2 = execute_tool(
+        r2, _ = execute_tool(
             "get_pwd",
             {"target": "session_memory", "memory_key": "pwd_result"},
             env.session_data,

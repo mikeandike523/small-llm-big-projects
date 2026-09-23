@@ -14,7 +14,7 @@ def run(env: TestEnv, server: MicroServer | None = None):
         with open(target_path, "w", encoding="utf-8") as f:
             f.write("temporary content")
 
-        r = execute_tool("delete_file", {"path": target_path}, env.session_data)
+        r, _ = execute_tool("delete_file", {"path": target_path}, env.session_data)
         cl.check(
             "delete result",
             "Result indicates the file was deleted",
@@ -29,7 +29,7 @@ def run(env: TestEnv, server: MicroServer | None = None):
         )
 
         # delete non-existent file — should return an error-like message
-        r2 = execute_tool("delete_file", {"path": target_path}, env.session_data)
+        r2, _ = execute_tool("delete_file", {"path": target_path}, env.session_data)
         cl.check(
             "non-existent error",
             "Returns error message for a non-existent file",

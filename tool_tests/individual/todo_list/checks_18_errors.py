@@ -24,7 +24,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
     )
 
     # item_path doesn't exist
-    r = execute_tool("todo_list", {"action": "get_item", "item_path": "99"}, err_s)
+    r, _ = execute_tool("todo_list", {"action": "get_item", "item_path": "99"}, err_s)
     d = _j(r)
     cl.check(
         "error item not found",
@@ -40,7 +40,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
     )
 
     # parent_path doesn't exist
-    r = execute_tool(
+    r, _ = execute_tool(
         "todo_list", {"action": "add_item", "parent_path": "5", "text": "x"}, err_s
     )
     d = _j(r)
@@ -52,7 +52,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
     )
 
     # before out of range
-    r = execute_tool(
+    r, _ = execute_tool(
         "todo_list",
         {"action": "add_item", "parent_path": "", "before": 99, "text": "x"},
         err_s,
@@ -72,7 +72,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
     )
 
     # after out of range
-    r = execute_tool(
+    r, _ = execute_tool(
         "todo_list",
         {"action": "add_item", "parent_path": "", "after": 99, "text": "x"},
         err_s,
@@ -86,7 +86,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
     )
 
     # before and after both given
-    r = execute_tool(
+    r, _ = execute_tool(
         "todo_list",
         {"action": "add_item", "parent_path": "", "before": 1, "after": 1, "text": "x"},
         err_s,
@@ -107,7 +107,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
 
     # before on empty list
     empty_s: dict = {}
-    r = execute_tool(
+    r, _ = execute_tool(
         "todo_list",
         {"action": "add_item", "parent_path": "", "before": 1, "text": "x"},
         empty_s,
@@ -121,7 +121,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
     )
 
     # Missing required args
-    r = execute_tool("todo_list", {"action": "add_item"}, err_s)
+    r, _ = execute_tool("todo_list", {"action": "add_item"}, err_s)
     cl.check(
         "error add_item missing text",
         "add_item without text returns error",
@@ -129,7 +129,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
         f"got: {r!r}",
     )
 
-    r = execute_tool(
+    r, _ = execute_tool(
         "todo_list", {"action": "add_many_items", "parent_path": ""}, err_s
     )
     cl.check(
@@ -139,7 +139,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
         f"got: {r!r}",
     )
 
-    r = execute_tool("todo_list", {"action": "get_item"}, err_s)
+    r, _ = execute_tool("todo_list", {"action": "get_item"}, err_s)
     cl.check(
         "error get_item missing path",
         "get_item without item_path returns error",
@@ -147,7 +147,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
         f"got: {r!r}",
     )
 
-    r = execute_tool("todo_list", {"action": "update_item", "item_path": "1"}, err_s)
+    r, _ = execute_tool("todo_list", {"action": "update_item", "item_path": "1"}, err_s)
     cl.check(
         "error update_item missing text",
         "update_item without text returns error",
@@ -160,7 +160,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
     execute_tool(
         "todo_list", {"action": "add_item", "parent_path": "", "text": "leaf"}, nav_s
     )
-    r = execute_tool("todo_list", {"action": "get_item", "item_path": "1.1"}, nav_s)
+    r, _ = execute_tool("todo_list", {"action": "get_item", "item_path": "1.1"}, nav_s)
     d = _j(r)
     cl.check(
         "error navigate through leaf",

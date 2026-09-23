@@ -31,7 +31,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
 
     # Close one child — parent stays open
     execute_tool("todo_list", {"action": "close_item", "item_path": "1.1"}, dc)
-    r = execute_tool("todo_list", {"action": "list"}, dc)
+    r, _ = execute_tool("todo_list", {"action": "list"}, dc)
     root_item = _j(r).get("items", [{}])[0]
     cl.check(
         "promoted partial close stays open",
@@ -42,7 +42,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
 
     # Close second child — parent becomes closed
     execute_tool("todo_list", {"action": "close_item", "item_path": "1.2"}, dc)
-    r = execute_tool("todo_list", {"action": "list"}, dc)
+    r, _ = execute_tool("todo_list", {"action": "list"}, dc)
     root_item = _j(r).get("items", [{}])[0]
     cl.check(
         "promoted all children closed",

@@ -18,7 +18,7 @@ def _j(r: str) -> dict:
 
 
 def add_checks(cl: CheckList, env: TestEnv) -> None:
-    r = execute_tool(
+    r, _ = execute_tool(
         "todo_list",
         {"action": "add_item", "parent_path": "", "text": "step one"},
         env.session_data,
@@ -31,7 +31,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
         f"got: {r!r}",
     )
 
-    r = execute_tool(
+    r, _ = execute_tool(
         "todo_list",
         {"action": "add_item", "parent_path": "", "text": "step two"},
         env.session_data,
@@ -44,7 +44,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
         f"got: {r!r}",
     )
 
-    r = execute_tool(
+    r, _ = execute_tool(
         "todo_list",
         {"action": "add_item", "parent_path": "", "text": "step three"},
         env.session_data,

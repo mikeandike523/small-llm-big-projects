@@ -6,7 +6,7 @@ from src.tools import execute_tool
 
 def add_checks(cl: CheckList, env: TestEnv) -> None:
     env.session_data["memory"]["cl_multi"] = "a\nb\nc\n"
-    r = execute_tool(
+    r, _ = execute_tool(
         "text_editor", {"action": "count_lines", "key": "cl_multi"}, env.session_data
     )
     cl.check(
@@ -18,7 +18,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
 
     # Trailing newline does not add a phantom line
     env.session_data["memory"]["cl_trail"] = "x\ny\n"
-    r = execute_tool(
+    r, _ = execute_tool(
         "text_editor", {"action": "count_lines", "key": "cl_trail"}, env.session_data
     )
     cl.check(
@@ -30,7 +30,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
 
     # Single line without trailing newline
     env.session_data["memory"]["cl_single"] = "hello"
-    r = execute_tool(
+    r, _ = execute_tool(
         "text_editor", {"action": "count_lines", "key": "cl_single"}, env.session_data
     )
     cl.check(
@@ -42,7 +42,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
 
     # Empty string
     env.session_data["memory"]["cl_empty"] = ""
-    r = execute_tool(
+    r, _ = execute_tool(
         "text_editor", {"action": "count_lines", "key": "cl_empty"}, env.session_data
     )
     cl.check(

@@ -379,7 +379,7 @@ def main() -> None:
     }
 
     try:
-        result = execute_tool(tool_name, args, session_data, special_resources)
+        result, _ = execute_tool(tool_name, args, session_data, special_resources)
         if _had_chunks[0]:
             sys.stdout.buffer.write(b"\n")
         sys.stdout.buffer.write((result + "\n").encode("utf-8", errors="replace"))

@@ -9,7 +9,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
     path = os.path.join(env.tmp_dir, "out.txt")
     content = "hello\nworld"
 
-    r = execute_tool(
+    r, _ = execute_tool(
         "write_text_file", {"path": path, "content": content}, env.session_data
     )
     cl.check(
@@ -36,7 +36,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
 
     # create_parents flag
     nested = os.path.join(env.tmp_dir, "sub", "dir", "nested.txt")
-    r = execute_tool(
+    r, _ = execute_tool(
         "write_text_file",
         {"path": nested, "content": "x", "create_parents": True},
         env.session_data,
@@ -50,7 +50,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
 
     # parent dir missing without create_parents
     missing_parent = os.path.join(env.tmp_dir, "no_such_dir", "file.txt")
-    r = execute_tool(
+    r, _ = execute_tool(
         "write_text_file", {"path": missing_parent, "content": "x"}, env.session_data
     )
     cl.check(
@@ -61,7 +61,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
     )
 
     # mutually exclusive args
-    r = execute_tool(
+    r, _ = execute_tool(
         "write_text_file",
         {"path": path, "content": "a", "session_memory_key": "k"},
         env.session_data,
@@ -73,7 +73,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
         f"got: {r!r}",
     )
 
-    r = execute_tool("write_text_file", {"path": path}, env.session_data)
+    r, _ = execute_tool("write_text_file", {"path": path}, env.session_data)
     cl.check(
         "neither arg error",
         "Returns error when neither content nor session_memory_key is given",

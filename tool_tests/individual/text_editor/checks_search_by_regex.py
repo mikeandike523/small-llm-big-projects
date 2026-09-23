@@ -10,7 +10,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
     env.session_data["memory"][_KEY] = "alpha\nbeta\ngamma\nalpha again\n"
 
     # Matching lines reported
-    r = execute_tool(
+    r, _ = execute_tool(
         "text_editor",
         {"action": "search_by_regex", "key": _KEY, "pattern": "alpha"},
         env.session_data,
@@ -35,7 +35,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
     )
 
     # No matches
-    r = execute_tool(
+    r, _ = execute_tool(
         "text_editor",
         {"action": "search_by_regex", "key": _KEY, "pattern": "zzznothere"},
         env.session_data,
@@ -48,7 +48,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
     )
 
     # Invalid regex
-    r = execute_tool(
+    r, _ = execute_tool(
         "text_editor",
         {"action": "search_by_regex", "key": _KEY, "pattern": "["},
         env.session_data,
@@ -61,7 +61,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
     )
 
     # Missing pattern arg
-    r = execute_tool(
+    r, _ = execute_tool(
         "text_editor", {"action": "search_by_regex", "key": _KEY}, env.session_data
     )
     cl.check(
@@ -73,7 +73,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
 
     # Empty content
     env.session_data["memory"]["sr_empty"] = ""
-    r = execute_tool(
+    r, _ = execute_tool(
         "text_editor",
         {"action": "search_by_regex", "key": "sr_empty", "pattern": "."},
         env.session_data,

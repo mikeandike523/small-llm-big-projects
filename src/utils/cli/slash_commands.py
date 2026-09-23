@@ -50,7 +50,7 @@ def _handle_memory_command(
     if action == "list-items":
         if args:
             return f"Unexpected arguments for /{scope} list-items.\n{_usage(scope)}"
-        tool_result = execute_tool(f"{scope_key}_list_variables", {}, session_data)
+        tool_result, _ = execute_tool(f"{scope_key}_list_variables", {}, session_data)
         return _format_tool_result(tool_result)
 
     if action == "set-item":
@@ -61,7 +61,7 @@ def _handle_memory_command(
         value = (
             _coerce_session_value(raw_value) if scope == "session-memory" else raw_value
         )
-        tool_result = execute_tool(
+        tool_result, _ = execute_tool(
             f"{scope_key}_set_variable",
             {"key": key, "value": value},
             session_data,
@@ -71,7 +71,7 @@ def _handle_memory_command(
     if action == "delete-item":
         if len(args) != 1:
             return f"Invalid arguments for /{scope} delete-item.\n{_usage(scope)}"
-        tool_result = execute_tool(
+        tool_result, _ = execute_tool(
             f"{scope_key}_delete_variable",
             {"key": args[0]},
             session_data,

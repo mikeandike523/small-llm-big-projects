@@ -22,7 +22,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
     execute_tool(
         "todo_list", {"action": "add_item", "parent_path": "", "text": "only task"}, ad
     )
-    r = execute_tool("todo_list", {"action": "close_item", "item_path": "1"}, ad)
+    r, _ = execute_tool("todo_list", {"action": "close_item", "item_path": "1"}, ad)
     msg = _j(r).get("message", "")
     cl.check(
         "all done message",
@@ -39,7 +39,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
     execute_tool(
         "todo_list", {"action": "add_item", "parent_path": "1", "text": "child"}, ad2
     )
-    r = execute_tool("todo_list", {"action": "close_item", "item_path": "1.1"}, ad2)
+    r, _ = execute_tool("todo_list", {"action": "close_item", "item_path": "1.1"}, ad2)
     msg = _j(r).get("message", "")
     cl.check(
         "all done via promoted item",
@@ -56,7 +56,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
     execute_tool(
         "todo_list", {"action": "add_item", "parent_path": "", "text": "task 2"}, ad3
     )
-    r = execute_tool("todo_list", {"action": "close_item", "item_path": "1"}, ad3)
+    r, _ = execute_tool("todo_list", {"action": "close_item", "item_path": "1"}, ad3)
     msg = _j(r).get("message", "")
     cl.check(
         "no all-done with open items",

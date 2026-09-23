@@ -47,6 +47,7 @@ from src.tools import wikipedia
 from src.tools import write_text_file
 from src.utils.tool_calling.arguments import validate_tool_args
 from src.tools.config import TOOL_OUTPUT_MAX_COLUMNS
+from src.config.tool_execution import MAX_TOOL_DELEGATION_HOPS
 from src.utils.text_truncation import truncate_long_lines
 
 
@@ -292,44 +293,160 @@ def validate_no_reserved_params(tool_map: dict) -> str | None:
     return None
 
 
+# ---------------------------------------------------------------------------
+# Tool wrapping: NextTool delegation
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class NextTool:
+    """Returned by needs_approval/dirty_effects/execute instead of their normal
+    terminal value (bool/dict/str) to mean "resolve this by delegating to
+    another tool call instead." See custom_tool_guide.md's wrapping section.
+    """
+
+    name: str
+    args: dict
+
+
+class ToolDelegationError(RuntimeError):
+    """A NextTool chain is broken: unknown target, a cycle, too many hops, or
+    two of the three chains (needs_approval/dirty_effects/execute) disagreeing
+    about where to delegate at the same step. Always carries a specific,
+    actionable message — never a bare/generic one.
+    """
+
+
+def _walk_delegation_chain(start_name, start_args, tool_map, call_fn):
+    """Follow a NextTool chain to its terminal value.
+
+    call_fn(module, args) returns the hop's raw result — a terminal value
+    (whatever type the caller cares about) or a NextTool to keep going.
+    Returns (terminal_value, hop_path), where hop_path is the full list of
+    NextTool(name, args) visited, starting with the original call (hop 0).
+    Comparing two hop_paths element-by-element (NextTool has dataclass
+    equality on name+args) is what the cross-chain divergence check uses.
+    """
+    hop_path: list[NextTool] = [NextTool(start_name, start_args)]
+    visited: set[str] = {start_name}
+    current_name, current_args = start_name, start_args
+
+    while True:
+        module = tool_map.get(current_name)
+        if module is None:
+            raise ToolDelegationError(
+                f"NextTool delegation chain (starting at {start_name!r}) references "
+                f"unknown tool {current_name!r}. Check for a typo, or a missing "
+                "plugin/skill load."
+            )
+
+        result = call_fn(module, current_args)
+        if not isinstance(result, NextTool):
+            return result, hop_path
+
+        if result.name in visited:
+            raise ToolDelegationError(
+                f"NextTool delegation cycle detected (starting at {start_name!r}): "
+                f"{result.name!r} was reached twice in one chain. Cyclic delegation "
+                "is never legitimate here (there is no eager/lazy evaluation to make "
+                "revisiting a tool meaningful) — check the delegating tool's logic."
+            )
+        if len(hop_path) >= MAX_TOOL_DELEGATION_HOPS:
+            raise ToolDelegationError(
+                f"NextTool delegation chain (starting at {start_name!r}) exceeded "
+                f"the maximum of {MAX_TOOL_DELEGATION_HOPS} hops "
+                f"(src.config.tool_execution.MAX_TOOL_DELEGATION_HOPS) while trying "
+                f"to reach {result.name!r}. This usually means an unintentionally "
+                "long or effectively-cyclic delegation chain — check each tool's "
+                "needs_approval/dirty_effects/execute for where it delegates."
+            )
+
+        visited.add(result.name)
+        hop_path.append(result)
+        current_name, current_args = result.name, result.args
+
+
+def _check_hop_paths_agree(named_paths: dict) -> None:
+    """Cross-check hop paths from different chains (needs_approval/dirty_effects/
+    execute) that were all resolved for the SAME top-level tool call.
+
+    Whenever two chains are both still delegating (both have a NextTool) at
+    the same step, their target must match exactly (name AND args) — this is
+    what stops a wrapper whose approval decision doesn't correspond to what it
+    actually executes. Raises on the first mismatch found.
+    """
+    items = list(named_paths.items())
+    for i in range(len(items)):
+        label_i, path_i = items[i]
+        for j in range(i + 1, len(items)):
+            label_j, path_j = items[j]
+            for k in range(min(len(path_i), len(path_j))):
+                if path_i[k] != path_j[k]:
+                    raise ToolDelegationError(
+                        f"NextTool delegation mismatch at hop {k}: the {label_i!r} "
+                        f"chain delegates to {path_i[k].name!r} (args={path_i[k].args!r}) "
+                        f"while the {label_j!r} chain delegates to "
+                        f"{path_j[k].name!r} (args={path_j[k].args!r}). "
+                        "needs_approval/dirty_effects/execute must delegate to the "
+                        "exact same tool and args whenever more than one of them is "
+                        "still delegating at the same step — this is a hard error to "
+                        "prevent a wrapper's approval/dirty-tracking from silently "
+                        "diverging from what it actually executes."
+                    )
+
+
 def check_needs_approval(
     name: str,
     args: dict,
     tool_map: dict | None = None,
     session_data: dict | None = None,
     special_resources: dict | None = None,
-) -> bool:
-    """Return True if this tool call requires user approval before executing.
+) -> tuple[bool, list["NextTool"]]:
+    """Return (needs_approval, hop_path) for this tool call.
 
-    Short-circuits immediately to True when request_unredacted=True is present —
-    the tool's own needs_approval is never consulted in that case. This is a hard
-    gate: bypassing the redactor always requires explicit user permission, with no
-    code path that can reach execution without it.
+    Short-circuits immediately to (True, [NextTool(name, args)]) when
+    request_unredacted=True is present — the tool's own needs_approval is
+    never consulted in that case. This is a hard gate: bypassing the
+    redactor always requires explicit user permission, with no code path
+    that can reach execution without it.
 
-    Built-in tools should expose needs_approval(args, session_data=None,
-    special_resources=None). special_resources carries framework-owned context
-    such as approval_mode and the current session cwd. The fallback arity checks
-    below are kept so older custom tools remain compatible.
+    Otherwise follows needs_approval's NextTool chain (see
+    custom_tool_guide.md's wrapping section) — a tool with no needs_approval
+    of its own (at any hop) terminates the chain at False. Built-in tools
+    should expose needs_approval(args, session_data=None,
+    special_resources=None); the fallback arity checks below keep older
+    custom tools compatible.
     """
     # Hard gate: request_unredacted=True forces approval unconditionally.
     # Do NOT call the tool's needs_approval — the answer is already True.
     if args.get("request_unredacted"):
-        return True
+        return True, [NextTool(name, args)]
 
-    module = (tool_map if tool_map is not None else _TOOL_MAP).get(name)
-    if module is None:
-        return False
-    fn = getattr(module, "needs_approval", None)
-    if fn is None:
-        return False
+    actual_map = tool_map if tool_map is not None else _TOOL_MAP
 
-    clean_args = {k: v for k, v in args.items() if k not in _RESERVED_TOOL_PARAMS}
-    fn_special_resources = dict(special_resources or {})
-    if _accepts_special_resources(fn):
-        return bool(fn(clean_args, session_data, fn_special_resources))
-    if _accepts_session_data(fn):
-        return bool(fn(clean_args, session_data))
-    return bool(fn(clean_args))
+    def _call(module, hop_args):
+        # request_unredacted can also appear partway through a chain (a hop's
+        # own constructed delegation args) — same hard gate, re-checked per hop.
+        if hop_args.get("request_unredacted"):
+            return True
+        fn = getattr(module, "needs_approval", None)
+        if fn is None:
+            return False
+        clean_args = {
+            k: v for k, v in hop_args.items() if k not in _RESERVED_TOOL_PARAMS
+        }
+        fn_special_resources = dict(special_resources or {})
+        if _accepts_special_resources(fn):
+            result = fn(clean_args, session_data, fn_special_resources)
+        elif _accepts_session_data(fn):
+            result = fn(clean_args, session_data)
+        else:
+            result = fn(clean_args)
+        if isinstance(result, NextTool):
+            return result
+        return bool(result)
+
+    return _walk_delegation_chain(name, args, actual_map, _call)
 
 
 def _accepts_session_data(fn) -> bool:
@@ -345,20 +462,31 @@ def get_dirty_effects(
     args: dict,
     session_data: dict | None = None,
     tool_map: dict | None = None,
-) -> dict:
-    """Return the dirty effects dict for a tool call, or {} if the tool defines none."""
-    module = (tool_map if tool_map is not None else _TOOL_MAP).get(name)
-    if module is None:
-        return {}
-    fn = getattr(module, "dirty_effects", None)
-    if fn is None:
-        return {}
-    try:
+) -> tuple[dict, list["NextTool"]]:
+    """Return (dirty_effects, hop_path) for a tool call — {} if the tool (at
+    the terminal hop) defines none. Follows dirty_effects's NextTool chain
+    like the other two — see custom_tool_guide.md's wrapping section.
+    """
+    actual_map = tool_map if tool_map is not None else _TOOL_MAP
+
+    def _call(module, hop_args):
+        fn = getattr(module, "dirty_effects", None)
+        if fn is None:
+            return {}
         if session_data is not None and _accepts_session_data(fn):
-            return fn(args, session_data) or {}
-        return fn(args) or {}
+            result = fn(hop_args, session_data)
+        else:
+            result = fn(hop_args)
+        if isinstance(result, NextTool):
+            return result
+        return result or {}
+
+    try:
+        return _walk_delegation_chain(name, args, actual_map, _call)
+    except ToolDelegationError:
+        raise
     except Exception:
-        return {}
+        return {}, [NextTool(name, args)]
 
 
 def _accepts_special_resources(fn) -> bool:
@@ -375,42 +503,72 @@ def execute_tool(
     session_data: dict | None = None,
     special_resources: dict | None = None,
     tool_map: dict | None = None,
-) -> str:
+) -> tuple[str, list["NextTool"]]:
+    """Execute a tool call, following its execute's NextTool chain if any.
+
+    Returns (result, hop_path). Redaction/bypass/NO_STUB are decided using
+    the STRICTEST value seen across every hop in the chain, never loosened
+    by a later hop — see custom_tool_guide.md's wrapping section. This is
+    what makes wrapping safe by default: a wrapper around a redacted tool
+    redacts even if the wrapper's own module never declares ENABLE_REDACTION.
+    NO_STUB is computed by the caller (tool_execution.py) from the returned
+    hop_path, since stubbing is applied outside execute_tool.
+    """
     actual_map = tool_map if tool_map is not None else _TOOL_MAP
-    module = actual_map.get(name)
-    if module is None:
-        return f"Unknown tool: {name!r}"
     if session_data is None:
         session_data = {}
 
-    # Determine bypass before stripping args: request_unredacted=True AND the tool
-    # both opted into redaction and allows the bypass. All three conditions must
-    # hold — a tool with ENABLE_REDACTION=False never had anything to bypass, and
-    # ALLOW_REQUEST_UNREDACTED=False means bypass is impossible even if requested.
-    enable_redaction = bool(getattr(module, "ENABLE_REDACTION", False))
-    allow_unredacted = bool(getattr(module, "ALLOW_REQUEST_UNREDACTED", True))
-    requested_unredacted = bool(args.get("request_unredacted"))
-    bypass_redaction = enable_redaction and allow_unredacted and requested_unredacted
+    # Accumulated monotonically across hops — see the module docstring above.
+    # enable_redaction/allow_unredacted only ever get MORE restrictive;
+    # requested_unredacted is an OR (asked for anywhere in the chain counts).
+    redaction_state = {
+        "enable_redaction": False,
+        "allow_unredacted": True,
+        "requested_unredacted": False,
+    }
 
-    # Strip framework-managed params before validation and execution so tool code
-    # never sees them and validate_tool_args doesn't reject them as extra properties.
-    clean_args = {k: v for k, v in args.items() if k not in _RESERVED_TOOL_PARAMS}
+    def _call(module, hop_args):
+        redaction_state["enable_redaction"] = redaction_state[
+            "enable_redaction"
+        ] or bool(getattr(module, "ENABLE_REDACTION", False))
+        redaction_state["allow_unredacted"] = redaction_state[
+            "allow_unredacted"
+        ] and bool(getattr(module, "ALLOW_REQUEST_UNREDACTED", True))
+        redaction_state["requested_unredacted"] = redaction_state[
+            "requested_unredacted"
+        ] or bool(hop_args.get("request_unredacted"))
+        bypass_so_far = (
+            redaction_state["enable_redaction"]
+            and redaction_state["allow_unredacted"]
+            and redaction_state["requested_unredacted"]
+        )
 
-    try:
+        # Strip framework-managed params before validation/execution so tool
+        # code never sees them and validate_tool_args doesn't reject them as
+        # extra properties.
+        clean_args = {
+            k: v for k, v in hop_args.items() if k not in _RESERVED_TOOL_PARAMS
+        }
         validate_tool_args(module.DEFINITION, clean_args)
+
         fn = module.execute
         if special_resources is not None and _accepts_special_resources(fn):
-            # Pass a fresh copy (never mutate the caller's dict, which is reused
-            # across every tool call in the turn) carrying the resolved bypass
-            # decision. Tools that write raw content into session memory as a
-            # side effect (not via their return value) use this to redact that
-            # write themselves — the central redaction below only ever sees
-            # their return value, not memory side effects.
+            # Fresh copy per hop (never mutate the caller's dict, which is
+            # reused across every tool call in the turn) carrying the
+            # best-known-so-far bypass decision. This is informational for
+            # this hop's own execute() (e.g. tools that redact a session-
+            # memory side effect themselves) — the actual redaction of the
+            # RETURNED string happens once, after the full chain resolves,
+            # using the final (fully strict) values, not this per-hop signal.
             fn_special_resources = dict(special_resources)
-            fn_special_resources["request_unredacted"] = bypass_redaction
+            fn_special_resources["request_unredacted"] = bypass_so_far
             result = fn(clean_args, session_data, fn_special_resources)
         else:
             result = fn(clean_args, session_data)
+        return result
+
+    try:
+        result, hop_path = _walk_delegation_chain(name, args, actual_map, _call)
     except (ToolHangError, ToolTimeoutError):
         raise
     except Exception as e:
@@ -419,18 +577,93 @@ def execute_tool(
             result = f"Failed to execute tool {name}:\n{tb}".rstrip()
         else:
             result = f"Failed to execute tool {name}:\n{e}"
+        return _truncate_columns(result), [NextTool(name, args)]
+
+    enable_redaction = redaction_state["enable_redaction"]
+    bypass_redaction = (
+        enable_redaction
+        and redaction_state["allow_unredacted"]
+        and redaction_state["requested_unredacted"]
+    )
 
     # Column truncation is applied last, AFTER redaction, so that secrets are
     # detected/replaced against the full text and truncation can never split a
     # secret and leak a partial value.
     if not enable_redaction or bypass_redaction:
-        return _truncate_columns(result)
+        return _truncate_columns(result), hop_path
 
     from src.redaction.core import redact as _redact
 
     _fp = args.get("path") or args.get("filepath") or None
     file_path = _fp if isinstance(_fp, str) else None
-    return _truncate_columns(_redact(file_path, result))
+    return _truncate_columns(_redact(file_path, result)), hop_path
+
+
+def extend_tool_definition(
+    original: dict, new: dict, remove_keys: list[str] | None = None
+) -> dict:
+    """Pure function: build a wrapper's DEFINITION by extending a wrapped
+    tool's DEFINITION with overrides, optionally dropping some parameters.
+
+    Never mutates `original` or `new` — always deep-copies first. This
+    matters: `original` is very often a shared, module-level DEFINITION dict
+    (e.g. a built-in tool's `DEFINITION`), reused by every session/thread in
+    the process — mutating it in place would corrupt it for everyone,
+    permanently.
+
+    Merge rules:
+      - top-level `type`: `new`'s value if present, else `original`'s
+        (defaults to "function").
+      - `function.name`/`function.description`: `new`'s value if present,
+        else `original`'s.
+      - `function.parameters.properties`: shallow-merged — keys present in
+        `new` override/add, every key not mentioned in `new` is kept from
+        `original`.
+      - `function.parameters.required`/`additionalProperties`/`type`: `new`'s
+        value if present (replaces entirely), else `original`'s.
+      - `remove_keys` is applied last: popped from the merged `properties`,
+        and stripped from the merged `required` list.
+    """
+    result = copy.deepcopy(original)
+    new = copy.deepcopy(new)
+
+    if "type" in new:
+        result["type"] = new["type"]
+    else:
+        result.setdefault("type", "function")
+
+    result_fn = result.setdefault("function", {})
+    new_fn = new.get("function", {})
+
+    if "name" in new_fn:
+        result_fn["name"] = new_fn["name"]
+    if "description" in new_fn:
+        result_fn["description"] = new_fn["description"]
+
+    result_params = result_fn.setdefault(
+        "parameters", {"type": "object", "properties": {}}
+    )
+    new_params = new_fn.get("parameters", {})
+
+    if "type" in new_params:
+        result_params["type"] = new_params["type"]
+    if "additionalProperties" in new_params:
+        result_params["additionalProperties"] = new_params["additionalProperties"]
+
+    result_props = result_params.setdefault("properties", {})
+    result_props.update(new_params.get("properties", {}))
+
+    if "required" in new_params:
+        result_params["required"] = list(new_params["required"])
+
+    for key in remove_keys or []:
+        result_props.pop(key, None)
+        if "required" in result_params and key in result_params["required"]:
+            result_params["required"] = [
+                r for r in result_params["required"] if r != key
+            ]
+
+    return result
 
 
 # ---------------------------------------------------------------------------

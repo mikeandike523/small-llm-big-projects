@@ -7,7 +7,7 @@ from src.tools import execute_tool
 def add_checks(cl: CheckList, env: TestEnv) -> None:
     # CRLF → LF
     env.session_data["memory"]["neol_crlf"] = "line1\r\nline2\r\nline3\r\n"
-    r = execute_tool(
+    r, _ = execute_tool(
         "text_editor",
         {"action": "normalize_eol", "key": "neol_crlf", "eol": "lf"},
         env.session_data,
@@ -55,7 +55,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
 
     # Missing eol arg
     env.session_data["memory"]["neol_x"] = "x\n"
-    r = execute_tool(
+    r, _ = execute_tool(
         "text_editor", {"action": "normalize_eol", "key": "neol_x"}, env.session_data
     )
     cl.check(

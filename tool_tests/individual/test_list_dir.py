@@ -22,7 +22,7 @@ def run(env: TestEnv, server: MicroServer | None = None):
             f.write("nested")
 
         # basic listing
-        r = execute_tool("list_dir", {"path": env.tmp_dir}, env.session_data)
+        r, _ = execute_tool("list_dir", {"path": env.tmp_dir}, env.session_data)
         cl.check(
             "lists file",
             "Listing includes the created file",
@@ -37,7 +37,7 @@ def run(env: TestEnv, server: MicroServer | None = None):
         )
 
         # recursive listing
-        r2 = execute_tool(
+        r2, _ = execute_tool(
             "list_dir", {"path": env.tmp_dir, "recursive": True}, env.session_data
         )
         cl.check(
@@ -48,7 +48,7 @@ def run(env: TestEnv, server: MicroServer | None = None):
         )
 
         # filter=files — should include the file, should not include the subdir name with trailing slash
-        r3 = execute_tool(
+        r3, _ = execute_tool(
             "list_dir",
             {"path": env.tmp_dir, "filter": "files", "recursive": True},
             env.session_data,

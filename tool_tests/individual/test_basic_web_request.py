@@ -14,7 +14,7 @@ def run(env: TestEnv, server: MicroServer | None = None):
             return cl.result()
 
         # GET /hello -> 200, body contains "hello world"
-        r = execute_tool(
+        r, _ = execute_tool(
             "basic_web_request",
             {
                 "url": f"{server.base_url}/hello",
@@ -39,7 +39,7 @@ def run(env: TestEnv, server: MicroServer | None = None):
         )
 
         # GET /json -> 200, JSON response with ok=true
-        r2 = execute_tool(
+        r2, _ = execute_tool(
             "basic_web_request",
             {
                 "url": f"{server.base_url}/json",
@@ -64,7 +64,7 @@ def run(env: TestEnv, server: MicroServer | None = None):
         )
 
         # POST /echo with body "testbody" -> JSON response has body="testbody"
-        r3 = execute_tool(
+        r3, _ = execute_tool(
             "basic_web_request",
             {
                 "url": f"{server.base_url}/echo",

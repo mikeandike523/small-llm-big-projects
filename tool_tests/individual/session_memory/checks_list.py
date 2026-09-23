@@ -10,7 +10,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
     mem["beta"] = "2"
     mem["gamma"] = "3"
 
-    r = execute_tool("session_memory", {"action": "list"}, env.session_data)
+    r, _ = execute_tool("session_memory", {"action": "list"}, env.session_data)
     keys = r.strip().splitlines()
     cl.check(
         "list: all",
@@ -19,7 +19,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
         f"got: {r!r}",
     )
 
-    r2 = execute_tool(
+    r2, _ = execute_tool(
         "session_memory", {"action": "list", "prefix": "al"}, env.session_data
     )
     cl.check(
@@ -29,7 +29,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
         f"got: {r2!r}",
     )
 
-    r3 = execute_tool(
+    r3, _ = execute_tool(
         "session_memory", {"action": "list", "limit": 1}, env.session_data
     )
     cl.check(

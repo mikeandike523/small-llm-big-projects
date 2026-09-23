@@ -12,7 +12,7 @@ def run(env: TestEnv, server: MicroServer | None = None):
         # remove an empty directory
         empty_dir = os.path.join(env.tmp_dir, "empty_to_remove")
         os.makedirs(empty_dir, exist_ok=True)
-        r = execute_tool("remove_dir", {"path": empty_dir}, env.session_data)
+        r, _ = execute_tool("remove_dir", {"path": empty_dir}, env.session_data)
         cl.check(
             "remove empty dir result",
             "Result indicates directory was removed",
@@ -33,7 +33,7 @@ def run(env: TestEnv, server: MicroServer | None = None):
             os.path.join(non_empty_dir, "inside.txt"), "w", encoding="utf-8"
         ) as f:
             f.write("content")
-        r2 = execute_tool(
+        r2, _ = execute_tool(
             "remove_dir", {"path": non_empty_dir, "recursive": True}, env.session_data
         )
         cl.check(
@@ -50,7 +50,7 @@ def run(env: TestEnv, server: MicroServer | None = None):
         )
 
         # remove non-existent directory — should return error
-        r3 = execute_tool(
+        r3, _ = execute_tool(
             "remove_dir",
             {"path": os.path.join(env.tmp_dir, "does_not_exist_xyz")},
             env.session_data,

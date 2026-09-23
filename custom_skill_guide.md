@@ -227,6 +227,49 @@ are guidance-only. The reverse (a tool plugin whose namespace matches no
 skill id at all) is a hard error at load time — see `custom_tool_guide.md`
 §6 for the exact message and the three ways to fix it.
 
+### Worked example: `stock_info`
+
+A skill paired with a tool that **wraps** a built-in
+(`custom_tool_guide.md` §11) — `stock_info_get_quote` is really
+`basic_web_request` underneath, with a hardcoded URL shape and a single
+`ticker` argument instead of the general-purpose request parameters:
+
+```markdown
+<!-- skills/stock_info.md -->
+## Skill: Stock Quotes
+
+Use `stock_info_get_quote` to fetch a free stock quote (date, time,
+open/high/low/close, volume) for a ticker symbol.
+
+### Workflow
+
+1. Call `stock_info_get_quote(ticker="AAPL")` (or whichever ticker).
+2. The result is raw CSV text — the first line is a header, the second is
+   the data row. Parse it directly; no further tool call is needed for a
+   simple quote lookup.
+
+### Tips
+
+- Ticker symbols are case-insensitive.
+- This wraps `basic_web_request` against a free, no-key quote endpoint —
+  treat a fetch failure as a possible upstream/network issue, not a bug in
+  the ticker itself, before assuming the symbol is wrong.
+```
+
+```text
+tools/
+  stock_info/
+    __init__.py        # empty — namespace defaults to "stock_info"
+    get_quote.py        # DEFINITION via extend_tool_definition + execute -> NextTool
+```
+
+The tool side (`extend_tool_definition`, the `execute` implementation that
+returns `NextTool("basic_web_request", ...)`) is the full example in
+`custom_tool_guide.md` §11.5 — this skill file is what makes
+`tools/stock_info/` a valid namespace (§6) and is what the per-subturn
+selector actually sees (`id -- name -- blurb`, §5) when deciding whether
+`stock_info_get_quote` should be offered for a given request.
+
 ---
 
 ## 7. Dependencies

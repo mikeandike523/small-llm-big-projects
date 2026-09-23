@@ -2,8 +2,9 @@
 
 How to write custom tool plugins for `slbp`, what the loader requires for a
 tool to be *compliant* (loads without error) and *complete* (behaves like a
-first-class tool — approvals, redaction, dirty-tracking, etc. all work), and
-how imports resolve inside custom tool code.
+first-class tool — approvals, redaction, dirty-tracking, etc. all work), how
+imports resolve inside custom tool code, and how to wrap/compose another
+tool (§11).
 
 This guide describes the loading scheme as implemented in
 `src/tools/__init__.py` (`load_custom_tools`) and the tool-execution contract
@@ -43,7 +44,7 @@ subturns where its matching skill is active — see §6, and read
   which sets `custom_tools_path = <dir>/tools` (see `src/cli_routes/session.py`).
   The raw `POST /api/sessions` API also accepts an arbitrary
   `custom_tools_path`, but the CLI always uses this `{cwd}/tools` convention —
-  assume it unless you have a reason not to (see §12 on imports, where it
+  assume it unless you have a reason not to (see §13 on imports, where it
   matters).
 - Three loadable categories, all validated together at session creation:
   1. **Unscoped tools** — `.py` files directly in `tools/` (excluding the two
@@ -419,7 +420,172 @@ ALLOW_REQUEST_UNREDACTED = True    # default True; only meaningful if ENABLE_RED
 
 ---
 
-## 11. `special_resources` reference
+## 11. Tool wrapping — delegating with `NextTool`
+
+A tool can wrap/compose another tool (built-in or custom) by returning a
+`NextTool` instead of its normal terminal value. This is how you get a
+tool that's really "call `basic_web_request` with these specific,
+hardcoded-shape arguments" or "call `write_text_file` but reject one of its
+parameters" without reimplementing approval, redaction, validation,
+truncation, or dirty-tracking yourself — the central dispatcher
+(`src/tools/__init__.py`) follows the delegation and applies all of that
+exactly as it would for a directly-called tool.
+
+```python
+from src.tools import NextTool
+
+def execute(args, session_data, special_resources=None):
+    return NextTool("basic_web_request", {"url": build_url(args), "method": "GET"})
+```
+
+### 11.1 The three chains
+
+`needs_approval`, `dirty_effects`, and `execute` can each return a
+`NextTool(name, args)` instead of their normal terminal value (`bool`,
+`dict`, `str`). Whichever hop first returns something else ends that
+chain — there's no cap on how many hops other than `MAX_TOOL_DELEGATION_HOPS`
+(5, `src/config/tool_execution.py`); exceeding it, or a tool name reappearing
+in the same chain (a cycle), is always a hard error — there's no legitimate
+use for either, since delegation isn't eagerly evaluated.
+
+A missing function at any hop (not just the first) terminates that chain at
+its default: no `needs_approval` → not needed; no `dirty_effects` → `{}`.
+Each hop's args are validated against **that hop's own** `DEFINITION` before
+its `execute` runs — a wrapper that constructs a malformed delegated call
+fails loudly with a schema error, not silently.
+
+### 11.2 Redaction and stubbing: strictest across the whole chain, never loosened
+
+`ENABLE_REDACTION`, `ALLOW_REQUEST_UNREDACTED`, and `NO_STUB` are evaluated
+across **every hop the `execute` chain actually visits**, not just the tool
+the LLM nominally called:
+
+- If *any* hop sets `ENABLE_REDACTION = True`, the final result is redacted —
+  even if your wrapper never declares it itself. This is what makes wrapping
+  safe by default: wrap `read_text_file` and you inherit its redaction
+  whether you remembered to opt in or not.
+- If *any* hop sets `ALLOW_REQUEST_UNREDACTED = False`, the bypass is
+  forbidden for the whole call, regardless of what an earlier or later hop
+  allows.
+- If *any* hop sets `NO_STUB = True`, the result is never stubbed.
+
+None of these ever get *looser* partway through a chain — only stricter.
+One consequence worth knowing: whether the LLM can even *see* a
+`request_unredacted` parameter on your wrapper is decided when its
+`DEFINITION` is built, before any call happens — that can't be inferred from
+what you delegate to at runtime. If you want the bypass requestable through
+your wrapper, you still have to declare `ENABLE_REDACTION`/
+`ALLOW_REQUEST_UNREDACTED` on your own module (§10); if you don't, your
+wrapper still redacts safely, it just never offers the bypass.
+
+### 11.3 The divergence check — what keeps a wrapper's approval honest
+
+`needs_approval`, `dirty_effects`, and `execute` are walked as three
+independent chains. But whenever more than one of them is *still
+delegating* (each has proposed a `NextTool`) and their proposed **tool name
+and args don't match exactly**, loading a session doesn't fail — this fails
+at call time, loudly, with `ToolDelegationError` naming both chains, the hop
+index, and both diverging targets. This is deliberate: it stops a
+wrapper whose `needs_approval` claims one thing while its `execute` actually
+does another — approving for path A but writing to path B, for example.
+Honest wrappers (the ones whose `needs_approval`/`dirty_effects` simply
+don't override the default, or delegate with the exact same args `execute`
+uses) never hit this.
+
+### 11.4 `extend_tool_definition` — building a wrapper's schema from another's
+
+```python
+from src.tools import extend_tool_definition
+
+DEFINITION = extend_tool_definition(
+    basic_web_request.DEFINITION,
+    {
+        "function": {
+            "name": "get_quote",
+            "description": "...",
+            "parameters": {"properties": {"ticker": {"type": "string"}}, "required": ["ticker"]},
+        },
+    },
+    remove_keys=["url", "method", "body"],
+)
+```
+
+Pure — always deep-copies both arguments, never mutates them. This matters:
+`original` is very often a shared, module-level `DEFINITION` dict (a
+built-in's), reused by every session in the process; a version that mutated
+in place would corrupt it permanently, for everyone. `function.name`/
+`description` take `new`'s value if given, else `original`'s.
+`parameters.properties` is shallow-merged — keys in `new` override/add,
+everything else is kept from `original`. `parameters.required`/
+`additionalProperties`/`type` take `new`'s value if given (replacing
+entirely), else `original`'s. `remove_keys` is applied last, stripped from
+both the merged `properties` and the merged `required`.
+
+### 11.5 Worked example: wrapping `basic_web_request` for a stock quote
+
+A `stock_info` skill (`skills/stock_info.md`) with a matching skill-scoped
+plugin (`custom_tool_guide.md` §6) that turns the general-purpose
+`basic_web_request` into a single-argument `ticker` lookup against a free,
+no-key quote endpoint (Stooq's CSV endpoint — illustrative; verify a real
+provider's terms/stability before depending on one):
+
+```text
+skills/
+  stock_info.md
+tools/
+  stock_info/
+    __init__.py              # empty — namespace defaults to "stock_info"
+    get_quote.py
+```
+
+```python
+# tools/stock_info/get_quote.py
+from src.tools import NextTool, basic_web_request, extend_tool_definition
+
+DEFINITION = extend_tool_definition(
+    basic_web_request.DEFINITION,
+    {
+        "function": {
+            "name": "get_quote",
+            "description": (
+                "Fetch a free stock quote (date, time, open/high/low/close, volume) "
+                "for a ticker symbol via Stooq's CSV quote endpoint."
+            ),
+            "parameters": {
+                "properties": {
+                    "ticker": {
+                        "type": "string",
+                        "description": "Stock ticker symbol, e.g. AAPL.",
+                    },
+                },
+                "required": ["ticker"],
+            },
+        },
+    },
+    # Drop everything request-shape-specific; keep what's still generically
+    # useful (accept/timeout).
+    remove_keys=[
+        "url", "method", "content_type", "headers", "body",
+        "debug_show_bad_json", "load_service_tokens", "target", "memory_key",
+    ],
+)
+
+
+def execute(args, session_data, special_resources=None):
+    ticker = args["ticker"]
+    url = f"https://stooq.com/q/l/?s={ticker.lower()}&f=sd2t2ohlcv&h&e=csv"
+    return NextTool("basic_web_request", {"url": url, "method": "GET", "accept": "text/csv"})
+```
+
+No `needs_approval` override needed — `basic_web_request` doesn't define one
+today, so both the `needs_approval` and `execute` chains resolve to "no
+approval needed" for the same tool with the same args, no divergence risk.
+The final tool name is `stock_info_get_quote` (§6's namespace prefix), only
+active on subturns where the `stock_info` skill is active (§6).
+
+---
+
+## 12. `special_resources` reference
 
 Passed as the 3rd positional argument to `execute`/`needs_approval` when your
 function's signature declares enough parameters to receive it (see §7/§8).
@@ -445,7 +611,7 @@ reflecting that function, not a frozen public API:
 
 ---
 
-## 12. Imports — where your code can pull from
+## 13. Imports — where your code can pull from
 
 This is the part specific to how the SLBP runtime wires `sys.path`, and it
 has **two independent guarantees** plus one manual pattern.
@@ -580,7 +746,7 @@ if _vendor not in sys.path:
 
 ---
 
-## 13. Pre-flight checklist
+## 14. Pre-flight checklist
 
 Before wiring a new tool file into a session, confirm:
 
@@ -593,8 +759,9 @@ Before wiring a new tool file into a session, confirm:
       `required` lists the mandatory ones; `additionalProperties: False` set.
 - [ ] No property named `request_unredacted`.
 - [ ] `execute(args, session_data, special_resources=None)` exists, returns a
-      `str` in every code path (including error paths — return `"Error: ..."`
-      strings, don't raise for expected failure modes).
+      `str` (or a `NextTool` if wrapping — §11) in every code path (including
+      error paths — return `"Error: ..."` strings, don't raise for expected
+      failure modes).
 - [ ] Deliberately chosen: unscoped (root-level, always active) or
       skill-scoped (namespaced plugin folder, active only with its skill —
       see §6).
@@ -611,8 +778,11 @@ Before wiring a new tool file into a session, confirm:
 - [ ] `NO_STUB = True` set only if truncated/stubbed output would break the
       agent's ability to use the result (structured dumps, confirmations that
       must be read in full).
-- [ ] Any cross-file import inside a plugin uses `import_local` (§12.2), not
+- [ ] Any cross-file import inside a plugin uses `import_local` (§13.2), not
       a bare `import sibling_file` or manual `sys.path` manipulation.
+- [ ] If wrapping another tool (§11): `needs_approval`/`dirty_effects` are
+      either left as the honest default or delegate with the *exact* same
+      target and args `execute` uses — a mismatch is a hard error, by design.
 
 A tool file that satisfies the required items (`DEFINITION`, `execute`, a
 skill-scoped plugin's namespace matching a real skill id) will load; the

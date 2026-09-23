@@ -26,7 +26,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
         "todo_list", {"action": "add_item", "parent_path": "", "text": "B"}, ms
     )
 
-    r = execute_tool(
+    r, _ = execute_tool(
         "todo_list",
         {"action": "add_many_items", "parent_path": "", "texts": ["X", "Y", "Z"]},
         ms,
@@ -46,7 +46,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
         f"got: {added!r}",
     )
 
-    r = execute_tool(
+    r, _ = execute_tool(
         "todo_list",
         {
             "action": "add_many_items",
@@ -64,7 +64,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
         [it["item_path"] for it in added] == ["1", "2"],
         f"got: {added!r}",
     )
-    r = execute_tool("todo_list", {"action": "get_item", "item_path": "1"}, ms)
+    r, _ = execute_tool("todo_list", {"action": "get_item", "item_path": "1"}, ms)
     cl.check(
         "add_many_items before text",
         "First item is now 'first'",

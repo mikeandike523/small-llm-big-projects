@@ -7,7 +7,7 @@ from src.tools import execute_tool
 def add_checks(cl: CheckList, env: TestEnv) -> None:
     env.session_data["memory"]["sbr_text"] = "hello world\nfoo bar\nbaz qux\n"
 
-    r = execute_tool(
+    r, _ = execute_tool(
         "session_memory",
         {"action": "search_by_regex", "key": "sbr_text", "pattern": "foo"},
         env.session_data,
@@ -25,7 +25,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
         f"got: {r!r}",
     )
 
-    r2 = execute_tool(
+    r2, _ = execute_tool(
         "session_memory",
         {"action": "search_by_regex", "key": "sbr_text", "pattern": "xyz"},
         env.session_data,
@@ -38,7 +38,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
     )
 
     env.session_data["memory"]["sbr_nums"] = "line 1\nline 2\n"
-    r3 = execute_tool(
+    r3, _ = execute_tool(
         "session_memory",
         {"action": "search_by_regex", "key": "sbr_nums", "pattern": r"\d+"},
         env.session_data,
@@ -56,7 +56,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
         f"got: {r3!r}",
     )
 
-    r4 = execute_tool(
+    r4, _ = execute_tool(
         "session_memory",
         {"action": "search_by_regex", "key": "sbr_text"},
         env.session_data,

@@ -19,7 +19,7 @@ def _j(r: str) -> dict:
 
 def add_checks(cl: CheckList, env: TestEnv) -> None:
     # list is now: 1=step ONE, 2=step two
-    r = execute_tool(
+    r, _ = execute_tool(
         "todo_list",
         {
             "action": "add_item",
@@ -36,7 +36,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
         d.get("item_path") == "2",
         f"got: {r!r}",
     )
-    r = execute_tool(
+    r, _ = execute_tool(
         "todo_list", {"action": "get_item", "item_path": "2"}, env.session_data
     )
     cl.check(
@@ -47,7 +47,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
     )
 
     # list is now: 1=step ONE, 2=inserted before 2, 3=step two
-    r = execute_tool(
+    r, _ = execute_tool(
         "todo_list",
         {
             "action": "add_item",
@@ -64,7 +64,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
         d.get("item_path") == "2",
         f"got: {r!r}",
     )
-    r = execute_tool(
+    r, _ = execute_tool(
         "todo_list", {"action": "get_item", "item_path": "2"}, env.session_data
     )
     cl.check(

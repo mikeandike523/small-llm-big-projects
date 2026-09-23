@@ -26,7 +26,7 @@ def run(env: TestEnv, server: MicroServer | None = None):
         # --- Validation (no network needed) ---
 
         # memory_key required when target=session_memory
-        r = execute_tool(
+        r, _ = execute_tool(
             "wikipedia",
             {
                 "url_or_title": "Python (programming language)",
@@ -98,7 +98,7 @@ def run(env: TestEnv, server: MicroServer | None = None):
             return cl.result()
 
         # intro mode via URL
-        r = execute_tool(
+        r, _ = execute_tool(
             "wikipedia",
             {
                 "url_or_title": "https://en.wikipedia.org/wiki/Python_(programming_language)",
@@ -126,7 +126,7 @@ def run(env: TestEnv, server: MicroServer | None = None):
         )
 
         # intro mode via bare title
-        r2 = execute_tool(
+        r2, _ = execute_tool(
             "wikipedia",
             {
                 "url_or_title": "Python (programming language)",
@@ -143,7 +143,7 @@ def run(env: TestEnv, server: MicroServer | None = None):
         )
 
         # target=session_memory
-        r3 = execute_tool(
+        r3, _ = execute_tool(
             "wikipedia",
             {
                 "url_or_title": "Python (programming language)",
@@ -168,7 +168,7 @@ def run(env: TestEnv, server: MicroServer | None = None):
         )
 
         # Missing article
-        r4 = execute_tool(
+        r4, _ = execute_tool(
             "wikipedia",
             {
                 "url_or_title": "Xyzzy_NoSuchArticle_slbp_test_12345",

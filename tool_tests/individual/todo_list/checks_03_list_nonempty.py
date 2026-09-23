@@ -18,7 +18,7 @@ def _j(r: str) -> dict:
 
 
 def add_checks(cl: CheckList, env: TestEnv) -> None:
-    r = execute_tool("todo_list", {"action": "list"}, env.session_data)
+    r, _ = execute_tool("todo_list", {"action": "list"}, env.session_data)
     items = _j(r).get("items", [])
     cl.check(
         "list three items count", "list returns 3 items", len(items) == 3, f"got: {r!r}"
@@ -36,7 +36,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
         f"got: {items!r}",
     )
 
-    r = execute_tool("todo_list", {"action": "list_formatted"}, env.session_data)
+    r, _ = execute_tool("todo_list", {"action": "list_formatted"}, env.session_data)
     cl.check(
         "list_formatted has items",
         "Formatted output contains both items",

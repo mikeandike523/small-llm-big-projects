@@ -11,7 +11,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
     env.session_data["memory"][_KEY] = _CONTENT
 
     # Full read returns entire content unchanged
-    r = execute_tool(
+    r, _ = execute_tool(
         "text_editor", {"action": "read_lines", "key": _KEY}, env.session_data
     )
     cl.check(
@@ -19,7 +19,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
     )
 
     # start_line: returns from line 3 onward
-    r = execute_tool(
+    r, _ = execute_tool(
         "text_editor",
         {"action": "read_lines", "key": _KEY, "start_line": 3},
         env.session_data,
@@ -38,7 +38,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
     )
 
     # end_line: returns up to line 2
-    r = execute_tool(
+    r, _ = execute_tool(
         "text_editor",
         {"action": "read_lines", "key": _KEY, "end_line": 2},
         env.session_data,
@@ -57,7 +57,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
     )
 
     # range: lines 2-3 only
-    r = execute_tool(
+    r, _ = execute_tool(
         "text_editor",
         {"action": "read_lines", "key": _KEY, "start_line": 2, "end_line": 3},
         env.session_data,
@@ -70,7 +70,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
     )
 
     # number_lines: default delimiter ' | '
-    r = execute_tool(
+    r, _ = execute_tool(
         "text_editor",
         {"action": "read_lines", "key": _KEY, "number_lines": True},
         env.session_data,
@@ -83,7 +83,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
     )
 
     # number_lines with custom delimiter
-    r = execute_tool(
+    r, _ = execute_tool(
         "text_editor",
         {"action": "read_lines", "key": _KEY, "number_lines": True, "delimiter": ": "},
         env.session_data,
@@ -96,7 +96,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
     )
 
     # number_lines respects start_line offset
-    r = execute_tool(
+    r, _ = execute_tool(
         "text_editor",
         {"action": "read_lines", "key": _KEY, "start_line": 3, "number_lines": True},
         env.session_data,

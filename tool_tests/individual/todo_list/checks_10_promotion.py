@@ -32,7 +32,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
     )
 
     # Promote item 1 by adding a child
-    r = execute_tool(
+    r, _ = execute_tool(
         "todo_list",
         {"action": "add_item", "parent_path": "1", "text": "child A"},
         env.session_data,
@@ -45,7 +45,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
         f"got: {r!r}",
     )
 
-    r = execute_tool(
+    r, _ = execute_tool(
         "todo_list",
         {"action": "add_item", "parent_path": "1", "text": "child B"},
         env.session_data,
@@ -58,7 +58,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
     )
 
     # Item 1 text unchanged after promotion
-    r = execute_tool(
+    r, _ = execute_tool(
         "todo_list", {"action": "get_item", "item_path": "1"}, env.session_data
     )
     cl.check(
@@ -69,7 +69,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
     )
 
     # update_item on promoted item (renames the group)
-    r = execute_tool(
+    r, _ = execute_tool(
         "todo_list",
         {"action": "update_item", "item_path": "1", "text": "renamed group"},
         env.session_data,

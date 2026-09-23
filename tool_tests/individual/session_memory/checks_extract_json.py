@@ -17,7 +17,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
     mem["dotkey"] = json.dumps({"foo.bar": "dot value"})
     mem["not_json"] = "this is not valid JSON {"
 
-    r = execute_tool(
+    r, _ = execute_tool(
         "session_memory",
         {"action": "extract_json", "key": "simple_dict", "path": "name"},
         env.session_data,
@@ -29,7 +29,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
         f"got: {r!r}",
     )
 
-    r = execute_tool(
+    r, _ = execute_tool(
         "session_memory",
         {
             "action": "extract_json",
@@ -46,7 +46,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
         f"got: {r!r}",
     )
 
-    r = execute_tool(
+    r, _ = execute_tool(
         "session_memory",
         {"action": "extract_json", "key": "nested", "path": "user.profile.city"},
         env.session_data,
@@ -58,7 +58,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
         f"got: {r!r}",
     )
 
-    r = execute_tool(
+    r, _ = execute_tool(
         "session_memory",
         {"action": "extract_json", "key": "with_list", "path": "items.1"},
         env.session_data,
@@ -70,7 +70,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
         f"got: {r!r}",
     )
 
-    r = execute_tool(
+    r, _ = execute_tool(
         "session_memory",
         {"action": "extract_json", "key": "mixed", "path": "results.0.label"},
         env.session_data,
@@ -82,7 +82,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
         f"got: {r!r}",
     )
 
-    r = execute_tool(
+    r, _ = execute_tool(
         "session_memory",
         {
             "action": "extract_json",
@@ -99,7 +99,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
         f"got: {r!r}",
     )
 
-    r_dict = execute_tool(
+    r_dict, _ = execute_tool(
         "session_memory",
         {
             "action": "extract_json",
@@ -116,7 +116,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
         f"got: {r_dict!r}",
     )
 
-    r = execute_tool(
+    r, _ = execute_tool(
         "session_memory",
         {
             "action": "extract_json",
@@ -133,7 +133,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
         f"got: {r!r}",
     )
 
-    r = execute_tool(
+    r, _ = execute_tool(
         "session_memory",
         {"action": "extract_json", "key": "dotkey", "path_steps": ["foo.bar"]},
         env.session_data,
@@ -204,7 +204,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
         f"got: {stored_quoted!r}",
     )
 
-    r = execute_tool(
+    r, _ = execute_tool(
         "session_memory",
         {"action": "extract_json", "key": "no_such_key", "path": "foo"},
         env.session_data,
@@ -216,7 +216,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
         f"got: {r!r}",
     )
 
-    r = execute_tool(
+    r, _ = execute_tool(
         "session_memory",
         {"action": "extract_json", "key": "not_json", "path": "foo"},
         env.session_data,
@@ -228,7 +228,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
         f"got: {r!r}",
     )
 
-    r = execute_tool(
+    r, _ = execute_tool(
         "session_memory",
         {"action": "extract_json", "key": "simple_dict", "path": "nonexistent"},
         env.session_data,
@@ -240,7 +240,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
         f"got: {r!r}",
     )
 
-    r = execute_tool(
+    r, _ = execute_tool(
         "session_memory",
         {"action": "extract_json", "key": "with_list", "path": "items.99"},
         env.session_data,
@@ -252,7 +252,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
         f"got: {r!r}",
     )
 
-    r = execute_tool(
+    r, _ = execute_tool(
         "session_memory",
         {"action": "extract_json", "key": "simple_dict", "path": "name.extra"},
         env.session_data,
@@ -264,7 +264,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
         f"got: {r!r}",
     )
 
-    r = execute_tool(
+    r, _ = execute_tool(
         "session_memory",
         {"action": "extract_json", "key": "with_list", "path": "items.notanint"},
         env.session_data,
@@ -276,7 +276,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
         f"got: {r!r}",
     )
 
-    r = execute_tool(
+    r, _ = execute_tool(
         "session_memory",
         {
             "action": "extract_json",
@@ -293,7 +293,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
         f"got: {r!r}",
     )
 
-    r = execute_tool(
+    r, _ = execute_tool(
         "session_memory",
         {"action": "extract_json", "key": "simple_dict"},
         env.session_data,
@@ -305,7 +305,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
         f"got: {r!r}",
     )
 
-    r = execute_tool(
+    r, _ = execute_tool(
         "session_memory",
         {
             "action": "extract_json",

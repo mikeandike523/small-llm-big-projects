@@ -8,7 +8,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
     mem = env.session_data["memory"]
     mem["src"] = "original value"
 
-    r = execute_tool(
+    r, _ = execute_tool(
         "session_memory",
         {"action": "copy", "source_key": "src", "dest_key": "dst"},
         env.session_data,
@@ -34,7 +34,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
 
     mem["a"] = "A"
     mem["b"] = "B"
-    r2 = execute_tool(
+    r2, _ = execute_tool(
         "session_memory",
         {"action": "copy", "source_key": "a", "dest_key": "b", "force_overwrite": True},
         env.session_data,
@@ -55,7 +55,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
     # no force_overwrite -> error
     mem["x"] = "X"
     mem["y"] = "Y"
-    r3 = execute_tool(
+    r3, _ = execute_tool(
         "session_memory",
         {"action": "copy", "source_key": "x", "dest_key": "y"},
         env.session_data,

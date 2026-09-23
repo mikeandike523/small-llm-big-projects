@@ -7,7 +7,7 @@ from src.tools import execute_tool
 def add_checks(cl: CheckList, env: TestEnv) -> None:
     # Spaces → tabs (default 4 spaces per tab)
     env.session_data["memory"]["cvt_spaced"] = "def foo():\n    pass\n    return 1\n"
-    r = execute_tool(
+    r, _ = execute_tool(
         "text_editor",
         {"action": "convert_indentation", "key": "cvt_spaced", "to": "tabs"},
         env.session_data,
@@ -75,7 +75,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
 
     # Missing 'to' arg
     env.session_data["memory"]["cvt_err"] = "  foo\n"
-    r = execute_tool(
+    r, _ = execute_tool(
         "text_editor",
         {"action": "convert_indentation", "key": "cvt_err"},
         env.session_data,

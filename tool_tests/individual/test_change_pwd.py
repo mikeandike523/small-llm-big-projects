@@ -11,7 +11,7 @@ def run(env: TestEnv, server: MicroServer | None = None):
     original_cwd = os.getcwd()
     try:
         # change to tmp_dir
-        r = execute_tool("change_pwd", {"path": env.tmp_dir}, env.session_data)
+        r, _ = execute_tool("change_pwd", {"path": env.tmp_dir}, env.session_data)
         cl.check(
             "change to tmp_dir",
             "Result mentions the target path",
@@ -20,7 +20,7 @@ def run(env: TestEnv, server: MicroServer | None = None):
         )
 
         # change back to original
-        r2 = execute_tool("change_pwd", {"path": original_cwd}, env.session_data)
+        r2, _ = execute_tool("change_pwd", {"path": original_cwd}, env.session_data)
         cl.check(
             "change back",
             "Can change back to original cwd without error",
@@ -29,7 +29,7 @@ def run(env: TestEnv, server: MicroServer | None = None):
         )
 
         # attempt change to non-existent dir
-        r3 = execute_tool(
+        r3, _ = execute_tool(
             "change_pwd", {"path": "/nonexistent_tooltest_xyz"}, env.session_data
         )
         cl.check(

@@ -8,7 +8,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
     mem = env.session_data["memory"]
     mem["tosrc"] = "move me"
 
-    r = execute_tool(
+    r, _ = execute_tool(
         "session_memory",
         {"action": "rename", "source_key": "tosrc", "dest_key": "todst"},
         env.session_data,
@@ -34,7 +34,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
 
     mem["c"] = "C"
     mem["d"] = "D"
-    r2 = execute_tool(
+    r2, _ = execute_tool(
         "session_memory",
         {
             "action": "rename",

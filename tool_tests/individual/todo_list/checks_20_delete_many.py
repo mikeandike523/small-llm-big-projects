@@ -30,13 +30,13 @@ def _seed(texts: list[str], parent: str = "") -> dict:
 def add_checks(cl: CheckList, env: TestEnv) -> None:
     # Basic multi-delete with non-contiguous paths and index shifting.
     sd = _seed(["a", "b", "c", "d"])
-    r = execute_tool(
+    r, _ = execute_tool(
         "todo_list", {"action": "delete_many_items", "item_paths": ["1", "3"]}, sd
     )
     d = _j(r)
     remaining = [
         it["text"]
-        for it in _j(execute_tool("todo_list", {"action": "list"}, sd)).get("items", [])
+        for it in _j(execute_tool("todo_list", {"action": "list"}, sd)[0]).get("items", [])
     ]
     cl.check(
         "delete_many basic",
@@ -46,7 +46,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
     )
 
     # Missing item_paths is an error.
-    r = execute_tool("todo_list", {"action": "delete_many_items"}, _seed(["a"]))
+    r, _ = execute_tool("todo_list", {"action": "delete_many_items"}, _seed(["a"]))
     cl.check(
         "delete_many requires item_paths",
         "delete_many_items without item_paths errors",
@@ -59,10 +59,10 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
     execute_tool(
         "todo_list", {"action": "add_item", "parent_path": "1", "text": "child"}, sd
     )  # promotes item 1
-    r = execute_tool(
+    r, _ = execute_tool(
         "todo_list", {"action": "delete_many_items", "item_paths": ["1.1", "2"]}, sd
     )
-    count = len(_j(execute_tool("todo_list", {"action": "list"}, sd)).get("items", []))
+    count = len(_j(execute_tool("todo_list", {"action": "list"}, sd)[0]).get("items", []))
     cl.check(
         "delete_many same-parent enforced",
         "Mixed-parent paths error and delete nothing",
@@ -72,10 +72,10 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
 
     # Duplicate path in the same call is rejected.
     sd = _seed(["a", "b", "c"])
-    r = execute_tool(
+    r, _ = execute_tool(
         "todo_list", {"action": "delete_many_items", "item_paths": ["2", "2"]}, sd
     )
-    count = len(_j(execute_tool("todo_list", {"action": "list"}, sd)).get("items", []))
+    count = len(_j(execute_tool("todo_list", {"action": "list"}, sd)[0]).get("items", []))
     cl.check(
         "delete_many duplicate rejected",
         "Duplicate item_path errors and deletes nothing",
@@ -85,10 +85,10 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
 
     # A non-existent path makes the whole call fail atomically.
     sd = _seed(["a", "b"])
-    r = execute_tool(
+    r, _ = execute_tool(
         "todo_list", {"action": "delete_many_items", "item_paths": ["1", "9"]}, sd
     )
-    count = len(_j(execute_tool("todo_list", {"action": "list"}, sd)).get("items", []))
+    count = len(_j(execute_tool("todo_list", {"action": "list"}, sd)[0]).get("items", []))
     cl.check(
         "delete_many atomic on bad path",
         "An invalid path leaves the list untouched",
@@ -101,10 +101,10 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
     execute_tool(
         "todo_list", {"action": "add_item", "parent_path": "1", "text": "kid"}, sd
     )  # promote item 1
-    r = execute_tool(
+    r, _ = execute_tool(
         "todo_list", {"action": "delete_many_items", "item_paths": ["1", "2"]}, sd
     )
-    count = len(_j(execute_tool("todo_list", {"action": "list"}, sd)).get("items", []))
+    count = len(_j(execute_tool("todo_list", {"action": "list"}, sd)[0]).get("items", []))
     cl.check(
         "delete_many cascade guard",
         "Promoted item without cascade errors, nothing deleted",
@@ -117,7 +117,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
     execute_tool(
         "todo_list", {"action": "add_item", "parent_path": "1", "text": "kid"}, sd
     )
-    r = execute_tool(
+    r, _ = execute_tool(
         "todo_list",
         {
             "action": "delete_many_items",
@@ -126,7 +126,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
         },
         sd,
     )
-    count = len(_j(execute_tool("todo_list", {"action": "list"}, sd)).get("items", []))
+    count = len(_j(execute_tool("todo_list", {"action": "list"}, sd)[0]).get("items", []))
     cl.check(
         "delete_many cascade deletes",
         "cascade_delete=true removes promoted item and leaves empty list",
@@ -144,7 +144,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
     execute_tool(
         "todo_list", {"action": "delete_many_items", "item_paths": ["1.1", "1.2"]}, sd
     )
-    items = _j(execute_tool("todo_list", {"action": "list"}, sd)).get("items", [])
+    items = _j(execute_tool("todo_list", {"action": "list"}, sd)[0]).get("items", [])
     cl.check(
         "delete_many demotes emptied parent",
         "Deleting all children demotes the parent to a leaf",
@@ -154,7 +154,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
 
     # Result includes the structure-change reminder.
     sd = _seed(["a", "b"])
-    r = execute_tool(
+    r, _ = execute_tool(
         "todo_list", {"action": "delete_many_items", "item_paths": ["1"]}, sd
     )
     cl.check(

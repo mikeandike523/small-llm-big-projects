@@ -11,7 +11,7 @@ def run(env: TestEnv, server: MicroServer | None = None):
     try:
         # create a simple directory
         new_dir = os.path.join(env.tmp_dir, "newdir")
-        r = execute_tool("create_dir", {"path": new_dir}, env.session_data)
+        r, _ = execute_tool("create_dir", {"path": new_dir}, env.session_data)
         cl.check(
             "create simple dir result",
             "Result mentions success",
@@ -27,7 +27,7 @@ def run(env: TestEnv, server: MicroServer | None = None):
 
         # create with parents (a/b/c)
         nested_dir = os.path.join(env.tmp_dir, "a", "b", "c")
-        r2 = execute_tool(
+        r2, _ = execute_tool(
             "create_dir", {"path": nested_dir, "create_parents": True}, env.session_data
         )
         cl.check(
@@ -44,7 +44,7 @@ def run(env: TestEnv, server: MicroServer | None = None):
         )
 
         # creating the same dir again should give an error (already exists)
-        r3 = execute_tool("create_dir", {"path": new_dir}, env.session_data)
+        r3, _ = execute_tool("create_dir", {"path": new_dir}, env.session_data)
         cl.check(
             "duplicate create error",
             "Returns error when directory already exists",

@@ -21,7 +21,14 @@ from src.ui_connector.socket_handler_components.terminal import (
     _get_terminals_state,
 )
 from src.ui_connector.socket_handler_components.approval import _request_approval
-from src.tools import execute_tool, check_needs_approval, get_dirty_effects, _TOOL_MAP
+from src.tools import (
+    execute_tool,
+    check_needs_approval,
+    get_dirty_effects,
+    _check_hop_paths_agree,
+    ToolDelegationError,
+    _TOOL_MAP,
+)
 from src.tools import _dirty_cache
 from src.tools import _file_snapshot
 from src.tools.todo_list import format_items_for_ui as _todo_format_items_for_ui
@@ -155,12 +162,27 @@ def _execute_tools(
             tool_record = ToolCallRecord(id=tc.id, name=tc.name, args=tc.arguments)
 
             # Dirty cache check: block partial edits on resources modified since last read.
-            _effects = get_dirty_effects(
-                tc.name,
-                tc.arguments,
-                session_data=session.session_data,
-                tool_map=actual_tool_map,
-            )
+            try:
+                _effects, _dirty_hop_path = get_dirty_effects(
+                    tc.name,
+                    tc.arguments,
+                    session_data=session.session_data,
+                    tool_map=actual_tool_map,
+                )
+            except ToolDelegationError as exc:
+                _delegation_error = f"Error: {exc}"
+                tool_record.result = _delegation_error
+                exchange.tool_calls.append(tool_record)
+                _emit_and_log(
+                    session_id,
+                    "tool_result",
+                    {
+                        "id": tc.id,
+                        "result": _delegation_error,
+                        "turn_id": turn_id,
+                    },
+                )
+                continue
             _dirty_error = _dirty_cache.check_requires_clean(
                 session_id,
                 _effects,
@@ -312,13 +334,36 @@ def _execute_tools(
                                     },
                                 )
 
-            if check_needs_approval(
-                tc.name,
-                tc.arguments,
-                tool_map=actual_tool_map,
-                session_data=session.session_data,
-                special_resources=special_resources,
-            ):
+            try:
+                _needs_approval, _approval_hop_path = check_needs_approval(
+                    tc.name,
+                    tc.arguments,
+                    tool_map=actual_tool_map,
+                    session_data=session.session_data,
+                    special_resources=special_resources,
+                )
+                _check_hop_paths_agree(
+                    {
+                        "dirty_effects": _dirty_hop_path,
+                        "needs_approval": _approval_hop_path,
+                    }
+                )
+            except ToolDelegationError as exc:
+                _delegation_error = f"Error: {exc}"
+                tool_record.result = _delegation_error
+                exchange.tool_calls.append(tool_record)
+                _emit_and_log(
+                    session_id,
+                    "tool_result",
+                    {
+                        "id": tc.id,
+                        "result": _delegation_error,
+                        "turn_id": turn_id,
+                    },
+                )
+                continue
+
+            if _needs_approval:
                 approved, redirect_message, approval_cancelled = _request_approval(
                     session_id,
                     tc.id,
@@ -394,25 +439,39 @@ def _execute_tools(
                 },
             )
 
+            _execute_hop_path: list = []
             try:
-                tool_result = execute_tool(
+                tool_result, _execute_hop_path = execute_tool(
                     tc.name,
                     tc.arguments,
                     session.session_data,
                     special_resources,
                     tool_map=actual_tool_map,
                 )
+                _check_hop_paths_agree(
+                    {
+                        "dirty_effects": _dirty_hop_path,
+                        "needs_approval": _approval_hop_path,
+                        "execute": _execute_hop_path,
+                    }
+                )
             except ToolHangError as e:
                 tool_result = f"HANG: {e}"
             except ToolTimeoutError as e:
                 tool_result = f"TIMEOUT: {e}"
+            except ToolDelegationError as e:
+                tool_result = f"Error: {e}"
 
             finished_at = int(time.time() * 1000)
             tool_record.finished_at = finished_at
             special_resources.pop("on_chunk", None)
 
-            _tool_module = actual_tool_map.get(tc.name)
-            _no_stub = getattr(_tool_module, "NO_STUB", False)
+            # Strictest-wins: any hop actually visited by the execute chain
+            # setting NO_STUB=True protects the whole result from stubbing.
+            _no_stub = any(
+                getattr(actual_tool_map.get(_hop.name), "NO_STUB", False)
+                for _hop in _execute_hop_path
+            )
             if (
                 not _no_stub
                 and return_value_max_chars is not None

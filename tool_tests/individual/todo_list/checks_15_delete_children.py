@@ -26,7 +26,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
         "todo_list", {"action": "add_item", "parent_path": "1", "text": "child"}, dh
     )
 
-    r = execute_tool("todo_list", {"action": "delete_item", "item_path": "1"}, dh)
+    r, _ = execute_tool("todo_list", {"action": "delete_item", "item_path": "1"}, dh)
     d = _j(r)
     cl.check(
         "delete_item with children no cascade",
@@ -41,7 +41,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
         f"got: {d.get('error')!r}",
     )
 
-    r = execute_tool(
+    r, _ = execute_tool(
         "todo_list",
         {"action": "delete_item", "item_path": "1", "cascade_delete": True},
         dh,
@@ -52,7 +52,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
         "error" not in _j(r),
         f"got: {r!r}",
     )
-    r = execute_tool("todo_list", {"action": "list"}, dh)
+    r, _ = execute_tool("todo_list", {"action": "list"}, dh)
     cl.check(
         "delete_item cascade list empty",
         "List is empty after cascade delete",

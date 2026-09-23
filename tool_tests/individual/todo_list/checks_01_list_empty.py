@@ -18,7 +18,7 @@ def _j(r: str) -> dict:
 
 
 def add_checks(cl: CheckList, env: TestEnv) -> None:
-    r = execute_tool("todo_list", {"action": "list"}, env.session_data)
+    r, _ = execute_tool("todo_list", {"action": "list"}, env.session_data)
     cl.check(
         "list empty",
         "Empty list returns items=[]",
@@ -26,7 +26,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
         f"got: {r!r}",
     )
 
-    r = execute_tool("todo_list", {"action": "list_formatted"}, env.session_data)
+    r, _ = execute_tool("todo_list", {"action": "list_formatted"}, env.session_data)
     cl.check(
         "list_formatted empty",
         "Empty list returns '(empty todo list)'",

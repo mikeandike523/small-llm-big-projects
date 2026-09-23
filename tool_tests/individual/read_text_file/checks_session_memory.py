@@ -11,7 +11,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
     with open(path, "wb") as f:
         f.write(content.encode("utf-8"))
 
-    r = execute_tool(
+    r, _ = execute_tool(
         "read_text_file",
         {"path": path, "session_memory_key": "loaded"},
         env.session_data,
@@ -50,7 +50,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
         f"got: {stored_crlf!r}",
     )
 
-    r = execute_tool(
+    r, _ = execute_tool(
         "read_text_file",
         {"path": path + ".missing", "session_memory_key": "x"},
         env.session_data,

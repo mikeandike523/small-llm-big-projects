@@ -5,7 +5,7 @@ from src.tools import execute_tool
 
 
 def add_checks(cl: CheckList, env: TestEnv) -> None:
-    r = execute_tool(
+    r, _ = execute_tool(
         "session_memory",
         {"action": "set", "key": "foo", "value": "bar"},
         env.session_data,
@@ -25,7 +25,7 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
         f"got: {actual!r}",
     )
 
-    r2 = execute_tool(
+    r2, _ = execute_tool(
         "session_memory",
         {"action": "set", "key": "foo", "value": "baz"},
         env.session_data,
