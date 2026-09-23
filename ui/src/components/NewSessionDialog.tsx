@@ -8,8 +8,7 @@ import { useEffect, useState } from "react";
 
 export interface SessionDefaults {
   interim_response_as_thinking: boolean;
-  load_skills: boolean;
-  load_tools: boolean;
+  load_custom_skills_tools: boolean;
   load_startup_tool_calls: boolean;
   default_profile: string | null;
   profiles: string[];
@@ -237,16 +236,10 @@ interface CheckOption {
 
 const OPTIONS: CheckOption[] = [
   {
-    key: "load_skills",
-    label: "Load skills",
-    flag: "--load-skills",
-    desc: "Load custom skills from a skills/ directory in the working directory.",
-  },
-  {
-    key: "load_tools",
-    label: "Load custom tools",
-    flag: "--load-tools",
-    desc: "Load custom tools from a tools/ directory in the working directory.",
+    key: "load_custom_skills_tools",
+    label: "Load custom skills and tools",
+    flag: "--load-custom-skills-tools",
+    desc: "Load custom skills and tools from the skills/ and tools/ directories in the working directory.",
   },
   {
     key: "load_startup_tool_calls",
@@ -271,8 +264,7 @@ export default function NewSessionDialog({
   const [flags, setFlags] = useState<SessionDefaults>(() => ({
     ...sessionDefaults,
     // Default all option checkboxes to checked when the dialog opens.
-    load_skills: true,
-    load_tools: true,
+    load_custom_skills_tools: true,
     load_startup_tool_calls: true,
   }));
   const [selectedProfile, setSelectedProfile] = useState<string>(
@@ -336,9 +328,8 @@ export default function NewSessionDialog({
         sessionDefaults.interim_response_as_thinking,
       profile_name: selectedProfile || null,
       approval_mode: selectedApprovalMode,
+      load_custom_skills_tools: flags.load_custom_skills_tools,
     };
-    if (flags.load_skills) payload.skills_path = `${cwd}/skills`;
-    if (flags.load_tools) payload.custom_tools_path = `${cwd}/tools`;
     if (flags.load_startup_tool_calls)
       payload.startup_tool_calls_path = `${cwd}/startup_tool_calls.json`;
 

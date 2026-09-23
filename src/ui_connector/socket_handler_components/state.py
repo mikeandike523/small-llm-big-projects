@@ -135,8 +135,7 @@ def _get_redis() -> redis.Redis:
 
 _SESSION_DEFAULTS_HARDCODED: dict = {
     "interim_response_as_thinking": False,
-    "load_skills": False,
-    "load_tools": False,
+    "load_custom_skills_tools": False,
     "load_startup_tool_calls": False,
 }
 

@@ -86,8 +86,7 @@ def todo_list_hash(items: list) -> str:
 def session_created_payload(session: Session) -> dict:
     return {
         "initial_cwd": session.initial_cwd,
-        "skills_path": session.skills_path,
-        "custom_tools_path": session.custom_tools_path,
+        "load_custom_skills_tools": session.load_custom_skills_tools,
         "profile_name": session.profile_name,
         "approval_mode": session.approval_mode,
         "interim_response_as_thinking": session.interim_response_as_thinking,
@@ -176,8 +175,7 @@ class ReplayState:
 def _on_session_created(state: ReplayState, p: dict) -> None:
     s = state.session
     s.initial_cwd = p.get("initial_cwd", "")
-    s.skills_path = p.get("skills_path")
-    s.custom_tools_path = p.get("custom_tools_path")
+    s.load_custom_skills_tools = p.get("load_custom_skills_tools", False)
     s.profile_name = p.get("profile_name")
     s.approval_mode = p.get("approval_mode", APPROVAL_MODE_DEFAULT)
     s.interim_response_as_thinking = p.get("interim_response_as_thinking", False)

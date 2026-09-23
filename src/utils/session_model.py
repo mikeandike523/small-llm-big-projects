@@ -8,7 +8,7 @@ from typing import Any
 
 from src.utils.approval_modes import APPROVAL_MODE_DEFAULT
 
-CURRENT_SCHEMA_VERSION = 5
+CURRENT_SCHEMA_VERSION = 6
 
 
 @dataclass
@@ -190,8 +190,7 @@ class Session:
     session_data: dict = field(default_factory=dict)
     # Per-session context (set at creation time via slbp session new)
     initial_cwd: str = ""
-    skills_path: str | None = None
-    custom_tools_path: str | None = None
+    load_custom_skills_tools: bool = False
     startup_tool_calls: list = field(default_factory=list)
     interim_response_as_thinking: bool = False
     created_at: float = field(default_factory=time.time)
@@ -339,8 +338,7 @@ def session_to_dict(session: Session) -> dict:
         ),
         "session_data": session_data_clean,
         "initial_cwd": session.initial_cwd,
-        "skills_path": session.skills_path,
-        "custom_tools_path": session.custom_tools_path,
+        "load_custom_skills_tools": session.load_custom_skills_tools,
         "startup_tool_calls": session.startup_tool_calls,
         "interim_response_as_thinking": session.interim_response_as_thinking,
         "created_at": session.created_at,
@@ -432,8 +430,7 @@ def session_from_dict(d: dict) -> Session:
         ),
         session_data=d.get("session_data", {}),
         initial_cwd=d.get("initial_cwd", ""),
-        skills_path=d.get("skills_path"),
-        custom_tools_path=d.get("custom_tools_path"),
+        load_custom_skills_tools=d.get("load_custom_skills_tools", False),
         startup_tool_calls=d.get("startup_tool_calls", []),
         interim_response_as_thinking=d.get("interim_response_as_thinking", False),
         created_at=d.get("created_at", 0.0),

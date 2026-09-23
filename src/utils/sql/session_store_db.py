@@ -93,8 +93,7 @@ def upsert_session_meta(
     turn_count: int,
     task_titles: list,
     interim_response_as_thinking: bool,
-    skills_path: str | None,
-    custom_tools_path: str | None,
+    load_custom_skills_tools: bool,
     memory: dict,
     heartbeat_enabled: bool = False,
     last_context_usage: dict | None = None,
@@ -112,11 +111,11 @@ def upsert_session_meta(
                 INSERT INTO session_meta (
                     session_id, created_at, schema_version, profile_name,
                     initial_cwd, current_cwd, total_cost_usd, turn_count,
-                    task_titles, interim_response_as_thinking, skills_path,
-                    custom_tools_path, corrupt, memory_json, last_context_usage,
+                    task_titles, interim_response_as_thinking,
+                    load_custom_skills_tools, corrupt, memory_json, last_context_usage,
                     heartbeat_enabled
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 0, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 0, %s, %s, %s)
                 AS incoming
                 ON DUPLICATE KEY UPDATE
                     schema_version               = incoming.schema_version,
@@ -127,8 +126,7 @@ def upsert_session_meta(
                     turn_count                   = incoming.turn_count,
                     task_titles                  = incoming.task_titles,
                     interim_response_as_thinking = incoming.interim_response_as_thinking,
-                    skills_path                  = incoming.skills_path,
-                    custom_tools_path            = incoming.custom_tools_path,
+                    load_custom_skills_tools     = incoming.load_custom_skills_tools,
                     corrupt                      = 0,
                     memory_json                  = incoming.memory_json,
                     last_context_usage           = incoming.last_context_usage,
@@ -145,8 +143,7 @@ def upsert_session_meta(
                     turn_count,
                     json.dumps(task_titles, ensure_ascii=False),
                     1 if interim_response_as_thinking else 0,
-                    skills_path,
-                    custom_tools_path,
+                    1 if load_custom_skills_tools else 0,
                     json.dumps(memory, ensure_ascii=False),
                     (
                         json.dumps(last_context_usage)
@@ -164,7 +161,7 @@ def upsert_session_meta(
 _META_LIST_COLS = (
     "session_id, created_at, schema_version, profile_name, initial_cwd, "
     "current_cwd, total_cost_usd, turn_count, task_titles, "
-    "interim_response_as_thinking, skills_path, custom_tools_path, corrupt, "
+    "interim_response_as_thinking, load_custom_skills_tools, corrupt, "
     "heartbeat_enabled"
 )
 
@@ -181,8 +178,7 @@ def _row_to_meta(row: dict, *, include_memory: bool) -> dict:
         "turn_count": row.get("turn_count", 0),
         "task_titles": _normalize_json(row.get("task_titles")) or [],
         "interim_response_as_thinking": bool(row.get("interim_response_as_thinking")),
-        "skills_path": row.get("skills_path") or None,
-        "custom_tools_path": row.get("custom_tools_path") or None,
+        "load_custom_skills_tools": bool(row.get("load_custom_skills_tools")),
         "corrupt": bool(row.get("corrupt")),
         "last_context_usage": _normalize_json(row.get("last_context_usage")),
         "heartbeat_enabled": bool(row.get("heartbeat_enabled")),

@@ -40,12 +40,10 @@ subturns where its matching skill is active — see §6, and read
       ...
 ```
 
-- `tools/` is enabled per-session via `slbp session new --load-tools --cwd <dir>`,
-  which sets `custom_tools_path = <dir>/tools` (see `src/cli_routes/session.py`).
-  The raw `POST /api/sessions` API also accepts an arbitrary
-  `custom_tools_path`, but the CLI always uses this `{cwd}/tools` convention —
-  assume it unless you have a reason not to (see §13 on imports, where it
-  matters).
+- `tools/` is enabled together with custom skills via
+  `slbp session new --load-custom-skills-tools --cwd <dir>`. The session core
+  always derives the directory as `<dir>/tools`; arbitrary paths are not
+  accepted (see §13 on imports, where the path matters).
 - Three loadable categories, all validated together at session creation:
   1. **Unscoped tools** — `.py` files directly in `tools/` (excluding the two
      reserved filenames below). No namespace prefix; the tool's final name is
@@ -745,7 +743,7 @@ by a bare `import _helpers`, or a package-style
 `from tools.my_plugin import _helpers` relying on `workspace_root` being on
 `sys.path` — both still run, but both have exactly the collision problem
 above (the package-style form is worse: `tools` itself is a name *every*
-session using `--load-tools` shares, so the very first `import tools`
+session using `--load-custom-skills-tools` shares, so the very first `import tools`
 anywhere in the process wins for everyone, permanently). Migrate them to
 `import_local` rather than copying the pattern forward.
 

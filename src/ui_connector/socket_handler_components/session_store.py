@@ -121,8 +121,18 @@ def _init_session_caches(session: Session, session_id: str) -> None:
     Skill registry is built before tool loading: tool loading needs the
     resolved skill id set to validate skill-scoped plugin namespaces against.
     """
+    skills_path = (
+        os.path.join(session.initial_cwd, "skills")
+        if session.load_custom_skills_tools
+        else None
+    )
+    custom_tools_path = (
+        os.path.join(session.initial_cwd, "tools")
+        if session.load_custom_skills_tools
+        else None
+    )
     if session_id not in _state._session_skill_registries:
-        registry = build_skill_registry(custom_skills_path=session.skills_path)
+        registry = build_skill_registry(custom_skills_path=skills_path)
         _state._session_skill_registries[session_id] = registry
         session.session_data["__skill_files__"] = registry
     else:
@@ -130,11 +140,11 @@ def _init_session_caches(session: Session, session_id: str) -> None:
         session.session_data["__skill_files__"] = registry
 
     if session_id not in _state._session_tool_sets:
-        if session.custom_tools_path:
+        if custom_tools_path:
             known_skill_ids = frozenset(e["id"] for e in registry)
             try:
                 result = load_custom_tools(
-                    tools_dir=session.custom_tools_path,
+                    tools_dir=custom_tools_path,
                     workspace_root=session.initial_cwd or None,
                     session_prefix=session_id[:8],
                     known_skill_ids=known_skill_ids,
@@ -394,8 +404,7 @@ def _save_session_locked(session_id: str, session: Session) -> None:
             turn_count=meta["turn_count"],
             task_titles=meta["task_titles"],
             interim_response_as_thinking=session.interim_response_as_thinking,
-            skills_path=session.skills_path,
-            custom_tools_path=session.custom_tools_path,
+            load_custom_skills_tools=session.load_custom_skills_tools,
             memory=memory_snapshot,
             heartbeat_enabled=bool(
                 (session.session_data.get("heartbeat_settings") or {}).get("enabled")

@@ -62,8 +62,7 @@ def api_create_session():
     Create a new session with per-session context.
     Body (JSON):
       initial_cwd                   str   — working directory for this session
-      skills_path                   str?  — path to skills/ directory (or null)
-      custom_tools_path             str?  — path to tools/ directory (or null)
+      load_custom_skills_tools      bool  — load cwd/skills and cwd/tools
       startup_tool_calls_path       str?  — path to startup_tool_calls.json (or null)
       interim_response_as_thinking  bool  — emit interim content tokens as reasoning (default false)
     Returns:
@@ -85,8 +84,13 @@ def api_create_session():
             ),
             400,
         )
-    skills_path = data.get("skills_path") or None
-    custom_tools_path = data.get("custom_tools_path") or None
+    load_custom_skills_tools = bool(data.get("load_custom_skills_tools", False))
+    skills_path = (
+        os.path.join(initial_cwd, "skills") if load_custom_skills_tools else None
+    )
+    custom_tools_path = (
+        os.path.join(initial_cwd, "tools") if load_custom_skills_tools else None
+    )
     startup_tool_calls_path = data.get("startup_tool_calls_path") or None
     interim_response_as_thinking = bool(data.get("interim_response_as_thinking", False))
     raw_approval_mode = data.get("approval_mode")
@@ -155,8 +159,7 @@ def api_create_session():
     session = Session(
         session_id=session_id,
         initial_cwd=initial_cwd,
-        skills_path=skills_path,
-        custom_tools_path=custom_tools_path,
+        load_custom_skills_tools=load_custom_skills_tools,
         startup_tool_calls=startup_tool_calls,
         interim_response_as_thinking=interim_response_as_thinking,
         profile_name=profile_name,
@@ -270,8 +273,9 @@ def api_list_sessions():
                 "interim_response_as_thinking": row.get(
                     "interim_response_as_thinking", False
                 ),
-                "skills_path": row.get("skills_path") or None,
-                "custom_tools_path": row.get("custom_tools_path") or None,
+                "load_custom_skills_tools": row.get(
+                    "load_custom_skills_tools", False
+                ),
                 "profile_name": row.get("profile_name") or None,
                 "corrupt": row.get("corrupt", False),
                 "heartbeat_enabled": row.get("heartbeat_enabled", False),

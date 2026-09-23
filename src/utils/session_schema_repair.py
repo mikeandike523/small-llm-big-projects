@@ -14,13 +14,11 @@ where old data COULD be adapted forward instead. This module is where that
 adaptation goes, so a future schema bump doesn't have to mean discarding
 every session that predates it.
 
-Nothing is registered here yet -- no schema bump past v5 has needed a repair.
-When you next bump CURRENT_SCHEMA_VERSION for a change that isn't purely
-additive (a renamed field, a restructured nested shape, a changed meaning of
-an existing field -- as opposed to a new optional field defaulted via
-`.get(key, default)`, which needs neither a version bump nor a repairer),
-write and register a repairer for that step *before* bumping the constant.
-Register it for the version pair you're introducing, e.g.:
+The v5 -> v6 repair registered below merges the former skills/tools path
+fields into one setting. Future non-additive schema changes (a renamed field,
+a restructured nested shape, or a changed meaning) must likewise register a
+repairer before bumping CURRENT_SCHEMA_VERSION. Register it for the version
+pair you're introducing, e.g.:
 
     register_schema_repair(6, 7, _repair_v6_to_v7)
     register_event_log_repair(6, 7, _repair_event_log_v6_to_v7)
@@ -151,3 +149,45 @@ def repair_event_log(
     for step_fn in chain:
         repaired_meta, repaired_rows = step_fn(repaired_meta, repaired_rows)
     return repaired_meta, repaired_rows
+
+
+def _repair_v5_to_v6(d: dict) -> dict:
+    repaired = dict(d)
+    skills_path = repaired.pop("skills_path", None)
+    custom_tools_path = repaired.pop("custom_tools_path", None)
+    repaired["load_custom_skills_tools"] = bool(skills_path and custom_tools_path)
+    repaired["schema_version"] = 6
+    return repaired
+
+
+def _repair_event_log_v5_to_v6(
+    meta: dict, rows: list[dict]
+) -> tuple[dict, list[dict]]:
+    repaired_meta = dict(meta)
+    skills_path = repaired_meta.pop("skills_path", None)
+    custom_tools_path = repaired_meta.pop("custom_tools_path", None)
+    enabled = bool(
+        repaired_meta.get("load_custom_skills_tools")
+        or (skills_path and custom_tools_path)
+    )
+
+    repaired_rows = []
+    for row in rows:
+        repaired_row = dict(row)
+        if row.get("event_type") == "session_created":
+            payload = dict(row.get("payload") or {})
+            skills_path = payload.pop("skills_path", None)
+            custom_tools_path = payload.pop("custom_tools_path", None)
+            payload_enabled = bool(skills_path and custom_tools_path)
+            payload["load_custom_skills_tools"] = payload_enabled
+            payload["schema_version"] = 6
+            repaired_row["payload"] = payload
+            enabled = payload_enabled
+        repaired_rows.append(repaired_row)
+    repaired_meta["load_custom_skills_tools"] = enabled
+    repaired_meta["schema_version"] = 6
+    return repaired_meta, repaired_rows
+
+
+register_schema_repair(5, 6, _repair_v5_to_v6)
+register_event_log_repair(5, 6, _repair_event_log_v5_to_v6)

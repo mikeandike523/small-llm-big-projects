@@ -19,8 +19,7 @@ interface SessionSummary {
   active_turn: boolean;
   interim_response_as_thinking: boolean;
   task_titles: string[];
-  skills_path: string | null;
-  custom_tools_path: string | null;
+  load_custom_skills_tools: boolean;
   heartbeat_enabled: boolean;
 }
 
@@ -1190,14 +1189,9 @@ function SessionCard({
         {session.interim_response_as_thinking && (
           <span css={metaBadgeCss}>irat</span>
         )}
-        {session.skills_path && (
-          <span css={metaBadgeCss} title={session.skills_path}>
-            skills
-          </span>
-        )}
-        {session.custom_tools_path && (
-          <span css={metaBadgeCss} title={session.custom_tools_path}>
-            tools
+        {session.load_custom_skills_tools && (
+          <span css={metaBadgeCss} title="Custom skills and tools enabled">
+            skills + tools
           </span>
         )}
       </div>

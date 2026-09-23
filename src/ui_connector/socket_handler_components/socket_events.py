@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 
 from flask import request
 from flask_socketio import emit, join_room
@@ -70,7 +71,11 @@ def handle_resume_session(data: dict):
     last_event_id = data.get("lastEventId", "0-0")
     session = _load_session(session_id)
 
-    skills_path = session.skills_path
+    skills_path = (
+        os.path.join(session.initial_cwd, "skills")
+        if session.load_custom_skills_tools
+        else None
+    )
     if skills_path:
         custom_skills = [
             entry

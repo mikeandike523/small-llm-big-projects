@@ -27,14 +27,12 @@ def session():
 
 @session.command(name="new")
 @click.option(
-    "--load-skills/--no-load-skills",
+    "--load-custom-skills-tools/--no-load-custom-skills-tools",
     default=True,
-    help="Load custom skills from a skills/ directory in the working directory of this session. (default: on)",
-)
-@click.option(
-    "--load-tools/--no-load-tools",
-    default=True,
-    help="Load custom tools from a tools/ directory in the working directory of this session. (default: on)",
+    help=(
+        "Load custom skills and tools from the skills/ and tools/ directories "
+        "in this session's working directory. (default: on)"
+    ),
 )
 @click.option(
     "--load-startup-tool-calls/--no-load-startup-tool-calls",
@@ -61,8 +59,7 @@ def session():
     help="Approval mode for this session.",
 )
 def session_new(
-    load_skills,
-    load_tools,
+    load_custom_skills_tools,
     load_startup_tool_calls,
     cwd,
     starting_profile,
@@ -127,11 +124,8 @@ def session_new(
         "interim_response_as_thinking": interim_response_as_thinking,
         "profile_name": starting_profile,
         "approval_mode": approval_mode,
+        "load_custom_skills_tools": load_custom_skills_tools,
     }
-    if load_skills:
-        payload["skills_path"] = os.path.join(session_cwd, "skills")
-    if load_tools:
-        payload["custom_tools_path"] = os.path.join(session_cwd, "tools")
     if load_startup_tool_calls:
         payload["startup_tool_calls_path"] = os.path.join(
             session_cwd, "startup_tool_calls.json"

@@ -33,7 +33,11 @@ def handle_get_skills_info():
     sid = request.sid
     session_id = _state._sid_to_session_id.get(sid, sid)
     session = _load_session(session_id)
-    skills_path = session.skills_path
+    skills_path = (
+        os.path.join(session.initial_cwd, "skills")
+        if session.load_custom_skills_tools
+        else None
+    )
     if skills_path:
         custom_skills = [
             entry

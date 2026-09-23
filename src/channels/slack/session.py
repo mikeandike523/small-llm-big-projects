@@ -194,8 +194,7 @@ def _create_slack_session() -> str:
             turn_count=meta["turn_count"],
             task_titles=meta["task_titles"],
             interim_response_as_thinking=session.interim_response_as_thinking,
-            skills_path=session.skills_path,
-            custom_tools_path=session.custom_tools_path,
+            load_custom_skills_tools=session.load_custom_skills_tools,
             memory={},
         )
     except Exception as exc:

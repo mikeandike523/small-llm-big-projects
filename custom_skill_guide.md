@@ -41,10 +41,10 @@ see §6 here for how the two connect.
       testing.md                # id: "python_testing"
 ```
 
-- Enabled per-session via `slbp session new --load-skills --cwd <dir>`, which
-  sets `skills_path = <dir>/skills` (`src/cli_routes/session.py`). The raw
-  `POST /api/sessions` API accepts an arbitrary `skills_path` string, but the
-  CLI always uses this `{cwd}/skills` convention.
+- Enabled together with custom tools via
+  `slbp session new --load-custom-skills-tools --cwd <dir>`. The session core
+  always derives the directory as `<dir>/skills`; arbitrary paths are not
+  accepted.
 - Every `.md` file directly inside a directory is a candidate skill. Unlike
   custom tools (flat plugin folders only), **custom skill directories nest
   recursively** — every subdirectory is walked, to any depth.
@@ -320,7 +320,7 @@ dependent skill's own text.
 
 ## 8. `excludeBuiltinSkills` — removing (or replacing) a built-in skill
 
-The **top-level** `skills.json` at the root of your `skills_path` (not a
+The **top-level** `skills.json` at the root of the session's `skills/` directory (not a
 nested one — only the root is read for this) may declare:
 
 ```json
@@ -374,8 +374,8 @@ a built-in skill's content:
 You don't need to touch any of this to author a skill — it's here so you
 understand what your `autoload`/`blurb` choices actually control:
 
-1. At session creation, `build_skill_registry(custom_skills_path=skills_path)`
-   builds the full registry once; it's cached per-session
+1. At session creation, the core derives `<session cwd>/skills` and passes it
+   to `build_skill_registry`, which builds the full registry once; it's cached per-session
    (`_session_skill_registries`), along with the resolved autoload set
    baked into the static system prompt. This now runs **before** custom tool
    loading (`load_custom_tools`), which validates each skill-scoped plugin's
