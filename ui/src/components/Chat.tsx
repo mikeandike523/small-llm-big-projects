@@ -30,6 +30,7 @@ import useSocketWiring from "../hooks/useSocketWiring";
 import { fetchToolPreviewConfig } from "../api/toolPreviewConfig";
 import { createSocket } from "../socket";
 import HeartbeatSettingsDialog from "./HeartbeatSettingsDialog";
+import { formatIntervalMinutes } from "../utils/formatInterval";
 import LoadingBackdrop from "../subcomponents/Chat/LoadingBackdrop";
 import ToolModal from "../subcomponents/Chat/ToolModal";
 import { DebugPanel } from "./DebugPanel";
@@ -419,7 +420,7 @@ export default function Chat() {
             </select>
             {heartbeatSettings.enabled && (
               <span
-                title={`Heartbeat enabled: every ${heartbeatSettings.interval_minutes} min`}
+                title={`Heartbeat enabled: every ${formatIntervalMinutes(heartbeatSettings.interval_minutes)}`}
                 aria-label="Heartbeat enabled"
                 style={{ display: "flex", color: "#e53e3e" }}
               >
@@ -430,7 +431,7 @@ export default function Chat() {
               onClick={() => setHeartbeatDialogOpen(true)}
               title={
                 heartbeatSettings.enabled
-                  ? `Heartbeat: every ${heartbeatSettings.interval_minutes} min`
+                  ? `Heartbeat: every ${formatIntervalMinutes(heartbeatSettings.interval_minutes)}`
                   : "Heartbeat: disabled"
               }
               aria-label="Heartbeat settings"

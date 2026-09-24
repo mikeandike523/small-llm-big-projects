@@ -1,0 +1,1 @@
+Fix React warning: Loading option missing value in heartbeat interval dropdown

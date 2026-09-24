@@ -7,7 +7,6 @@ export interface HeartbeatSettings {
   heartbeat_approval_policy: "wait-for-human" | "force-fail" | "force-approve";
 }
 
-export const HEARTBEAT_INTERVALS_MINUTES = [5, 15, 20, 25, 30, 45, 60];
 export const HEARTBEAT_APPROVAL_POLICIES: HeartbeatSettings["heartbeat_approval_policy"][] =
   ["wait-for-human", "force-fail", "force-approve"];
 

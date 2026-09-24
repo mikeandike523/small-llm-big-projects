@@ -58,7 +58,7 @@ from src.utils.approval_modes import (
     APPROVAL_MODES,
     is_valid_approval_mode,
 )
-from src.utils.heartbeat_settings import is_valid_heartbeat_settings
+from src.utils.heartbeat_settings import is_valid_heartbeat_settings, get_heartbeat_intervals_payload
 from src.utils.startup_tool_calls import validate_startup_tool_calls
 
 logger = logging.getLogger(__name__)
@@ -478,6 +478,12 @@ def api_session_set_approval_mode(session_id: str):
     response = {"ok": True, **runtime_settings.payload(settings)}
     socketio.emit("session_settings_update", response, room=session_id)
     return jsonify(response)
+
+
+@app.route("/api/heartbeat-intervals", methods=["GET"])
+def api_heartbeat_intervals():
+    """Return the allowed heartbeat interval values (source of truth)."""
+    return jsonify(get_heartbeat_intervals_payload())
 
 
 @app.route("/api/sessions/<session_id>/heartbeat-settings", methods=["PATCH"])

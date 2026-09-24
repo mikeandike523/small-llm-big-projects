@@ -1,0 +1,1 @@
+Fetch heartbeat intervals from backend API; remove hardcoded list

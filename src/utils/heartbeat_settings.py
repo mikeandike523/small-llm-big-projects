@@ -1,11 +1,19 @@
 from __future__ import annotations
 
-HEARTBEAT_INTERVALS_MINUTES = [5, 15, 20, 25, 30, 45, 60]
+HEARTBEAT_INTERVALS_MINUTES = [5, 15, 20, 25, 30, 45, 60, 60 * 2, 60 * 3, 60 * 6, 60 * 9, 60 * 12, 60 * 15, 60 * 16, 60 * 24]
 HEARTBEAT_INTERVAL_DEFAULT = 30
 
 HEARTBEAT_APPROVAL_POLICY_WAIT_FOR_HUMAN = "wait-for-human"
 HEARTBEAT_APPROVAL_POLICY_FORCE_FAIL = "force-fail"
 HEARTBEAT_APPROVAL_POLICY_FORCE_APPROVE = "force-approve"
+
+def get_heartbeat_intervals_payload() -> dict:
+    """Return the source-of-truth interval list + default for the frontend."""
+    return {
+        "intervals": HEARTBEAT_INTERVALS_MINUTES,
+        "default": HEARTBEAT_INTERVAL_DEFAULT,
+    }
+
 
 HEARTBEAT_APPROVAL_POLICIES = [
     HEARTBEAT_APPROVAL_POLICY_WAIT_FOR_HUMAN,

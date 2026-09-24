@@ -1,11 +1,11 @@
 /** @jsxImportSource @emotion/react */
 import { css } from "@emotion/react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   HEARTBEAT_APPROVAL_POLICIES,
-  HEARTBEAT_INTERVALS_MINUTES,
   type HeartbeatSettings,
 } from "../types";
+import { formatIntervalMinutes } from "../utils/formatInterval";
 
 // ---------------------------------------------------------------------------
 // Props
@@ -186,6 +186,29 @@ export default function HeartbeatSettingsDialog({
   const [draft, setDraft] = useState<HeartbeatSettings>(settings);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [intervals, setIntervals] = useState<number[] | null>(null);
+  const [intervalsLoading, setIntervalsLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function fetchIntervals() {
+      try {
+        const res = await fetch("/api/heartbeat-intervals");
+        if (!res.ok) throw new Error("Failed to fetch intervals");
+        const data = await res.json();
+        if (!cancelled) {
+          setIntervals(data.intervals ?? []);
+          setIntervalsLoading(false);
+        }
+      } catch {
+        if (!cancelled) setIntervalsLoading(false);
+      }
+    }
+    fetchIntervals();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   async function handleSave() {
     if (saving) return;
@@ -236,15 +259,20 @@ export default function HeartbeatSettingsDialog({
           <select
             css={selectCss}
             value={draft.interval_minutes}
+            disabled={intervalsLoading}
             onChange={(e) =>
               setDraft({ ...draft, interval_minutes: Number(e.target.value) })
             }
           >
-            {HEARTBEAT_INTERVALS_MINUTES.map((minutes) => (
-              <option key={minutes} value={minutes}>
-                {minutes} min
-              </option>
-            ))}
+            {intervalsLoading ? (
+              <option value={draft.interval_minutes}>Loading…</option>
+            ) : (
+              (intervals ?? []).map((minutes) => (
+                <option key={minutes} value={minutes}>
+                  {formatIntervalMinutes(minutes)}
+                </option>
+              ))
+            )}
           </select>
         </div>
 
@@ -286,9 +314,9 @@ export default function HeartbeatSettingsDialog({
             Cancel
           </button>
           <button
-            css={saveBtnCss(saving)}
+            css={saveBtnCss(saving || intervalsLoading)}
             onClick={handleSave}
-            disabled={saving}
+            disabled={saving || intervalsLoading}
           >
             {saving ? "Saving…" : "Save"}
           </button>
