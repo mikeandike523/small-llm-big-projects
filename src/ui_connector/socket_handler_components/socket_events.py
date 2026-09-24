@@ -213,6 +213,10 @@ def handle_cancel_turn():
     # _request_approval immediately (otherwise it would only notice the cancel
     # via its cancel_event poll, and no denial would be recorded).
     pending = _state._pending_approvals.get(session_id)
+    stopping_pending_approval = pending is not None and pending.get("approved") in (
+        None,
+        False,
+    )
     if pending is not None and pending.get("approved") is None:
         # Only resolve an approval the user has not already decided: a click
         # on the dialog that raced with Stop must not be overridden (and if a
@@ -230,9 +234,17 @@ def handle_cancel_turn():
             },
         )
         pending["event"].set()
+    if stopping_pending_approval:
+        # Let the tool worker flush the denied call and every later call in the
+        # same assistant exchange before the agent loop exits. Cancelling the
+        # asyncio task here would abandon asyncio.to_thread's return value and
+        # omit those synthetic tool results from durable turn history.
+        pending_cancel_event = pending.get("cancel_event")
+        if pending_cancel_event is not None:
+            pending_cancel_event.set()
     loop = _state._cancel_loops.get(session_id)
     task = _state._cancel_tasks.get(session_id)
-    if loop is not None and task is not None:
+    if not stopping_pending_approval and loop is not None and task is not None:
         loop.call_soon_threadsafe(task.cancel)
     logger.info("Cancel requested for session %s", session_id)
 

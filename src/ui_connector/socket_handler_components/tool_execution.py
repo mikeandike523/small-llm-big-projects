@@ -141,7 +141,7 @@ def _execute_tools(
     )
 
     try:
-        for tc in result.tool_calls:
+        for tool_index, tc in enumerate(result.tool_calls):
             # Approval policy is intentionally live per tool call. A mode change
             # never alters a tool already running or resolves an existing prompt,
             # but it does apply to the next approval gate in this same exchange.
@@ -160,49 +160,6 @@ def _execute_tools(
             )
 
             tool_record = ToolCallRecord(id=tc.id, name=tc.name, args=tc.arguments)
-
-            # Dirty cache check: block partial edits on resources modified since last read.
-            try:
-                _effects, _dirty_hop_path = get_dirty_effects(
-                    tc.name,
-                    tc.arguments,
-                    session_data=session.session_data,
-                    tool_map=actual_tool_map,
-                )
-            except ToolDelegationError as exc:
-                _delegation_error = f"Error: {exc}"
-                tool_record.result = _delegation_error
-                exchange.tool_calls.append(tool_record)
-                _emit_and_log(
-                    session_id,
-                    "tool_result",
-                    {
-                        "id": tc.id,
-                        "result": _delegation_error,
-                        "turn_id": turn_id,
-                    },
-                )
-                continue
-            _dirty_error = _dirty_cache.check_requires_clean(
-                session_id,
-                _effects,
-                tc.name,
-                cwd=_state._session_current_cwd.get(session_id),
-                strict=strict_dirty,
-            )
-            if _dirty_error:
-                tool_record.result = _dirty_error
-                exchange.tool_calls.append(tool_record)
-                _emit_and_log(
-                    session_id,
-                    "tool_result",
-                    {
-                        "id": tc.id,
-                        "result": _dirty_error,
-                        "turn_id": turn_id,
-                    },
-                )
-                continue
 
             # Patch rewrite watchdog: before the approval check, attempt to fix a
             # failing apply_patch call so the agent never sees the error.
@@ -342,12 +299,6 @@ def _execute_tools(
                     session_data=session.session_data,
                     special_resources=special_resources,
                 )
-                _check_hop_paths_agree(
-                    {
-                        "dirty_effects": _dirty_hop_path,
-                        "needs_approval": _approval_hop_path,
-                    }
-                )
             except ToolDelegationError as exc:
                 _delegation_error = f"Error: {exc}"
                 tool_record.result = _delegation_error
@@ -399,7 +350,87 @@ def _execute_tools(
                             "turn_id": turn_id,
                         },
                     )
-                    continue
+                    # One explicit denial invalidates the rest of this assistant
+                    # exchange. Record the identical denial for every queued call
+                    # without running its approval, dirty-effects, or execute hooks.
+                    for queued_tc in result.tool_calls[tool_index + 1 :]:
+                        _emit_and_log(
+                            session_id,
+                            "tool_call",
+                            {
+                                "id": queued_tc.id,
+                                "name": queued_tc.name,
+                                "args": queued_tc.arguments,
+                                "turn_id": turn_id,
+                            },
+                        )
+                        queued_record = ToolCallRecord(
+                            id=queued_tc.id,
+                            name=queued_tc.name,
+                            args=queued_tc.arguments,
+                            result=denial,
+                        )
+                        exchange.tool_calls.append(queued_record)
+                        _emit_and_log(
+                            session_id,
+                            "tool_result",
+                            {
+                                "id": queued_tc.id,
+                                "result": denial,
+                                "turn_id": turn_id,
+                            },
+                        )
+                    return exchange
+
+            # Approval has either been granted or was not required. Only now
+            # resolve dirty effects and check whether the resource is safe to use.
+            try:
+                _effects, _dirty_hop_path = get_dirty_effects(
+                    tc.name,
+                    tc.arguments,
+                    session_data=session.session_data,
+                    tool_map=actual_tool_map,
+                )
+                _check_hop_paths_agree(
+                    {
+                        "needs_approval": _approval_hop_path,
+                        "dirty_effects": _dirty_hop_path,
+                    }
+                )
+            except ToolDelegationError as exc:
+                _delegation_error = f"Error: {exc}"
+                tool_record.result = _delegation_error
+                exchange.tool_calls.append(tool_record)
+                _emit_and_log(
+                    session_id,
+                    "tool_result",
+                    {
+                        "id": tc.id,
+                        "result": _delegation_error,
+                        "turn_id": turn_id,
+                    },
+                )
+                continue
+            _dirty_error = _dirty_cache.check_requires_clean(
+                session_id,
+                _effects,
+                tc.name,
+                cwd=_state._session_current_cwd.get(session_id),
+                strict=strict_dirty,
+            )
+            if _dirty_error:
+                tool_record.result = _dirty_error
+                exchange.tool_calls.append(tool_record)
+                _emit_and_log(
+                    session_id,
+                    "tool_result",
+                    {
+                        "id": tc.id,
+                        "result": _dirty_error,
+                        "turn_id": turn_id,
+                    },
+                )
+                continue
 
             # Always inject on_chunk so any tool can emit progress updates.
             _tc_id = tc.id

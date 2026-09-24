@@ -1,0 +1,1 @@
+Flush remaining batched tool calls after approval denial

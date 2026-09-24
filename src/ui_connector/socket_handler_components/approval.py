@@ -35,6 +35,7 @@ def _request_approval(
         "redirect_message": None,
         "turn_id": turn_id,
         "tool_id": tool_id,
+        "cancel_event": cancel_event,
     }
     _emit_and_log(
         session_id,
