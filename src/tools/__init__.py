@@ -374,7 +374,9 @@ def _walk_delegation_chain(start_name, start_args, tool_map, call_fn):
         current_name, current_args = result.name, result.args
 
 
-def _check_hop_paths_agree(named_paths: dict) -> None:
+def _check_hop_paths_agree(
+    named_paths: dict, *, execution_already_occurred: bool = False
+) -> None:
     """Cross-check hop paths from different chains (needs_approval/dirty_effects/
     execute) that were all resolved for the SAME top-level tool call.
 
@@ -390,6 +392,13 @@ def _check_hop_paths_agree(named_paths: dict) -> None:
             label_j, path_j = items[j]
             for k in range(min(len(path_i), len(path_j))):
                 if path_i[k] != path_j[k]:
+                    execution_warning = (
+                        " WARNING: The execution chain has already run and may "
+                        "have produced side effects. Inspect affected resources "
+                        "before retrying."
+                        if execution_already_occurred
+                        else ""
+                    )
                     raise ToolDelegationError(
                         f"NextTool delegation mismatch at hop {k}: the {label_i!r} "
                         f"chain delegates to {path_i[k].name!r} (args={path_i[k].args!r}) "
@@ -400,6 +409,7 @@ def _check_hop_paths_agree(named_paths: dict) -> None:
                         "still delegating at the same step — this is a hard error to "
                         "prevent a wrapper's approval/dirty-tracking from silently "
                         "diverging from what it actually executes."
+                        f"{execution_warning}"
                     )
 
 

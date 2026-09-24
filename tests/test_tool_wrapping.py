@@ -279,6 +279,19 @@ def test_divergent_hop_paths_raise() -> None:
         )
 
 
+def test_post_execution_divergence_warns_about_possible_side_effects() -> None:
+    needs_approval_path = [NextTool("a", {}), NextTool("b", {"x": 1})]
+    execute_path = [NextTool("a", {}), NextTool("b", {"x": 2})]
+    with pytest.raises(
+        ToolDelegationError,
+        match="execution chain has already run and may have produced side effects",
+    ):
+        _check_hop_paths_agree(
+            {"needs_approval": needs_approval_path, "execute": execute_path},
+            execution_already_occurred=True,
+        )
+
+
 def test_agreeing_hop_paths_do_not_raise() -> None:
     path_a = [NextTool("a", {}), NextTool("b", {"x": 1})]
     path_b = [NextTool("a", {}), NextTool("b", {"x": 1})]

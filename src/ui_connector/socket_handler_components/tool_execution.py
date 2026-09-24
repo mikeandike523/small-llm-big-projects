@@ -453,7 +453,8 @@ def _execute_tools(
                         "dirty_effects": _dirty_hop_path,
                         "needs_approval": _approval_hop_path,
                         "execute": _execute_hop_path,
-                    }
+                    },
+                    execution_already_occurred=True,
                 )
             except ToolHangError as e:
                 tool_result = f"HANG: {e}"

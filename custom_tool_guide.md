@@ -357,6 +357,12 @@ def needs_approval(args: dict, session_data: dict | None = None, special_resourc
   or `fn(args, session_data, special_resources)`), matched by how many
   parameters your function declares.
 - Return a `bool`. `True` means "prompt the user before running."
+- **Must be side-effect-free.** The framework calls `needs_approval` while it
+  is deciding whether execution is allowed, before the user has approved the
+  operation. It may inspect arguments and existing state, but it must not
+  change files, mutate `session_data`, run shell commands, make mutating
+  network requests, or perform any other externally observable action. Keep
+  its result deterministic for the same arguments and relevant session state.
 - `special_resources.get("approval_mode")` holds the session's live approval
   mode (`"default"`, `"auto-accept-edits"`, `"full-auto"`). Use the helpers in
   `src.tools._approval` to stay consistent with built-in behavior instead of
@@ -406,6 +412,12 @@ def dirty_effects(args: dict, session_data: dict | None = None) -> dict:
   writes, feeding the "dirty cache" that blocks stale edits (e.g. writing to
   a file the agent hasn't re-read since it last changed).
 - Arity: 1 or 2 params only (no `special_resources` variant).
+- **Must be side-effect-free.** This hook only describes expected reads and
+  writes; it must not perform them. It may inspect arguments and existing
+  state, but it must not change files, mutate `session_data`, run shell
+  commands, make mutating network requests, or perform any other externally
+  observable action. Keep its result deterministic for the same arguments and
+  relevant session state.
 - Return a dict using any of these keys (all optional, all lists):
 
   | Key | Meaning |
@@ -518,6 +530,14 @@ does another — approving for path A but writing to path B, for example.
 Honest wrappers (the ones whose `needs_approval`/`dirty_effects` simply
 don't override the default, or delegate with the exact same args `execute`
 uses) never hit this.
+
+Because the `execute` chain is necessarily checked after it runs, an
+execute-time mismatch is reported only after delegated execution may already
+have produced side effects. The resulting error says so explicitly and tells
+the operator to inspect affected resources before retrying. By contrast, a
+mismatch between `needs_approval` and `dirty_effects` is detected before
+execution. This is another reason those two inspection hooks must remain pure
+and side-effect-free.
 
 ### 11.4 `extend_tool_definition` — building a wrapper's schema from another's
 
@@ -830,6 +850,9 @@ Before wiring a new tool file into a session, confirm:
       writes, deletes, executes, or makes network calls.
 - [ ] `dirty_effects` added if this tool reads/writes files or memory keys
       that other tools' staleness-checks should know about.
+- [ ] `needs_approval` and `dirty_effects` are deterministic and side-effect-free:
+      they do not change files or session state, run commands, or issue
+      mutating network requests.
 - [ ] `ENABLE_REDACTION = True` set if output might contain secrets scraped
       from files/commands/network responses.
 - [ ] `NO_STUB = True` set only if truncated/stubbed output would break the
