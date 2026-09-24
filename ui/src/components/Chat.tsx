@@ -325,51 +325,50 @@ export default function Chat() {
           </span>
           {contextUsageData && <ContextUsageBar data={contextUsageData} />}
           <div css={headerSideCss}>
-            <button
-              onClick={handleReloadCustomizations}
-              disabled={
-                busy ||
-                customizationsReloading ||
-                !connected ||
-                !loadCustomSkillsTools
-              }
-              title={
-                !loadCustomSkillsTools
-                  ? "Custom skills and tools are disabled for this session"
-                  : busy
+            {loadCustomSkillsTools && (
+              <button
+                onClick={handleReloadCustomizations}
+                disabled={
+                  busy ||
+                  customizationsReloading ||
+                  !connected
+                }
+                title={
+                  busy
                     ? "Cannot reload skills and tools during an active subturn"
                     : customizationsReloading
                       ? "Reloading custom skills and tools…"
                       : "Reload custom skills and tools"
-              }
-              aria-label="Reload custom skills and tools"
-              style={{
-                background: "#101722",
-                border: "1px solid #2a3a6e",
-                borderRadius: 4,
-                color: "#8aacff",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                padding: "5px 7px",
-                cursor:
-                  busy ||
-                  customizationsReloading ||
-                  !connected ||
-                  !loadCustomSkillsTools
-                    ? "not-allowed"
-                    : "pointer",
-                opacity:
-                  busy ||
-                  customizationsReloading ||
-                  !connected ||
-                  !loadCustomSkillsTools
-                    ? 0.35
-                    : 1,
-              }}
-            >
-              <FaSyncAlt size={12} />
-            </button>
+                }
+                aria-label="Reload custom skills and tools"
+                style={{
+                  background: "#101722",
+                  border: "1px solid #2a3a6e",
+                  borderRadius: 4,
+                  color: "#8aacff",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 6,
+                  padding: "5px 9px",
+                  cursor:
+                    busy ||
+                    customizationsReloading ||
+                    !connected
+                      ? "not-allowed"
+                      : "pointer",
+                  opacity:
+                    busy ||
+                    customizationsReloading ||
+                    !connected
+                      ? 0.25
+                      : 1,
+                }}
+              >
+                <FaSyncAlt size={12} />
+                Skills + Tools
+              </button>
+            )}
             {profiles.length > 0 && (
               <select
                 value={sessionProfile ?? ""}

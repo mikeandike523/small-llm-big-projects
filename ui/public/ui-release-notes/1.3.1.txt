@@ -1,0 +1,1 @@
+Reload Skills + Tools button: add text label, lower disabled opacity to 0.25, hide entirely when custom skills/tools not enabled for session
