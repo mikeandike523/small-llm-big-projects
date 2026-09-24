@@ -1,4 +1,4 @@
-# Hardening for Unexpected Message Start Events
+# Hardening for Concurrent User-Message Starts
 
 ## Status and Scope
 
@@ -13,11 +13,22 @@ state. That makes the system behave correctly during normal single-tab use,
 but the backend itself does not atomically enforce the one-turn-per-session
 invariant. Correctness should not depend on cooperative UI state.
 
+The obsolete `force_continuation` Socket.IO event and its duplicated backend
+handler have been removed. `user_message` is now the only message-start event.
+Its `followup_behavior` field selects all three supported behaviors:
+
+- `auto`: classify the message before choosing continuation or a new task;
+- `follow-up`: bypass classification and continue the latest completed turn;
+- `new-task`: bypass classification and create a new turn.
+
+Removing the duplicate handler reduces the hardening boundary to one entry
+point, but does not fix concurrent invocations of that entry point.
+
 ## Current Flow
 
-`handle_user_message` and `handle_force_continuation` in
+`handle_user_message` in
 `src/ui_connector/socket_handler_components/socket_events_turn.py` currently
-use `_state._cancel_tasks` as their active-turn check:
+uses `_state._cancel_tasks` as its active-turn check:
 
 ```python
 if session_id in _state._cancel_tasks:
@@ -34,12 +45,12 @@ asyncio event loop's `_run` coroutine. Before registration, the handler may:
 - emit `turn_start` and other session events; and
 - create and install an event loop.
 
-Flask-SocketIO runs in threaded mode, so two handlers for the same session can
-both pass the check before either one registers its task. The check and the
+Flask-SocketIO runs in threaded mode, so two invocations for the same session
+can both pass the check before either one registers its task. The check and the
 reservation are separate operations with no lock around them.
 
 `_session_active_turns` does not close this gap. It is populated only near
-`loop.run_until_complete`, is not consulted by the turn-start handlers, and a
+`loop.run_until_complete`, is not consulted by `handle_user_message`, and a
 plain set membership check followed by `add` would still not be an atomic
 reservation without synchronization.
 
@@ -49,8 +60,8 @@ The failure requires two independent message-start events, not multiple tool
 calls in one model response:
 
 ```text
-Handler A                              Handler B
----------                              ---------
+Invocation A                           Invocation B
+------------                           ------------
 check _cancel_tasks: absent
                                        check _cancel_tasks: absent
 load session A                         load session B
@@ -66,7 +77,8 @@ Likely triggers include:
 - two tabs or windows connected to the same durable session;
 - chat and terminal-panel submissions racing;
 - reconnect/retry or duplicate-delivery behavior;
-- `force_continuation` racing with `user_message`; and
+- two `user_message` events racing, whether they use the same or different
+  follow-up modes; and
 - future automated or external-channel message producers.
 
 This is expected to be rare today because the UI suppresses normal duplicate
@@ -154,8 +166,8 @@ check-and-add operation.
 
 ### 2. Reserve before preprocessing
 
-Both `handle_user_message` and `handle_force_continuation` should reserve the
-session immediately after resolving and validating `session_id`, before:
+`handle_user_message` should reserve the session immediately after resolving
+and validating `session_id`, before:
 
 - loading or mutating the session;
 - calling the continuation classifier;
@@ -172,9 +184,8 @@ Wrap the entire admitted operation—not merely `run_until_complete`—in a
 configuration loading, continuation classification, turn construction, event
 loop creation, cancellation, and agent execution.
 
-Avoid separate implementations whose cleanup behavior can drift between
-`user_message` and `force_continuation`; extract a narrow reservation helper or
-shared context manager if that makes exact cleanup easier to review.
+Use a narrow reservation helper or context manager if that makes exact cleanup
+easier to review.
 
 ### 4. Separate reservation state from cancellation state
 
@@ -228,7 +239,7 @@ Log reservation acquire/reject/release and approval-correlation failures with:
 - `turn_id`;
 - `subturn_id` where available;
 - `tool_id` for approvals; and
-- the source event (`user_message` or `force_continuation`).
+- the selected `user_message` follow-up mode.
 
 These logs should be diagnostic rather than normal UI chatter. They will make
 future reports distinguish duplicate message starts from one response holding
@@ -238,10 +249,12 @@ multiple tool calls.
 
 ### Atomic admission tests
 
-- Start two `user_message` handlers for the same session behind a barrier so
-  both attempt admission concurrently; assert exactly one acquires the
-  reservation.
-- Race `user_message` against `force_continuation`; assert exactly one starts.
+- Start two `handle_user_message` invocations for the same session behind a
+  barrier so both attempt admission concurrently; assert exactly one acquires
+  the reservation.
+- Race auto-detect against a forced follow-up `user_message`; assert exactly one
+  starts.
+- Race two messages that both force new-task; assert exactly one starts.
 - Verify different session IDs can reserve and run concurrently.
 - Verify rejection performs no session mutation and emits no `turn_start`.
 
@@ -274,13 +287,16 @@ second message start while it waits. Assert that:
 ## Acceptance Criteria
 
 - Backend correctness no longer depends on the React `busy` flag.
-- Exactly one of any concurrent same-session message-start events is admitted.
+- Exactly one of any concurrent same-session `user_message` invocations is
+  admitted, regardless of `followup_behavior`.
 - Concurrent turns for different sessions remain supported.
 - No pending approval can be overwritten or resolved by a mismatched tool ID.
 - Cancellation and session-active reporting refer to the same admitted turn.
 - All reservation and approval state is cleaned up after success, error, or
   cancellation.
 - Existing single-tab behavior and event ordering remain unchanged.
+- Auto-detect, force-follow-up, and force-new-task continue to work through the
+  single `user_message` event.
 
 ## Non-Goals
 
