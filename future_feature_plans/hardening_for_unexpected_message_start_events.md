@@ -28,15 +28,15 @@ point, but does not fix concurrent invocations of that entry point.
 
 `handle_user_message` in
 `src/ui_connector/socket_handler_components/socket_events_turn.py` currently
-uses `_state._cancel_tasks` as its active-turn check:
+uses `_state._active_turn_tasks` as its active-turn check:
 
 ```python
-if session_id in _state._cancel_tasks:
+if session_id in _state._active_turn_tasks:
     emit("error", {"message": "A turn is already in progress..."})
     return
 ```
 
-The task is not inserted into `_cancel_tasks` until later, inside the new
+The task is not inserted into `_active_turn_tasks` until later, inside the new
 asyncio event loop's `_run` coroutine. Before registration, the handler may:
 
 - load the session and model configuration;
@@ -62,12 +62,12 @@ calls in one model response:
 ```text
 Invocation A                           Invocation B
 ------------                           ------------
-check _cancel_tasks: absent
-                                       check _cancel_tasks: absent
+check active-turn task map: absent
+                                       check active-turn task map: absent
 load session A                         load session B
 classify/create turn A                 classify/create turn B
-register cancel task A
-                                       register cancel task B (overwrites A)
+register active-turn task A
+                                       register active-turn task B (overwrites A)
 run agent loop A                       run agent loop B
 ```
 
@@ -91,8 +91,8 @@ request before the task is registered.
 Once two loops exist for one session, multiple process-local structures assume
 an exclusivity guarantee that no longer holds:
 
-- `_cancel_tasks[session_id]` can reference only one of the two tasks.
-- `_cancel_loops[session_id]` can reference only one event loop.
+- `_active_turn_tasks[session_id]` can reference only one of the two tasks.
+- `_active_turn_loops[session_id]` can reference only one event loop.
 - `_pending_approvals[session_id]` can hold only one approval request.
 - both loops can load, mutate, and save different in-memory copies of the same
   session;
@@ -189,9 +189,10 @@ easier to review.
 
 ### 4. Separate reservation state from cancellation state
 
-Continue using `_cancel_tasks` and `_cancel_loops` to locate and cancel the
-running asyncio task. Do not use their presence as the authoritative active
-turn check.
+Continue using `_active_turn_tasks` and `_active_turn_loops` to locate and
+cancel the running asyncio task. These maps hold cancellation handles; they do
+not represent pending cancellation requests. Do not use their presence as the
+authoritative active-turn check.
 
 This separation matters because a turn is already active during synchronous
 preprocessing, before an asyncio task exists, and remains reserved during

@@ -106,7 +106,7 @@ def handle_resume_session(data: dict):
     current_turn_data = (
         turn_to_dict(session.current_turn) if session.current_turn else None
     )
-    is_turn_active = session_id in _state._cancel_tasks
+    is_turn_active = session_id in _state._active_turn_tasks
     emit(
         "session_state",
         {
@@ -242,8 +242,8 @@ def handle_cancel_turn():
         pending_cancel_event = pending.get("cancel_event")
         if pending_cancel_event is not None:
             pending_cancel_event.set()
-    loop = _state._cancel_loops.get(session_id)
-    task = _state._cancel_tasks.get(session_id)
+    loop = _state._active_turn_loops.get(session_id)
+    task = _state._active_turn_tasks.get(session_id)
     if not stopping_pending_approval and loop is not None and task is not None:
         loop.call_soon_threadsafe(task.cancel)
     logger.info("Cancel requested for session %s", session_id)

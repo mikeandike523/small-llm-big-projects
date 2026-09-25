@@ -91,9 +91,9 @@ _TERMINAL_SENTINELS = {"agent_last_opened", "user_last_opened", "active", "last_
 
 _sid_to_session_id: dict[str, str] = {}
 
-# Asyncio cancellation: maps session_id -> (event_loop, asyncio.Task)
-_cancel_loops: dict[str, asyncio.AbstractEventLoop] = {}
-_cancel_tasks: dict[str, asyncio.Task] = {}
+# Active turn cancellation handles, keyed by session_id.
+_active_turn_loops: dict[str, asyncio.AbstractEventLoop] = {}
+_active_turn_tasks: dict[str, asyncio.Task] = {}
 
 # ---------------------------------------------------------------------------
 # Backend log counter

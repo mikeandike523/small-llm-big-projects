@@ -351,7 +351,10 @@ def _load_session(session_id: str) -> Session:
     # Repair a turn orphaned by a previous restart/crash — but only when no live
     # asyncio task owns this session (an active turn must be left untouched).
     needs_persist = False
-    if session.current_turn is not None and session_id not in _state._cancel_tasks:
+    if (
+        session.current_turn is not None
+        and session_id not in _state._active_turn_tasks
+    ):
         needs_persist = repair_incomplete_turn(session)
 
     # A cold (DB) load must warm the Redis cache; a repair must be persisted.

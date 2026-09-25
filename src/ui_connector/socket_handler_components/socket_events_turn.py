@@ -107,7 +107,7 @@ def handle_user_message(data: dict):
         emit("error", {"message": "No session_id — reconnect required."})
         return
 
-    if session_id in _state._cancel_tasks:
+    if session_id in _state._active_turn_tasks:
         emit(
             "error",
             {"message": "A turn is already in progress. Please wait or cancel first."},
@@ -268,11 +268,11 @@ def handle_user_message(data: dict):
 
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-    _state._cancel_loops[session_id] = loop
+    _state._active_turn_loops[session_id] = loop
 
     async def _run() -> None:
         task = asyncio.current_task()
-        _state._cancel_tasks[session_id] = task
+        _state._active_turn_tasks[session_id] = task
         title_task: asyncio.Task | None = None
         try:
             if _is_cont:
@@ -346,8 +346,8 @@ def handle_user_message(data: dict):
                 exc,
             )
         finally:
-            _state._cancel_tasks.pop(session_id, None)
-            _state._cancel_loops.pop(session_id, None)
+            _state._active_turn_tasks.pop(session_id, None)
+            _state._active_turn_loops.pop(session_id, None)
 
     _state._session_active_turns.add(session_id)
     try:
