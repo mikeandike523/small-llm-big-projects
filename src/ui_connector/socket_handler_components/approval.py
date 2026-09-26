@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import logging
 import threading
 
 import src.ui_connector.socket_handler_components.state as _state
 from src.ui_connector.socket_handler_components.emit import _emit_and_log
+
+logger = logging.getLogger(__name__)
 
 
 def _request_approval(
@@ -14,7 +17,7 @@ def _request_approval(
     turn_id: str = "",
     subturn_id: str = "",
     cancel_event: threading.Event | None = None,
-) -> tuple[bool, str | None]:
+) -> tuple[bool, str | None, bool]:
     """
     Emit an approval_request event and block until approved, denied, or the
     turn is cancelled. Waits indefinitely — there is no timeout.
@@ -29,33 +32,53 @@ def _request_approval(
     machine sleeps) can still resolve an approval that was requested before it.
     """
     ev = threading.Event()
-    _state._pending_approvals[session_id] = {
+    entry = {
         "event": ev,
         "approved": None,
         "redirect_message": None,
         "turn_id": turn_id,
+        "subturn_id": subturn_id,
         "tool_id": tool_id,
         "cancel_event": cancel_event,
     }
-    _emit_and_log(
-        session_id,
-        "approval_request",
-        {
-            "id": tool_id,
-            "tool_name": tool_name,
-            "args": args,
-            "turn_id": turn_id,
-            "subturn_id": subturn_id,
-        },
-    )
+    with _state._pending_approvals_lock:
+        existing = _state._pending_approvals.get(session_id)
+        if existing is not None:
+            logger.error(
+                "Pending approval invariant violation: session_id=%s "
+                "turn_id=%s tool_id=%s existing_turn_id=%s existing_tool_id=%s",
+                session_id,
+                turn_id,
+                tool_id,
+                existing.get("turn_id"),
+                existing.get("tool_id"),
+            )
+            raise RuntimeError("A tool approval is already pending for this session")
+        _state._pending_approvals[session_id] = entry
 
-    while True:
-        if ev.wait(timeout=0.5):
-            break
-        if cancel_event is not None and cancel_event.is_set():
-            break
+    try:
+        _emit_and_log(
+            session_id,
+            "approval_request",
+            {
+                "id": tool_id,
+                "tool_name": tool_name,
+                "args": args,
+                "turn_id": turn_id,
+                "subturn_id": subturn_id,
+            },
+        )
 
-    entry = _state._pending_approvals.pop(session_id, {})
+        while True:
+            if ev.wait(timeout=0.5):
+                break
+            if cancel_event is not None and cancel_event.is_set():
+                break
+    finally:
+        with _state._pending_approvals_lock:
+            if _state._pending_approvals.get(session_id) is entry:
+                _state._pending_approvals.pop(session_id, None)
+
     approved = entry.get("approved")
 
     if cancel_event is not None and cancel_event.is_set():

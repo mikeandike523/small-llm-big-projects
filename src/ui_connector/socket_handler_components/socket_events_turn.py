@@ -107,20 +107,53 @@ def handle_user_message(data: dict):
         emit("error", {"message": "No session_id — reconnect required."})
         return
 
-    if session_id in _state._active_turn_tasks:
+    turn_id: str = data.get("clientTurnId") or str(_uuid_module.uuid4())
+    followup_behavior = data.get("followup_behavior", "auto")
+    if not _state.try_reserve_turn(session_id):
+        logger.warning(
+            "Turn reservation rejected: session_id=%s turn_id=%s followup_behavior=%s",
+            session_id,
+            turn_id,
+            followup_behavior,
+        )
         emit(
             "error",
             {"message": "A turn is already in progress. Please wait or cancel first."},
         )
         return
 
+    logger.info(
+        "Turn reservation acquired: session_id=%s turn_id=%s followup_behavior=%s",
+        session_id,
+        turn_id,
+        followup_behavior,
+    )
+    try:
+        _handle_admitted_user_message(
+            data,
+            session_id,
+            turn_id,
+            followup_behavior,
+        )
+    finally:
+        _state.release_turn(session_id)
+        logger.info(
+            "Turn reservation released: session_id=%s turn_id=%s followup_behavior=%s",
+            session_id,
+            turn_id,
+            followup_behavior,
+        )
+
+
+def _handle_admitted_user_message(
+    data: dict,
+    session_id: str,
+    turn_id: str,
+    followup_behavior: str,
+) -> None:
     text = (data.get("text") or "").strip()
     if not text:
         return
-
-    turn_id: str = data.get("clientTurnId") or ""
-    if not turn_id:
-        turn_id = str(_uuid_module.uuid4())
 
     session = _load_session(session_id)
     _session_profile = session.profile_name
@@ -158,7 +191,6 @@ def handle_user_message(data: dict):
 
     user_text_with_context = text
 
-    followup_behavior = data.get("followup_behavior", "auto")
     _is_cont = False
     if followup_behavior == "follow-up":
         _is_cont = bool(session.completed_turns)
@@ -268,11 +300,12 @@ def handle_user_message(data: dict):
 
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-    _state._active_turn_loops[session_id] = loop
 
     async def _run() -> None:
         task = asyncio.current_task()
-        _state._active_turn_tasks[session_id] = task
+        if task is None:
+            raise RuntimeError("Agent turn started without an asyncio task")
+        _state.register_active_turn_handles(session_id, loop, task)
         title_task: asyncio.Task | None = None
         try:
             if _is_cont:
@@ -346,12 +379,9 @@ def handle_user_message(data: dict):
                 exc,
             )
         finally:
-            _state._active_turn_tasks.pop(session_id, None)
-            _state._active_turn_loops.pop(session_id, None)
+            _state.clear_active_turn_handles(session_id, task)
 
-    _state._session_active_turns.add(session_id)
     try:
         loop.run_until_complete(_run())
     finally:
-        _state._session_active_turns.discard(session_id)
         loop.close()

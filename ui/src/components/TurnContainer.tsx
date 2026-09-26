@@ -602,10 +602,10 @@ export default function TurnContainer({
 }: {
   turn: Turn;
   onViewFull: (content: string) => void;
-  onApprove: (id: string) => void;
-  onDeny: (id: string) => void;
-  onDenyWithRedirect: (id: string, message: string) => void;
-  onDenyAndStop: (id: string) => void;
+  onApprove: (id: string, turnId: string) => void;
+  onDeny: (id: string, turnId: string) => void;
+  onDenyWithRedirect: (id: string, turnId: string, message: string) => void;
+  onDenyAndStop: (id: string, turnId: string) => void;
 }) {
   const [compactionModalSubturnId, setCompactionModalSubturnId] = useState<
     string | null
@@ -1025,10 +1025,12 @@ export default function TurnContainer({
                       <ToolApprovalBubble
                         key={item.id}
                         item={item}
-                        onApprove={onApprove}
-                        onDeny={onDeny}
-                        onDenyWithRedirect={onDenyWithRedirect}
-                        onDenyAndStop={onDenyAndStop}
+                        onApprove={(id) => onApprove(id, turn.id)}
+                        onDeny={(id) => onDeny(id, turn.id)}
+                        onDenyWithRedirect={(id, message) =>
+                          onDenyWithRedirect(id, turn.id, message)
+                        }
+                        onDenyAndStop={(id) => onDenyAndStop(id, turn.id)}
                       />
                     ))}
                   </>

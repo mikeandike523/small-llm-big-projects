@@ -106,7 +106,7 @@ def handle_resume_session(data: dict):
     current_turn_data = (
         turn_to_dict(session.current_turn) if session.current_turn else None
     )
-    is_turn_active = session_id in _state._active_turn_tasks
+    is_turn_active = _state.is_turn_reserved(session_id)
     emit(
         "session_state",
         {
@@ -212,38 +212,45 @@ def handle_cancel_turn():
     # the frontend approval widget clears. event.set() unblocks
     # _request_approval immediately (otherwise it would only notice the cancel
     # via its cancel_event poll, and no denial would be recorded).
-    pending = _state._pending_approvals.get(session_id)
-    stopping_pending_approval = pending is not None and pending.get("approved") in (
-        None,
-        False,
-    )
-    if pending is not None and pending.get("approved") is None:
-        # Only resolve an approval the user has not already decided: a click
-        # on the dialog that raced with Stop must not be overridden (and if a
-        # decision was already recorded, handle_approval_response already
-        # emitted approval_resolved, so there is nothing left to clear).
-        pending["approved"] = False
-        pending["redirect_message"] = None
-        _emit_and_log(
-            session_id,
-            "approval_resolved",
-            {
-                "id": pending.get("tool_id"),
-                "approved": False,
-                "turn_id": pending.get("turn_id", ""),
-            },
+    with _state._pending_approvals_lock:
+        pending = _state._pending_approvals.get(session_id)
+        stopping_pending_approval = pending is not None and pending.get("approved") in (
+            None,
+            False,
         )
-        pending["event"].set()
+        resolved_pending_approval = (
+            pending is not None and pending.get("approved") is None
+        )
+        if resolved_pending_approval:
+            # Only resolve an approval the user has not already decided: a click
+            # on the dialog that raced with Stop must not be overridden.
+            pending["approved"] = False
+            pending["redirect_message"] = None
+        pending_cancel_event = (
+            pending.get("cancel_event") if stopping_pending_approval else None
+        )
+
+    if resolved_pending_approval:
+        try:
+            _emit_and_log(
+                session_id,
+                "approval_resolved",
+                {
+                    "id": pending.get("tool_id"),
+                    "approved": False,
+                    "turn_id": pending.get("turn_id", ""),
+                },
+            )
+        finally:
+            pending["event"].set()
     if stopping_pending_approval:
         # Let the tool worker flush the denied call and every later call in the
         # same assistant exchange before the agent loop exits. Cancelling the
         # asyncio task here would abandon asyncio.to_thread's return value and
         # omit those synthetic tool results from durable turn history.
-        pending_cancel_event = pending.get("cancel_event")
         if pending_cancel_event is not None:
             pending_cancel_event.set()
-    loop = _state._active_turn_loops.get(session_id)
-    task = _state._active_turn_tasks.get(session_id)
+    loop, task = _state.get_active_turn_handles(session_id)
     if not stopping_pending_approval and loop is not None and task is not None:
         loop.call_soon_threadsafe(task.cancel)
     logger.info("Cancel requested for session %s", session_id)
@@ -254,11 +261,38 @@ def handle_approval_response(data: dict):
     sid = request.sid
     session_id = _state._sid_to_session_id.get(sid, sid)
     tool_id = data.get("id")
+    turn_id = data.get("turn_id")
     approved = bool(data.get("approved"))
-    pending = _state._pending_approvals.get(session_id)
-    if pending:
-        pending["approved"] = approved
-        pending["redirect_message"] = data.get("redirect_message") or None
+    rejection_reason = None
+    with _state._pending_approvals_lock:
+        pending = _state._pending_approvals.get(session_id)
+        if pending is None:
+            rejection_reason = "no pending approval"
+        elif tool_id != pending.get("tool_id"):
+            rejection_reason = "tool ID mismatch"
+        elif turn_id != pending.get("turn_id"):
+            rejection_reason = "turn ID mismatch"
+        elif pending.get("approved") is not None:
+            rejection_reason = "approval already resolved"
+        else:
+            pending["approved"] = approved
+            pending["redirect_message"] = data.get("redirect_message") or None
+
+    if rejection_reason is not None:
+        logger.warning(
+            "Approval response rejected (%s): session_id=%s "
+            "received_turn_id=%s received_tool_id=%s "
+            "expected_turn_id=%s expected_tool_id=%s",
+            rejection_reason,
+            session_id,
+            turn_id,
+            tool_id,
+            pending.get("turn_id") if pending else None,
+            pending.get("tool_id") if pending else None,
+        )
+        return
+
+    try:
         _emit_and_log(
             session_id,
             "approval_resolved",
@@ -268,6 +302,7 @@ def handle_approval_response(data: dict):
                 "turn_id": pending.get("turn_id", ""),
             },
         )
+    finally:
         pending["event"].set()
 
 

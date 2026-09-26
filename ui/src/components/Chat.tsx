@@ -214,25 +214,33 @@ export default function Chat() {
   // Approval actions
   // ---------------------------------------------------------------------------
 
-  const approve = useCallback((id: string) => {
-    socket.emit("approval_response", { id, approved: true });
+  const approve = useCallback((id: string, turnId: string) => {
+    socket.emit("approval_response", { id, turn_id: turnId, approved: true });
   }, []);
 
-  const deny = useCallback((id: string) => {
-    socket.emit("approval_response", { id, approved: false });
+  const deny = useCallback((id: string, turnId: string) => {
+    socket.emit("approval_response", { id, turn_id: turnId, approved: false });
   }, []);
 
-  const denyWithRedirect = useCallback((id: string, message: string) => {
-    socket.emit("approval_response", {
-      id,
-      approved: false,
-      redirect_message: message,
-    });
-  }, []);
+  const denyWithRedirect = useCallback(
+    (id: string, turnId: string, message: string) => {
+      socket.emit("approval_response", {
+        id,
+        turn_id: turnId,
+        approved: false,
+        redirect_message: message,
+      });
+    },
+    [],
+  );
 
   const denyAndStop = useCallback(
-    (id: string) => {
-      socket.emit("approval_response", { id, approved: false });
+    (id: string, turnId: string) => {
+      socket.emit("approval_response", {
+        id,
+        turn_id: turnId,
+        approved: false,
+      });
       socket.emit("cancel_turn");
       setCancelling(true);
     },

@@ -68,8 +68,32 @@ _session_costs: dict[str, float] = {}
 # loop ({"prompt_tokens", "completion_tokens", "total_tokens", "known_max_context"}).
 # Telemetry (like cost, NOT event-sourced); flushed to session_meta on save.
 _session_last_context_usage: dict[str, dict] = {}
-# Set of session_ids that are currently executing a turn
-_session_active_turns: set[str] = set()
+# Atomic admission state for user-message turns. This reservation begins before
+# preprocessing and outlives the asyncio cancellation handles below.
+_turn_reservations: set[str] = set()
+_turn_reservations_lock = threading.Lock()
+
+
+def try_reserve_turn(session_id: str) -> bool:
+    """Atomically admit one user-message operation for a session."""
+    with _turn_reservations_lock:
+        if session_id in _turn_reservations:
+            return False
+        _turn_reservations.add(session_id)
+        return True
+
+
+def release_turn(session_id: str) -> None:
+    """Release a previously admitted user-message operation."""
+    with _turn_reservations_lock:
+        _turn_reservations.discard(session_id)
+
+
+def is_turn_reserved(session_id: str) -> bool:
+    """Return the authoritative process-local active-turn status."""
+    with _turn_reservations_lock:
+        return session_id in _turn_reservations
+
 
 # ---------------------------------------------------------------------------
 # Terminal state
@@ -91,9 +115,47 @@ _TERMINAL_SENTINELS = {"agent_last_opened", "user_last_opened", "active", "last_
 
 _sid_to_session_id: dict[str, str] = {}
 
-# Active turn cancellation handles, keyed by session_id.
+# Active turn cancellation handles, keyed by session_id. These are not the
+# authoritative busy state: they exist only while the asyncio task exists.
 _active_turn_loops: dict[str, asyncio.AbstractEventLoop] = {}
 _active_turn_tasks: dict[str, asyncio.Task] = {}
+_active_turn_handles_lock = threading.Lock()
+
+
+def register_active_turn_handles(
+    session_id: str,
+    loop: asyncio.AbstractEventLoop,
+    task: asyncio.Task,
+) -> None:
+    with _active_turn_handles_lock:
+        _active_turn_loops[session_id] = loop
+        _active_turn_tasks[session_id] = task
+
+
+def get_active_turn_handles(
+    session_id: str,
+) -> tuple[asyncio.AbstractEventLoop | None, asyncio.Task | None]:
+    with _active_turn_handles_lock:
+        return (
+            _active_turn_loops.get(session_id),
+            _active_turn_tasks.get(session_id),
+        )
+
+
+def has_active_turn_task(session_id: str) -> bool:
+    """Return whether the admitted turn currently has an asyncio task."""
+    with _active_turn_handles_lock:
+        return session_id in _active_turn_tasks
+
+
+def clear_active_turn_handles(session_id: str, task: asyncio.Task) -> None:
+    """Remove cancellation handles only when they still belong to this task."""
+    with _active_turn_handles_lock:
+        if _active_turn_tasks.get(session_id) is not task:
+            return
+        _active_turn_tasks.pop(session_id, None)
+        _active_turn_loops.pop(session_id, None)
+
 
 # ---------------------------------------------------------------------------
 # Backend log counter
@@ -109,6 +171,7 @@ _log_counter_lock = threading.Lock()
 # Maps session_id (NOT the Socket.IO connection sid — that's transient and
 # changes on every reconnect) to {"event": threading.Event, "approved": bool | None}
 _pending_approvals: dict[str, dict] = {}
+_pending_approvals_lock = threading.Lock()
 
 # ---------------------------------------------------------------------------
 # Redis

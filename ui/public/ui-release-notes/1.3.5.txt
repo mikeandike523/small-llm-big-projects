@@ -1,0 +1,1 @@
+harden against raace condition on handling new message

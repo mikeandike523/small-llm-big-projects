@@ -276,7 +276,7 @@ def api_list_sessions():
                 or row.get("initial_cwd", ""),
                 "created_at": row.get("created_at", 0.0),
                 "turn_count": row.get("turn_count", 0),
-                "active_turn": session_id in _state._session_active_turns,
+                "active_turn": _state.is_turn_reserved(session_id),
                 "task_titles": row.get("task_titles", []),
                 "interim_response_as_thinking": row.get(
                     "interim_response_as_thinking", False
@@ -293,7 +293,7 @@ def api_list_sessions():
 @app.route("/api/sessions/<session_id>", methods=["DELETE"])
 def api_delete_session(session_id: str):
     """Delete all data for a session from Redis and in-memory caches."""
-    if session_id in _state._session_active_turns:
+    if _state.is_turn_reserved(session_id):
         return jsonify({"error": "Cannot delete a session with an active turn"}), 409
     _delete_session(session_id)
     logger.info("Session deleted via API: %s", session_id)
@@ -303,7 +303,7 @@ def api_delete_session(session_id: str):
 @app.route("/api/sessions/<session_id>/reload-custom-skills-tools", methods=["POST"])
 def api_reload_custom_skills_tools(session_id: str):
     """Reload cwd/skills and cwd/tools for an idle, opted-in session."""
-    if session_id in _state._session_active_turns:
+    if _state.is_turn_reserved(session_id):
         _emit_backend_log(
             session_id,
             colored(
@@ -335,7 +335,7 @@ def api_reload_custom_skills_tools(session_id: str):
         message = f"Custom skills/tools reload failed: {exc}"
         logger.warning("%s (session %s)", message, session_id)
         _emit_backend_log(session_id, colored(message, "red", force_color=True))
-        status = 409 if session_id in _state._session_active_turns else 400
+        status = 409 if _state.is_turn_reserved(session_id) else 400
         return jsonify({"error": "Reload failed. See Debug Panel logs."}), status
 
     _save_session(session_id, session)
@@ -388,7 +388,7 @@ def api_bulk_delete_sessions():
     deleted: list[str] = []
     skipped: list[str] = []
     for session_id in session_ids:
-        if session_id in _state._session_active_turns:
+        if _state.is_turn_reserved(session_id):
             skipped.append(session_id)
         else:
             deleted.append(session_id)

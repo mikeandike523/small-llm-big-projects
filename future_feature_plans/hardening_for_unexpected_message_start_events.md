@@ -1,12 +1,22 @@
 # Hardening for Concurrent User-Message Starts
 
+> **DONE — implemented on 2026-09-26.**
+>
+> The backend now atomically reserves a session before message preprocessing,
+> uses that reservation as the authoritative active-turn state, keeps asyncio
+> cancellation handles separate, and releases the reservation from an outer
+> `finally`. Approval registration and resolution are lock-protected,
+> identity-safe, and correlated by session, turn, and tool-call IDs. The browser
+> includes the turn ID in approval responses. Focused concurrency and approval
+> regression coverage lives in `tests/test_turn_hardening.py`.
+
 ## Status and Scope
 
-This is a defensive hardening plan for enforcing **at most one active agent
-turn per session**. It is not the explanation for ordinary batched tool calls:
-one LLM response may legitimately contain several tool calls, all owned by one
-agent loop. Batched tool-call rejection policy is a separate concern and should
-be implemented separately.
+This document records the defensive hardening for enforcing **at most one
+active agent turn per session**. It is not the explanation for ordinary batched
+tool calls: one LLM response may legitimately contain several tool calls, all
+owned by one agent loop. Batched tool-call rejection policy is a separate
+concern and should be implemented separately.
 
 The current browser UI prevents most duplicate submissions with local `busy`
 state. That makes the system behave correctly during normal single-tab use,
@@ -24,11 +34,11 @@ Its `followup_behavior` field selects all three supported behaviors:
 Removing the duplicate handler reduces the hardening boundary to one entry
 point, but does not fix concurrent invocations of that entry point.
 
-## Current Flow
+## Pre-Implementation Flow
 
 `handle_user_message` in
-`src/ui_connector/socket_handler_components/socket_events_turn.py` currently
-uses `_state._active_turn_tasks` as its active-turn check:
+`src/ui_connector/socket_handler_components/socket_events_turn.py` previously
+used `_state._active_turn_tasks` as its active-turn check:
 
 ```python
 if session_id in _state._active_turn_tasks:
@@ -36,8 +46,8 @@ if session_id in _state._active_turn_tasks:
     return
 ```
 
-The task is not inserted into `_active_turn_tasks` until later, inside the new
-asyncio event loop's `_run` coroutine. Before registration, the handler may:
+The task was not inserted into `_active_turn_tasks` until later, inside the new
+asyncio event loop's `_run` coroutine. Before registration, the handler could:
 
 - load the session and model configuration;
 - run the continuation-classification LLM request;
@@ -49,10 +59,10 @@ Flask-SocketIO runs in threaded mode, so two invocations for the same session
 can both pass the check before either one registers its task. The check and the
 reservation are separate operations with no lock around them.
 
-`_session_active_turns` does not close this gap. It is populated only near
-`loop.run_until_complete`, is not consulted by `handle_user_message`, and a
-plain set membership check followed by `add` would still not be an atomic
-reservation without synchronization.
+`_session_active_turns` did not close this gap. It was populated only near
+`loop.run_until_complete`, was not consulted by `handle_user_message`, and a
+plain set membership check followed by `add` still would not have been an
+atomic reservation without synchronization.
 
 ## Race Sequence
 
@@ -136,12 +146,13 @@ The hardened design should enforce these invariants in backend code:
 7. A second pending approval for the same reserved session is rejected and
    logged as an invariant violation rather than silently overwriting state.
 
-## Proposed Fix
+## Implemented Fix
 
 ### 1. Add an atomic per-session turn reservation
 
-Create a small state helper rather than manipulating a shared set directly.
-Use one process-local lock to protect the reservation set:
+The state module exposes small helpers rather than allowing callers to
+manipulate the shared set directly. One process-local lock protects the
+reservation set:
 
 ```python
 _turn_reservations: set[str] = set()
@@ -161,56 +172,50 @@ def release_turn(session_id: str) -> None:
         _turn_reservations.discard(session_id)
 ```
 
-The exact names and module can change, but acquisition must remain one atomic
-check-and-add operation.
+Acquisition is one atomic check-and-add operation.
 
 ### 2. Reserve before preprocessing
 
-`handle_user_message` should reserve the session immediately after resolving
-and validating `session_id`, before:
+`handle_user_message` reserves the session immediately after resolving and
+validating `session_id`, before:
 
 - loading or mutating the session;
 - calling the continuation classifier;
 - emitting `turn_start`; or
 - installing cancellation/event-loop state.
 
-If reservation fails, emit the existing “turn already in progress” error and
-return without changing session state.
+If reservation fails, it emits the existing “turn already in progress” error
+and returns without changing session state.
 
 ### 3. Release from an outer `finally`
 
-Wrap the entire admitted operation—not merely `run_until_complete`—in a
-`try/finally` that releases the reservation. This must cover early failures in
+The entire admitted operation—not merely `run_until_complete`—is wrapped in a
+`try/finally` that releases the reservation. This covers early failures in
 configuration loading, continuation classification, turn construction, event
 loop creation, cancellation, and agent execution.
 
-Use a narrow reservation helper or context manager if that makes exact cleanup
-easier to review.
-
 ### 4. Separate reservation state from cancellation state
 
-Continue using `_active_turn_tasks` and `_active_turn_loops` to locate and
-cancel the running asyncio task. These maps hold cancellation handles; they do
-not represent pending cancellation requests. Do not use their presence as the
-authoritative active-turn check.
+`_active_turn_tasks` and `_active_turn_loops` continue to locate and cancel the
+running asyncio task. These maps hold cancellation handles; they do not
+represent pending cancellation requests or authoritative active-turn state.
 
 This separation matters because a turn is already active during synchronous
 preprocessing, before an asyncio task exists, and remains reserved during
 cleanup after the task handle may have been removed.
 
-`_session_active_turns` should either become a read-only/public status view of
-the same reservation source or be removed to avoid two competing definitions
-of “active.” HTTP endpoints and resume-session payloads should consult the
-authoritative reservation state.
+`_session_active_turns` was removed to avoid two competing definitions of
+“active.” HTTP endpoints and resume-session payloads now consult the
+authoritative reservation state through `is_turn_reserved`.
 
 ### 5. Correlate approval responses
 
-Before resolving a pending approval, validate at least:
+Before resolving a pending approval, the handler validates:
 
 ```text
 session_id matches the map key
 tool_id matches pending["tool_id"]
-turn_id matches when supplied by the client
+turn_id matches pending["turn_id"]
 pending decision is still unresolved
 ```
 
@@ -219,22 +224,22 @@ warning containing the expected and received identifiers. The frontend may be
 sent a stale-response error, but it must not cause the current approval to
 resolve.
 
-Including `turn_id` in the frontend's `approval_response` payload would make
-the correlation boundary stronger and easier to diagnose.
+The frontend now includes `turn_id` in every `approval_response` payload.
 
 ### 6. Make pending-approval ownership identity-safe
 
-`_request_approval` should retain the exact entry object it installs. When the
-wait ends, remove the map entry only if the current value is that same object.
-Do not blindly `pop(session_id)`, because that could remove a newer request.
+`_request_approval` retains the exact entry object it installs. When the wait
+ends, it removes the map entry only if the current value is that same object.
+It never blindly pops by session ID, which could remove a newer request.
 
-Installing an approval when one is already pending for the same session should
-raise or return a controlled internal error. It should never overwrite the
-existing waiter.
+Installing an approval when one is already pending for the same session raises
+a controlled internal error and logs the invariant violation. It never
+overwrites the existing waiter.
 
 ### 7. Add diagnostic context
 
-Log reservation acquire/reject/release and approval-correlation failures with:
+The implementation logs reservation acquire/reject/release and
+approval-correlation failures with:
 
 - `session_id`;
 - `turn_id`;
@@ -308,11 +313,10 @@ second message start while it waits. Assert that:
   changed to a multi-process/multi-instance deployment model. The proposed
   process-local lock is appropriate for the current single backend process.
 
-## Recommended Implementation Boundary
+## Implementation Boundary
 
-Implement this hardening in its own commit after the batched tool-call
-rejection policy. Keeping the two changes separate makes their semantics and
-tests clear:
+This hardening remains separate from the batched tool-call rejection policy so
+their semantics and tests stay clear:
 
 - batched rejection governs multiple tool calls inside one valid agent loop;
 - message-start hardening guarantees there is only one valid agent loop for a

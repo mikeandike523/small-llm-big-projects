@@ -66,7 +66,7 @@ def test_reload_does_not_publish_if_turn_started_during_validation(
     monkeypatch.setattr(reloads, "build_skill_registry", lambda **_kwargs: [])
 
     def start_turn(**_kwargs):
-        state._session_active_turns.add(session_id)
+        assert state.try_reserve_turn(session_id)
         return _tool_result()
 
     monkeypatch.setattr(reloads, "reload_custom_tools", start_turn)
@@ -78,5 +78,5 @@ def test_reload_does_not_publish_if_turn_started_during_validation(
         assert state._session_skill_registries[session_id] is old_registry
         assert session_id not in state._session_system_prompts
     finally:
-        state._session_active_turns.discard(session_id)
+        state.release_turn(session_id)
         state._session_skill_registries.pop(session_id, None)

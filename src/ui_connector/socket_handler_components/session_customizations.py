@@ -55,7 +55,7 @@ def reload_session_customizations(session: Session, session_id: str) -> None:
         autoload_entries=get_autoload_skill_entries(registry),
     )
 
-    if session_id in _state._session_active_turns:
+    if _state.is_turn_reserved(session_id):
         raise RuntimeError(
             "Cannot reload custom skills and tools during an active turn."
         )
