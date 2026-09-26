@@ -14,6 +14,7 @@ from termcolor import colored
 import src.ui_connector.socket_handler_components.state as _state
 from src.ui_connector.app import app, socketio
 from src.ui_connector import release_notes
+from src.ui_connector.heartbeat_daemon import notify_heartbeat_settings_changed
 from src.ui_connector.socket_handler_components.session_store import (
     _load_session,
     _save_session,
@@ -509,6 +510,7 @@ def api_session_set_heartbeat_settings(session_id: str):
     )
     session.session_data["heartbeat_settings"] = settings.heartbeat_settings
     _save_session(session_id, session)
+    notify_heartbeat_settings_changed(session_id)
     response = {"ok": True, **runtime_settings.payload(settings)}
     socketio.emit("session_settings_update", response, room=session_id)
     return jsonify(response)

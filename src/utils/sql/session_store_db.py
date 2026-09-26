@@ -216,6 +216,38 @@ def load_session_meta(session_id: str) -> dict | None:
     return _row_to_meta(row, include_memory=True)
 
 
+# ---------------------------------------------------------------------------
+# heartbeat_last_runs (durable scheduler state)
+# ---------------------------------------------------------------------------
+
+
+def load_heartbeat_last_runs() -> dict[str, float]:
+    """Return the durable session_id -> last-run Unix timestamp mapping."""
+    pool = get_pool()
+    with pool.get_connection() as conn:
+        with conn.cursor(dictionary=True) as cur:
+            cur.execute("SELECT session_id, last_run_unix FROM heartbeat_last_runs")
+            rows = cur.fetchall()
+    return {row["session_id"]: float(row["last_run_unix"]) for row in rows}
+
+
+def upsert_heartbeat_last_run(session_id: str, last_run_unix: float) -> None:
+    """Durably record a session's most recent successful heartbeat run."""
+    pool = get_pool()
+    with pool.get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO heartbeat_last_runs (session_id, last_run_unix)
+                VALUES (%s, %s) AS incoming
+                ON DUPLICATE KEY UPDATE
+                    last_run_unix = incoming.last_run_unix
+                """,
+                (session_id, float(last_run_unix)),
+            )
+        conn.commit()
+
+
 def mark_session_corrupt(session_id: str) -> None:
     """Flag a session whose events failed to replay (best-effort, no-op if absent)."""
     pool = get_pool()

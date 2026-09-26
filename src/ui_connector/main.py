@@ -21,6 +21,10 @@ from src.ui_connector.socket_handlers import (  # noqa: E402
 )
 from src.channels.slack import startup_slack  # noqa: E402
 from src.utils.param_registry import validate_registry_defaults  # noqa: E402
+from src.ui_connector.heartbeat_daemon import (  # noqa: E402
+    start_heartbeat_daemon,
+    stop_heartbeat_daemon,
+)
 
 
 def _configure_logging() -> None:
@@ -38,6 +42,10 @@ if __name__ == "__main__":
     validate_registry_defaults()
     invalidate_redis_session_cache_on_startup()
     startup_slack()
+    start_heartbeat_daemon()
     port = int(os.environ.get("FLASK_PORT", 5000))
     logging.getLogger("slbp.ui_connector").info("Starting on port %s", port)
-    socketio.run(app, host="0.0.0.0", port=port, allow_unsafe_werkzeug=True)
+    try:
+        socketio.run(app, host="0.0.0.0", port=port, allow_unsafe_werkzeug=True)
+    finally:
+        stop_heartbeat_daemon()

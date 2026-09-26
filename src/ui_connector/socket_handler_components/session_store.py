@@ -434,8 +434,10 @@ def _delete_sessions(session_ids: list[str]) -> None:
     keys = []
     for session_id in session_ids:
         from src.ui_connector.socket_handler_components import runtime_settings
+        from src.ui_connector.heartbeat_daemon import forget_heartbeat_session
 
         runtime_settings.discard(session_id)
+        forget_heartbeat_session(session_id)
         keys.extend(
             [
                 f"session:{session_id}",
