@@ -324,6 +324,68 @@ def execute(args: dict, session_data: dict, special_resources: dict | None = Non
   NO_STUB = True
   ```
 
+### Finite execution, timeouts, and cancellation (required)
+
+Every custom tool must finish in a deterministic, finite amount of time. This
+is a runtime contract, not something the loader can mechanically guarantee:
+SLBP does **not** wrap arbitrary tool code in a global hard timeout, and Python
+cannot safely kill a worker thread that is blocked or still executing.
+Cancelling the asyncio task waiting for a tool also does not terminate the
+underlying worker thread.
+
+Consequently, any tool that can block, traverse an unbounded amount of input,
+wait on a network service, or launch another program must provide both an
+enforceable deadline and cancellation behavior:
+
+- Add a numeric `timeout` property to `DEFINITION`, with a safe default and a
+  finite maximum. Validate it at runtime; built-in tools conventionally use
+  `src.tools._validate_timeout.validate_timeout`.
+- Pass that deadline into blocking network/database/library APIs that support
+  native timeouts. A timeout that merely makes the caller stop waiting is not
+  sufficient if the underlying operation continues consuming resources.
+- Accept `special_resources`, retrieve its `cancel_event`, and poll it during
+  long-running Python loops. Use `time.monotonic()` for deadline calculations,
+  not wall-clock time.
+- Prefer a subprocess for work that cannot be interrupted cooperatively. Pass
+  both `timeout` and `cancel_event` to `src.tools._subprocess.run_command` (or
+  the appropriate managed-process helper) so SLBP can kill the operating-system
+  process on timeout or cancellation.
+- Do not put an uninterruptible Python, C, or Rust call in a thread and treat
+  `future.result(timeout=...)` or `asyncio.wait_for(...)` as cancellation.
+  Those mechanisms can abandon the result, but the thread and native call may
+  continue running. Use a cancellable API or isolate the work in a process.
+- Clean up files, handles, locks, and child processes in `finally` blocks.
+  Allow `ToolTimeoutError` and `ToolHangError` to propagate to the framework.
+
+A subprocess-backed custom tool should follow this general pattern:
+
+```python
+from src.tools._subprocess import run_command
+from src.tools._validate_timeout import validate_timeout
+
+DEFAULT_TIMEOUT = 30
+MAX_TIMEOUT = 120
+
+
+def execute(args, session_data, special_resources=None):
+    timeout = args.get("timeout", DEFAULT_TIMEOUT)
+    validate_timeout("my_tool", timeout, DEFAULT_TIMEOUT, MAX_TIMEOUT)
+
+    resources = special_resources or {}
+    result = run_command(
+        ["my-program", "--non-interactive"],
+        timeout=timeout,
+        cancel_event=resources.get("cancel_event"),
+        cwd=resources.get("session_current_working_dir"),
+    )
+    return str(result)
+```
+
+The matching schema must expose `timeout`, including its minimum, maximum, and
+default in the description. Pure-Python tools do not need to spawn a process
+when their loops can check the cancellation event and monotonic deadline
+frequently; they still need both checks.
+
 ### Progress streaming (optional)
 
 If `special_resources` is accepted, `special_resources["on_chunk"]` is always
@@ -679,7 +741,7 @@ reflecting that function, not a frozen public API:
 | `request_unredacted` | `bool` | Resolved bypass decision (only meaningful if `ENABLE_REDACTION=True`); set right before `execute` is called. |
 | `on_chunk` | `callable(str) -> None` | Stream progress text (§7). Only present during `execute`, not `needs_approval`. |
 | `on_cwd_change` | `callable(str) -> None` | Call this if your tool changes the session's cwd (see `change_pwd.py`). |
-| `cancel_event` | `threading.Event \| None` | Set if the user cancels the turn — long-running tools should poll it. |
+| `cancel_event` | `threading.Event \| None` | Set if the user cancels the turn; long-running tools must poll it and stop promptly (see §7). |
 | `emit_backend_log` | `callable(*msgs) -> None` | Writes to the session's Debug Panel log stream. |
 | `llm` | object | The session's configured LLM client, for tools that want to make their own sampling calls (e.g. a summarizer). |
 | `create_terminal` / `get_terminal_output` / `get_terminals_state` | callables | Terminal-panel integration — see `open_in_terminal.py`/`check_terminal_state.py` for real usage. |
@@ -839,6 +901,13 @@ Before wiring a new tool file into a session, confirm:
       `str` (or a `NextTool` if wrapping — §11) in every code path (including
       error paths — return `"Error: ..."` strings, don't raise for expected
       failure modes).
+- [ ] Execution is deterministically finite: every blocking operation has an
+      enforceable timeout with a finite maximum, and long-running work honors
+      `special_resources["cancel_event"]`.
+- [ ] Uninterruptible native/library work is isolated in a killable process;
+      thread/future timeouts are not incorrectly treated as cancellation.
+- [ ] Timeout/cancellation cleanup is in `finally`, and `ToolTimeoutError` or
+      `ToolHangError` is allowed to propagate to the framework.
 - [ ] Deliberately chosen: unscoped (root-level, always active) or
       skill-scoped (namespaced plugin folder, active only with its skill —
       see §6).

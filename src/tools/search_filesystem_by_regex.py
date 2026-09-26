@@ -1,33 +1,20 @@
-# NOTE: No timeout is enforced on this tool.
-#
-# python_ripgrep invokes ripgrep via a compiled Rust extension. There is no way to interrupt
-# a blocking C/Rust call from Python: ThreadPoolExecutor.future.result(timeout=N) only makes
-# the *caller* give up -- the extension thread keeps running, eating CPU and RAM, until ripgrep
-# finishes on its own. Worse, the ThreadPoolExecutor context manager blocks on __exit__
-# (shutdown(wait=True)), so the "timeout" would not even return early.
-#
-# TODO: once docker-based shell environments are implemented (sandboxed, with dirs mounted in),
-# replace python_ripgrep with a real subprocess call to the rg binary inside the container.
-# That gives us a PID we can kill(). Until then, no timeout is possible here without zombies.
-# Design goal: docker and git-bash are the only required host binaries -- no rg on the host.
-
 from __future__ import annotations
 
+import json
 import os
 import re
-import time
-from pathlib import Path
+import threading
 
 ENABLE_REDACTION = True
 
-from python_ripgrep import search as _rg_search
-from src.tools._list_dir_utils import (
-    _traverse,
-    _find_gitignore_root,
-    _get_ancestor_matchers,
-    _get_effective_matchers,
-    _collect_flat,
-)
+from src.terminal.shell_resolver import resolve_cmd as _resolve_cmd
+from src.tools._subprocess import run_command
+from src.tools._validate_timeout import validate_timeout
+from src.utils.exceptions import ToolTimeoutError
+
+DEFAULT_TIMEOUT = 30
+MAX_TIMEOUT = 120
+TIMEOUT_HINT = "Restrict the search path or use a more specific regular expression."
 
 DEFINITION: dict = {
     "type": "function",
@@ -35,7 +22,7 @@ DEFINITION: dict = {
         "name": "search_filesystem_by_regex",
         "description": (
             "Search file contents under a given path using a regular expression. "
-            "Powered by ripgrep — fast and .gitignore-aware. "
+            "Powered by ripgrep — fast, cancellable, time-bounded, and .gitignore-aware. "
             "Results are grouped by file; matched substrings are highlighted in bold "
             "using ANSI escape codes.\n\n"
             "Regex restrictions (linear-time only):\n"
@@ -67,13 +54,19 @@ DEFINITION: dict = {
                 "use_gitignore": {
                     "type": "boolean",
                     "description": (
-                        "If true, respect .gitignore rules during search. "
-                        "Inside a git repository, ripgrep handles this natively. "
-                        "Outside a git repository, files are pre-filtered using "
-                        "gitignore_parser so .gitignore rules still apply. "
-                        "The .git directory is always excluded when enabled. "
+                        "If true, respect .gitignore rules during search, including "
+                        "outside Git repositories. The .git directory is excluded. "
                         "Default: true."
                     ),
+                },
+                "timeout": {
+                    "type": "number",
+                    "description": (
+                        f"Search timeout in seconds. Default {DEFAULT_TIMEOUT}, "
+                        f"maximum {MAX_TIMEOUT}."
+                    ),
+                    "minimum": 1,
+                    "maximum": MAX_TIMEOUT,
                 },
             },
             "required": ["pattern"],
@@ -98,45 +91,57 @@ def needs_approval(
 _BOLD = "\033[1m"
 _RESET = "\033[0m"
 
-_ENUMERATE_TIMEOUT = 30  # seconds for the pre-enumeration pass (non-git-repo case)
-
-
-def _in_git_repo(path: str) -> bool:
-
-    root = _find_gitignore_root(path)
-    return (root / ".git").exists()
-
-
-def _enumerate_gitignored_files(root: str) -> list[str]:
-    """Return absolute paths of all non-gitignored files under root."""
-
-    gitignore_root = _find_gitignore_root(root)
-    ancestor_matchers = _get_ancestor_matchers(gitignore_root, root)
-    effective_matchers = _get_effective_matchers(root, ancestor_matchers, True)
-
-    start = time.monotonic()
-    children = _traverse(
-        dir_path=root,
-        recursive=True,
-        follow_folder_symlinks=False,
-        follow_file_symlinks=False,
-        depth=None,
-        visited_dirs={os.path.realpath(root)},
-        matchers=effective_matchers,
-        use_gitignore=True,
-        start_time=start,
-        timeout=_ENUMERATE_TIMEOUT,
-    )
-
-    flat: list = []
-    _collect_flat(children, "", "files", flat)
-    return [os.path.normpath(os.path.join(root, rel)) for rel, _ in flat]
-
 
 def _apply_bold(line: str, pattern: str) -> str:
     """Wrap every occurrence of pattern in the line with ANSI bold codes."""
-    result = re.sub(pattern, lambda m: f"{_BOLD}{m.group(0)}{_RESET}", line)
-    return result
+    return re.sub(pattern, lambda match: f"{_BOLD}{match.group(0)}{_RESET}", line)
+
+
+def _parse_match_events(
+    stdout: str, pattern: str, search_root: str, is_single_file: bool
+) -> list[str]:
+    rendered_by_file: dict[str, list[str]] = {}
+    for raw_event in stdout.splitlines():
+        try:
+            event = json.loads(raw_event)
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if event.get("type") != "match":
+            continue
+        data = event.get("data") or {}
+        path_text = (data.get("path") or {}).get("text")
+        line_text = (data.get("lines") or {}).get("text")
+        line_number = data.get("line_number")
+        if not isinstance(path_text, str) or not isinstance(line_text, str):
+            continue
+        if not isinstance(line_number, int):
+            continue
+
+        if is_single_file:
+            relative_path = "."
+        else:
+            absolute_path = (
+                path_text
+                if os.path.isabs(path_text)
+                else os.path.abspath(os.path.join(os.getcwd(), path_text))
+            )
+            relative_path = os.path.relpath(absolute_path, search_root).replace(
+                "\\", "/"
+            )
+
+        content = line_text.rstrip("\r\n")
+        try:
+            highlighted = _apply_bold(content, pattern)
+        except re.error:
+            highlighted = content
+        rendered_by_file.setdefault(relative_path, []).extend(
+            [f"  {line_number}:", f"  {highlighted}"]
+        )
+
+    return [
+        "\n".join([f"{relative_path}:", *rendered_matches])
+        for relative_path, rendered_matches in rendered_by_file.items()
+    ]
 
 
 def execute(
@@ -144,91 +149,71 @@ def execute(
 ) -> str:
     sr = special_resources or {}
     session_cwd: str | None = sr.get("session_current_working_dir")
+    cancel_event: threading.Event | None = sr.get("cancel_event")
     pattern: str = args.get("pattern", "")
     raw_path: str = args.get("path", "")
     use_gitignore: bool = args.get("use_gitignore", True)
+    timeout = args.get("timeout", DEFAULT_TIMEOUT)
 
-    display_path: str = raw_path if raw_path else "."
-    path: str = raw_path or session_cwd or ""
+    validate_timeout(
+        "search_filesystem_by_regex", timeout, DEFAULT_TIMEOUT, MAX_TIMEOUT
+    )
 
-    if path and not os.path.isabs(path):
-        path = os.path.join(session_cwd or "", path)
+    display_path = raw_path or "."
+    path = raw_path or session_cwd or os.getcwd()
+    if not os.path.isabs(path):
+        path = os.path.join(session_cwd or os.getcwd(), path)
+    path = os.path.abspath(path)
 
     if not os.path.exists(path):
         return f"Error: path does not exist: {path!r}"
 
     is_single_file = os.path.isfile(path)
-
-    # Determine which paths to pass to ripgrep
-    if is_single_file or not use_gitignore:
-        paths_to_search = [path]
-    elif _in_git_repo(path):
-        # rg handles .gitignore natively inside a git repo
-        paths_to_search = [path]
+    command_args = [
+        "--json",
+        "--line-number",
+        "--color",
+        "never",
+        "--no-config",
+    ]
+    if use_gitignore:
+        command_args.append("--no-require-git")
     else:
-        # Outside a git repo: pre-enumerate so .gitignore rules still apply
-        try:
-            paths_to_search = _enumerate_gitignored_files(path)
-        except Exception:
-            # Fall back to searching everything if enumeration fails
-            paths_to_search = [path]
-        if not paths_to_search:
-            return f"Search path: {display_path}\n\nNo matches found."
+        command_args.extend(["--no-ignore", "--hidden"])
+    command_args.extend(["--regexp", pattern, "--", path])
+
+    cmd = _resolve_cmd("rg", command_args)
+    if isinstance(cmd, str):
+        return cmd
 
     try:
-        raw_results: list[str] = _rg_search(
-            patterns=[pattern],
-            paths=paths_to_search,
-            line_number=True,
-            heading=True,
+        result = run_command(
+            cmd,
+            timeout=timeout,
+            cancel_event=cancel_event,
+            cwd=session_cwd,
         )
-    except Exception as exc:
-        return f"Error: {exc}"
+    except ToolTimeoutError as exc:
+        raise ToolTimeoutError(
+            "search_filesystem_by_regex",
+            timeout,
+            hint=exc.hint or TIMEOUT_HINT,
+            prior_stdout=exc.prior_stdout,
+            prior_stderr=exc.prior_stderr,
+        ) from exc
 
-    if not raw_results:
+    if result.returncode == 1:
         return f"Search path: {display_path}\n\nNo matches found."
-
-    # When searching a single file, python_ripgrep omits the file-path heading
-    # even with heading=True. Only directory/multi-file searches include it.
-    search_root: str = path
-
-    output_blocks: list[str] = []
-
-    for block in raw_results:
-        lines = block.splitlines()
-        if not lines:
-            continue
-
-        if is_single_file:
-            rel_file_path = "."
-            match_lines = lines
-        else:
-            abs_file_path = lines[0]
-            rel_file_path = os.path.relpath(abs_file_path, search_root).replace(
-                "\\", "/"
+    if not result.success:
+        error = result.stderr.strip() or result.stdout.strip()
+        if result.returncode == 127 or "command not found" in error.lower():
+            return (
+                "Error: ripgrep executable 'rg' was not found. "
+                "Install ripgrep, add it to PATH, and restart SLBP."
             )
-            match_lines = lines[1:]
+        return f"Error: ripgrep failed (exit {result.returncode}): {error}"
 
-        rendered_matches: list[str] = []
-        for raw_line in match_lines:
-            colon_pos = raw_line.find(":")
-            if colon_pos == -1:
-                continue
-            lineno = raw_line[:colon_pos]
-            content = raw_line[colon_pos + 1 :]
-
-            try:
-                highlighted = _apply_bold(content, pattern)
-            except re.error:
-                highlighted = content
-            rendered_matches.append(f"  {lineno}:")
-            rendered_matches.append(f"  {highlighted}")
-
-        if rendered_matches:
-            block_lines = [f"{rel_file_path}:"] + rendered_matches
-            output_blocks.append("\n".join(block_lines))
-
+    output_blocks = _parse_match_events(result.stdout, pattern, path, is_single_file)
     if not output_blocks:
         return f"Search path: {display_path}\n\nNo matches found."
-
     return f"Search path: {display_path}\n\n" + "\n\n".join(output_blocks)
