@@ -109,6 +109,27 @@ def handle_user_message(data: dict):
 
     turn_id: str = data.get("clientTurnId") or str(_uuid_module.uuid4())
     followup_behavior = data.get("followup_behavior", "auto")
+    if not new_user_message(session_id, data, turn_id, followup_behavior):
+        emit(
+            "error",
+            {"message": "A turn is already in progress. Please wait or cancel first."},
+        )
+
+
+def new_user_message(
+    session_id: str,
+    data: dict,
+    turn_id: str,
+    followup_behavior: str,
+    *,
+    background: bool = False,
+) -> bool:
+    """Admit and run one user message for a session, with no socket context.
+
+    Returns False (and does nothing) when the session already has a turn in
+    progress. With ``background=True`` the turn runs on its own thread and
+    this returns as soon as the turn has been admitted.
+    """
     if not _state.try_reserve_turn(session_id):
         logger.warning(
             "Turn reservation rejected: session_id=%s turn_id=%s followup_behavior=%s",
@@ -116,11 +137,7 @@ def handle_user_message(data: dict):
             turn_id,
             followup_behavior,
         )
-        emit(
-            "error",
-            {"message": "A turn is already in progress. Please wait or cancel first."},
-        )
-        return
+        return False
 
     logger.info(
         "Turn reservation acquired: session_id=%s turn_id=%s followup_behavior=%s",
@@ -128,21 +145,48 @@ def handle_user_message(data: dict):
         turn_id,
         followup_behavior,
     )
+
+    def _run_admitted() -> None:
+        try:
+            _handle_admitted_user_message(
+                data,
+                session_id,
+                turn_id,
+                followup_behavior,
+            )
+        finally:
+            _state.release_turn(session_id)
+            logger.info(
+                "Turn reservation released: session_id=%s turn_id=%s followup_behavior=%s",
+                session_id,
+                turn_id,
+                followup_behavior,
+            )
+
+    if not background:
+        _run_admitted()
+        return True
+
+    def _run_admitted_logged() -> None:
+        try:
+            _run_admitted()
+        except Exception:
+            logger.exception(
+                "Background turn failed: session_id=%s turn_id=%s",
+                session_id,
+                turn_id,
+            )
+
     try:
-        _handle_admitted_user_message(
-            data,
-            session_id,
-            turn_id,
-            followup_behavior,
-        )
-    finally:
+        threading.Thread(
+            target=_run_admitted_logged,
+            name=f"turn-{session_id}",
+            daemon=True,
+        ).start()
+    except BaseException:
         _state.release_turn(session_id)
-        logger.info(
-            "Turn reservation released: session_id=%s turn_id=%s followup_behavior=%s",
-            session_id,
-            turn_id,
-            followup_behavior,
-        )
+        raise
+    return True
 
 
 def _handle_admitted_user_message(

@@ -1,0 +1,1 @@
+Add the heartbeat runner engine: due heartbeats launch their trimmed instructions as a forced new task, cancelling a busy session and retrying every 60 seconds up to 3 times before logging it as orphaned. Add thread-count monitoring: grouped counts logged every 5 minutes with a leak warning threshold, plus GET /api/debug/threads.

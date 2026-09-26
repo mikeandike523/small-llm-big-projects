@@ -206,6 +206,15 @@ def handle_cancel_turn():
     session_id = _state._sid_to_session_id.get(sid)
     if not session_id:
         return
+    cancel_session_turn(session_id)
+
+
+def cancel_session_turn(session_id: str) -> None:
+    """Cancel the session's active turn, exactly as the UI Stop button does.
+
+    Needs no socket request context, so non-socket callers (e.g. the heartbeat
+    runner) can use it too.
+    """
     # If an approval is pending, pressing Stop is equivalent to "Deny & Stop":
     # resolve the pending approval as denied so the waiting tool executor
     # records the standard denial tool result, and emit approval_resolved so

@@ -119,10 +119,3 @@ def test_durable_last_run_map_is_loaded_and_write_through(monkeypatch) -> None:
 
     assert persisted == [("new", 20.0)]
     assert last_runs.snapshot() == {"new": 20.0}
-
-
-def test_stub_logs_the_session_id(caplog) -> None:
-    with caplog.at_level(logging.INFO):
-        heartbeat_daemon._run_heartbeat_stub(HeartbeatSession("s1", 5, "work"))
-
-    assert "Running heartbeat for session s1" in caplog.text

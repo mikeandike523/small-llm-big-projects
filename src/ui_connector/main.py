@@ -25,6 +25,10 @@ from src.ui_connector.heartbeat_daemon import (  # noqa: E402
     start_heartbeat_daemon,
     stop_heartbeat_daemon,
 )
+from src.ui_connector.thread_monitor import (  # noqa: E402
+    start_thread_monitor,
+    stop_thread_monitor,
+)
 
 
 def _configure_logging() -> None:
@@ -43,9 +47,11 @@ if __name__ == "__main__":
     invalidate_redis_session_cache_on_startup()
     startup_slack()
     start_heartbeat_daemon()
+    start_thread_monitor()
     port = int(os.environ.get("FLASK_PORT", 5000))
     logging.getLogger("slbp.ui_connector").info("Starting on port %s", port)
     try:
         socketio.run(app, host="0.0.0.0", port=port, allow_unsafe_werkzeug=True)
     finally:
+        stop_thread_monitor()
         stop_heartbeat_daemon()

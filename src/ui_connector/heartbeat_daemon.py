@@ -6,7 +6,7 @@ from dataclasses import dataclass
 import logging
 import threading
 import time
-from typing import Callable, Iterable, Protocol
+from typing import TYPE_CHECKING, Callable, Iterable, Protocol
 
 from src.utils.heartbeat_settings import HEARTBEAT_INTERVALS_MINUTES
 from src.utils.sql.session_store_db import (
@@ -14,6 +14,9 @@ from src.utils.sql.session_store_db import (
     load_heartbeat_last_runs,
     upsert_heartbeat_last_run,
 )
+
+if TYPE_CHECKING:
+    from src.ui_connector.heartbeat_runner import HeartbeatRunner
 
 logger = logging.getLogger(__name__)
 
@@ -89,10 +92,6 @@ def _load_enabled_sessions() -> list[HeartbeatSession]:
             )
         )
     return enabled
-
-
-def _run_heartbeat_stub(session: HeartbeatSession) -> None:
-    logger.info("Running heartbeat for session %s", session.session_id)
 
 
 class HeartbeatDaemon:
@@ -220,17 +219,21 @@ class HeartbeatDaemon:
 
 _daemon_lock = threading.Lock()
 _daemon: HeartbeatDaemon | None = None
+_runner: "HeartbeatRunner | None" = None
 
 
 def start_heartbeat_daemon() -> HeartbeatDaemon:
     """Start the process-wide daemon once and return it."""
-    global _daemon
+    global _daemon, _runner
     with _daemon_lock:
         if _daemon is None:
+            from src.ui_connector.heartbeat_runner import HeartbeatRunner
+
             minimum_minutes = min(HEARTBEAT_INTERVALS_MINUTES)
+            _runner = HeartbeatRunner()
             _daemon = HeartbeatDaemon(
                 sessions_provider=_load_enabled_sessions,
-                run_heartbeat=_run_heartbeat_stub,
+                run_heartbeat=_runner,
                 last_runs=DurableLastRunMap(),
                 interval_seconds=minimum_minutes * 60,
             )
@@ -241,6 +244,9 @@ def start_heartbeat_daemon() -> HeartbeatDaemon:
 def stop_heartbeat_daemon() -> None:
     with _daemon_lock:
         daemon = _daemon
+        runner = _runner
+    if runner is not None:
+        runner.shutdown()
     if daemon is not None:
         daemon.stop()
 
