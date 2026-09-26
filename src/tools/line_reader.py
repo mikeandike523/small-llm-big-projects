@@ -9,6 +9,8 @@ ENABLE_REDACTION = True
 
 from src.tools._memory import ensure_session_memory
 from src.utils.text.line_numbers import add_line_numbers
+from src.tools._cancellation import check_cancelled, get_cancel_event
+from src.tools._cancellable_io import read_text_cancellable
 
 DEFINITION: dict = {
     "type": "function",
@@ -138,7 +140,10 @@ def needs_approval(
 
 
 def _load_text(
-    args: dict, session_data: dict, session_cwd: str | None = None
+    args: dict,
+    session_data: dict,
+    session_cwd: str | None = None,
+    cancel_event=None,
 ) -> tuple[str, str | None]:
     """Return (text, error_string). Exactly one of path/session_memory_key must be set."""
     raw_path = args.get("path")
@@ -156,8 +161,14 @@ def _load_text(
         path = _resolve_path(raw_path, session_cwd)
         try:
             resolved = os.path.realpath(path)
-            with open(resolved, "r", encoding="utf-8") as fh:
-                return fh.read(), None
+            return (
+                read_text_cancellable(
+                    resolved,
+                    tool_name="line_reader",
+                    cancel_event=cancel_event,
+                ),
+                None,
+            )
         except FileNotFoundError:
             return "", f"Error: file not found: {raw_path}"
         except IsADirectoryError:
@@ -183,12 +194,16 @@ def _count_lines(text: str) -> int:
     return n if text.endswith("\n") else n + 1
 
 
-def _read_lines_range(text: str, start_line: int | None, end_line: int | None) -> str:
+def _read_lines_range(
+    text: str, start_line: int | None, end_line: int | None, cancel_event=None
+) -> str:
     if start_line is None and end_line is None:
         return text
     effective_start = start_line if start_line is not None else 1
     selected: list[str] = []
     for lineno, line in enumerate(StringIO(text), start=1):
+        if lineno % 1024 == 0:
+            check_cancelled("line_reader", cancel_event)
         if lineno < effective_start:
             continue
         if end_line is not None and lineno > end_line:
@@ -201,10 +216,14 @@ def execute(
     args: dict, session_data: dict, special_resources: dict | None = None
 ) -> str:
     sr = special_resources or {}
+    cancel_event = get_cancel_event(sr)
     action = args.get("action")
 
     text, error = _load_text(
-        args, session_data, session_cwd=sr.get("session_current_working_dir")
+        args,
+        session_data,
+        session_cwd=sr.get("session_current_working_dir"),
+        cancel_event=cancel_event,
     )
     if error:
         return error
@@ -221,7 +240,7 @@ def execute(
         if start_line is not None and end_line is not None and end_line < start_line:
             return "Error: end_line must be >= start_line."
 
-        contents = _read_lines_range(text, start_line, end_line)
+        contents = _read_lines_range(text, start_line, end_line, cancel_event)
         if number_lines:
             effective_start = start_line if start_line is not None else 1
             return add_line_numbers(

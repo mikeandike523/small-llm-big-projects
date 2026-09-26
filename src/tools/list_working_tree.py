@@ -1,7 +1,9 @@
 from __future__ import annotations
 import os
 import subprocess
+import threading
 from src.tools._subprocess import run_command
+from src.tools._cancellation import get_cancel_event
 
 DEFAULT_TIMEOUT = 15  # seconds
 TIMEOUT_HINT = None
@@ -54,6 +56,7 @@ def needs_approval(
 
 def execute(args: dict, _session_data={}, special_resources: dict | None = None) -> str:
     sr = special_resources or {}
+    cancel_event: threading.Event | None = get_cancel_event(sr)
     session_cwd: str | None = sr.get("session_current_working_dir")
     path: str | None = args.get("path")
     cmd = ["git", "ls-files", "--cached", "--others", "--exclude-standard"]
@@ -65,7 +68,12 @@ def execute(args: dict, _session_data={}, special_resources: dict | None = None)
         )
         cmd += ["--", resolved]
     try:
-        result = run_command(cmd, timeout=DEFAULT_TIMEOUT, cwd=session_cwd)
+        result = run_command(
+            cmd,
+            timeout=DEFAULT_TIMEOUT,
+            cancel_event=cancel_event,
+            cwd=session_cwd,
+        )
     except subprocess.TimeoutExpired:
         from src.utils.exceptions import ToolTimeoutError
 

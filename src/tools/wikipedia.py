@@ -7,6 +7,8 @@ import httpx
 from src.utils.http.helpers import ensure_session_memory
 from src.utils.exceptions import ToolTimeoutError
 from src.tools._validate_timeout import validate_timeout
+from src.tools._cancellation import check_cancelled, get_cancel_event
+from src.tools._async_http import request_with_cancel
 
 DEFAULT_TIMEOUT = 15  # seconds
 MIN_TIMEOUT = 5
@@ -141,6 +143,7 @@ def _fetch_article(
     title: str,
     mode: str,
     timeout: int,
+    cancel_event=None,
 ) -> str:
     """
     Call the Wikipedia Action API and return the article text.
@@ -158,10 +161,19 @@ def _fetch_article(
     headers = {"User-Agent": _USER_AGENT}
 
     try:
-        with httpx.Client(timeout=timeout, follow_redirects=True) as client:
-            resp = client.get(api_url, params=params, headers=headers)
+        resp = request_with_cancel(
+            "wikipedia",
+            "GET",
+            api_url,
+            cancel_event=cancel_event,
+            client_kwargs={"timeout": timeout, "follow_redirects": True},
+            params=params,
+            headers=headers,
+        )
     except httpx.TimeoutException:
         raise ToolTimeoutError("wikipedia", timeout)
+    except ToolTimeoutError:
+        raise
     except Exception as e:
         return f"Error: Request to Wikipedia API failed: {type(e).__name__}: {e}"
 
@@ -205,7 +217,13 @@ def _fetch_article(
 # ---------------------------------------------------------------------------
 
 
-def execute(args: dict, session_data: dict | None = None) -> str:
+def execute(
+    args: dict,
+    session_data: dict | None = None,
+    special_resources: dict | None = None,
+) -> str:
+    cancel_event = get_cancel_event(special_resources)
+    check_cancelled("wikipedia", cancel_event)
     if session_data is None:
         session_data = {}
 
@@ -230,7 +248,7 @@ def execute(args: dict, session_data: dict | None = None) -> str:
         lang = language
         title = raw
 
-    result = _fetch_article(lang, title, mode, timeout)
+    result = _fetch_article(lang, title, mode, timeout, cancel_event)
 
     if target == "return_value":
         return result

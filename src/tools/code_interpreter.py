@@ -5,6 +5,8 @@ import httpx
 from src.utils.exceptions import ToolTimeoutError
 from src.utils.docker_compose import get_service_port
 from src.tools._memory import ensure_session_memory
+from src.tools._cancellation import check_cancelled, get_cancel_event
+from src.tools._async_http import request_with_cancel
 
 DEFAULT_TIMEOUT = 30
 MIN_TIMEOUT = 1
@@ -148,7 +150,13 @@ def _validate_timeout(raw) -> tuple[int | None, str | None]:
     return raw, None
 
 
-def execute(args: dict, session_data: dict | None = None) -> str:
+def execute(
+    args: dict,
+    session_data: dict | None = None,
+    special_resources: dict | None = None,
+) -> str:
+    cancel_event = get_cancel_event(special_resources)
+    check_cancelled("code_interpreter", cancel_event)
     if session_data is None:
         session_data = {}
     memory: dict = ensure_session_memory(session_data)
@@ -176,12 +184,14 @@ def execute(args: dict, session_data: dict | None = None) -> str:
 
     sys_argv: list = args.get("sys_argv") or []
     for i, val in enumerate(sys_argv):
+        check_cancelled("code_interpreter", cancel_event)
         if not isinstance(val, str):
             return f"Error: sys_argv[{i}] must be a string, got {type(val).__name__}."
         piston_args.append(val)
 
     mem_arg_keys: list = args.get("session_memory_arg_keys") or []
     for i, key in enumerate(mem_arg_keys):
+        check_cancelled("code_interpreter", cancel_event)
         if not isinstance(key, str):
             return f"Error: session_memory_arg_keys[{i}] must be a string."
         val = memory.get(key)
@@ -210,8 +220,14 @@ def execute(args: dict, session_data: dict | None = None) -> str:
     }
 
     try:
-        with httpx.Client(timeout=timeout_val + 5) as client:
-            resp = client.post(f"{piston_url}{_PISTON_EXECUTE_PATH}", json=payload)
+        resp = request_with_cancel(
+            "code_interpreter",
+            "POST",
+            f"{piston_url}{_PISTON_EXECUTE_PATH}",
+            cancel_event=cancel_event,
+            client_kwargs={"timeout": timeout_val + 5},
+            json=payload,
+        )
     except httpx.ConnectError:
         return (
             f"Error: Could not connect to Piston at {piston_url!r}. "
@@ -224,6 +240,8 @@ def execute(args: dict, session_data: dict | None = None) -> str:
             timeout_val,
             hint="Increase the timeout parameter or optimise the code.",
         )
+    except ToolTimeoutError:
+        raise
     except Exception as e:
         return f"Error: Piston request failed: {type(e).__name__}: {e}"
 

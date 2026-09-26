@@ -13,8 +13,10 @@ import os
 import re
 import subprocess
 import time
+import threading
 
 from src.tools._subprocess import run_command
+from src.tools._cancellation import check_cancelled, get_cancel_event
 from src.tools._path_utils import _effective_cwd
 from src.utils.exceptions import ToolTimeoutError
 
@@ -140,7 +142,11 @@ def needs_approval(
 # ---------------------------------------------------------------------------
 
 
-def _collect_files_git(root: str, session_cwd: str | None = None) -> list[str] | None:
+def _collect_files_git(
+    root: str,
+    session_cwd: str | None = None,
+    cancel_event: threading.Event | None = None,
+) -> list[str] | None:
     """
     Return absolute paths of all files under root via git ls-files.
     Returns None if root is not inside a git repository.
@@ -148,7 +154,12 @@ def _collect_files_git(root: str, session_cwd: str | None = None) -> list[str] |
     """
     cmd = ["git", "ls-files", "--cached", "--others", "--exclude-standard", "--", root]
     try:
-        result = run_command(cmd, timeout=DEFAULT_TIMEOUT, cwd=session_cwd)
+        result = run_command(
+            cmd,
+            timeout=DEFAULT_TIMEOUT,
+            cancel_event=cancel_event,
+            cwd=session_cwd,
+        )
     except subprocess.TimeoutExpired:
         raise ToolTimeoutError("find_files_by_name", DEFAULT_TIMEOUT)
 
@@ -160,12 +171,17 @@ def _collect_files_git(root: str, session_cwd: str | None = None) -> list[str] |
     base = _effective_cwd(session_cwd)
     abs_paths: list[str] = []
     for line in result.stdout.splitlines():
+        check_cancelled("find_files_by_name", cancel_event)
         if line:
             abs_paths.append(os.path.normpath(os.path.join(base, line)))
     return abs_paths
 
 
-def _collect_files_traverse(root: str, use_gitignore: bool) -> list[str]:
+def _collect_files_traverse(
+    root: str,
+    use_gitignore: bool,
+    cancel_event: threading.Event | None = None,
+) -> list[str]:
     """
     Return absolute paths of all files under root using list_dir._traverse.
     Reuses list_dir's gitignore machinery when use_gitignore=True.
@@ -190,6 +206,8 @@ def _collect_files_traverse(root: str, use_gitignore: bool) -> list[str]:
         start_time=start,
         timeout=DEFAULT_TIMEOUT,
         timeout_hint=TIMEOUT_HINT,
+        cancel_event=cancel_event,
+        tool_name="find_files_by_name",
     )
 
     flat: list = []
@@ -275,6 +293,7 @@ def execute(
     args: dict, _session_data: dict = {}, special_resources: dict | None = None
 ) -> str:
     sr = special_resources or {}
+    cancel_event: threading.Event | None = get_cancel_event(sr)
     session_cwd: str | None = sr.get("session_current_working_dir")
     raw_patterns: list[str] = args.get("patterns") or []
     raw_path: str = args.get("path") or session_cwd or ""
@@ -312,15 +331,16 @@ def execute(
 
     # Collect candidate file paths
     if use_gitignore:
-        abs_files = _collect_files_git(root, session_cwd)
+        abs_files = _collect_files_git(root, session_cwd, cancel_event)
         if abs_files is None:
-            abs_files = _collect_files_traverse(root, use_gitignore=True)
+            abs_files = _collect_files_traverse(root, True, cancel_event)
     else:
-        abs_files = _collect_files_traverse(root, use_gitignore=False)
+        abs_files = _collect_files_traverse(root, False, cancel_event)
 
     # Filter by pattern
     matches: list[str] = []
     for abs_path in abs_files:
+        check_cancelled("find_files_by_name", cancel_event)
         rel = os.path.relpath(abs_path, root).replace("\\", "/")
         if mode == "regex":
             hit = _segment_matches_regex(rel, compiled_patterns, match_any_dir)

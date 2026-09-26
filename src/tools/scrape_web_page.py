@@ -6,12 +6,13 @@ import time
 from typing import Literal
 from urllib.parse import urlparse
 
-import requests
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
+import httpx
 
 from src.utils.http.helpers import ensure_session_memory
 from src.tools._validate_timeout import validate_timeout
+from src.tools._cancellation import check_cancelled, get_cancel_event, wait_or_cancel
+from src.tools._async_http import request_with_cancel
+from src.utils.exceptions import ToolTimeoutError
 
 DEFAULT_TIMEOUT = 20  # seconds per request
 MIN_TIMEOUT = 5
@@ -19,6 +20,8 @@ MAX_TIMEOUT = 60
 DEFAULT_MAX_RETRIES = 3  # transient-failure retries
 DEFAULT_MIN_DELAY = 1.0  # politeness delay before fetching
 _JITTER = (0.05, 0.35)  # random seconds added on top of min_delay
+_RETRY_STATUS_CODES = frozenset({429, 500, 502, 503, 504})
+_MAX_RETRY_DELAY = 30.0
 
 _USER_AGENT = "Mozilla/5.0 (compatible; slbp-agent/1.0; +https://github.com/mikeandike523/small-llm-big-projects)"
 _HEADERS = {
@@ -173,23 +176,57 @@ def _host(url: str) -> str | None:
         return None
 
 
-def _make_session(max_retries: int) -> requests.Session:
-    session = requests.Session()
-    retry = Retry(
-        total=max_retries,
-        backoff_factor=1.0,
-        status_forcelist=[429, 500, 502, 503, 504],
-        allowed_methods=["GET", "HEAD"],
-        raise_on_status=False,
-    )
-    adapter = HTTPAdapter(max_retries=retry)
-    session.mount("http://", adapter)
-    session.mount("https://", adapter)
-    session.headers.update(_HEADERS)
-    return session
+def _retry_delay(response: httpx.Response | None, attempt: int) -> float:
+    if response is not None:
+        retry_after = response.headers.get("Retry-After", "").strip()
+        try:
+            return min(max(float(retry_after), 0.0), _MAX_RETRY_DELAY)
+        except ValueError:
+            pass
+    return min(float(2**attempt), _MAX_RETRY_DELAY)
 
 
-def _polite_delay(host: str, min_delay: float) -> None:
+def _request_with_retries(
+    url: str,
+    *,
+    headers: dict[str, str],
+    timeout: int,
+    max_retries: int,
+    cancel_event=None,
+) -> httpx.Response:
+    """GET with bounded, cancellation-aware transient retries."""
+    for attempt in range(max_retries + 1):
+        response: httpx.Response | None = None
+        try:
+            response = request_with_cancel(
+                "scrape_web_page",
+                "GET",
+                url,
+                cancel_event=cancel_event,
+                client_kwargs={"timeout": timeout, "follow_redirects": True},
+                headers=headers,
+            )
+        except ToolTimeoutError:
+            raise
+        except httpx.RequestError:
+            if attempt >= max_retries:
+                raise
+        else:
+            if response.status_code not in _RETRY_STATUS_CODES:
+                return response
+            if attempt >= max_retries:
+                return response
+
+        wait_or_cancel(
+            "scrape_web_page",
+            cancel_event,
+            _retry_delay(response, attempt),
+        )
+
+    raise RuntimeError("unreachable retry loop")
+
+
+def _polite_delay(host: str, min_delay: float, cancel_event=None) -> None:
     """Sleep if needed to honour per-host politeness, then add jitter."""
     now = time.monotonic()
     last = _last_request_time.get(host, 0.0)
@@ -197,12 +234,16 @@ def _polite_delay(host: str, min_delay: float) -> None:
     jitter = random.uniform(*_JITTER)
     sleep_for = max(0.0, wait) + jitter
     if sleep_for > 0:
-        time.sleep(sleep_for)
+        wait_or_cancel("scrape_web_page", cancel_event, sleep_for)
     _last_request_time[host] = time.monotonic()
 
 
 def _check_robots(
-    url: str, session: requests.Session, timeout: int
+    url: str,
+    headers: dict[str, str],
+    timeout: int,
+    max_retries: int,
+    cancel_event=None,
 ) -> tuple[bool, str | None]:
     """
     Return (allowed, note).
@@ -228,7 +269,15 @@ def _check_robots(
         robots_url = f"{origin}/robots.txt"
         rp = None
         try:
-            r = session.get(robots_url, timeout=timeout)
+            check_cancelled("scrape_web_page", cancel_event)
+            r = _request_with_retries(
+                robots_url,
+                headers=headers,
+                timeout=timeout,
+                max_retries=max_retries,
+                cancel_event=cancel_event,
+            )
+            check_cancelled("scrape_web_page", cancel_event)
             if r.status_code == 200:
                 try:
                     rp = Protego.parse(r.text)
@@ -238,6 +287,8 @@ def _check_robots(
             elif r.status_code == 404:
                 rp = Protego.parse("")  # no robots.txt -> allow all
             # Any other status -> fail-open (rp stays None)
+        except ToolTimeoutError:
+            raise
         except Exception:
             pass  # Network failure -> fail-open
         _robots_cache[origin] = (rp, now)
@@ -302,7 +353,13 @@ def _render_content(
 # ---------------------------------------------------------------------------
 
 
-def execute(args: dict, session_data: dict | None = None) -> str:
+def execute(
+    args: dict,
+    session_data: dict | None = None,
+    special_resources: dict | None = None,
+) -> str:
+    cancel_event = get_cancel_event(special_resources)
+    check_cancelled("scrape_web_page", cancel_event)
     if session_data is None:
         session_data = {}
 
@@ -332,44 +389,54 @@ def execute(args: dict, session_data: dict | None = None) -> str:
     if not host:
         return f"Error: Invalid URL {url!r}."
 
-    session = _make_session(max_retries)
+    headers = dict(_HEADERS)
 
     # --- apply optional per-call header overrides ---
     if accept:
-        session.headers["Accept"] = accept
+        headers["Accept"] = accept
     if language:
-        session.headers["Accept-Language"] = language
+        headers["Accept-Language"] = language
 
     # --- robots.txt check (fail-open) ---
     if check_robots_flag:
-        allowed, note = _check_robots(url, session, timeout)
+        allowed, note = _check_robots(
+            url, headers, timeout, max_retries, cancel_event
+        )
         if not allowed:
             return f"Error: {note}"
         # note (soft warnings) are silently dropped — don't clutter the result
 
     # --- politeness delay ---
     try:
-        _polite_delay(host, min_delay)
+        _polite_delay(host, min_delay, cancel_event)
+    except ToolTimeoutError:
+        raise
     except Exception:
         pass  # delay failure is never fatal
 
     # --- fetch ---
     try:
-        resp = session.get(
+        check_cancelled("scrape_web_page", cancel_event)
+        resp = _request_with_retries(
             url,
+            headers=headers,
             timeout=timeout,
-            allow_redirects=True,
+            max_retries=max_retries,
+            cancel_event=cancel_event,
         )
-    except requests.exceptions.Timeout:
+        check_cancelled("scrape_web_page", cancel_event)
+    except httpx.TimeoutException:
         return f"Error: Request timed out after {timeout}s fetching {url!r}."
-    except requests.exceptions.TooManyRedirects:
+    except httpx.TooManyRedirects:
         return f"Error: Too many redirects fetching {url!r}."
-    except requests.exceptions.RequestException as e:
+    except httpx.RequestError as e:
         return f"Error: Request failed: {type(e).__name__}: {e}"
+    except ToolTimeoutError:
+        raise
     except Exception as e:
         return f"Error: Unexpected error fetching {url!r}: {type(e).__name__}: {e}"
 
-    # --- handle rate-limit / overload (not retried by urllib3 on non-GET?) ---
+    # --- handle rate-limit / overload after bounded retries are exhausted ---
     if resp.status_code == 429:
         retry_after = resp.headers.get("Retry-After", "unknown")
         return (
@@ -381,7 +448,9 @@ def execute(args: dict, session_data: dict | None = None) -> str:
     content_type = resp.headers.get("content-type", "")
     header_line = f"HTTP {resp.status_code} | {content_type}"
     body_text = resp.content.decode("utf-8", errors="replace")
+    check_cancelled("scrape_web_page", cancel_event)
     rendered = _render_content(body_text, output_format)
+    check_cancelled("scrape_web_page", cancel_event)
     result = f"{header_line}\n\n{rendered}"
     if apply_filters:
         result = _apply_basic_filters(result)

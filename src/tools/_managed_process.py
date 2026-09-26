@@ -12,6 +12,7 @@ from src.tools._autoresponse import AutoResponse, find_response
 from src.tools._managed_process_llm_triage import _llm_triage
 from src.utils.exceptions import ToolHangError, ToolTimeoutError
 from src.tools._managed_process_shared_defs import logger, HANG_DECISION_TIMEOUT
+from src.tools._process_tree import isolated_process_kwargs, kill_process_tree
 
 # ---------------------------------------------------------------------------
 # I/O polling constants
@@ -91,6 +92,7 @@ def run_command_streaming(
         stdin=subprocess.PIPE,
         bufsize=0,  # raw binary: read() returns immediately with available bytes
         cwd=cwd,
+        **isolated_process_kwargs(),
     )
 
     stdout_parts: list[str] = []
@@ -191,7 +193,7 @@ def run_command_streaming(
             # Cancel check: honour external cancellation immediately.
             if cancel_event is not None and cancel_event.is_set():
                 if proc.poll() is None:
-                    proc.kill()
+                    kill_process_tree(proc)
                     for pipe in (proc.stdout, proc.stderr):
                         try:
                             if pipe and not pipe.closed:
@@ -289,7 +291,7 @@ def run_command_streaming(
     try:
         proc.wait(timeout=timeout)
     except subprocess.TimeoutExpired:
-        proc.kill()
+        kill_process_tree(proc)
         for pipe in (proc.stdout, proc.stderr):
             try:
                 if pipe and not pipe.closed:

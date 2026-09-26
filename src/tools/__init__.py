@@ -49,6 +49,7 @@ from src.utils.tool_calling.arguments import validate_tool_args
 from src.tools.config import TOOL_OUTPUT_MAX_COLUMNS
 from src.config.tool_execution import MAX_TOOL_DELEGATION_HOPS
 from src.utils.text_truncation import truncate_long_lines
+from src.tools._cancellation import check_cancelled, get_cancel_event
 from src.tools._custom_tool_reload import reload_modules
 
 
@@ -443,6 +444,8 @@ def check_needs_approval(
     actual_map = tool_map if tool_map is not None else _TOOL_MAP
 
     def _call(module, hop_args):
+        cancel_event = get_cancel_event(special_resources)
+        check_cancelled(name, cancel_event)
         # request_unredacted can also appear partway through a chain (a hop's
         # own constructed delegation args) — same hard gate, re-checked per hop.
         if hop_args.get("request_unredacted"):
@@ -546,6 +549,8 @@ def execute_tool(
     }
 
     def _call(module, hop_args):
+        cancel_event = get_cancel_event(special_resources)
+        check_cancelled(name, cancel_event)
         redaction_state["enable_redaction"] = redaction_state[
             "enable_redaction"
         ] or bool(getattr(module, "ENABLE_REDACTION", False))
@@ -583,6 +588,7 @@ def execute_tool(
             result = fn(clean_args, session_data, fn_special_resources)
         else:
             result = fn(clean_args, session_data)
+        check_cancelled(name, cancel_event)
         return result
 
     try:

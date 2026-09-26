@@ -11,6 +11,7 @@ from src.tools._managed_process_shared_defs import (
     logger,
     HANG_DECISION_TIMEOUT,
 )
+from src.tools._process_tree import kill_process_tree
 
 
 def _llm_triage(
@@ -56,7 +57,7 @@ def _llm_triage(
     def _kill(reason: str) -> bool:
         _log(reason)
         hung_flag[0] = True
-        proc.kill()
+        kill_process_tree(proc)
         # Close pipes immediately so the blocked read() in the reader threads
         # gets an exception and they exit without waiting for EOF.
         for pipe in (proc.stdout, proc.stderr):

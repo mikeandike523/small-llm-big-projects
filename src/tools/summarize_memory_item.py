@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from src.tools._memory import ensure_session_memory
 from src.utils.llm.factory import _call_sampler
+from src.tools._cancellation import check_cancelled, get_cancel_event
+from src.utils.exceptions import ToolTimeoutError
 
 DEFINITION: dict = {
     "type": "function",
@@ -58,6 +60,8 @@ def needs_approval(
 def execute(
     args: dict, session_data: dict | None = None, special_resources: dict | None = None
 ) -> str:
+    cancel_event = get_cancel_event(special_resources)
+    check_cancelled("summarize_memory_item", cancel_event)
     if session_data is None:
         session_data = {}
 
@@ -118,6 +122,7 @@ def execute(
     ]
 
     try:
+        check_cancelled("summarize_memory_item", cancel_event)
         fetch_result = _call_sampler(
             llm,
             messages,
@@ -126,8 +131,13 @@ def execute(
             on_request_log=on_sampler_request_log,
             on_reasoning_detected=on_sampler_reasoning_detected,
             on_response=on_sampler_response,
+            cancel_event=cancel_event,
+            cancel_tool_name="summarize_memory_item",
         )
+        check_cancelled("summarize_memory_item", cancel_event)
         summary = (fetch_result.content or "").strip()
+    except ToolTimeoutError:
+        raise
     except Exception as e:
         return f"Error: LLM summarization failed: {type(e).__name__}: {e}"
 

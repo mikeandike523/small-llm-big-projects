@@ -7,6 +7,8 @@ ENABLE_REDACTION = True
 from src.tools._path_utils import _resolve_path
 
 from src.utils.git_heuristic_is_binary import git_heuristic_is_binary
+from src.tools._cancellation import check_cancelled, get_cancel_event
+from src.tools._cancellable_io import read_text_cancellable
 
 DEFINITION: dict = {
     "type": "function",
@@ -71,6 +73,8 @@ def execute(
     args: dict, session_data: dict, special_resources: dict | None = None
 ) -> str:
     sr = special_resources or {}
+    cancel_event = get_cancel_event(sr)
+    check_cancelled("read_text_file", cancel_event)
     path = _resolve_path(args["path"], sr.get("session_current_working_dir"))
     session_memory_key: str | None = args.get("session_memory_key")
 
@@ -82,8 +86,12 @@ def execute(
                 "Consider skipping, especially for code reviews or files ignored by git."
             )
         try:
-            with open(path, "r", encoding="utf-8", newline="") as fh:
-                contents = fh.read()
+            contents = read_text_cancellable(
+                path,
+                tool_name="read_text_file",
+                cancel_event=cancel_event,
+                newline="",
+            )
         except FileNotFoundError:
             return f"Error: file not found: {path}"
         except IsADirectoryError:
@@ -110,8 +118,11 @@ def execute(
         return f"Contents of {path!r} written to session memory key {session_memory_key!r}."
 
     try:
-        with open(path, "r", encoding="utf-8") as fh:
-            return fh.read()
+        return read_text_cancellable(
+            path,
+            tool_name="read_text_file",
+            cancel_event=cancel_event,
+        )
     except FileNotFoundError:
         return f"Error: file not found: {path}"
     except IsADirectoryError:

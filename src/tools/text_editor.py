@@ -13,6 +13,8 @@ from src.tools._indentation import (
 from src.tools._memory import ensure_session_memory
 from src.tools._text_editor_actions import _READ_ONLY_ACTIONS, _WRITE_ACTIONS
 from src.tools._path_utils import _resolve_path
+from src.tools._cancellation import check_cancelled, get_cancel_event
+from src.tools._cancellable_io import read_text_cancellable, write_text_cancellable
 
 # ---------------------------------------------------------------------------
 # Disabled actions
@@ -334,6 +336,8 @@ def execute(
         session_data = {}
 
     sr = special_resources or {}
+    cancel_event = get_cancel_event(sr)
+    check_cancelled("text_editor", cancel_event)
     session_cwd: str | None = sr.get("session_current_working_dir")
     key = args.get("key")
     raw_filepath = args.get("filepath")
@@ -349,8 +353,12 @@ def execute(
     if filepath:
         label = filepath
         try:
-            with open(filepath, "r", encoding="utf-8", newline="") as fh:
-                value = fh.read()
+            value = read_text_cancellable(
+                filepath,
+                tool_name="text_editor",
+                cancel_event=cancel_event,
+                newline="",
+            )
         except FileNotFoundError:
             return f"Error: file not found: {filepath}"
         except PermissionError as e:
@@ -365,15 +373,23 @@ def execute(
             return f"Error: key {key!r} does not hold a text value."
 
     if action in _READ_ONLY_ACTIONS:
-        return _READ_ONLY_ACTIONS[action](args, value, label)
+        result = _READ_ONLY_ACTIONS[action](args, value, label)
+        check_cancelled("text_editor", cancel_event)
+        return result
 
     if action in _WRITE_ACTIONS:
         message, new_value = _WRITE_ACTIONS[action](args, value, label)
+        check_cancelled("text_editor", cancel_event)
         if not message.startswith("Error"):
             if filepath:
                 try:
-                    with open(filepath, "w", encoding="utf-8", newline="") as fh:
-                        fh.write(new_value)
+                    write_text_cancellable(
+                        filepath,
+                        new_value,
+                        tool_name="text_editor",
+                        cancel_event=cancel_event,
+                        newline="",
+                    )
                 except OSError as e:
                     return f"Error writing file: {e}"
             else:

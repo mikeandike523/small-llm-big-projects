@@ -4,6 +4,8 @@ import os
 from pathlib import Path
 from src.tools._path_utils import _resolve_path
 from src.tools._auto_eol import maybe_apply_auto_eol
+from src.tools._cancellation import get_cancel_event
+from src.tools._cancellable_io import write_text_cancellable
 
 DEFINITION: dict = {
     "type": "function",
@@ -79,6 +81,7 @@ def execute(
     args: dict, session_data: dict, special_resources: dict | None = None
 ) -> str:
     sr = special_resources or {}
+    cancel_event = get_cancel_event(sr)
     path = _resolve_path(args["path"], sr.get("session_current_working_dir"))
     content: str | None = args.get("content")
     session_memory_key: str | None = args.get("session_memory_key")
@@ -119,8 +122,13 @@ def execute(
     try:
         if create_parents:
             target.parent.mkdir(parents=True, exist_ok=True)
-        with open(target, "w", encoding="utf-8", newline="") as fh:
-            fh.write(content)
+        write_text_cancellable(
+            target,
+            content,
+            tool_name="write_text_file",
+            cancel_event=cancel_event,
+            newline="",
+        )
         msg = f"File written: {path} ({len(content)} chars)"
         if eol_note:
             msg += f" ({eol_note})"

@@ -1,6 +1,7 @@
 import os
 from pathlib import Path
 import time
+import threading
 
 
 def _collect_flat(
@@ -173,6 +174,8 @@ def _traverse(
     start_time: float,
     timeout: float,
     timeout_hint: str,
+    cancel_event: threading.Event | None = None,
+    tool_name: str = "list_dir",
 ) -> list:
     """
     Scan dir_path and return a list of entry dicts.
@@ -185,10 +188,13 @@ def _traverse(
         _is_dir_link (bool, internal — True for dir symlinks)
         _loop        (bool, internal — True for looped file symlinks)
     """
+    from src.tools._cancellation import check_cancelled
+
+    check_cancelled(tool_name, cancel_event)
     if time.monotonic() - start_time > timeout:
         from src.utils.exceptions import ToolTimeoutError
 
-        raise ToolTimeoutError("list_dir", timeout, timeout_hint)
+        raise ToolTimeoutError(tool_name, timeout, timeout_hint)
 
     entries: list = []
 
@@ -198,6 +204,11 @@ def _traverse(
         return entries
 
     for entry in scan_entries:
+        check_cancelled(tool_name, cancel_event)
+        if time.monotonic() - start_time > timeout:
+            from src.utils.exceptions import ToolTimeoutError
+
+            raise ToolTimeoutError(tool_name, timeout, timeout_hint)
         try:
             is_link = entry.is_symlink()
             is_dir = entry.is_dir(follow_symlinks=False)
@@ -253,6 +264,8 @@ def _traverse(
                             start_time=start_time,
                             timeout=timeout,
                             timeout_hint=timeout_hint,
+                            cancel_event=cancel_event,
+                            tool_name=tool_name,
                         )
                     entries.append(
                         {
@@ -289,6 +302,8 @@ def _traverse(
                         start_time=start_time,
                         timeout=timeout,
                         timeout_hint=timeout_hint,
+                        cancel_event=cancel_event,
+                        tool_name=tool_name,
                     )
                 entries.append(
                     {

@@ -5,6 +5,8 @@ import re
 from typing import Optional
 
 from src.tools._memory import ensure_session_memory
+from src.tools._cancellation import check_cancelled, get_cancel_event
+from src.utils.exceptions import ToolTimeoutError
 
 NO_STUB = True
 
@@ -232,7 +234,9 @@ def _is_whitespace(node) -> bool:
     return isinstance(node, NavigableString) and not str(node).strip()
 
 
-def _render_tree(node, tc: int, max_depth: Optional[int], indent: int = 0) -> list[str]:
+def _render_tree(
+    node, tc: int, max_depth: Optional[int], indent: int = 0, cancel_event=None
+) -> list[str]:
     from bs4 import Tag, NavigableString, Comment
 
     lines: list[str] = []
@@ -255,7 +259,8 @@ def _render_tree(node, tc: int, max_depth: Optional[int], indent: int = 0) -> li
 
     if node.name == "[document]":
         for child in node.children:
-            lines.extend(_render_tree(child, tc, max_depth, indent))
+            check_cancelled("dom_analyzer", cancel_event)
+            lines.extend(_render_tree(child, tc, max_depth, indent, cancel_event))
         return lines
 
     attrs = _attrs_str(node, tc)
@@ -271,7 +276,10 @@ def _render_tree(node, tc: int, max_depth: Optional[int], indent: int = 0) -> li
         lines.append(f"{pfx}<{node.name}{attrs}>")
         if max_depth is None or indent < max_depth:
             for child in node.children:
-                lines.extend(_render_tree(child, tc, max_depth, indent + 1))
+                check_cancelled("dom_analyzer", cancel_event)
+                lines.extend(
+                    _render_tree(child, tc, max_depth, indent + 1, cancel_event)
+                )
         else:
             lines.append(f"{pfx}  ...")
         lines.append(f"{pfx}</{node.name}>")
@@ -284,12 +292,12 @@ def _render_tree(node, tc: int, max_depth: Optional[int], indent: int = 0) -> li
 # ---------------------------------------------------------------------------
 
 
-def _action_preview(soup, args: dict) -> str:
+def _action_preview(soup, args: dict, cancel_event=None) -> str:
     path = args.get("path") or []
     node, err = _resolve_path(soup, path)
     if err:
         return f"Error: {err}"
-    lines = _render_tree(node, _tc(args), args.get("depth"))
+    lines = _render_tree(node, _tc(args), args.get("depth"), cancel_event=cancel_event)
     return "\n".join(lines) if lines else "(empty)"
 
 
@@ -305,7 +313,7 @@ def _resolve_path_arg(soup, args: dict):
     return _resolve_path(soup, args.get("path") or [])
 
 
-def _action_get_node(soup, args: dict, session_data: dict) -> str:
+def _action_get_node(soup, args: dict, session_data: dict, cancel_event=None) -> str:
     from bs4 import Tag, NavigableString
 
     output_key = args.get("output_key")
@@ -341,7 +349,7 @@ def _action_get_node(soup, args: dict, session_data: dict) -> str:
     elif isinstance(node, Tag) and node.name != "[document]":
         result = _trunc(str(node), _tc(args))
     else:
-        lines = _render_tree(node, _tc(args), None)
+        lines = _render_tree(node, _tc(args), None, cancel_event=cancel_event)
         result = "\n".join(lines) if lines else "(empty document)"
 
     if output_key:
@@ -395,7 +403,7 @@ def _action_get_attribute(soup, args: dict, session_data: dict) -> str:
     return val
 
 
-def _action_find_nodes(soup, args: dict) -> str:
+def _action_find_nodes(soup, args: dict, cancel_event=None) -> str:
     selector = args.get("selector")
     raw_limit = args.get("limit", DEFAULT_ITEM_LIMIT)
     tc = _tc(args)
@@ -413,6 +421,7 @@ def _action_find_nodes(soup, args: dict) -> str:
     limit = total if raw_limit == 0 else raw_limit
     lines = [f"Found {total} match(es) for '{selector}' (showing {min(total, limit)}):"]
     for i, node in enumerate(matches[:limit]):
+        check_cancelled("dom_analyzer", cancel_event)
         path = _node_to_path(node, soup)
         markup = _trunc(str(node), tc)
         lines.append(f"\n[{i}] path: {path}")
@@ -420,7 +429,7 @@ def _action_find_nodes(soup, args: dict) -> str:
     return "\n".join(lines)
 
 
-def _action_list_children(soup, args: dict) -> str:
+def _action_list_children(soup, args: dict, cancel_event=None) -> str:
     from bs4 import Tag
 
     path = args.get("path") or []
@@ -434,6 +443,7 @@ def _action_list_children(soup, args: dict) -> str:
 
     lines = [f"Element children of {path or 'root'} ({len(children)} total):"]
     for i, child in enumerate(children):
+        check_cancelled("dom_analyzer", cancel_event)
         child_path = _node_to_path(child, soup)
         key_attrs = {
             k: (
@@ -461,6 +471,8 @@ def execute(
 ) -> str:
     if session_data is None:
         session_data = {}
+    cancel_event = get_cancel_event(special_resources)
+    check_cancelled("dom_analyzer", cancel_event)
 
     try:
         from bs4 import BeautifulSoup
@@ -485,20 +497,26 @@ def execute(
 
     try:
         soup = BeautifulSoup(html, "lxml")
+        check_cancelled("dom_analyzer", cancel_event)
+    except ToolTimeoutError:
+        raise
     except Exception:
         try:
             soup = BeautifulSoup(html, "html.parser")
+            check_cancelled("dom_analyzer", cancel_event)
+        except ToolTimeoutError:
+            raise
         except Exception as e:
             return f"Error: Failed to parse HTML: {e}"
 
     if action == "preview":
-        return _action_preview(soup, args)
+        return _action_preview(soup, args, cancel_event)
     if action == "get_node":
-        return _action_get_node(soup, args, session_data)
+        return _action_get_node(soup, args, session_data, cancel_event)
     if action == "get_attribute":
         return _action_get_attribute(soup, args, session_data)
     if action == "find_nodes":
-        return _action_find_nodes(soup, args)
+        return _action_find_nodes(soup, args, cancel_event)
     if action == "list_children":
-        return _action_list_children(soup, args)
+        return _action_list_children(soup, args, cancel_event)
     return f"Error: Unknown action '{action}'."

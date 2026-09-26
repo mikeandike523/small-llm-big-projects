@@ -12,6 +12,9 @@ from src.utils.http.helpers import (
     validate_string_list,
 )
 from src.tools._validate_timeout import validate_timeout
+from src.tools._cancellation import check_cancelled, get_cancel_event
+from src.tools._async_http import request_with_cancel
+from src.utils.exceptions import ToolTimeoutError
 
 DEFAULT_TIMEOUT = 30
 MIN_TIMEOUT = 5
@@ -131,7 +134,9 @@ def needs_approval(
     return False
 
 
-def execute(args, session_data):
+def execute(args, session_data, special_resources=None):
+    cancel_event = get_cancel_event(special_resources)
+    check_cancelled("basic_web_request", cancel_event)
     url: str = args["url"]
     content_type: str | None = args.get("content_type")
     accept: str = args.get("accept") or "*/*"
@@ -203,13 +208,19 @@ def execute(args, session_data):
     json_error: str | None = None
 
     try:
-        with httpx.Client(follow_redirects=True, timeout=timeout) as client:
-            request_kwargs: dict[str, Any] = {"headers": headers}
+        request_kwargs: dict[str, Any] = {"headers": headers}
 
-            if body is not None:
-                request_kwargs["content"] = body.encode("utf-8")
+        if body is not None:
+            request_kwargs["content"] = body.encode("utf-8")
 
-            resp = client.request(method=method, url=url, **request_kwargs)
+        resp = request_with_cancel(
+            "basic_web_request",
+            method,
+            url,
+            cancel_event=cancel_event,
+            client_kwargs={"follow_redirects": True, "timeout": timeout},
+            **request_kwargs,
+        )
 
         status_code = resp.status_code
         resp_ct = resp.headers.get("content-type")
@@ -243,9 +254,9 @@ def execute(args, session_data):
             )
 
     except httpx.TimeoutException:
-        from src.utils.exceptions import ToolTimeoutError
-
         raise ToolTimeoutError("basic_web_request", timeout)
+    except ToolTimeoutError:
+        raise
     except Exception as e:
         result = format_response(
             status_code=None,

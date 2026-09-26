@@ -6,6 +6,7 @@ import re
 
 from src.tools._memory import ensure_session_memory
 from src.utils.text.line_numbers import add_line_numbers
+from src.tools._cancellation import check_cancelled, get_cancel_event
 
 DEFINITION: dict = {
     "type": "function",
@@ -403,7 +404,7 @@ def _highlight(line: str, pattern: str) -> str:
         return line
 
 
-def _do_search_by_regex(args: dict, memory: dict) -> str:
+def _do_search_by_regex(args: dict, memory: dict, cancel_event=None) -> str:
     key = args.get("key")
     if not key:
         return "Error: 'key' is required for action 'search_by_regex'."
@@ -430,6 +431,8 @@ def _do_search_by_regex(args: dict, memory: dict) -> str:
     matches: list[str] = []
 
     for i, line in enumerate(lines, start=1):
+        if i % 256 == 0:
+            check_cancelled("session_memory", cancel_event)
         if compiled.search(line):
             lineno = str(i).rjust(line_no_width)
             highlighted = _highlight(line, pattern)
@@ -457,7 +460,11 @@ _ACTION_MAP = {
 }
 
 
-def execute(args: dict, session_data: dict | None = None) -> str:
+def execute(
+    args: dict,
+    session_data: dict | None = None,
+    special_resources: dict | None = None,
+) -> str:
     if session_data is None:
         session_data = {}
     memory = ensure_session_memory(session_data)
@@ -465,4 +472,6 @@ def execute(args: dict, session_data: dict | None = None) -> str:
     fn = _ACTION_MAP.get(action)
     if fn is None:
         return f"Error: unknown action {action!r}."
+    if action == "search_by_regex":
+        return fn(args, memory, get_cancel_event(special_resources))
     return fn(args, memory)

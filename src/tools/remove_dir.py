@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-import shutil
 from pathlib import Path
 
 from src.tools._path_utils import _resolve_path
+from src.tools._cancellation import get_cancel_event
+from src.tools._cancellable_io import remove_tree_cancellable
 
 DEFINITION: dict = {
     "type": "function",
@@ -57,7 +58,9 @@ def execute(
 ) -> str:
     # Resolve relative paths against the session CWD, not the server process
     # CWD — critical here since this is a destructive (rmtree) operation.
-    session_cwd = (special_resources or {}).get("session_current_working_dir")
+    sr = special_resources or {}
+    session_cwd = sr.get("session_current_working_dir")
+    cancel_event = get_cancel_event(sr)
     path = _resolve_path(args["path"], session_cwd)
     recursive = bool(args.get("recursive", False))
 
@@ -70,7 +73,11 @@ def execute(
 
     try:
         if recursive:
-            shutil.rmtree(path)
+            remove_tree_cancellable(
+                path,
+                tool_name="remove_dir",
+                cancel_event=cancel_event,
+            )
         else:
             target.rmdir()
         return f"Directory removed: {path}"

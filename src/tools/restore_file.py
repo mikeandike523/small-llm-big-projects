@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 from src.tools._path_utils import _resolve_path
+from src.tools._cancellation import get_cancel_event
+from src.tools._cancellable_io import write_text_cancellable
 
 DEFINITION: dict = {
     "type": "function",
@@ -81,6 +83,7 @@ def execute(args: dict, session_data: dict, special_resources: dict) -> str:
     )
     action = args.get("action", "restore")
     session_id: str = special_resources.get("session_id", "")
+    cancel_event = get_cancel_event(special_resources)
 
     from src.tools._file_snapshot import list_snapshots, get_snapshot
 
@@ -119,8 +122,13 @@ def execute(args: dict, session_data: dict, special_resources: dict) -> str:
     target = Path(path)
     try:
         target.parent.mkdir(parents=True, exist_ok=True)
-        with open(target, "w", encoding="utf-8", newline="") as fh:
-            fh.write(content)
+        write_text_cancellable(
+            target,
+            content,
+            tool_name="restore_file",
+            cancel_event=cancel_event,
+            newline="",
+        )
         return f"File restored from snapshot (index {snapshot_index}): {path}"
     except OSError as e:
         return f"Error writing restored content: {e}"

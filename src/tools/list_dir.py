@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import time
+import threading
 from pathlib import Path
 
 from src.tools._list_dir_utils import (
@@ -11,6 +12,7 @@ from src.tools._list_dir_utils import (
     _traverse,
     _collect_flat,
 )
+from src.tools._cancellation import get_cancel_event
 
 DEFAULT_TIMEOUT = 30  # seconds
 TIMEOUT_HINT = "list_dir timed out; consider restricting traversal depth (use the 'depth' parameter)"
@@ -226,6 +228,7 @@ def execute(
 ) -> str:
     # --- Parse args ---
     sr = special_resources or {}
+    cancel_event: threading.Event | None = get_cancel_event(sr)
     session_cwd = sr.get("session_current_working_dir")
     raw_path = args.get("path") or session_cwd or ""
     path = (
@@ -273,6 +276,8 @@ def execute(
         start_time=_start_time,
         timeout=DEFAULT_TIMEOUT,
         timeout_hint=TIMEOUT_HINT,
+        cancel_event=cancel_event,
+        tool_name="list_dir",
     )
 
     root_name = Path(path).name or path

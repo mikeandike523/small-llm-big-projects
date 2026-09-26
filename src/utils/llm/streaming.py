@@ -275,6 +275,8 @@ class StreamingLLM:
         max_tokens=None,
         parameters={},
         tools: Optional[list[dict]] = None,
+        cancel_event=None,
+        cancel_tool_name: str = "llm_fetch",
     ) -> FetchResult:
         """Synchronous (non-streaming) request — used for out-of-band calls (e.g. hang triage).
 
@@ -292,8 +294,23 @@ class StreamingLLM:
         url = self._adapter.endpoint_url(self._endpoint)
         timeout = httpx.Timeout(float(effective_timeout)) if effective_timeout else None
 
-        with httpx.Client() as client:
-            r = client.post(url, json=payload, headers=headers, timeout=timeout)
+        if cancel_event is not None:
+            # Imported lazily to keep the general LLM layer independent of the
+            # tool package unless a tool explicitly requests cancellation.
+            from src.tools._async_http import request_with_cancel
+
+            r = request_with_cancel(
+                cancel_tool_name,
+                "POST",
+                url,
+                cancel_event=cancel_event,
+                client_kwargs={"timeout": timeout},
+                json=payload,
+                headers=headers,
+            )
+        else:
+            with httpx.Client() as client:
+                r = client.post(url, json=payload, headers=headers, timeout=timeout)
 
         if r.status_code != 200:
             logger.error(colored(r.text, "red"))

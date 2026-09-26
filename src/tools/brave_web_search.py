@@ -10,6 +10,9 @@ import json
 from typing import Any
 
 import httpx
+from src.tools._cancellation import check_cancelled, get_cancel_event
+from src.tools._async_http import request_with_cancel
+from src.utils.exceptions import ToolTimeoutError
 
 from src.utils.http.helpers import (
     ensure_session_memory,
@@ -163,6 +166,8 @@ def execute(
         session_data = {}
 
     on_chunk = (special_resources or {}).get("on_chunk")
+    cancel_event = get_cancel_event(special_resources)
+    check_cancelled("brave_web_search", cancel_event)
 
     q: str = args["q"]
     target: str = args.get("target", "return_value")
@@ -235,8 +240,18 @@ def execute(
     json_error: str | None = None
 
     try:
-        with httpx.Client(follow_redirects=True, timeout=DEFAULT_TIMEOUT) as client:
-            resp = client.post(_BRAVE_LLM_CONTEXT_URL, json=payload, headers=headers)
+        resp = request_with_cancel(
+            "brave_web_search",
+            "POST",
+            _BRAVE_LLM_CONTEXT_URL,
+            cancel_event=cancel_event,
+            client_kwargs={
+                "follow_redirects": True,
+                "timeout": DEFAULT_TIMEOUT,
+            },
+            json=payload,
+            headers=headers,
+        )
 
         status_code = resp.status_code
         resp_ct = resp.headers.get("content-type")
@@ -247,9 +262,9 @@ def execute(
             json_error = f"{type(e).__name__}: {e}"
 
     except httpx.TimeoutException:
-        from src.utils.exceptions import ToolTimeoutError
-
         raise ToolTimeoutError("brave_web_search", DEFAULT_TIMEOUT)
+    except ToolTimeoutError:
+        raise
     except Exception as e:
         return format_response(
             status_code=None,

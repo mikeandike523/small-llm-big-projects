@@ -4,6 +4,8 @@ from pathlib import Path
 
 from src.tools._path_utils import _resolve_path
 from src.tools._auto_eol import maybe_apply_auto_eol
+from src.tools._cancellation import get_cancel_event
+from src.tools._cancellable_io import write_text_cancellable
 
 DEFINITION: dict = {
     "type": "function",
@@ -71,6 +73,7 @@ def execute(
     # CWD. Without this a relative path would land in the server's working
     # directory instead of the agent's project.
     sr = special_resources or {}
+    cancel_event = get_cancel_event(sr)
     session_cwd = sr.get("session_current_working_dir")
     target = Path(_resolve_path(path, session_cwd))
 
@@ -88,8 +91,13 @@ def execute(
         if target.exists():
             return f"Error: file already exists: {path}"
         # newline="" prevents Python from rewriting the EOL style we just applied.
-        with open(target, "w", encoding="utf-8", newline="") as fh:
-            fh.write(initial_content)
+        write_text_cancellable(
+            target,
+            initial_content,
+            tool_name="create_text_file",
+            cancel_event=cancel_event,
+            newline="",
+        )
         msg = f"File created: {path}"
         if eol_note:
             msg += f" ({eol_note})"

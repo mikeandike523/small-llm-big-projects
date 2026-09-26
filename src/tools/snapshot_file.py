@@ -3,6 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from src.tools._path_utils import _resolve_path
+from src.tools._cancellation import get_cancel_event
+from src.tools._cancellable_io import read_text_cancellable
 
 DEFINITION: dict = {
     "type": "function",
@@ -51,13 +53,18 @@ def execute(args: dict, session_data: dict, special_resources: dict) -> str:
         args["path"], special_resources.get("session_current_working_dir")
     )
     session_id: str = special_resources.get("session_id", "")
+    cancel_event = get_cancel_event(special_resources)
 
     target = Path(path)
     if not target.is_file():
         return f"Error: file not found: {path}"
 
     try:
-        content = target.read_text(encoding="utf-8")
+        content = read_text_cancellable(
+            target,
+            tool_name="snapshot_file",
+            cancel_event=cancel_event,
+        )
     except OSError as e:
         return f"Error reading file: {e}"
 

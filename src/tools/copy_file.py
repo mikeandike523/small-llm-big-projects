@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import os
-import shutil
 from src.tools._path_utils import _resolve_path
+from src.tools._cancellation import get_cancel_event
+from src.tools._cancellable_io import copy_file_cancellable
 
 DEFINITION: dict = {
     "type": "function",
@@ -67,6 +68,7 @@ def execute(
     args: dict, session_data: dict, special_resources: dict | None = None
 ) -> str:
     sr = special_resources or {}
+    cancel_event = get_cancel_event(sr)
     session_cwd = sr.get("session_current_working_dir")
     src = _resolve_path(args["src"], session_cwd)
     dst = _resolve_path(args["dst"], session_cwd)
@@ -76,10 +78,15 @@ def execute(
     if not os.path.lexists(src):
         return f"Error: source does not exist: {src}"
 
-    copy_func = shutil.copy2 if preserve_metadata else shutil.copy
-
     try:
-        copy_func(src, dst, follow_symlinks=follow_symlinks)
+        copy_file_cancellable(
+            src,
+            dst,
+            tool_name="copy_file",
+            cancel_event=cancel_event,
+            preserve_metadata=preserve_metadata,
+            follow_symlinks=follow_symlinks,
+        )
         return f"File copied: {src} -> {dst}"
     except OSError as e:
         return f"Error: {e}"

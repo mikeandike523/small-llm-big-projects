@@ -186,9 +186,12 @@ def _call_sampler(
     on_request_log=None,
     on_reasoning_detected=None,
     on_response=None,
+    cancel_event=None,
+    cancel_tool_name: str = "llm_fetch",
 ):
     """Invoke llm.fetch() with a sampler params dict.
     timeout_s is forwarded to llm.fetch() for per-call timeout overrides.
+    cancel_event opts tool callers into cancellation-aware async HTTP fetching.
 
     max_tokens is extracted and passed as a kwarg; the remaining keys are
     forwarded as the parameters dict (API params like temperature/top_p/top_k,
@@ -215,9 +218,17 @@ def _call_sampler(
         except Exception:
             pass
 
-    result = llm.fetch(
-        messages, timeout_s=timeout_s, max_tokens=max_tokens, parameters=api_params
-    )
+    fetch_kwargs = {
+        "timeout_s": timeout_s,
+        "max_tokens": max_tokens,
+        "parameters": api_params,
+    }
+    # Preserve compatibility with lightweight sampler fakes and third-party
+    # implementations that do not know the tool-only cancellation keywords.
+    if cancel_event is not None:
+        fetch_kwargs["cancel_event"] = cancel_event
+        fetch_kwargs["cancel_tool_name"] = cancel_tool_name
+    result = llm.fetch(messages, **fetch_kwargs)
 
     if on_reasoning_detected is not None and result.reasoning:
         try:

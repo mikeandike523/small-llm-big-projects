@@ -346,6 +346,14 @@ enforceable deadline and cancellation behavior:
 - Accept `special_resources`, retrieve its `cancel_event`, and poll it during
   long-running Python loops. Use `time.monotonic()` for deadline calculations,
   not wall-clock time.
+- Prefer `src.tools._cancellation.get_cancel_event`, `check_cancelled`, and
+  `wait_or_cancel` over open-coded checks and `time.sleep()`. The framework
+  checks cancellation immediately before and after each tool invocation, but
+  only the tool can make its internal loops responsive while it is running.
+- For large local text/file operations, the built-in
+  `src.tools._cancellable_io` helpers demonstrate chunked reads, writes,
+  copies, and recursive deletion. Cancellation checks at only the beginning
+  and end of a large operation are not sufficient.
 - Prefer a subprocess for work that cannot be interrupted cooperatively. Pass
   both `timeout` and `cancel_event` to `src.tools._subprocess.run_command` (or
   the appropriate managed-process helper) so SLBP can kill the operating-system
@@ -385,6 +393,97 @@ The matching schema must expose `timeout`, including its minimum, maximum, and
 default in the description. Pure-Python tools do not need to spawn a process
 when their loops can check the cancellation event and monotonic deadline
 frequently; they still need both checks.
+
+#### Polling cooperative work
+
+The framework checks the turn's cancellation event before and after every
+`execute` hop, but it cannot inspect a tool while that tool is still running.
+A tool that performs a sizeable loop must therefore poll from inside that
+loop. Use the shared helpers so cancellation has the same behavior and error
+shape everywhere:
+
+```python
+from src.tools._cancellation import (
+    check_cancelled,
+    get_cancel_event,
+    wait_or_cancel,
+)
+
+
+def execute(args, session_data, special_resources=None):
+    cancel_event = get_cancel_event(special_resources)
+
+    for item in many_items:
+        check_cancelled("my_tool", cancel_event)
+        process(item)
+
+    # Unlike time.sleep(), this wakes as soon as Stop is requested.
+    wait_or_cancel("my_tool", cancel_event, 2.0)
+    return "done"
+```
+
+Poll at a useful unit of work: per directory entry, response chunk, copied
+block, or every modest batch of CPU-only items. Do not catch and translate the
+`ToolTimeoutError` raised by these helpers. A single blocking library call
+still cannot poll while it owns the thread; use that library's cancellable API
+or isolate the operation in a killable process.
+
+#### `NextTool` wrappers usually do not need their own polling
+
+An `execute` function whose only work is validating or translating arguments
+and immediately returning `NextTool(...)` normally does not need to accept
+`special_resources` or poll `cancel_event`. Delegation does not create a new
+turn or discard framework resources: `execute_tool` checks cancellation around
+every hop and passes the same cancellation event to the eventual target tool.
+
+This exemption is about the wrapper being effectively immediate, not about
+wrappers in general. If a wrapper performs traversal, network I/O, retries,
+sleeping, or other substantial work before returning `NextTool`, that work
+must implement cancellation exactly like a terminal tool. The delegated
+target remains responsible for cancellation during its own execution.
+
+#### Cancellable HTTPX requests
+
+Use HTTPX's asynchronous client for network operations that must abort when the
+user presses Stop. Cancelling an asyncio task that is awaiting
+`httpx.AsyncClient` propagates cancellation into HTTP Core's socket operation;
+cancelling a caller that is waiting on synchronous `httpx.Client` in a worker
+thread does not.
+
+Built-in synchronous tools use `request_with_cancel`, which creates a private
+event loop in the tool worker, runs an `AsyncClient` request task, polls the
+turn event, and cancels and awaits the actual request task during Stop:
+
+```python
+import httpx
+
+from src.tools._async_http import request_with_cancel
+from src.tools._cancellation import get_cancel_event
+
+
+def execute(args, session_data, special_resources=None):
+    timeout = args.get("timeout", 30)
+    response = request_with_cancel(
+        "my_http_tool",
+        "GET",
+        args["url"],
+        cancel_event=get_cancel_event(special_resources),
+        client_kwargs={
+            "timeout": httpx.Timeout(timeout),
+            "follow_redirects": True,
+        },
+        headers={"Accept": "application/json"},
+    )
+    return response.text
+```
+
+`request_with_cancel` is deliberately synchronous at its boundary because the
+custom-tool contract is synchronous and tools run in worker threads. Do not
+call it from an already-running event loop. Code that is already natively
+async should instead create and cancel its `AsyncClient` request task directly,
+always awaiting the cancelled task and closing the client in an `async with`
+block. Cancellation complements rather than replaces finite HTTPX connect,
+read, write, pool, and overall tool deadlines.
 
 ### Progress streaming (optional)
 

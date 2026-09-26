@@ -5,6 +5,7 @@ import time
 from dataclasses import dataclass
 
 from src.utils.exceptions import ToolTimeoutError
+from src.tools._process_tree import isolated_process_kwargs, kill_process_tree
 
 
 @dataclass
@@ -34,7 +35,8 @@ def run_command(
     Run a command synchronously. Supports cancellation via cancel_event.
 
     Drains stdout/stderr in background threads to avoid pipe-buffer deadlock.
-    Polls every 100ms so cancel_event is checked promptly.
+    Waits on cancel_event in 100ms windows, so cancellation wakes immediately
+    while process completion and the monotonic deadline are checked frequently.
     Raises ToolTimeoutError on timeout or cancellation.
     """
     proc = subprocess.Popen(
@@ -43,6 +45,7 @@ def run_command(
         stderr=subprocess.PIPE,
         text=True,
         cwd=cwd,
+        **isolated_process_kwargs(),
     )
 
     stdout_chunks: list[str] = []
@@ -61,25 +64,31 @@ def run_command(
     t_err.start()
 
     poll_interval = 0.1
-    elapsed = 0.0
+    started_at = time.monotonic()
 
     try:
         while proc.poll() is None:
-            time.sleep(poll_interval)
-            elapsed += poll_interval
-            if cancel_event is not None and cancel_event.is_set():
-                proc.kill()
+            cancelled = (
+                cancel_event.wait(poll_interval)
+                if cancel_event is not None
+                else False
+            )
+            if cancel_event is None:
+                time.sleep(poll_interval)
+            elapsed = time.monotonic() - started_at
+            if cancelled:
+                kill_process_tree(proc)
                 t_out.join(timeout=2)
                 t_err.join(timeout=2)
                 raise ToolTimeoutError(
                     cmd[0] if cmd else "command",
-                    int(elapsed),
+                    round(elapsed, 3),
                     hint="cancelled by user",
                     prior_stdout="".join(stdout_chunks) or None,
                     prior_stderr="".join(stderr_chunks) or None,
                 )
             if timeout is not None and elapsed >= timeout:
-                proc.kill()
+                kill_process_tree(proc)
                 t_out.join(timeout=2)
                 t_err.join(timeout=2)
                 raise ToolTimeoutError(
