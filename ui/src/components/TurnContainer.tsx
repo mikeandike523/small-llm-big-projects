@@ -1,9 +1,10 @@
 import { useState, useRef, Fragment } from "react";
 import { css, keyframes } from "@emotion/react";
+import { FaHeartbeat, FaUser } from "react-icons/fa";
 
 import { useStickToBottom } from "use-stick-to-bottom";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import type { TodoItem, Turn, ToolCallEntry } from "../types";
+import type { SubturnOrigin, TodoItem, Turn, ToolCallEntry } from "../types";
 
 import scrollbarCss from "../css/scrollBarCss";
 import {
@@ -74,6 +75,38 @@ const skillPillCss = css`
   white-space: nowrap;
 `;
 
+const ownerPillBaseCss = css`
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  font-size: 10px;
+  border-radius: 10px;
+  padding: 2px 8px;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+`;
+
+const ownerPillCss: Record<SubturnOrigin, ReturnType<typeof css>> = {
+  user: css`
+    ${ownerPillBaseCss};
+    color: #8ab88a;
+    background: #102010;
+    border: 1px solid #2a4a2a;
+  `,
+  heartbeat: css`
+    ${ownerPillBaseCss};
+    color: #e06c6c;
+    background: #2a0d0d;
+    border: 1px solid #5a1e1e;
+  `,
+};
+
+const OWNER_PILL_LABEL: Record<SubturnOrigin, string> = {
+  user: "Human",
+  heartbeat: "Heartbeat",
+};
+
 const turnContainerCss = css`
   display: grid;
   grid-template-columns: minmax(0, 5fr) minmax(0, 4fr) minmax(0, 2fr);
@@ -81,17 +114,6 @@ const turnContainerCss = css`
   padding: 20px 24px;
   border: 1px solid #22304d;
   border-radius: 0 0 12px 12px;
-  background: #0d131e;
-  box-shadow: 0 3px 16px rgba(0, 0, 0, 0.5);
-`;
-
-const turnContainerNoTitleCss = css`
-  display: grid;
-  grid-template-columns: minmax(0, 5fr) minmax(0, 4fr) minmax(0, 2fr);
-  gap: 24px;
-  padding: 20px 24px;
-  border: 1px solid #22304d;
-  border-radius: 12px;
   background: #0d131e;
   box-shadow: 0 3px 16px rgba(0, 0, 0, 0.5);
 `;
@@ -720,27 +742,42 @@ export default function TurnContainer({
     !isInterimStreaming &&
     totalToolCallCount === 0;
 
-  const hasBanner = !!turn.taskTitle || (turn.loadedSkills?.length ?? 0) > 0;
+  // The turn's current owner is whoever started its latest subturn.
+  const owner: SubturnOrigin =
+    turn.subturns[turn.subturns.length - 1]?.origin ?? "user";
 
   return (
     <div css={turnWrapperCss}>
-      {hasBanner ? (
-        <div css={turnBannerCss}>
-          <span css={taskTitleCss}>
-            {turn.taskTitle ? `Task: ${turn.taskTitle}` : ""}
-          </span>
-          {turn.loadedSkills && turn.loadedSkills.length > 0 && (
-            <div css={skillPillsRowCss}>
-              {turn.loadedSkills.map((skillName) => (
-                <span key={skillName} css={skillPillCss}>
-                  {stripMdExtension(skillName)}
-                </span>
-              ))}
-            </div>
+      <div css={turnBannerCss}>
+        <span
+          css={ownerPillCss[owner]}
+          title={
+            owner === "heartbeat"
+              ? "Started by a heartbeat"
+              : "Started by a human"
+          }
+        >
+          {owner === "heartbeat" ? (
+            <FaHeartbeat size={9} />
+          ) : (
+            <FaUser size={9} />
           )}
-        </div>
-      ) : null}
-      <div css={hasBanner ? turnContainerCss : turnContainerNoTitleCss}>
+          {OWNER_PILL_LABEL[owner]}
+        </span>
+        <span css={taskTitleCss}>
+          {turn.taskTitle ? `Task: ${turn.taskTitle}` : ""}
+        </span>
+        {turn.loadedSkills && turn.loadedSkills.length > 0 && (
+          <div css={skillPillsRowCss}>
+            {turn.loadedSkills.map((skillName) => (
+              <span key={skillName} css={skillPillCss}>
+                {stripMdExtension(skillName)}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+      <div css={turnContainerCss}>
         {/* Left column: user message(s) + AI content — one bubble-group per subturn */}
         <div css={leftColumnCss} ref={leftScrollRef}>
           <div css={leftContentCss} ref={leftContentRef}>

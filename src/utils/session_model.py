@@ -86,6 +86,10 @@ class LLMExchange:
         return msgs
 
 
+SUBTURN_ORIGIN_USER = "user"
+SUBTURN_ORIGIN_HEARTBEAT = "heartbeat"
+
+
 @dataclass
 class Subturn:
     id: str
@@ -97,6 +101,8 @@ class Subturn:
         None  # compaction string; None when no tool calls were made
     )
     approval_mode: str | None = None
+    # Who started this subturn: SUBTURN_ORIGIN_USER or SUBTURN_ORIGIN_HEARTBEAT.
+    origin: str = SUBTURN_ORIGIN_USER
 
     def count_tool_calls(self) -> int:
         return sum(len(ex.tool_calls) for ex in self.exchanges)
@@ -260,6 +266,7 @@ def subturn_to_dict(st: Subturn) -> dict:
         "is_continuation": st.is_continuation,
         "detailed_summary": st.detailed_summary,
         "approval_mode": st.approval_mode,
+        "origin": st.origin,
     }
 
 
@@ -272,6 +279,7 @@ def subturn_from_dict(d: dict) -> Subturn:
         is_continuation=d.get("is_continuation", False),
         detailed_summary=d.get("detailed_summary"),
         approval_mode=d.get("approval_mode"),
+        origin=d.get("origin", SUBTURN_ORIGIN_USER),
     )
 
 

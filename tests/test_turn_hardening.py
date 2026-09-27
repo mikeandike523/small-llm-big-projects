@@ -35,11 +35,11 @@ def test_same_session_message_admission_is_atomic(monkeypatch):
     release_winner = threading.Event()
     original_try_reserve = state.try_reserve_turn
 
-    def racing_try_reserve(candidate: str) -> bool:
+    def racing_try_reserve(candidate: str, *args) -> bool:
         barrier.wait(timeout=2)
-        return original_try_reserve(candidate)
+        return original_try_reserve(candidate, *args)
 
-    def admitted_handler(_data, admitted_session, _turn_id, _behavior):
+    def admitted_handler(_data, admitted_session, _turn_id, _behavior, **_kwargs):
         admitted.append(admitted_session)
         assert release_winner.wait(2)
 
@@ -88,7 +88,7 @@ def test_turn_reservation_is_released_when_admitted_handler_fails(monkeypatch):
     monkeypatch.setattr(turn_events, "request", SimpleNamespace(sid=sid))
     monkeypatch.setitem(state._sid_to_session_id, sid, session_id)
 
-    def fail(*_args):
+    def fail(*_args, **_kwargs):
         raise RuntimeError("setup failed")
 
     monkeypatch.setattr(turn_events, "_handle_admitted_user_message", fail)
@@ -262,3 +262,16 @@ def test_approval_waiter_does_not_remove_entry_it_does_not_own(monkeypatch):
     finally:
         with state._pending_approvals_lock:
             state._pending_approvals.pop(session_id, None)
+
+
+def test_reservation_records_turn_owner():
+    session_id = "owner-tracking"
+    try:
+        assert state.reserved_turn_origin(session_id) is None
+        assert state.try_reserve_turn(session_id, "heartbeat")
+        assert state.reserved_turn_origin(session_id) == "heartbeat"
+        assert not state.try_reserve_turn(session_id)
+        assert state.reserved_turn_origin(session_id) == "heartbeat"
+    finally:
+        state.release_turn(session_id)
+    assert state.reserved_turn_origin(session_id) is None

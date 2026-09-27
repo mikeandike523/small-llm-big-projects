@@ -26,6 +26,7 @@ from typing import Any, Iterable
 from src.utils.session_model import (
     CURRENT_SCHEMA_VERSION,
     LLMExchange,
+    SUBTURN_ORIGIN_USER,
     Session,
     Subturn,
     Turn,
@@ -105,6 +106,7 @@ def subturn_started_payload(turn_id: str, st: Subturn) -> dict:
         "user_text_with_context": st.user_text_with_context,
         "is_continuation": st.is_continuation,
         "approval_mode": st.approval_mode,
+        "origin": st.origin,
     }
 
 
@@ -209,6 +211,7 @@ def _on_subturn_started(state: ReplayState, p: dict) -> None:
         exchanges=[],
         is_continuation=p.get("is_continuation", False),
         approval_mode=p.get("approval_mode"),
+        origin=p.get("origin", SUBTURN_ORIGIN_USER),
     )
     turn.subturns.append(st)
     state._subturns[subturn_id] = st

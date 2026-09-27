@@ -8,17 +8,23 @@ import type {
   ApprovalItem,
   PatchRewriteState,
   HeartbeatSettings,
+  SubturnOrigin,
 } from "../types";
-import { DEFAULT_HEARTBEAT_SETTINGS } from "../types";
+import { DEFAULT_HEARTBEAT_SETTINGS, toSubturnOrigin } from "../types";
 import type { BackendLogEntry, BackendLogContent } from "../types/DebugPanel";
 
 const MAX_LOGS = 100;
 
-function newTurn(id: string, userText: string, subturnId?: string): Turn {
+function newTurn(
+  id: string,
+  userText: string,
+  origin: SubturnOrigin,
+  subturnId?: string,
+): Turn {
   const stId = subturnId ?? crypto.randomUUID();
   return {
     id,
-    subturns: [{ id: stId, userText, exchanges: [] }],
+    subturns: [{ id: stId, userText, origin, exchanges: [] }],
     todoItems: [],
     approvalItems: [],
     completed: false,
@@ -57,6 +63,7 @@ type BackendExchange = {
 type BackendSubturn = {
   id: string;
   user_text: string;
+  origin?: string;
   exchanges: BackendExchange[];
   detailed_summary?: string;
 };
@@ -96,6 +103,7 @@ function backendTurnToFrontendTurn(d: {
       ? d.subturns.map((st) => ({
           id: st.id,
           userText: st.user_text,
+          origin: toSubturnOrigin(st.origin),
           exchanges: st.exchanges.map(mapExchange),
           detailedSummary: st.detailed_summary ?? undefined,
         }))
@@ -103,6 +111,7 @@ function backendTurnToFrontendTurn(d: {
           {
             id: crypto.randomUUID(),
             userText: d.user_text ?? "",
+            origin: "user",
             exchanges: (d.exchanges ?? []).map(mapExchange),
           },
         ];
@@ -227,6 +236,7 @@ export default function useSocketWiring(
           const id = data.turn_id as string;
           const userText = data.user_text as string;
           const subturnId = data.subturn_id as string | undefined;
+          const origin = toSubturnOrigin(data.origin);
           setThread((prev) => {
             if (prev.some((t) => t.id === id)) {
               // Continuation: append new subturn to existing turn
@@ -235,6 +245,7 @@ export default function useSocketWiring(
                 const newSt: Subturn = {
                   id: subturnId ?? crypto.randomUUID(),
                   userText,
+                  origin,
                   exchanges: [],
                 };
                 return {
@@ -247,7 +258,10 @@ export default function useSocketWiring(
             } else {
               return [
                 ...prev,
-                { ...newTurn(id, userText, subturnId), streaming: false },
+                {
+                  ...newTurn(id, userText, origin, subturnId),
+                  streaming: false,
+                },
               ];
             }
           });
@@ -898,9 +912,11 @@ export default function useSocketWiring(
       turn_id: string;
       user_text: string;
       subturn_id?: string;
+      origin?: string;
     }) {
       if (data.event_id) updateLastEventId(data.event_id);
       const { turn_id: id, user_text: userText, subturn_id: subturnId } = data;
+      const origin = toSubturnOrigin(data.origin);
       setThread((prev) => {
         if (prev.some((t) => t.id === id)) {
           // Continuation: append new subturn to existing turn
@@ -909,6 +925,7 @@ export default function useSocketWiring(
             const newSt: Subturn = {
               id: subturnId ?? crypto.randomUUID(),
               userText,
+              origin,
               exchanges: [],
             };
             return {
@@ -922,7 +939,7 @@ export default function useSocketWiring(
             };
           });
         } else {
-          return [...prev, newTurn(id, userText, subturnId)];
+          return [...prev, newTurn(id, userText, origin, subturnId)];
         }
       });
       setBusy(true);

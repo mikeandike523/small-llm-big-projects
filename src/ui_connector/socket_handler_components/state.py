@@ -9,6 +9,7 @@ import redis
 
 from src.terminal import TerminalSessionManager
 from src.utils.env_info import get_os, get_shell
+from src.utils.session_model import SUBTURN_ORIGIN_USER
 from src.utils.docker_compose import get_service_port
 from src.logic.system_prompt import (
     build_skill_registry,
@@ -69,30 +70,38 @@ _session_costs: dict[str, float] = {}
 # Telemetry (like cost, NOT event-sourced); flushed to session_meta on save.
 _session_last_context_usage: dict[str, dict] = {}
 # Atomic admission state for user-message turns. This reservation begins before
-# preprocessing and outlives the asyncio cancellation handles below.
-_turn_reservations: set[str] = set()
+# preprocessing and outlives the asyncio cancellation handles below. The value
+# is the origin (owner) of the subturn being run: SUBTURN_ORIGIN_USER or
+# SUBTURN_ORIGIN_HEARTBEAT.
+_turn_reservations: dict[str, str] = {}
 _turn_reservations_lock = threading.Lock()
 
 
-def try_reserve_turn(session_id: str) -> bool:
+def try_reserve_turn(session_id: str, origin: str = SUBTURN_ORIGIN_USER) -> bool:
     """Atomically admit one user-message operation for a session."""
     with _turn_reservations_lock:
         if session_id in _turn_reservations:
             return False
-        _turn_reservations.add(session_id)
+        _turn_reservations[session_id] = origin
         return True
 
 
 def release_turn(session_id: str) -> None:
     """Release a previously admitted user-message operation."""
     with _turn_reservations_lock:
-        _turn_reservations.discard(session_id)
+        _turn_reservations.pop(session_id, None)
 
 
 def is_turn_reserved(session_id: str) -> bool:
     """Return the authoritative process-local active-turn status."""
     with _turn_reservations_lock:
         return session_id in _turn_reservations
+
+
+def reserved_turn_origin(session_id: str) -> str | None:
+    """Return who owns the session's running subturn, or None when idle."""
+    with _turn_reservations_lock:
+        return _turn_reservations.get(session_id)
 
 
 # ---------------------------------------------------------------------------

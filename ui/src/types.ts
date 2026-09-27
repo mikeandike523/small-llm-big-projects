@@ -61,9 +61,17 @@ export interface LLMExchange {
   isInterim?: boolean; // true after begin_final_summary — prevents onToken appending to this exchange
 }
 
+// Who started a subturn; the turn's current owner is its last subturn's origin.
+export type SubturnOrigin = "user" | "heartbeat";
+
+export function toSubturnOrigin(value: unknown): SubturnOrigin {
+  return value === "heartbeat" ? "heartbeat" : "user";
+}
+
 export interface Subturn {
   id: string;
   userText: string;
+  origin: SubturnOrigin;
   exchanges: LLMExchange[];
   detailedSummary?: string; // compaction string; undefined when subturn had no tool calls
 }

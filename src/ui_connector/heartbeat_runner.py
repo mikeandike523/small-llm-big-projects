@@ -1,8 +1,13 @@
 """Heartbeat runner: launches a heartbeat's instructions as a new-task turn.
 
 The daemon (``heartbeat_daemon.py``) decides *when* a session is due; this
-module decides *how* to fire it. Each fire runs on its own thread so a busy
-session's cancel-and-retry waits never delay other sessions' heartbeats.
+module decides *how* to fire it:
+
+* idle session -> launch now;
+* a user owns the running turn -> skip without cancelling anything; the last
+  run stays unrecorded so the daemon's next cycle reconsiders the session;
+* a heartbeat owns the running turn (a stuck earlier heartbeat) -> cancel it
+  and retry on a background thread, so the waits never delay other sessions.
 """
 
 from __future__ import annotations
@@ -13,6 +18,7 @@ import uuid
 from typing import Callable
 
 from src.ui_connector.heartbeat_daemon import HeartbeatSession
+from src.utils.session_model import SUBTURN_ORIGIN_HEARTBEAT, SUBTURN_ORIGIN_USER
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +39,16 @@ def _launch_new_task(session_id: str, text: str) -> bool:
         str(uuid.uuid4()),
         HEARTBEAT_FOLLOWUP_BEHAVIOR,
         background=True,
+        origin=SUBTURN_ORIGIN_HEARTBEAT,
     )
+
+
+def _running_turn_owner(session_id: str) -> str | None:
+    from src.ui_connector.socket_handler_components.state import (
+        reserved_turn_origin,
+    )
+
+    return reserved_turn_origin(session_id)
 
 
 def _cancel_turn(session_id: str) -> None:
@@ -44,17 +59,26 @@ def _cancel_turn(session_id: str) -> None:
     cancel_session_turn(session_id)
 
 
+_LAUNCHED = "launched"
+_USER_OWNED = "user-owned"
+_BUSY = "busy"
+
+
 class HeartbeatRunner:
     def __init__(
         self,
         *,
         launch: Callable[[str, str], bool] = _launch_new_task,
+        running_turn_owner: Callable[[str], str | None] = _running_turn_owner,
         cancel: Callable[[str], None] = _cancel_turn,
+        record_run: Callable[[str], None] = lambda _session_id: None,
         retry_seconds: float = HEARTBEAT_RETRY_SECONDS,
         max_cancel_attempts: int = HEARTBEAT_MAX_CANCEL_ATTEMPTS,
     ) -> None:
         self._launch = launch
+        self._running_turn_owner = running_turn_owner
         self._cancel = cancel
+        self._record_run = record_run
         self._retry_seconds = retry_seconds
         self._max_cancel_attempts = max_cancel_attempts
         self._shutdown = threading.Event()
@@ -65,8 +89,12 @@ class HeartbeatRunner:
         """Abort any pending cancel-and-retry waits."""
         self._shutdown.set()
 
-    def __call__(self, session: HeartbeatSession) -> None:
-        """Daemon callback: validate, then fire on a background thread."""
+    def __call__(self, session: HeartbeatSession) -> bool:
+        """Daemon callback. True means "record this run now".
+
+        False means either skipped (reconsider next cycle) or handed to the
+        cancel-and-retry thread, which records the run itself when it ends.
+        """
         session_id = session.session_id
         text = session.instructions.strip()
         if not text:
@@ -74,56 +102,79 @@ class HeartbeatRunner:
                 "Heartbeat invalid: session_id=%s has empty instructions; skipping",
                 session_id,
             )
-            return
+            return False
         with self._in_flight_lock:
             if session_id in self._in_flight:
                 logger.info(
                     "Heartbeat already in progress: session_id=%s; skipping",
                     session_id,
                 )
-                return
+                return False
             self._in_flight.add(session_id)
+
+        handed_off = False
         try:
+            outcome = self._try_launch(session_id, text)
+            if outcome == _LAUNCHED:
+                return True
+            if outcome == _USER_OWNED:
+                return False
             threading.Thread(
-                target=self._fire_and_release,
+                target=self._retry_and_release,
                 args=(session_id, text),
                 name=f"heartbeat-{session_id}",
                 daemon=True,
             ).start()
-        except BaseException:
-            self._release(session_id)
-            raise
+            handed_off = True
+            return False
+        finally:
+            if not handed_off:
+                self._release(session_id)
 
     def _release(self, session_id: str) -> None:
         with self._in_flight_lock:
             self._in_flight.discard(session_id)
 
-    def _fire_and_release(self, session_id: str, text: str) -> None:
+    def _try_launch(self, session_id: str, text: str) -> str:
+        """One launch attempt. Launching is also the busy check: admission is
+        atomic, so a turn a user starts at the same moment is never clobbered.
+        """
+        for _ in range(2):
+            if self._launch(session_id, text):
+                logger.info("Heartbeat launched: session_id=%s (new task)", session_id)
+                return _LAUNCHED
+            owner = self._running_turn_owner(session_id)
+            if owner == SUBTURN_ORIGIN_USER:
+                logger.info(
+                    "Heartbeat skipped: session_id=%s has a running user turn; "
+                    "will reconsider at the next heartbeat cycle",
+                    session_id,
+                )
+                return _USER_OWNED
+            if owner is not None:
+                return _BUSY
+            # The turn ended between the launch and the owner check; retry once.
+        return _BUSY
+
+    def _retry_and_release(self, session_id: str, text: str) -> None:
         try:
-            self.fire(session_id, text)
+            self.cancel_and_retry(session_id, text)
         except Exception:
             logger.exception("Heartbeat run failed: session_id=%s", session_id)
         finally:
             self._release(session_id)
 
-    def fire(self, session_id: str, text: str) -> bool:
-        """Launch ``text`` as a new task, cancelling a busy turn first.
+    def cancel_and_retry(self, session_id: str, text: str) -> bool:
+        """Cancel a heartbeat-owned turn and retry; True once launched.
 
-        Returns True once the turn is launched. Launching is also the busy
-        check: admission is atomic, so a turn the user starts between a check
-        and a launch can never be clobbered.
+        Records the run when launched or declared orphaned. A user taking over
+        the session meanwhile ends this without cancelling their turn and
+        without recording, so the next cycle reconsiders the session.
         """
-        attempt = 0
-        while True:
-            if self._launch(session_id, text):
-                logger.info("Heartbeat launched: session_id=%s (new task)", session_id)
-                return True
-            if attempt >= self._max_cancel_attempts:
-                break
-            attempt += 1
+        for attempt in range(1, self._max_cancel_attempts + 1):
             logger.warning(
-                "Heartbeat blocked: session_id=%s is busy; sending cancel "
-                "(attempt %d/%d) and retrying in %.0f seconds",
+                "Heartbeat blocked: session_id=%s is busy with a heartbeat turn; "
+                "sending cancel (attempt %d/%d) and retrying in %.0f seconds",
                 session_id,
                 attempt,
                 self._max_cancel_attempts,
@@ -135,6 +186,12 @@ class HeartbeatRunner:
                     "Heartbeat abandoned during shutdown: session_id=%s", session_id
                 )
                 return False
+            outcome = self._try_launch(session_id, text)
+            if outcome == _LAUNCHED:
+                self._record_run(session_id)
+                return True
+            if outcome == _USER_OWNED:
+                return False
         logger.error(
             "Heartbeat failed: session_id=%s is still busy after %d cancel "
             "attempts; the session appears orphaned. Restarting the SLBP server "
@@ -142,4 +199,5 @@ class HeartbeatRunner:
             session_id,
             self._max_cancel_attempts,
         )
+        self._record_run(session_id)
         return False

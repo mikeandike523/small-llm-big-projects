@@ -31,7 +31,12 @@ from src.ui_connector.socket_handler_components.agent_loop import _async_agent_l
 from src.tools.todo_list import format_items_for_ui as _todo_format_items_for_ui
 from src.utils.llm.factory import load_llm_config, make_llm_refreshing
 from src.utils.request_error_formatting import classify_llm_request_error
-from src.utils.session_model import Session, Turn, Subturn
+from src.utils.session_model import (
+    SUBTURN_ORIGIN_USER,
+    Session,
+    Subturn,
+    Turn,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -123,14 +128,16 @@ def new_user_message(
     followup_behavior: str,
     *,
     background: bool = False,
+    origin: str = SUBTURN_ORIGIN_USER,
 ) -> bool:
     """Admit and run one user message for a session, with no socket context.
 
     Returns False (and does nothing) when the session already has a turn in
     progress. With ``background=True`` the turn runs on its own thread and
-    this returns as soon as the turn has been admitted.
+    this returns as soon as the turn has been admitted. ``origin`` is
+    recorded on the new subturn (see ``Subturn.origin``).
     """
-    if not _state.try_reserve_turn(session_id):
+    if not _state.try_reserve_turn(session_id, origin):
         logger.warning(
             "Turn reservation rejected: session_id=%s turn_id=%s followup_behavior=%s",
             session_id,
@@ -153,6 +160,7 @@ def new_user_message(
                 session_id,
                 turn_id,
                 followup_behavior,
+                origin=origin,
             )
         finally:
             _state.release_turn(session_id)
@@ -194,6 +202,8 @@ def _handle_admitted_user_message(
     session_id: str,
     turn_id: str,
     followup_behavior: str,
+    *,
+    origin: str = SUBTURN_ORIGIN_USER,
 ) -> None:
     text = (data.get("text") or "").strip()
     if not text:
@@ -271,7 +281,12 @@ def _handle_admitted_user_message(
             _emit_and_log(
                 session_id,
                 "turn_start",
-                {"turn_id": turn_id, "user_text": text, "subturn_id": _err_subturn_id},
+                {
+                    "turn_id": turn_id,
+                    "user_text": text,
+                    "subturn_id": _err_subturn_id,
+                    "origin": origin,
+                },
             )
             _emit_and_log(
                 session_id,
@@ -295,6 +310,7 @@ def _handle_admitted_user_message(
             user_text_with_context=user_text_with_context,
             is_continuation=True,
             approval_mode=session.approval_mode,
+            origin=origin,
         )
         current_turn.subturns.append(current_subturn)
         turn_id = current_turn.id
@@ -305,6 +321,7 @@ def _handle_admitted_user_message(
             user_text_with_context=user_text_with_context,
             is_continuation=False,
             approval_mode=session.approval_mode,
+            origin=origin,
         )
         current_turn = Turn(
             id=turn_id,
@@ -320,6 +337,7 @@ def _handle_admitted_user_message(
             "turn_id": turn_id,
             "user_text": text,
             "subturn_id": subturn_id,
+            "origin": origin,
         },
     )
 

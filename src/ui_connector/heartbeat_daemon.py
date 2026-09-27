@@ -99,7 +99,7 @@ class HeartbeatDaemon:
         self,
         *,
         sessions_provider: Callable[[], Iterable[HeartbeatSession]],
-        run_heartbeat: Callable[[HeartbeatSession], None],
+        run_heartbeat: Callable[[HeartbeatSession], bool],
         last_runs: LastRunStore,
         interval_seconds: float,
         wall_time: Callable[[], float] = time.time,
@@ -186,10 +186,13 @@ class HeartbeatDaemon:
             summary.invalid,
         )
 
+        # run_heartbeat returns True once it has taken the heartbeat on; False
+        # (skipped, e.g. a user owns the session's running turn) leaves the
+        # last run unrecorded so the next cycle reconsiders the session.
         for session in due:
             try:
-                self._run_heartbeat(session)
-                self._last_runs.record(session.session_id, now)
+                if self._run_heartbeat(session):
+                    self._last_runs.record(session.session_id, now)
             except Exception:
                 logger.exception(
                     "Heartbeat run failed: session_id=%s", session.session_id
@@ -230,11 +233,14 @@ def start_heartbeat_daemon() -> HeartbeatDaemon:
             from src.ui_connector.heartbeat_runner import HeartbeatRunner
 
             minimum_minutes = min(HEARTBEAT_INTERVALS_MINUTES)
-            _runner = HeartbeatRunner()
+            last_runs = DurableLastRunMap()
+            _runner = HeartbeatRunner(
+                record_run=lambda session_id: last_runs.record(session_id, time.time())
+            )
             _daemon = HeartbeatDaemon(
                 sessions_provider=_load_enabled_sessions,
                 run_heartbeat=_runner,
-                last_runs=DurableLastRunMap(),
+                last_runs=last_runs,
                 interval_seconds=minimum_minutes * 60,
             )
         _daemon.start()

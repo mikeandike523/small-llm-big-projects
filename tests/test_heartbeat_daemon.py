@@ -41,7 +41,7 @@ def test_cycle_counts_and_records_successful_runs(caplog) -> None:
     ran: list[str] = []
     daemon = HeartbeatDaemon(
         sessions_provider=lambda: sessions,
-        run_heartbeat=lambda session: ran.append(session.session_id),
+        run_heartbeat=lambda session: ran.append(session.session_id) or True,
         last_runs=last_runs,
         interval_seconds=300,
         wall_time=lambda: now,
@@ -86,7 +86,7 @@ def test_settings_change_wakes_daemon_and_logs(caplog) -> None:
     cycle_ran = threading.Event()
     daemon = HeartbeatDaemon(
         sessions_provider=lambda: cycle_ran.set() or [],
-        run_heartbeat=lambda _session: None,
+        run_heartbeat=lambda _session: True,
         last_runs=MemoryLastRuns(),
         interval_seconds=60,
     )
@@ -119,3 +119,18 @@ def test_durable_last_run_map_is_loaded_and_write_through(monkeypatch) -> None:
 
     assert persisted == [("new", 20.0)]
     assert last_runs.snapshot() == {"new": 20.0}
+
+
+def test_skipped_heartbeat_is_not_recorded() -> None:
+    last_runs = MemoryLastRuns()
+    daemon = HeartbeatDaemon(
+        sessions_provider=lambda: [HeartbeatSession("s1", 5, "do work")],
+        run_heartbeat=lambda _session: False,
+        last_runs=last_runs,
+        interval_seconds=300,
+        wall_time=lambda: 123.0,
+    )
+
+    daemon.run_cycle()
+
+    assert "s1" not in last_runs.values

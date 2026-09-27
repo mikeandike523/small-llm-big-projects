@@ -1,0 +1,1 @@
+Add the heartbeat approval policy (wait-for-human, force-fail, force-approve), applied only while a heartbeat owns the turn and before any approval dialog is shown. Record turn ownership (human or heartbeat) per subturn; heartbeats now skip, instead of cancelling, a turn a human owns and reconsider the session at the next daemon cycle.

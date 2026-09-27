@@ -1,0 +1,1 @@
+Show a Human or Heartbeat owner pill in every turn banner.
