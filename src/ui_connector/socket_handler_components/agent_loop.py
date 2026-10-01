@@ -70,7 +70,6 @@ async def _async_agent_loop(
     Main agentic loop. Runs inside a private asyncio event loop in the SocketIO thread.
     """
     had_tool_calls = False
-    had_todo_items = False
     final_summary_reprompt_sent = False
     # Every non-blank, no-tool response is collected here; the selector picks the
     # best one when the turn is ready to end. Each entry:
@@ -78,7 +77,6 @@ async def _async_agent_loop(
     final_answer_candidates: list[dict] = []
     blank_nudge_sent = False
     was_cancelled = False
-    last_assistant_content = ""
     turn_completed = False
     blank_retry_count = 0
     # Set when the LLM call itself fails (HTTP error, network error, context
@@ -262,8 +260,6 @@ async def _async_agent_loop(
                         profile_revision=applied_config.get("profile_revision"),
                     )
 
-            last_assistant_content = content_for_history
-
             if cancel_event.is_set():
                 was_cancelled = True
                 break
@@ -298,8 +294,6 @@ async def _async_agent_loop(
                 exchange.usage = usage
                 had_tool_calls = True
                 blank_nudge_sent = False
-                if not had_todo_items and session.session_data.get("todo_list"):
-                    had_todo_items = True
                 current_subturn.exchanges.append(exchange)
                 _save_session(session_id, session)
 
@@ -640,14 +634,11 @@ async def _async_agent_loop(
                 session.session_data.get("todo_list") or []
             )
             cancelled_marker = "[Action Cancelled by User]"
-            # Append the marker as a real exchange (not just condensed_*) so
-            # future _build_llm_payload() calls actually replay it, instead of
+            # Append the marker as a real exchange so future
+            # _build_llm_payload() calls actually replay it, instead of
             # silently replaying blank/partial content for this subturn.
             current_subturn.exchanges.append(
                 LLMExchange(assistant_content=cancelled_marker, is_final=True)
-            )
-            current_turn.finalize(
-                session.session_data, cancelled_marker, had_todo_items
             )
             session.completed_turns.append(current_turn)
             session.current_turn = None
@@ -671,7 +662,6 @@ async def _async_agent_loop(
             current_subturn.exchanges.append(
                 LLMExchange(assistant_content=marker, is_final=True)
             )
-            current_turn.finalize(session.session_data, marker, had_todo_items)
             session.completed_turns.append(current_turn)
             session.current_turn = None
             if abnormal_end["log_object"] is not None:
@@ -685,9 +675,6 @@ async def _async_agent_loop(
             current_turn.completed = True
             current_turn.todo_snapshot = _todo_format_items_for_ui(
                 session.session_data.get("todo_list") or []
-            )
-            current_turn.finalize(
-                session.session_data, last_assistant_content, had_todo_items
             )
             session.completed_turns.append(current_turn)
             session.current_turn = None
@@ -726,7 +713,6 @@ async def _async_agent_loop(
             current_subturn.exchanges.append(
                 LLMExchange(assistant_content=marker, is_final=True)
             )
-            current_turn.finalize(session.session_data, marker, had_todo_items)
             session.completed_turns.append(current_turn)
             session.current_turn = None
             # Load-bearing failures (e.g. watchdogs) surface as a real UI error,

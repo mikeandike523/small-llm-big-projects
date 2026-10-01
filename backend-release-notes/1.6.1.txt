@@ -1,0 +1,1 @@
+Fix skill-selector history to include every subturn's user message and final answer (follow-ups were dropped); remove unused Turn.condensed_user/condensed_assistant fields and Turn.finalize()

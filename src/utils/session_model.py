@@ -117,8 +117,6 @@ class Turn:
     impossible_reason: str | None = None  # vestigial
     was_cancelled: bool = False
     completed: bool = False
-    condensed_user: str = ""
-    condensed_assistant: str = ""
     task_title: str | None = None  # Short LLM-generated title, fetched at turn start
     selected_skill_ids: list[str] = field(
         default_factory=list
@@ -138,52 +136,6 @@ class Turn:
 
     def count_exchanges(self) -> int:
         return sum(len(st.exchanges) for st in self.subturns)
-
-    def finalize(
-        self, session_data: dict, final_content: str, had_todo_items: bool = False
-    ) -> None:
-        """Build condensed user/assistant strings for use as context in future turns."""
-        had_tool_calls = self.count_tool_calls() > 0
-        first_user_text = self.subturns[0].user_text if self.subturns else ""
-        if not had_tool_calls or not had_todo_items:
-            self.condensed_user = first_user_text
-            self.condensed_assistant = final_content
-            return
-
-        todo_list = session_data.get("todo_list") or []
-        closed = [it["text"] for it in todo_list if it.get("status") == "closed"]
-        open_items = [it["text"] for it in todo_list if it.get("status") != "closed"]
-        n_tools = self.count_tool_calls()
-
-        # Items were created but wiped by finalize time — nothing useful to template.
-        if not todo_list:
-            self.condensed_user = first_user_text
-            self.condensed_assistant = final_content
-            return
-
-        closed_text = "\n".join(f"  - {t}" for t in closed) if closed else "  (none)"
-        open_text = "\n".join(f"  - {t}" for t in open_items) if open_items else None
-
-        if self.was_impossible:
-            thoughts = self.impossible_reason or final_content or ""
-            parts = [
-                f"I could not fully complete your request after {n_tools} tool call(s).",
-                f"Completed:\n{closed_text}",
-            ]
-            if open_text:
-                parts.append(f"Left incomplete:\n{open_text}")
-            parts.append(f"Final thoughts: {thoughts}")
-        else:
-            parts = [
-                f"I completed your request using {n_tools} tool call(s).",
-                f"Completed:\n{closed_text}",
-            ]
-            if open_text:
-                parts.append(f"Left incomplete:\n{open_text}")
-            parts.append(f"Final answer: {final_content}")
-
-        self.condensed_user = first_user_text
-        self.condensed_assistant = "\n".join(parts)
 
 
 @dataclass
@@ -292,8 +244,6 @@ def turn_to_dict(turn: Turn) -> dict:
         "impossible_reason": turn.impossible_reason,
         "was_cancelled": turn.was_cancelled,
         "completed": turn.completed,
-        "condensed_user": turn.condensed_user,
-        "condensed_assistant": turn.condensed_assistant,
         "task_title": turn.task_title,
         "selected_skill_ids": turn.selected_skill_ids,
     }
@@ -321,8 +271,6 @@ def turn_from_dict(d: dict) -> Turn:
         impossible_reason=d.get("impossible_reason"),
         was_cancelled=d.get("was_cancelled", False),
         completed=d.get("completed", False),
-        condensed_user=d.get("condensed_user", ""),
-        condensed_assistant=d.get("condensed_assistant", ""),
         task_title=d.get("task_title"),
         selected_skill_ids=d.get("selected_skill_ids", []),
     )
@@ -372,9 +320,9 @@ def repair_incomplete_turn(session: Session) -> bool:
       1. Fills any missing tool-call results with an interrupted-marker string so
          every tool_call stays paired with a tool message and user/assistant/tool
          ordering remains valid.
-      2. Finalizes the orphaned turn: ensures a final assistant content, marks it
-         cancelled, builds condensed strings (with an `[answer incomplete]`
-         marker), moves it into `completed_turns`, and clears `current_turn`.
+      2. Finalizes the orphaned turn: ensures a final assistant content (an
+         `[answer incomplete]` marker when there is none), marks it cancelled,
+         moves it into `completed_turns`, and clears `current_turn`.
 
     Caller MUST gate this on the turn being orphaned (no live task owns it) — a
     genuinely active turn in the current process must not be touched.
@@ -397,31 +345,22 @@ def repair_incomplete_turn(session: Session) -> bool:
     for subturn in turn.subturns:
         if subturn.exchanges:
             last_exchange = subturn.exchanges[-1]
-    if (
+    if turn.subturns and (
         last_exchange is None
         or last_exchange.tool_calls
         or not (last_exchange.assistant_content or "").strip()
     ):
         # Either no exchanges, or the last action was a tool call / empty answer:
         # append a synthetic final response so the thread reads coherently.
-        if turn.subturns:
-            turn.subturns[-1].exchanges.append(
-                LLMExchange(
-                    assistant_content=_INTERRUPTED_ANSWER_MARKER,
-                    is_final=True,
-                )
+        turn.subturns[-1].exchanges.append(
+            LLMExchange(
+                assistant_content=_INTERRUPTED_ANSWER_MARKER,
+                is_final=True,
             )
-            final_content = _INTERRUPTED_ANSWER_MARKER
-        else:
-            final_content = _INTERRUPTED_ANSWER_MARKER
-    else:
-        final_content = (
-            f"{last_exchange.assistant_content} {_INTERRUPTED_ANSWER_MARKER}"
         )
 
     turn.was_cancelled = True
     turn.completed = True
-    turn.finalize(session.session_data, final_content, had_todo_items=False)
     session.completed_turns.append(turn)
     session.current_turn = None
     return True

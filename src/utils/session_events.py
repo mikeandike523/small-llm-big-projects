@@ -125,8 +125,6 @@ def heartbeat_settings_payload(settings: dict) -> dict:
 def turn_completed_payload(turn: Turn) -> dict:
     return {
         "turn_id": turn.id,
-        "condensed_user": turn.condensed_user,
-        "condensed_assistant": turn.condensed_assistant,
         "completed": turn.completed,
         "was_cancelled": turn.was_cancelled,
         "todo_snapshot": turn.todo_snapshot,
@@ -236,8 +234,6 @@ def _on_subturn_summary_set(state: ReplayState, p: dict) -> None:
 
 def _on_turn_completed(state: ReplayState, p: dict) -> None:
     turn = state._ensure_turn(p["turn_id"])
-    turn.condensed_user = p.get("condensed_user", "")
-    turn.condensed_assistant = p.get("condensed_assistant", "")
     turn.completed = p.get("completed", True)
     turn.was_cancelled = p.get("was_cancelled", False)
     turn.todo_snapshot = p.get("todo_snapshot", [])

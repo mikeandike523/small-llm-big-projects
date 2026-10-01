@@ -357,11 +357,9 @@ async def _is_continuation(
 ) -> bool:
     """Decide whether a new user message is a follow-up continuation of the previous turn."""
     last_turn = session.completed_turns[-1]
-    last_subturn = last_turn.subturns[-1] if last_turn.subturns else None
-    if last_subturn:
-        last_response = _subturn_final_response(last_subturn)
-    else:
-        last_response = last_turn.condensed_assistant or ""
+    last_response = (
+        _subturn_final_response(last_turn.subturns[-1]) if last_turn.subturns else ""
+    )
 
     messages = [
         {
@@ -410,36 +408,32 @@ async def _is_continuation(
 def _build_skill_selector_transcript(
     session: Session, current_turn: Turn | None = None
 ) -> str:
-    """Format completed turns AND prior subturns of the current turn into a short context transcript for the skill selector."""
-    if not session.completed_turns:
-        return ""
-    lines: list[str] = []
-    for i, turn in enumerate(session.completed_turns, start=1):
-        user = (turn.condensed_user or "").strip()
-        assistant = (turn.condensed_assistant or "").strip()
-        if len(user) > _state._SKILL_SELECTOR_TURN_CHARS:
-            user = user[: _state._SKILL_SELECTOR_TURN_CHARS] + "..."
-        if len(assistant) > _state._SKILL_SELECTOR_TURN_CHARS:
-            assistant = assistant[: _state._SKILL_SELECTOR_TURN_CHARS] + "..."
-        lines.append(f"[Turn {i}]")
-        lines.append(f"User: {user}")
-        lines.append(f"Assistant: {assistant}")
-        lines.append("")
+    """Format completed turns AND prior subturns of the current turn into a short context transcript for the skill selector.
 
-    # Append prior subturns of the current turn so continuation subturns
-    # benefit from full session context during skill selection.
+    Every subturn contributes its own user message and final answer (no tool
+    calls or Context Notes), so follow-ups inside a turn are not lost.
+    """
+    limit = _state._SKILL_SELECTOR_TURN_CHARS
+
+    def _clip(text: str) -> str:
+        text = (text or "").strip()
+        return text[:limit] + "..." if len(text) > limit else text
+
+    turns: list[tuple[Turn, list]] = [
+        (turn, turn.subturns) for turn in session.completed_turns
+    ]
+    # Prior subturns of the current turn (the live one is the message being
+    # classified, so it is excluded).
     if current_turn and len(current_turn.subturns) > 1:
-        prior_subturns = current_turn.subturns[:-1]
-        turn_num = len(session.completed_turns) + 1
-        for j, st in enumerate(prior_subturns, start=1):
-            user = (st.user_text or "").strip()
-            final_resp = _subturn_final_response(st)
-            if len(user) > _state._SKILL_SELECTOR_TURN_CHARS:
-                user = user[: _state._SKILL_SELECTOR_TURN_CHARS] + "..."
-            if len(final_resp) > _state._SKILL_SELECTOR_TURN_CHARS:
-                final_resp = final_resp[: _state._SKILL_SELECTOR_TURN_CHARS] + "..."
-            lines.append(f"[Turn {turn_num}, Subturn {j}]")
-            lines.append(f"User: {user}")
+        turns.append((current_turn, current_turn.subturns[:-1]))
+
+    lines: list[str] = []
+    for i, (turn, subturns) in enumerate(turns, start=1):
+        multi = len(turn.subturns) > 1
+        for j, st in enumerate(subturns, start=1):
+            lines.append(f"[Turn {i}, Subturn {j}]" if multi else f"[Turn {i}]")
+            lines.append(f"User: {_clip(st.user_text)}")
+            final_resp = _clip(_subturn_final_response(st))
             if final_resp:
                 lines.append(f"Assistant: {final_resp}")
             lines.append("")
