@@ -1,0 +1,1 @@
+Record per-subturn thinking character counts (native reasoning + IRAT) in the new subturn_thinking_chars table (migration v17), saved every 10 streamed chunks and at the end of each LLM exchange; history bundles include the counts

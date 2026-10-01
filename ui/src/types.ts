@@ -48,7 +48,6 @@ export interface ApprovalItem {
   id: string;
   tool_name: string;
   args: Record<string, unknown>;
-  resolved?: { approved: boolean };
   subturnId?: string;
 }
 
@@ -74,6 +73,9 @@ export interface Subturn {
   origin: SubturnOrigin;
   exchanges: LLMExchange[];
   detailedSummary?: string; // compaction string; undefined when subturn had no tool calls
+  // Streamed thinking characters (display metadata; saved periodically, may lag).
+  nativeThinkingChars?: number;
+  iratThinkingChars?: number;
 }
 
 export interface Turn {

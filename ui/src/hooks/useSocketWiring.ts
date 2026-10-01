@@ -352,13 +352,11 @@ export default function useSocketWiring(
           break;
         }
         case "approval_resolved": {
-          const approved = data.approved as boolean;
+          // The outcome shows in the tool result, so drop the request.
           const id = data.id as string;
           updateTurn(turnId, (t) => ({
             ...t,
-            approvalItems: t.approvalItems.map((a) =>
-              a.id === id ? { ...a, resolved: { approved } } : a,
-            ),
+            approvalItems: t.approvalItems.filter((a) => a.id !== id),
           }));
           break;
         }
@@ -886,6 +884,14 @@ export default function useSocketWiring(
           };
         }
         lastSt.exchanges = exchanges;
+        // Count thinking characters the same way the backend saves them.
+        if (data.type === "reasoning") {
+          lastSt.nativeThinkingChars =
+            (lastSt.nativeThinkingChars ?? 0) + data.text.length;
+        } else if (data.type === "irat_thinking") {
+          lastSt.iratThinkingChars =
+            (lastSt.iratThinkingChars ?? 0) + data.text.length;
+        }
         subturns[lastStIdx] = lastSt;
         return { ...t, subturns };
       });

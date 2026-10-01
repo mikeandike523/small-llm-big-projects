@@ -6,17 +6,6 @@ import DiffViewer from "../subcomponents/Chat/DiffViewer";
 import { useToolPreviewConfig } from "../api/toolPreviewConfig";
 import { MAX_APPROVAL_PREVIEW_HEIGHT_PX } from "../constants/tool-ui-constants";
 
-const approvalResolvedBubbleCss = (approved: boolean) => css`
-  font-family: "Consolas", monospace;
-  font-size: 12px;
-  color: ${approved ? "#4ade80" : "#f87171"};
-  padding: 4px 8px;
-  border-radius: 4px;
-  background: ${approved ? "#0a1a0a" : "#1a0a0a"};
-  border: 1px solid ${approved ? "#1a4a1a" : "#4a1a1a"};
-  word-break: break-all;
-`;
-
 const approvalPendingCardCss = css`
   background: #1a1200;
   border: 1px solid #6a4800;
@@ -276,7 +265,7 @@ export default function ToolApprovalBubble({
     : null;
 
   useEffect(() => {
-    if (!descriptor || item.resolved) return;
+    if (!descriptor) return;
     setDiffStatus("loading");
     const sessionId = getSessionId();
 
@@ -305,13 +294,6 @@ export default function ToolApprovalBubble({
       .catch(() => setDiffStatus("error"));
   }, [item.id, previewEndpoint]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (item.resolved) {
-    return (
-      <div css={approvalResolvedBubbleCss(item.resolved.approved)}>
-        {item.resolved.approved ? "✓" : "✗"} {item.tool_name}
-      </div>
-    );
-  }
   return (
     <div css={approvalPendingCardCss}>
       <div css={approvalToolNameCss}>{item.tool_name}</div>

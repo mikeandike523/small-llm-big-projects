@@ -21,6 +21,9 @@ from src.ui_connector.socket_handler_components.session_store import (
     _get_session_system_prompt,
 )
 from src.ui_connector.socket_handler_components import runtime_settings
+from src.ui_connector.socket_handler_components.thinking_chars import (
+    ThinkingCharCounter,
+)
 from src.tools import ALL_TOOL_DEFINITIONS
 from src.utils.context_errors import (
     context_limit_log_object,
@@ -250,11 +253,13 @@ async def _async_run_llm_call(
     """
     acc: dict[str, str] = {"content": "", "reasoning": ""}
     token_count = 0
+    thinking_chars = ThinkingCharCounter(session_id, subturn_id)
 
     def on_data(chunk: dict) -> None:
         nonlocal token_count
         if chunk.get("reasoning"):
             acc["reasoning"] += chunk["reasoning"]
+            thinking_chars.add_native(len(chunk["reasoning"]))
             socketio.emit(
                 "token",
                 {
@@ -266,6 +271,8 @@ async def _async_run_llm_call(
             )
         if chunk.get("content"):
             acc["content"] += chunk["content"]
+            if suppress_content_streaming:
+                thinking_chars.add_irat(len(chunk["content"]))
             socketio.emit(
                 "token",
                 {
@@ -326,12 +333,16 @@ async def _async_run_llm_call(
             },
         )
 
-    result = await streaming_llm.stream(
-        sanitize_messages_for_llm(payload),
-        on_data,
-        tools=tool_defs if tool_defs is not None else ALL_TOOL_DEFINITIONS,
-        refresh_config=False,
-    )
+    try:
+        result = await streaming_llm.stream(
+            sanitize_messages_for_llm(payload),
+            on_data,
+            tools=tool_defs if tool_defs is not None else ALL_TOOL_DEFINITIONS,
+            refresh_config=False,
+        )
+    finally:
+        # End of the exchange (including failure/cancellation): save the rest.
+        thinking_chars.flush()
 
     _emit_content_snapshot(
         session_id, turn_id, subturn_id, exchange_idx, acc["content"], acc["reasoning"]

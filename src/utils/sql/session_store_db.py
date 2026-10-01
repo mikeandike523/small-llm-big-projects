@@ -150,6 +150,51 @@ def load_latest_event_payload(session_id: str, event_type: str) -> dict | None:
 
 
 # ---------------------------------------------------------------------------
+# subturn_thinking_chars (display metadata, migration v17)
+# ---------------------------------------------------------------------------
+
+
+def add_thinking_chars(
+    session_id: str, subturn_id: str, native_chars: int, irat_chars: int
+) -> None:
+    """Add streamed thinking-delta counts to a subturn's running totals."""
+    pool = get_pool()
+    with pool.get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO subturn_thinking_chars
+                    (session_id, subturn_id, native_chars, irat_chars)
+                VALUES (%s, %s, %s, %s)
+                AS incoming
+                ON DUPLICATE KEY UPDATE
+                    native_chars = subturn_thinking_chars.native_chars
+                        + incoming.native_chars,
+                    irat_chars = subturn_thinking_chars.irat_chars
+                        + incoming.irat_chars
+                """,
+                (session_id, subturn_id, native_chars, irat_chars),
+            )
+        conn.commit()
+
+
+def load_thinking_char_counts(session_id: str) -> dict[str, tuple[int, int]]:
+    """Return `{subturn_id: (native_chars, irat_chars)}` for a session."""
+    pool = get_pool()
+    with pool.get_connection() as conn:
+        with conn.cursor(dictionary=True) as cur:
+            cur.execute(
+                "SELECT subturn_id, native_chars, irat_chars "
+                "FROM subturn_thinking_chars WHERE session_id = %s",
+                (session_id,),
+            )
+            rows = cur.fetchall()
+    return {
+        r["subturn_id"]: (int(r["native_chars"]), int(r["irat_chars"])) for r in rows
+    }
+
+
+# ---------------------------------------------------------------------------
 # session_meta (slim per-session row)
 # ---------------------------------------------------------------------------
 

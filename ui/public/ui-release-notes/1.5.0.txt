@@ -1,0 +1,1 @@
+Turn Thinking/Tool Calls and Todo columns collapse behind one Details divider, collapsed by default; per-subturn pills show tool calls and thinking chars, plus todos closed for the latest subturn; removed the approval Outcomes column and resolved approvals from memory

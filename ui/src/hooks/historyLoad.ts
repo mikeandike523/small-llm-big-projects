@@ -38,6 +38,8 @@ type BackendSubturn = {
   origin?: string;
   exchanges: BackendExchange[];
   detailed_summary?: string;
+  native_thinking_chars?: number;
+  irat_thinking_chars?: number;
 };
 
 function mapExchange(ex: BackendExchange) {
@@ -80,6 +82,8 @@ export function backendTurnToFrontendTurn(d: BackendTurn): Turn {
           origin: toSubturnOrigin(st.origin),
           exchanges: st.exchanges.map(mapExchange),
           detailedSummary: st.detailed_summary ?? undefined,
+          nativeThinkingChars: st.native_thinking_chars ?? 0,
+          iratThinkingChars: st.irat_thinking_chars ?? 0,
         }))
       : [
           {

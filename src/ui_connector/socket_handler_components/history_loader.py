@@ -40,6 +40,7 @@ from src.utils.sql.session_store_db import (
     list_turn_starts,
     load_event_page,
     load_session_meta,
+    load_thinking_char_counts,
     max_event_id,
 )
 
@@ -138,14 +139,17 @@ def _stream_history(
         to=sid,
     )
 
+    thinking_counts = load_thinking_char_counts(session_id)
     assembler = TurnBundleAssembler(session_id, turn_starts)
     window = threading.Semaphore(_MAX_UNACKED)
     seq = 0
     for row in _iter_rows(session_id, cutoff, cancel):
         for turn in assembler.feed(row):
+            _attach_thinking_chars(turn, thinking_counts)
             _send_bundle(sid, load_id, seq, turn, window, cancel)
             seq += 1
     for turn in assembler.finish():
+        _attach_thinking_chars(turn, thinking_counts)
         _send_bundle(sid, load_id, seq, turn, window, cancel)
         seq += 1
 
@@ -160,6 +164,14 @@ def _stream_history(
         },
         to=sid,
     )
+
+
+def _attach_thinking_chars(turn: dict, counts: dict[str, tuple[int, int]]) -> None:
+    """Add each subturn's saved thinking character counts (display metadata)."""
+    for st in turn.get("subturns", []):
+        native, irat = counts.get(st.get("id"), (0, 0))
+        st["native_thinking_chars"] = native
+        st["irat_thinking_chars"] = irat
 
 
 def _iter_rows(session_id: str, cutoff: int, cancel: threading.Event):

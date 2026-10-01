@@ -222,6 +222,7 @@ def test_worker_streams_bundles_and_unsaved_events(monkeypatch, page_size) -> No
     monkeypatch.setattr(hl, "list_turn_starts", lambda sid: log.turn_starts())
     monkeypatch.setattr(hl, "load_event_page", fake_page)
     monkeypatch.setattr(hl, "load_session_meta", lambda sid: {"schema_version": 6})
+    monkeypatch.setattr(hl, "load_thinking_char_counts", lambda sid: {"st1": (12, 3)})
     monkeypatch.setattr(hl, "get_watermark", lambda r, sid: "4-0")
     monkeypatch.setattr(hl, "get_events_since", lambda r, sid, w: unsaved)
     monkeypatch.setattr(hl._state, "_get_redis", lambda: object())
@@ -238,7 +239,13 @@ def test_worker_streams_bundles_and_unsaved_events(monkeypatch, page_size) -> No
     )
     bundles = [d for e, d in sent if e == "history_turn_bundle"]
     assert [b["seq"] for b in bundles] == [0, 1, 2, 3]
-    assert [b["turn"] for b in bundles] == _turns(session)
+    expected = _turns(session)
+    for turn in expected:
+        for st in turn["subturns"]:
+            st["native_thinking_chars"], st["irat_thinking_chars"] = (
+                (12, 3) if st["id"] == "st1" else (0, 0)
+            )
+    assert [b["turn"] for b in bundles] == expected
     done_event, done = sent[-1]
     assert done_event == "history_load_done"
     assert done["events"] == unsaved
