@@ -1,0 +1,1 @@
+Show errors not tied to a turn (e.g. database failures, a turn already in progress) in a dismissible banner above the input; a failed session load ends history loading with the error

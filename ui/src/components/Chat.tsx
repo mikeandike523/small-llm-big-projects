@@ -32,6 +32,7 @@ import { createSocket } from "../socket";
 import HeartbeatSettingsDialog from "./HeartbeatSettingsDialog";
 import { formatIntervalMinutes } from "../utils/formatInterval";
 import HistoryLoadingRow from "../subcomponents/Chat/HistoryLoadingRow";
+import SessionErrorBanner from "../subcomponents/Chat/SessionErrorBanner";
 import ToolModal from "../subcomponents/Chat/ToolModal";
 import { DebugPanel } from "./DebugPanel";
 import FormattedCostWithColor from "./FormattedCostWithColor";
@@ -106,6 +107,8 @@ export default function Chat() {
     historyLoading,
     historyProgress,
     historyError,
+    sessionError,
+    clearSessionError,
     sessionCost,
     sessionProfile,
     approvalMode,
@@ -498,6 +501,10 @@ export default function Chat() {
             />
           </div>
         </div>
+        <SessionErrorBanner
+          message={sessionError}
+          onDismiss={clearSessionError}
+        />
         <div css={inputBarCss}>
           <textarea
             css={textareaCss}

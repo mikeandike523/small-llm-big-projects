@@ -233,38 +233,34 @@ def _session_from_db(session_id: str, *, cold: bool) -> Session | None:
     not touch those: they may hold live, not-yet-saved state. Returns None if
     there is no durable session (caller then creates a fresh Session).
     """
-    try:
-        meta = load_session_meta(session_id)
-    except Exception as exc:
-        logger.warning("DB load failed for session %s: %s", session_id, exc)
-        return None
+    # Database errors propagate: a failed read is a hard error, never a blank
+    # session (saving that blank session would overwrite the real one).
+    meta = load_session_meta(session_id)
     if meta is None:
         return None
+    rows = load_session_events(session_id)
+    if meta.get("schema_version", 0) != CURRENT_SCHEMA_VERSION:
+        # See session_schema_repair.py: a registered chain can rewrite
+        # meta/rows forward to the current shape; if none is registered for
+        # this version gap (the common case today), fall back to a blank
+        # session rather than replaying a shape replay_events() was not
+        # written to understand.
+        repaired = repair_event_log(meta, rows, CURRENT_SCHEMA_VERSION)
+        if repaired is None:
+            return Session(session_id=session_id)
+        meta, rows = repaired
+    try:
+        session = replay_events(session_id, rows)
+    except Exception as exc:
+        # The stored data itself is unreadable: flag it, never crash.
+        logger.warning("Could not replay DB session %s: %s", session_id, exc)
+        mark_session_corrupt(session_id)
+        return Session(session_id=session_id)
 
     r = _state._get_redis()
-    try:
-        rows = load_session_events(session_id)
-        if meta.get("schema_version", 0) != CURRENT_SCHEMA_VERSION:
-            # See session_schema_repair.py: a registered chain can rewrite
-            # meta/rows forward to the current shape; if none is registered
-            # for this version gap (the common case today), fall back to a
-            # blank session rather than replaying a shape replay_events()
-            # wasn't written to understand.
-            repaired = repair_event_log(meta, rows, CURRENT_SCHEMA_VERSION)
-            if repaired is None:
-                return Session(session_id=session_id)
-            meta, rows = repaired
-        session = replay_events(session_id, rows)
-        # Resync the cursor with the durable log (prevents duplicate re-emits).
-        if cold or not load_cursor(r, session_id):
-            save_cursor(r, session_id, build_cursor(session), _state._SESSION_TTL)
-    except Exception as exc:
-        logger.warning("Could not replay DB session %s: %s", session_id, exc)
-        try:
-            mark_session_corrupt(session_id)
-        except Exception:
-            pass
-        return Session(session_id=session_id)
+    # Resync the cursor with the durable log (prevents duplicate re-emits).
+    if cold or not load_cursor(r, session_id):
+        save_cursor(r, session_id, build_cursor(session), _state._SESSION_TTL)
 
     if not cold:
         return session
@@ -386,42 +382,42 @@ def _save_session_locked(
     # Read before the diff: every event logged up to here is covered by it.
     stream_mark = latest_stream_id(r, session_id) if advance_stream_watermark else None
 
-    # Durable write to MySQL (source of truth).
-    try:
-        memory_snapshot = r.hgetall(f"session:{session_id}:memory") or {}
-        cursor = load_cursor(r, session_id)
-        events = compute_events(session, cursor)
-        if events:
-            append_events(session_id, events)
-        save_cursor(r, session_id, cursor, _state._SESSION_TTL)
+    # Durable write to MySQL (source of truth). Failures propagate: a save
+    # that silently did not happen is a hard error. The cursor is saved only
+    # after the append succeeds, so the next save re-emits anything unsaved,
+    # and the bookmark below only moves once everything is durable.
+    memory_snapshot = r.hgetall(f"session:{session_id}:memory") or {}
+    cursor = load_cursor(r, session_id)
+    events = compute_events(session, cursor)
+    if events:
+        append_events(session_id, events)
+    save_cursor(r, session_id, cursor, _state._SESSION_TTL)
 
-        meta = derive_meta(session)
-        upsert_session_meta(
-            session_id,
-            created_at=session.created_at,
-            schema_version=session.schema_version,
-            profile_name=session.profile_name,
-            initial_cwd=session.initial_cwd or "",
-            current_cwd=_state._session_current_cwd.get(session_id),
-            total_cost_usd=float(_state._session_costs.get(session_id) or 0.0),
-            last_context_usage=_state._session_last_context_usage.get(session_id),
-            turn_count=meta["turn_count"],
-            task_titles=meta["task_titles"],
-            interim_response_as_thinking=session.interim_response_as_thinking,
-            load_custom_skills_tools=session.load_custom_skills_tools,
-            memory=memory_snapshot,
-            heartbeat_enabled=bool(
-                (session.session_data.get("heartbeat_settings") or {}).get("enabled")
-            ),
-        )
-    except Exception as exc:
-        logger.warning("DB save failed for session %s: %s", session_id, exc)
-    else:
-        if stream_mark is not None:
-            # Only after a successful durable write: the logged events up to
-            # the mark are now in MySQL, so drop them from the Redis log.
-            set_watermark(r, session_id, stream_mark, _state._SESSION_TTL)
-            trim_stream_upto(r, session_id, stream_mark)
+    meta = derive_meta(session)
+    upsert_session_meta(
+        session_id,
+        created_at=session.created_at,
+        schema_version=session.schema_version,
+        profile_name=session.profile_name,
+        initial_cwd=session.initial_cwd or "",
+        current_cwd=_state._session_current_cwd.get(session_id),
+        total_cost_usd=float(_state._session_costs.get(session_id) or 0.0),
+        last_context_usage=_state._session_last_context_usage.get(session_id),
+        turn_count=meta["turn_count"],
+        task_titles=meta["task_titles"],
+        interim_response_as_thinking=session.interim_response_as_thinking,
+        load_custom_skills_tools=session.load_custom_skills_tools,
+        memory=memory_snapshot,
+        heartbeat_enabled=bool(
+            (session.session_data.get("heartbeat_settings") or {}).get("enabled")
+        ),
+    )
+
+    if stream_mark is not None:
+        # The logged events up to the mark are now in MySQL, so drop them
+        # from the Redis log.
+        set_watermark(r, session_id, stream_mark, _state._SESSION_TTL)
+        trim_stream_upto(r, session_id, stream_mark)
 
     r.expire(f"session:{session_id}:memory", _state._SESSION_TTL)
     r.expire(f"session:{session_id}:events", _state._SESSION_TTL)
@@ -432,10 +428,8 @@ def _delete_sessions(session_ids: list[str]) -> None:
     """Delete many sessions from MySQL, Redis and in-memory caches."""
     if not session_ids:
         return
-    try:
-        delete_sessions(session_ids)
-    except Exception as exc:
-        logger.warning("DB delete failed for sessions %s: %s", session_ids, exc)
+    # A failed MySQL delete propagates (and leaves Redis and caches intact).
+    delete_sessions(session_ids)
 
     r = _state._get_redis()
     keys = []

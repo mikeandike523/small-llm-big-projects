@@ -25,6 +25,7 @@ from src.utils.llm.factory import load_llm_config
 from src.ui_connector.socket_handler_components.history_loader import (
     cancel_history_load,
 )
+from src.utils.request_error_formatting import failure_message
 from src.utils.session_model import CURRENT_SCHEMA_VERSION
 
 logger = logging.getLogger(__name__)
@@ -63,6 +64,17 @@ def handle_connect():
     join_room(session_id)
 
 
+@socketio.on_error_default
+def handle_socket_error(exc: Exception):
+    """Report any failure in a socket handler to the client that sent it.
+
+    Handlers do not swallow errors (e.g. a failed MySQL read or write); this
+    turns them into a session-level `error` event instead of a silent hang.
+    """
+    logger.exception("Socket handler %r failed", (request.event or {}).get("message"))
+    emit("error", {"message": failure_message(exc)})
+
+
 @socketio.on("resume_session")
 def handle_resume_session(data: dict | None = None):
     sid = request.sid
@@ -72,7 +84,12 @@ def handle_resume_session(data: dict | None = None):
 
     # Loading (and repairing an orphaned turn) here, before the client asks for
     # history, guarantees the history loader reads the repaired event log.
-    session = _load_session(session_id)
+    try:
+        session = _load_session(session_id)
+    except Exception as exc:
+        logger.exception("Could not load session %s", session_id)
+        emit("session_load_error", {"message": failure_message(exc)})
+        return
 
     skills_path = (
         os.path.join(session.initial_cwd, "skills")

@@ -6,17 +6,13 @@ streamed as IRAT thinking. The stored total may lag the live stream.
 
 Counts are added to MySQL every `FLUSH_EVERY` streamed chunks and once when
 the LLM exchange ends, inline in the streaming callback (no extra thread). A
-failed write is logged and its counts are dropped; it never interrupts the
-stream.
+failed write raises, which stops the turn with a database error (see
+classify_database_error).
 """
 
 from __future__ import annotations
 
-import logging
-
 from src.utils.sql.session_store_db import add_thinking_chars
-
-logger = logging.getLogger(__name__)
 
 FLUSH_EVERY = 10
 
@@ -44,14 +40,7 @@ class ThinkingCharCounter:
         if not native and not irat:
             return
         self._native = self._irat = 0
-        try:
-            add_thinking_chars(self._session_id, self._subturn_id, native, irat)
-        except Exception as exc:
-            logger.warning(
-                "Could not save thinking char counts for subturn %s: %s",
-                self._subturn_id,
-                exc,
-            )
+        add_thinking_chars(self._session_id, self._subturn_id, native, irat)
 
     def _maybe_flush(self) -> None:
         self._chunks += 1

@@ -30,7 +30,10 @@ from src.ui_connector.socket_handler_components.watchdogs import (
 from src.ui_connector.socket_handler_components.agent_loop import _async_agent_loop
 from src.tools.todo_list import format_items_for_ui as _todo_format_items_for_ui
 from src.utils.llm.factory import load_llm_config, make_llm_refreshing
-from src.utils.request_error_formatting import classify_llm_request_error
+from src.utils.request_error_formatting import (
+    classify_llm_request_error,
+    failure_message,
+)
 from src.utils.session_model import (
     SUBTURN_ORIGIN_USER,
     Session,
@@ -79,7 +82,11 @@ async def _maybe_fetch_task_title(
     turn_id: str,
     prior_context: str | None = None,
 ) -> None:
-    """Fetch a task title and emit it if successful. Best-effort; failures are logged but not fatal."""
+    """Fetch a task title and emit + save it if successful.
+
+    The LLM fetch is best-effort (failures are logged, not fatal); saving the
+    title is not, so a failed save propagates like any other save.
+    """
     try:
         title = await _fetch_task_title(
             streaming_llm,
@@ -90,14 +97,13 @@ async def _maybe_fetch_task_title(
             on_response=_make_sampler_response_logger(session_id, "task_title"),
             prior_context=prior_context,
         )
-        if title:
-            current_turn.task_title = title
-            _emit_and_log(
-                session_id, "task_title", {"turn_id": turn_id, "title": title}
-            )
-            _save_session(session_id, session)
     except Exception:
         logger.warning("Task title fetch failed for turn %s", turn_id, exc_info=True)
+        return
+    if title:
+        current_turn.task_title = title
+        _emit_and_log(session_id, "task_title", {"turn_id": turn_id, "title": title})
+        _save_session(session_id, session)
 
 
 # Turn-starting socket event handlers
@@ -162,6 +168,16 @@ def new_user_message(
                 followup_behavior,
                 origin=origin,
             )
+        except Exception as exc:
+            # E.g. the session could not be loaded. Tell the client (this also
+            # clears its busy state); the reservation is released below, so a
+            # new message can be sent once the cause is fixed.
+            logger.exception(
+                "Turn failed before it started: session_id=%s turn_id=%s",
+                session_id,
+                turn_id,
+            )
+            _emit_and_log(session_id, "error", {"message": failure_message(exc)})
         finally:
             _state.release_turn(session_id)
             logger.info(
@@ -441,11 +457,15 @@ def _handle_admitted_user_message(
                 title_task.cancel()
             cancel_event.set()
         except Exception as exc:
+            # E.g. the turn's final save failed. The agent loop has already
+            # finished the turn in memory; report it as a session-level error
+            # so the answer on screen stays visible.
             logger.exception(
                 "Unhandled exception escaped _async_agent_loop entirely for session %s: %s",
                 session_id,
                 exc,
             )
+            _emit_and_log(session_id, "error", {"message": failure_message(exc)})
         finally:
             _state.clear_active_turn_handles(session_id, task)
 

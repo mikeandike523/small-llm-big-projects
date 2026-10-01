@@ -1,0 +1,1 @@
+Database failures on session load, save, delete and thinking-char writes are now hard errors: they stop the turn or request with a clear database error instead of failing silently (a failed load no longer yields a blank session or marks it corrupt); all socket handler failures are reported to the client; sessions stay usable for the next message

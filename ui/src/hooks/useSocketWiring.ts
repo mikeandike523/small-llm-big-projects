@@ -106,6 +106,8 @@ export default function useSocketWiring(
     total: null,
   });
   const [historyError, setHistoryError] = useState<string | null>(null);
+  // Errors not tied to a turn (e.g. a failed database save), shown as a banner.
+  const [sessionError, setSessionError] = useState<string | null>(null);
   const historyLoadingRef = useRef(true);
   const historyLoadIdRef = useRef<string | null>(null);
   const pendingLiveRef = useRef<(() => void)[]>([]);
@@ -712,6 +714,12 @@ export default function useSocketWiring(
       setStartupDone(true);
     }
 
+    // resume_session could not load the session (e.g. MySQL is down):
+    // there is no history to load; show why. Reloading the page retries.
+    function onSessionLoadError({ message }: { message: string }) {
+      finishHistoryLoad(message);
+    }
+
     // Session state (response to resume_session)
     function onSessionState(data: {
       startupDone?: boolean;
@@ -1001,6 +1009,7 @@ export default function useSocketWiring(
       message: string;
     }) {
       if (data.turn_id) applyReplayEvent("error", data);
+      else setSessionError(data.message);
       setBusy(false);
     }
 
@@ -1111,6 +1120,7 @@ export default function useSocketWiring(
     socket.on("startup_tool_result", onStartupToolResult);
     socket.on("startup_tool_calls_done", onStartupToolCallsDone);
     socket.on("session_state", onSessionState);
+    socket.on("session_load_error", onSessionLoadError);
     socket.on("terminal_open_panel", onTerminalOpenPanel);
     for (const [event, handler] of Object.entries(liveThreadHandlers)) {
       socket.on(event, handler);
@@ -1143,6 +1153,7 @@ export default function useSocketWiring(
       socket.off("startup_tool_result", onStartupToolResult);
       socket.off("startup_tool_calls_done", onStartupToolCallsDone);
       socket.off("session_state", onSessionState);
+      socket.off("session_load_error", onSessionLoadError);
       socket.off("terminal_open_panel", onTerminalOpenPanel);
       for (const [event, handler] of Object.entries(liveThreadHandlers)) {
         socket.off(event, handler);
@@ -1172,6 +1183,8 @@ export default function useSocketWiring(
     historyLoading,
     historyProgress,
     historyError,
+    sessionError,
+    clearSessionError: () => setSessionError(null),
     sessionCost,
     sessionProfile,
     setSessionProfile,

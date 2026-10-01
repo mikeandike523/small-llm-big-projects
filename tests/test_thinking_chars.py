@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import mysql.connector
+import pytest
+
 import src.ui_connector.app  # noqa: F401 - server import order (avoids cycles)
 from src.ui_connector.socket_handler_components import thinking_chars
 
@@ -27,12 +30,13 @@ def test_counter_adds_chunk_lengths_and_flushes_every_ten_chunks(monkeypatch) ->
     assert writes == [("s1", "st1", 35, 10), ("s1", "st1", 2, 0)]
 
 
-def test_failed_write_never_raises(monkeypatch) -> None:
+def test_failed_write_raises(monkeypatch) -> None:
     def boom(*args):
-        raise RuntimeError("db down")
+        raise mysql.connector.errors.OperationalError("db down")
 
     monkeypatch.setattr(thinking_chars, "add_thinking_chars", boom)
     counter = thinking_chars.ThinkingCharCounter("s1", "st1")
-    for _ in range(25):
+    for _ in range(9):
         counter.add_native(8)
-    counter.flush()
+    with pytest.raises(mysql.connector.Error):
+        counter.add_native(8)

@@ -91,10 +91,17 @@ def test_turn_reservation_is_released_when_admitted_handler_fails(monkeypatch):
     def fail(*_args, **_kwargs):
         raise RuntimeError("setup failed")
 
+    emitted: list[tuple] = []
     monkeypatch.setattr(turn_events, "_handle_admitted_user_message", fail)
+    monkeypatch.setattr(
+        turn_events, "_emit_and_log", lambda *args: emitted.append(args)
+    )
     try:
-        with pytest.raises(RuntimeError, match="setup failed"):
-            turn_events.handle_user_message({"text": "hello"})
+        # The failure is reported to the client instead of escaping.
+        turn_events.handle_user_message({"text": "hello"})
+        assert len(emitted) == 1
+        assert emitted[0][:2] == (session_id, "error")
+        assert "RuntimeError" in emitted[0][2]["message"]
         assert not state.is_turn_reserved(session_id)
         assert state.try_reserve_turn(session_id)
     finally:

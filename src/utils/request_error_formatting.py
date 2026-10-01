@@ -1,4 +1,5 @@
 import httpx
+import mysql.connector
 
 from src.utils.context_errors import is_context_limit_error, parse_response_body
 from src.utils.exceptions import ContextLimitExceededError
@@ -59,7 +60,10 @@ def _classify_request_error(exc: httpx.RequestError) -> dict:
 
 
 def classify_llm_request_error(exc: Exception) -> dict:
-    """Classify an exception raised while contacting the LLM into UI/history/log data.
+    """Classify an exception raised during an agent step into UI/history/log data.
+
+    Covers the LLM call itself plus MySQL errors from saving session data
+    (thinking-char counts are written from inside the streaming callback).
 
     Returns {"gui_message": str, "history_marker": str, "log_object": dict | None}.
     """
@@ -77,6 +81,8 @@ def classify_llm_request_error(exc: Exception) -> dict:
         return _classify_http_status_error(exc)
     if isinstance(exc, httpx.RequestError):
         return _classify_request_error(exc)
+    if isinstance(exc, mysql.connector.Error):
+        return classify_database_error(exc)
 
     return {
         "gui_message": (
@@ -89,3 +95,29 @@ def classify_llm_request_error(exc: Exception) -> dict:
             "error_message": str(exc),
         },
     }
+
+
+def classify_database_error(exc: Exception) -> dict:
+    """A MySQL failure while reading or saving session data (a hard error)."""
+    return {
+        "gui_message": (
+            f"Database error: could not read or save session data "
+            f"({type(exc).__name__}). Check that MySQL is running, then send a "
+            f"new message to continue.{_SEE_LOGS}"
+        ),
+        "history_marker": "[Stopped - Database Error]",
+        "log_object": {
+            "error_type": type(exc).__name__,
+            "error_message": str(exc),
+        },
+    }
+
+
+def failure_message(exc: Exception) -> str:
+    """UI text for a failure outside an agent step (no turn to attach it to)."""
+    if isinstance(exc, mysql.connector.Error):
+        return classify_database_error(exc)["gui_message"]
+    return (
+        f"Something went wrong ({type(exc).__name__}). Send a new message to "
+        f"continue.{_SEE_LOGS}"
+    )
