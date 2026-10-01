@@ -372,7 +372,7 @@ def _handle_admitted_user_message(
         try:
             if _is_cont:
                 # Continuation subturn: fire title recomputation at subturn start.
-                asyncio.create_task(
+                title_task = asyncio.create_task(
                     _maybe_fetch_task_title(
                         streaming_llm,
                         text,
@@ -417,8 +417,14 @@ def _handle_admitted_user_message(
                 enable_patch_rewriter=enable_patch_rewriter,
             )
 
+            # Let the concurrent title fetch finish while this turn still owns
+            # the session, so its title_set event is persisted inside the turn
+            # (and the task is not destroyed when the loop closes).
+            if title_task is not None:
+                await title_task
+
             # For new tasks, ensure title is fetched if the concurrent task
-            # hasn't completed or if it failed silently.
+            # failed silently.
             if not _is_cont and not current_turn.task_title:
                 await _maybe_fetch_task_title(
                     streaming_llm,

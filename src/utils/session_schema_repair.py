@@ -20,28 +20,20 @@ a restructured nested shape, or a changed meaning) must likewise register a
 repairer before bumping CURRENT_SCHEMA_VERSION. Register it for the version
 pair you're introducing, e.g.:
 
-    register_schema_repair(6, 7, _repair_v6_to_v7)
     register_event_log_repair(6, 7, _repair_event_log_v6_to_v7)
 
-Two separate repair surfaces exist because the two load paths in
-session_store.py hold genuinely different raw shapes at the point they check
-schema_version, and repair has to run on the *raw*, undeserialized data --
-by the time you have a constructed Session object, any renamed/restructured
-field has already been read under its new (wrong, for old data) key by
-session_from_dict()/replay_events() and the old value is gone:
-
-  - The Redis warm-cache path (`_load_session`) holds one flat dict -- the
-    exact shape session_to_dict() produces and session_from_dict() consumes.
-    register_schema_repair() / repair_session_dict() cover this.
-
-  - The durable MySQL path (`_session_from_db`) holds `meta` (the
-    session_meta row) plus `rows`, the session's append-only event log --
-    each row `{"event_type": str, "payload": dict}` in replay order, exactly
-    as load_session_events() returns them and replay_events() consumes them.
-    register_event_log_repair() / repair_event_log() cover this. A repairer
-    here rewrites `meta` and/or individual event payloads (e.g. renaming a
-    key inside an `exchange_recorded` payload) so that replay_events() reads
-    the current shape.
+Sessions are only ever loaded from the durable MySQL event log (there is no
+whole-session cache to repair). Repair has to run on the *raw*, undeserialized
+data -- by the time you have a constructed Session object, any
+renamed/restructured field has already been read under its new (wrong, for old
+data) key by replay_events() and the old value is gone. The raw data is `meta`
+(the session_meta row) plus `rows`, the session's append-only event log --
+each row `{"event_type": str, "payload": dict}` in replay order, exactly as
+load_session_events() returns them and replay_events() consumes them. A
+repairer rewrites `meta` and/or individual event payloads (e.g. renaming a key
+inside an `exchange_recorded` payload) so that replay_events() reads the
+current shape. Both `_session_from_db` and the streaming history loader run
+rows through repair_event_log() before replaying them.
 
 Repair functions should be pure and defensive: a single step only needs to
 bridge from_version -> from_version + 1 (usually to_version = from_version+1)
@@ -57,23 +49,9 @@ from __future__ import annotations
 
 from typing import Callable
 
-SessionDictRepairFn = Callable[[dict], dict]
 EventLogRepairFn = Callable[[dict, list[dict]], tuple[dict, list[dict]]]
 
-_SESSION_DICT_REPAIRERS: dict[tuple[int, int], SessionDictRepairFn] = {}
 _EVENT_LOG_REPAIRERS: dict[tuple[int, int], EventLogRepairFn] = {}
-
-
-def register_schema_repair(
-    from_version: int, to_version: int, fn: SessionDictRepairFn
-) -> None:
-    """
-    Register a single-step repair for the Redis warm-cache path's flat
-    session dict: from_version -> to_version (normally to_version ==
-    from_version + 1). fn receives a dict in the from_version shape and must
-    return a new dict in the to_version shape.
-    """
-    _SESSION_DICT_REPAIRERS[(from_version, to_version)] = fn
 
 
 def register_event_log_repair(
@@ -92,7 +70,7 @@ def register_event_log_repair(
 def _resolve_chain(
     registry: dict[tuple[int, int], Callable], from_version: int, to_version: int
 ):
-    """Shared chain-walk: compose registered single steps from_version -> to_version."""
+    """Chain-walk: compose registered single steps from_version -> to_version."""
     if from_version == to_version:
         return []
     chain: list[Callable] = []
@@ -109,25 +87,6 @@ def _resolve_chain(
         version, _ = step
         seen.add(version)
     return chain
-
-
-def repair_session_dict(d: dict, current_version: int) -> dict | None:
-    """
-    Attempt to repair a raw session dict (the shape session_to_dict()
-    produces / session_from_dict() consumes) from whatever schema_version it
-    carries up to current_version. Returns the repaired dict on a complete
-    chain, or None if no complete chain is registered -- nothing was
-    modified, and the caller decides the fallback.
-    """
-    chain = _resolve_chain(
-        _SESSION_DICT_REPAIRERS, d.get("schema_version", 0), current_version
-    )
-    if chain is None:
-        return None
-    repaired = d
-    for step_fn in chain:
-        repaired = step_fn(repaired)
-    return repaired
 
 
 def repair_event_log(
@@ -151,18 +110,7 @@ def repair_event_log(
     return repaired_meta, repaired_rows
 
 
-def _repair_v5_to_v6(d: dict) -> dict:
-    repaired = dict(d)
-    skills_path = repaired.pop("skills_path", None)
-    custom_tools_path = repaired.pop("custom_tools_path", None)
-    repaired["load_custom_skills_tools"] = bool(skills_path and custom_tools_path)
-    repaired["schema_version"] = 6
-    return repaired
-
-
-def _repair_event_log_v5_to_v6(
-    meta: dict, rows: list[dict]
-) -> tuple[dict, list[dict]]:
+def _repair_event_log_v5_to_v6(meta: dict, rows: list[dict]) -> tuple[dict, list[dict]]:
     repaired_meta = dict(meta)
     skills_path = repaired_meta.pop("skills_path", None)
     custom_tools_path = repaired_meta.pop("custom_tools_path", None)
@@ -189,5 +137,4 @@ def _repair_event_log_v5_to_v6(
     return repaired_meta, repaired_rows
 
 
-register_schema_repair(5, 6, _repair_v5_to_v6)
 register_event_log_repair(5, 6, _repair_event_log_v5_to_v6)

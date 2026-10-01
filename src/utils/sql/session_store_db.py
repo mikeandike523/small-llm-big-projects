@@ -76,6 +76,79 @@ def load_session_events(session_id: str) -> list[dict]:
     ]
 
 
+def list_turn_starts(session_id: str) -> list[tuple[int, str]]:
+    """Return `(event id, turn_id)` for each turn, in turn order.
+
+    Every turn has exactly one `turn_started` event, so these ids also bound
+    each turn's events: turn N's events lie in [start_N, start_N+1). Served by
+    idx_events_type (session_id, event_type), which InnoDB extends with the
+    primary key, so the ORDER BY needs no sort.
+    """
+    pool = get_pool()
+    with pool.get_connection() as conn:
+        with conn.cursor(dictionary=True) as cur:
+            cur.execute(
+                "SELECT id, JSON_UNQUOTE(JSON_EXTRACT(payload, '$.turn_id')) AS turn_id "
+                "FROM session_events "
+                "WHERE session_id = %s AND event_type = 'turn_started' ORDER BY id",
+                (session_id,),
+            )
+            rows = cur.fetchall()
+    return [(int(r["id"]), r["turn_id"]) for r in rows]
+
+
+def max_event_id(session_id: str) -> int:
+    """Return the session's highest event id (0 if it has no events)."""
+    pool = get_pool()
+    with pool.get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT MAX(id) FROM session_events WHERE session_id = %s",
+                (session_id,),
+            )
+            row = cur.fetchone()
+    return int(row[0]) if row and row[0] is not None else 0
+
+
+def load_event_page(
+    session_id: str, after_id: int, upto_id: int, limit: int
+) -> list[dict]:
+    """Return up to `limit` events with after_id < id <= upto_id, in id order."""
+    pool = get_pool()
+    with pool.get_connection() as conn:
+        with conn.cursor(dictionary=True) as cur:
+            cur.execute(
+                "SELECT id, event_type, payload FROM session_events "
+                "WHERE session_id = %s AND id > %s AND id <= %s "
+                "ORDER BY id LIMIT %s",
+                (session_id, after_id, upto_id, limit),
+            )
+            rows = cur.fetchall()
+    return [
+        {
+            "id": int(r["id"]),
+            "event_type": r["event_type"],
+            "payload": _normalize_json(r["payload"]),
+        }
+        for r in rows
+    ]
+
+
+def load_latest_event_payload(session_id: str, event_type: str) -> dict | None:
+    """Return the payload of the session's newest event of `event_type`."""
+    pool = get_pool()
+    with pool.get_connection() as conn:
+        with conn.cursor(dictionary=True) as cur:
+            cur.execute(
+                "SELECT payload FROM session_events "
+                "WHERE session_id = %s AND event_type = %s "
+                "ORDER BY id DESC LIMIT 1",
+                (session_id, event_type),
+            )
+            row = cur.fetchone()
+    return _normalize_json(row["payload"]) if row else None
+
+
 # ---------------------------------------------------------------------------
 # session_meta (slim per-session row)
 # ---------------------------------------------------------------------------

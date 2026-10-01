@@ -31,7 +31,7 @@ import { fetchToolPreviewConfig } from "../api/toolPreviewConfig";
 import { createSocket } from "../socket";
 import HeartbeatSettingsDialog from "./HeartbeatSettingsDialog";
 import { formatIntervalMinutes } from "../utils/formatInterval";
-import LoadingBackdrop from "../subcomponents/Chat/LoadingBackdrop";
+import HistoryLoadingRow from "../subcomponents/Chat/HistoryLoadingRow";
 import ToolModal from "../subcomponents/Chat/ToolModal";
 import { DebugPanel } from "./DebugPanel";
 import FormattedCostWithColor from "./FormattedCostWithColor";
@@ -103,7 +103,9 @@ export default function Chat() {
     toolsInfo,
     systemPrompt,
     backendLogs,
-    isLoadingBackendState,
+    historyLoading,
+    historyProgress,
+    historyError,
     sessionCost,
     sessionProfile,
     approvalMode,
@@ -258,7 +260,7 @@ export default function Chat() {
 
   const send = useCallback(() => {
     const text = inputText.trim();
-    if (!text || busy || !connected) return;
+    if (!text || busy || !connected || historyLoading) return;
 
     const clientTurnId = crypto.randomUUID();
     socket.emit("user_message", {
@@ -269,7 +271,14 @@ export default function Chat() {
     setBusy(true);
     setInputText("");
     scrollToBottom();
-  }, [inputText, followupBehavior, busy, connected, scrollToBottom]);
+  }, [
+    inputText,
+    followupBehavior,
+    busy,
+    connected,
+    historyLoading,
+    scrollToBottom,
+  ]);
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -284,8 +293,6 @@ export default function Chat() {
 
   return (
     <div css={appLayoutCss}>
-      <LoadingBackdrop isLoadingBackendState={isLoadingBackendState} />
-
       {/* Debug panel */}
       <div css={debugPanelWrapperCss(debugOpen)}>
         <DebugPanel
@@ -337,11 +344,7 @@ export default function Chat() {
             {loadCustomSkillsTools && (
               <button
                 onClick={handleReloadCustomizations}
-                disabled={
-                  busy ||
-                  customizationsReloading ||
-                  !connected
-                }
+                disabled={busy || customizationsReloading || !connected}
                 title={
                   busy
                     ? "Cannot reload skills and tools during an active subturn"
@@ -361,17 +364,11 @@ export default function Chat() {
                   gap: 6,
                   padding: "5px 9px",
                   cursor:
-                    busy ||
-                    customizationsReloading ||
-                    !connected
+                    busy || customizationsReloading || !connected
                       ? "not-allowed"
                       : "pointer",
                   opacity:
-                    busy ||
-                    customizationsReloading ||
-                    !connected
-                      ? 0.25
-                      : 1,
+                    busy || customizationsReloading || !connected ? 0.25 : 1,
                 }}
               >
                 <FaSyncAlt size={12} />
@@ -494,6 +491,11 @@ export default function Chat() {
                 onDenyAndStop={denyAndStop}
               />
             ))}
+            <HistoryLoadingRow
+              loading={historyLoading}
+              progress={historyProgress}
+              error={historyError}
+            />
           </div>
         </div>
         <div css={inputBarCss}>
@@ -504,7 +506,7 @@ export default function Chat() {
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
             onKeyDown={onKeyDown}
-            disabled={busy || !connected}
+            disabled={busy || !connected || historyLoading}
           />
           {busy && (
             <button
@@ -518,7 +520,7 @@ export default function Chat() {
           <button
             css={sendButtonCss}
             onClick={send}
-            disabled={busy || !connected || !inputText.trim()}
+            disabled={busy || !connected || historyLoading || !inputText.trim()}
           >
             <span
               css={

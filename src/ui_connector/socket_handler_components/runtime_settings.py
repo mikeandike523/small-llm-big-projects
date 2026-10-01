@@ -51,6 +51,12 @@ def initialize(session_id: str, session: Session) -> RuntimeSettings:
         return current
 
 
+def peek(session_id: str) -> RuntimeSettings | None:
+    """Return the live settings if this process has initialized them, else None."""
+    with _lock:
+        return _settings.get(session_id)
+
+
 def snapshot(session_id: str, session: Session) -> RuntimeSettings:
     return initialize(session_id, session)
 

@@ -48,6 +48,10 @@ EVT_SUBTURN_STARTED = "subturn_started"
 EVT_EXCHANGE_RECORDED = "exchange_recorded"
 EVT_SUBTURN_SUMMARY_SET = "subturn_summary_set"
 EVT_TURN_COMPLETED = "turn_completed"
+# A follow-up reopened a completed turn (it completes again via turn_completed).
+EVT_TURN_REOPENED = "turn_reopened"
+# The session's startup tool calls have run (session_created records False).
+EVT_STARTUP_DONE_SET = "startup_done_set"
 # Session-global live todo list (session_data["todo_list"]); last-writer-wins.
 EVT_TODO_LIST_SET = "todo_list_set"
 EVT_APPROVAL_MODE_SET = "approval_mode_set"
@@ -161,6 +165,20 @@ class ReplayState:
             self._turn_order.append(turn_id)
         return turn
 
+    def pop_turn(self, turn_id: str) -> Turn | None:
+        """Remove a finished turn (and its subturns) from the state, returning it.
+
+        Used by the streaming history loader so only the turn being assembled is
+        held in memory.
+        """
+        turn = self._turns.pop(turn_id, None)
+        if turn is None:
+            return None
+        self._turn_order.remove(turn_id)
+        for st in turn.subturns:
+            self._subturns.pop(st.id, None)
+        return turn
+
     def to_session(self) -> Session:
         ordered = [self._turns[t] for t in self._turn_order]
         if ordered and not ordered[-1].completed:
@@ -241,6 +259,14 @@ def _on_turn_completed(state: ReplayState, p: dict) -> None:
     turn.impossible_reason = p.get("impossible_reason")
 
 
+def _on_turn_reopened(state: ReplayState, p: dict) -> None:
+    state._ensure_turn(p["turn_id"]).completed = False
+
+
+def _on_startup_done_set(state: ReplayState, p: dict) -> None:
+    state.session.startup_done = True
+
+
 def _on_todo_list_set(state: ReplayState, p: dict) -> None:
     # Session-global live working todo list; last event wins.
     state.session.session_data["todo_list"] = p.get("items", [])
@@ -269,6 +295,8 @@ _HANDLERS = {
     EVT_EXCHANGE_RECORDED: _on_exchange_recorded,
     EVT_SUBTURN_SUMMARY_SET: _on_subturn_summary_set,
     EVT_TURN_COMPLETED: _on_turn_completed,
+    EVT_TURN_REOPENED: _on_turn_reopened,
+    EVT_STARTUP_DONE_SET: _on_startup_done_set,
     EVT_TODO_LIST_SET: _on_todo_list_set,
     EVT_APPROVAL_MODE_SET: _on_approval_mode_set,
     EVT_PROFILE_SET: _on_profile_set,
@@ -289,18 +317,20 @@ def replay_events(session_id: str, rows: Iterable[dict]) -> Session:
     """
     state = ReplayState(session_id)
     for row in rows:
-        payload = row.get("payload")
-        if isinstance(payload, (bytes, bytearray)):
-            payload = payload.decode("utf-8")
-        if isinstance(payload, str):
-            try:
-                payload = json.loads(payload)
-            except (json.JSONDecodeError, ValueError):
-                payload = {}
-        if not isinstance(payload, dict):
-            payload = {}
-        state.apply(row.get("event_type", ""), payload)
+        state.apply(row.get("event_type", ""), normalize_payload(row.get("payload")))
     return state.to_session()
+
+
+def normalize_payload(payload: object) -> dict:
+    """Coerce a stored payload (dict, JSON str/bytes, or junk) to a dict."""
+    if isinstance(payload, (bytes, bytearray)):
+        payload = payload.decode("utf-8")
+    if isinstance(payload, str):
+        try:
+            payload = json.loads(payload)
+        except (json.JSONDecodeError, ValueError):
+            payload = {}
+    return payload if isinstance(payload, dict) else {}
 
 
 def derive_meta(session: Session) -> dict[str, Any]:

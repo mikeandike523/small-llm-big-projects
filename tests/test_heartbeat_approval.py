@@ -15,8 +15,6 @@ from src.utils.session_model import (
     Session,
     Subturn,
     Turn,
-    subturn_from_dict,
-    subturn_to_dict,
 )
 
 
@@ -94,12 +92,20 @@ def test_forced_decision_is_logged_to_debug_panel(_quiet_backend_log) -> None:
     ]
 
 
-def test_subturn_origin_round_trips_and_defaults_to_user() -> None:
-    st = Subturn("st1", "hi", "hi", origin=SUBTURN_ORIGIN_HEARTBEAT)
-    assert subturn_from_dict(subturn_to_dict(st)).origin == SUBTURN_ORIGIN_HEARTBEAT
-    legacy = subturn_to_dict(st)
-    del legacy["origin"]
-    assert subturn_from_dict(legacy).origin == SUBTURN_ORIGIN_USER
+def test_subturn_origin_defaults_to_user_for_legacy_events() -> None:
+    session = Session(session_id="s1")
+    session.current_turn = Turn(
+        id="t1", subturns=[Subturn("st1", "hi", "hi", origin=SUBTURN_ORIGIN_HEARTBEAT)]
+    )
+    rows = [
+        {"event_type": event_type, "payload": dict(payload)}
+        for event_type, payload in compute_events(session, {})
+    ]
+    for row in rows:
+        if row["event_type"] == "subturn_started":
+            del row["payload"]["origin"]
+    restored = session_events.replay_events("s1", rows)
+    assert restored.current_turn.subturns[0].origin == SUBTURN_ORIGIN_USER
 
 
 def test_subturn_origin_survives_event_replay() -> None:

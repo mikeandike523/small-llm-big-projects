@@ -361,16 +361,6 @@ const impossibleReasonCss = css`
   word-break: break-word;
 `;
 
-const interruptedBubbleCss = css`
-  background: #1a1020;
-  border: 1px solid #4a2a6a;
-  border-radius: 8px;
-  padding: 6px 12px;
-  font-size: 11px;
-  color: #d5b8ff;
-  font-style: italic;
-`;
-
 // Mini compaction bubble (appears below assistant response when detailed_summary is available)
 const compactionBubbleCss = css`
   background: #1a0815;
@@ -642,7 +632,6 @@ export default function TurnContainer({
     isInterimStreaming,
     interimShowCharCount,
     interimCharCount,
-    interrupted,
   } = turn;
 
   const { scrollRef: leftScrollRef, contentRef: leftContentRef } =
@@ -840,9 +829,6 @@ export default function TurnContainer({
                 <span css={impossibleReasonCss}>{impossible}</span>
               </div>
             ) : null}
-            {interrupted && (
-              <div css={interruptedBubbleCss}>Connection interrupted</div>
-            )}
           </div>
         </div>
 

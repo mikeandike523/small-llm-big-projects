@@ -22,8 +22,10 @@ from src.ui_connector.socket_handler_components.session_store import (
 from src.ui_connector.socket_handler_components.terminal import _format_cmd_display
 from src.tools import execute_tool
 from src.utils.llm.factory import load_llm_config
-from src.utils.session_model import turn_to_dict, CURRENT_SCHEMA_VERSION
-from src.utils.event_log import get_events_since
+from src.ui_connector.socket_handler_components.history_loader import (
+    cancel_history_load,
+)
+from src.utils.session_model import CURRENT_SCHEMA_VERSION
 
 logger = logging.getLogger(__name__)
 
@@ -62,13 +64,14 @@ def handle_connect():
 
 
 @socketio.on("resume_session")
-def handle_resume_session(data: dict):
+def handle_resume_session(data: dict | None = None):
     sid = request.sid
     session_id = _state._sid_to_session_id.get(sid)
     if not session_id:
         return
 
-    last_event_id = data.get("lastEventId", "0-0")
+    # Loading (and repairing an orphaned turn) here, before the client asks for
+    # history, guarantees the history loader reads the repaired event log.
     session = _load_session(session_id)
 
     skills_path = (
@@ -102,17 +105,13 @@ def handle_resume_session(data: dict):
         emit("session_state", {"schemaInvalid": True})
         return
 
-    completed_turns_data = [turn_to_dict(t) for t in session.completed_turns]
-    current_turn_data = (
-        turn_to_dict(session.current_turn) if session.current_turn else None
-    )
+    # Conversation history is NOT sent here: the client follows up with
+    # begin_history_load, which streams it turn by turn (history_loader.py).
     is_turn_active = _state.is_turn_reserved(session_id)
     emit(
         "session_state",
         {
             "startupDone": session.startup_done,
-            "completedTurns": completed_turns_data,
-            "currentTurn": current_turn_data,
             "isTurnActive": is_turn_active,
             "loadCustomSkillsTools": session.load_custom_skills_tools,
             **runtime_settings.payload(runtime_settings.snapshot(session_id, session)),
@@ -137,14 +136,6 @@ def handle_resume_session(data: dict):
         == runtime_settings.snapshot(session_id, session).profile_revision
     ):
         emit("context_usage_event", last_context_usage)
-
-    try:
-        r = _state._get_redis()
-        events = get_events_since(r, session_id, last_event_id)
-    except Exception as exc:
-        logger.warning("Event replay error for session %s: %s", session_id, exc)
-        events = []
-    emit("event_replay", {"events": events, "replay_complete": True})
 
     try:
         from src.tools.host_shell import get_active_output
@@ -182,6 +173,7 @@ def handle_resume_session(data: dict):
 @socketio.on("disconnect")
 def handle_disconnect():
     sid = request.sid
+    cancel_history_load(sid)
     session_id = _state._sid_to_session_id.pop(sid, None)
     if session_id is None:
         # Terminal-only connection — clean up all terminals belonging to this sid.

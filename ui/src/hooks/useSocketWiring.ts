@@ -12,6 +12,7 @@ import type {
 } from "../types";
 import { DEFAULT_HEARTBEAT_SETTINGS, toSubturnOrigin } from "../types";
 import type { BackendLogEntry, BackendLogContent } from "../types/DebugPanel";
+import { wireHistoryLoad, type HistoryProgress } from "./historyLoad";
 
 const MAX_LOGS = 100;
 
@@ -42,94 +43,6 @@ function emptyExchange() {
     iratThinking: "",
     toolCalls: [],
     isFinal: false as const,
-  };
-}
-
-type BackendExchange = {
-  assistant_content: string;
-  reasoning: string;
-  tool_calls: {
-    id: string;
-    name: string;
-    args: Record<string, unknown>;
-    result?: string;
-    was_stubbed?: boolean;
-    started_at?: number;
-    finished_at?: number;
-  }[];
-  is_final: boolean;
-};
-
-type BackendSubturn = {
-  id: string;
-  user_text: string;
-  origin?: string;
-  exchanges: BackendExchange[];
-  detailed_summary?: string;
-};
-
-function mapExchange(ex: BackendExchange) {
-  return {
-    assistantContent: ex.assistant_content,
-    reasoning: ex.reasoning,
-    iratThinking: "",
-    toolCalls: ex.tool_calls.map((tc) => ({
-      id: tc.id,
-      name: tc.name,
-      args: tc.args,
-      result: tc.result,
-      wasStubbed: tc.was_stubbed,
-      startedAt: tc.started_at ?? undefined,
-      finishedAt: tc.finished_at ?? undefined,
-    })),
-    isFinal: ex.is_final,
-  };
-}
-
-function backendTurnToFrontendTurn(d: {
-  id: string;
-  subturns?: BackendSubturn[];
-  // legacy format (schema v3 and below)
-  user_text?: string;
-  exchanges?: BackendExchange[];
-  task_title?: string;
-  todo_snapshot: TodoItem[];
-  was_impossible?: boolean;
-  impossible_reason?: string;
-  completed: boolean;
-}): Turn {
-  const subturns: Subturn[] =
-    d.subturns && d.subturns.length > 0
-      ? d.subturns.map((st) => ({
-          id: st.id,
-          userText: st.user_text,
-          origin: toSubturnOrigin(st.origin),
-          exchanges: st.exchanges.map(mapExchange),
-          detailedSummary: st.detailed_summary ?? undefined,
-        }))
-      : [
-          {
-            id: crypto.randomUUID(),
-            userText: d.user_text ?? "",
-            origin: "user",
-            exchanges: (d.exchanges ?? []).map(mapExchange),
-          },
-        ];
-
-  return {
-    id: d.id,
-    taskTitle: d.task_title ?? undefined,
-    subturns,
-    todoItems: d.todo_snapshot ?? [],
-    approvalItems: [],
-    impossible: d.was_impossible
-      ? (d.impossible_reason ?? "Task was impossible")
-      : undefined,
-    completed: d.completed,
-    streaming: false,
-    isInterimStreaming: false,
-    interimShowCharCount: false,
-    interimCharCount: 0,
   };
 }
 
@@ -185,7 +98,17 @@ export default function useSocketWiring(
   const [terminalOpen, setTerminalOpen] = useState(false);
   const [systemPrompt, setSystemPrompt] = useState<string | null>(null);
   const [backendLogs, setBackendLogs] = useState<BackendLogEntry[]>([]);
-  const [isLoadingBackendState, setIsLoadingBackendState] = useState(false);
+  // Progressive history load (see historyLoad.ts). While loading, thread-
+  // mutating live events are queued in pendingLiveRef and flushed afterwards.
+  const [historyLoading, setHistoryLoading] = useState(true);
+  const [historyProgress, setHistoryProgress] = useState<HistoryProgress>({
+    loaded: 0,
+    total: null,
+  });
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  const historyLoadingRef = useRef(true);
+  const historyLoadIdRef = useRef<string | null>(null);
+  const pendingLiveRef = useRef<(() => void)[]>([]);
   const [sessionCost, setSessionCost] = useState<number | null>(null);
   const [sessionProfile, setSessionProfile] = useState<string | null>(null);
   const sessionProfileRef = useRef<string | null>(null);
@@ -202,15 +125,6 @@ export default function useSocketWiring(
     total_tokens: number | null;
     known_max_context: number;
   } | null>(null);
-
-  // ---------------------------------------------------------------------------
-  // lastEventId — persisted to sessionStorage
-  // ---------------------------------------------------------------------------
-
-  const getLastEventId = () => sessionStorage.getItem("lastEventId") ?? "0-0";
-  const updateLastEventId = (id: string) => {
-    sessionStorage.setItem("lastEventId", id);
-  };
 
   // ---------------------------------------------------------------------------
   // Thread helpers
@@ -242,6 +156,9 @@ export default function useSocketWiring(
               // Continuation: append new subturn to existing turn
               return prev.map((t) => {
                 if (t.id !== id) return t;
+                // Already applied (e.g. the subturn is in the loaded history).
+                if (subturnId && t.subturns.some((st) => st.id === subturnId))
+                  return t;
                 const newSt: Subturn = {
                   id: subturnId ?? crypto.randomUUID(),
                   userText,
@@ -605,18 +522,41 @@ export default function useSocketWiring(
   // ---------------------------------------------------------------------------
 
   useEffect(() => {
+    // While history loads, queue thread-mutating live events so they apply on
+    // top of the loaded turns instead of racing them (flushed in order).
+    function gated<T>(handler: (data: T) => void): (data: T) => void {
+      return (data: T) => {
+        if (historyLoadingRef.current) {
+          pendingLiveRef.current.push(() => handler(data));
+        } else {
+          handler(data);
+        }
+      };
+    }
+
+    function finishHistoryLoad(error: string | null) {
+      historyLoadingRef.current = false;
+      const queued = pendingLiveRef.current;
+      pendingLiveRef.current = [];
+      for (const run of queued) run();
+      setHistoryError(error);
+      setHistoryLoading(false);
+      scrollToBottom();
+    }
+
     function onConnect() {
       setConnected(true);
       setBusy(false);
       setCancelling(false);
-      setIsLoadingBackendState(true);
-      // Mark any streaming turns as interrupted (they'll be cleared by event replay if still running)
-      setThread((prev) =>
-        prev.map((t) =>
-          t.streaming ? { ...t, streaming: false, interrupted: true } : t,
-        ),
-      );
-      socket.emit("resume_session", { lastEventId: getLastEventId() });
+      // Every (re)connect rebuilds the thread from the backend.
+      historyLoadingRef.current = true;
+      historyLoadIdRef.current = null;
+      pendingLiveRef.current = [];
+      setHistoryLoading(true);
+      setHistoryError(null);
+      setHistoryProgress({ loaded: 0, total: null });
+      setThread([]);
+      socket.emit("resume_session");
       socket.emit("get_pwd");
       socket.emit("get_skills_info");
       socket.emit("get_env_info");
@@ -777,8 +717,6 @@ export default function useSocketWiring(
     // Session state (response to resume_session)
     function onSessionState(data: {
       startupDone?: boolean;
-      completedTurns?: unknown[];
-      currentTurn?: unknown;
       schemaInvalid?: boolean;
       profileName?: string | null;
       approvalMode?: string;
@@ -789,40 +727,14 @@ export default function useSocketWiring(
       loadCustomSkillsTools?: boolean;
     }) {
       if (data.schemaInvalid) {
-        // Schema mismatch — no event_replay will follow, so clear loading now
-        setIsLoadingBackendState(false);
+        // Schema mismatch — there is no history to load.
+        finishHistoryLoad(null);
         setThread([]);
         setStartupToolCalls([]);
         setStartupDone(false);
         socket.emit("run_startup_tool_calls");
         return;
       }
-
-      // Rebuild thread from completed turns
-      const turns: Turn[] = data.completedTurns
-        ? (
-            data.completedTurns as Parameters<
-              typeof backendTurnToFrontendTurn
-            >[0][]
-          ).map(backendTurnToFrontendTurn)
-        : [];
-
-      // If there is an in-progress turn at restore time, append it as streaming.
-      // Event replay will fill in any content/tool-calls that arrived since lastEventId.
-      // If the agent already finished, the replayed message_done will mark it completed.
-      if (data.currentTurn) {
-        const inProgress = backendTurnToFrontendTurn(
-          data.currentTurn as Parameters<typeof backendTurnToFrontendTurn>[0],
-        );
-        inProgress.streaming = true;
-        inProgress.isInterimStreaming = false;
-        inProgress.interimShowCharCount = false;
-        inProgress.interimCharCount = 0;
-        turns.push(inProgress);
-        setBusy(true);
-      }
-
-      setThread(turns);
 
       if (data.startupDone !== undefined) {
         setStartupDone(data.startupDone);
@@ -849,38 +761,11 @@ export default function useSocketWiring(
       if (data.loadCustomSkillsTools !== undefined) {
         setLoadCustomSkillsTools(data.loadCustomSkillsTools);
       }
-    }
 
-    // Event replay (always emitted after session_state, possibly with empty list)
-    function onEventReplay({
-      events,
-      replay_complete,
-    }: {
-      events: { id: string; type: string; data: Record<string, unknown> }[];
-      replay_complete?: boolean;
-    }) {
-      if (events && events.length > 0) {
-        // Clear interrupted state on any streaming turns before replaying
-        setThread((prev) =>
-          prev.map((t) =>
-            t.interrupted ? { ...t, interrupted: false, streaming: true } : t,
-          ),
-        );
-
-        for (const ev of events) {
-          if (ev.data.event_id) updateLastEventId(ev.data.event_id as string);
-          applyReplayEvent(ev.type, ev.data);
-        }
-        updateLastEventId(events[events.length - 1].id);
-      }
-
-      // After replay, force scroll to bottom so the user sees the current state.
-      if (replay_complete) {
-        scrollToBottom();
-      }
-
-      // Replay complete — safe to show UI now
-      setIsLoadingBackendState(false);
+      // The conversation itself streams in turn by turn (historyLoad.ts).
+      const loadId = crypto.randomUUID();
+      historyLoadIdRef.current = loadId;
+      socket.emit("begin_history_load", { loadId });
     }
 
     // Shell output snapshot: emitted when browser reconnects during a running host_shell.
@@ -914,7 +799,6 @@ export default function useSocketWiring(
       subturn_id?: string;
       origin?: string;
     }) {
-      if (data.event_id) updateLastEventId(data.event_id);
       const { turn_id: id, user_text: userText, subturn_id: subturnId } = data;
       const origin = toSubturnOrigin(data.origin);
       setThread((prev) => {
@@ -922,6 +806,8 @@ export default function useSocketWiring(
           // Continuation: append new subturn to existing turn
           return prev.map((t) => {
             if (t.id !== id) return t;
+            const known =
+              !!subturnId && t.subturns.some((st) => st.id === subturnId);
             const newSt: Subturn = {
               id: subturnId ?? crypto.randomUUID(),
               userText,
@@ -930,7 +816,8 @@ export default function useSocketWiring(
             };
             return {
               ...t,
-              subturns: [...t.subturns, newSt],
+              // Already applied when replayed with the loaded history.
+              subturns: known ? t.subturns : [...t.subturns, newSt],
               completed: false,
               streaming: true,
               isInterimStreaming: false,
@@ -1009,7 +896,6 @@ export default function useSocketWiring(
       turn_id?: string;
       show_char_count?: boolean;
     }) {
-      if (data.event_id) updateLastEventId(data.event_id);
       applyReplayEvent("begin_interim_stream", data);
     }
 
@@ -1017,7 +903,6 @@ export default function useSocketWiring(
       event_id?: string;
       turn_id?: string;
     }) {
-      if (data.event_id) updateLastEventId(data.event_id);
       applyReplayEvent("begin_final_summary", data);
     }
 
@@ -1027,7 +912,6 @@ export default function useSocketWiring(
       subturn_id: string;
       exchange_idx: number;
     }) {
-      if (data.event_id) updateLastEventId(data.event_id);
       applyReplayEvent("irat_thinking_clear", data);
     }
 
@@ -1037,7 +921,6 @@ export default function useSocketWiring(
       subturn_id: string;
       compaction: string;
     }) {
-      if (data.event_id) updateLastEventId(data.event_id);
       applyReplayEvent("subturn_compaction", data);
     }
 
@@ -1048,7 +931,6 @@ export default function useSocketWiring(
       name: string;
       args: Record<string, unknown>;
     }) {
-      if (data.event_id) updateLastEventId(data.event_id);
       applyReplayEvent("tool_call", data);
     }
 
@@ -1058,7 +940,6 @@ export default function useSocketWiring(
       id: string;
       started_at: number;
     }) {
-      if (data.event_id) updateLastEventId(data.event_id);
       applyReplayEvent("tool_call_start", data);
     }
 
@@ -1095,7 +976,6 @@ export default function useSocketWiring(
       started_at?: number;
       finished_at?: number;
     }) {
-      if (data.event_id) updateLastEventId(data.event_id);
       applyReplayEvent("tool_result", data);
     }
 
@@ -1104,7 +984,6 @@ export default function useSocketWiring(
       turn_id?: string;
       content: string | null;
     }) {
-      if (data.event_id) updateLastEventId(data.event_id);
       applyReplayEvent("message_done", data);
       setBusy(false);
       setCancelling(false);
@@ -1115,7 +994,6 @@ export default function useSocketWiring(
       turn_id?: string;
       message: string;
     }) {
-      if (data.event_id) updateLastEventId(data.event_id);
       if (data.turn_id) applyReplayEvent("error", data);
       setBusy(false);
     }
@@ -1125,7 +1003,6 @@ export default function useSocketWiring(
       turn_id?: string;
       items: TodoItem[];
     }) {
-      if (data.event_id) updateLastEventId(data.event_id);
       applyReplayEvent("todo_list_update", data);
     }
 
@@ -1136,7 +1013,6 @@ export default function useSocketWiring(
       tool_name: string;
       args: Record<string, unknown>;
     }) {
-      if (data.event_id) updateLastEventId(data.event_id);
       applyReplayEvent("approval_request", data);
     }
 
@@ -1146,7 +1022,6 @@ export default function useSocketWiring(
       id: string;
       approved: boolean;
     }) {
-      if (data.event_id) updateLastEventId(data.event_id);
       applyReplayEvent("approval_resolved", data);
     }
 
@@ -1160,7 +1035,6 @@ export default function useSocketWiring(
       tool_call_id: string;
       original_args: Record<string, unknown>;
     }) {
-      if (data.event_id) updateLastEventId(data.event_id);
       applyReplayEvent("patch_rewrite_start", data);
     }
 
@@ -1171,7 +1045,6 @@ export default function useSocketWiring(
       attempt: number;
       max_attempts: number;
     }) {
-      if (data.event_id) updateLastEventId(data.event_id);
       applyReplayEvent("patch_rewrite_attempt", data);
     }
 
@@ -1182,9 +1055,40 @@ export default function useSocketWiring(
       success: boolean;
       final_patch: string | null;
     }) {
-      if (data.event_id) updateLastEventId(data.event_id);
       applyReplayEvent("patch_rewrite_done", data);
     }
+
+    function onTaskTitle(data: { turn_id: string; title: string }) {
+      applyReplayEvent("task_title", data);
+    }
+    function onSkillsLoaded(data: { turn_id: string; skill_names: string[] }) {
+      applyReplayEvent("skills_loaded", data);
+    }
+
+    // Thread-mutating live events, queued while history loads.
+    const liveThreadHandlers = {
+      turn_start: gated(onTurnStart),
+      token: gated(onToken),
+      begin_interim_stream: gated(onBeginInterimStream),
+      begin_final_summary: gated(onBeginFinalSummary),
+      irat_thinking_clear: gated(onIratThinkingClear),
+      subturn_compaction: gated(onSubturnCompaction),
+      tool_call: gated(onToolCall),
+      tool_call_start: gated(onToolCallStart),
+      tool_result_chunk: gated(onToolResultChunk),
+      tool_result: gated(onToolResult),
+      message_done: gated(onMessageDone),
+      error: gated(onError),
+      todo_list_update: gated(onTodoListUpdate),
+      approval_request: gated(onApprovalRequest),
+      approval_resolved: gated(onApprovalResolved),
+      shell_output_snapshot: gated(onShellOutputSnapshot),
+      patch_rewrite_start: gated(onPatchRewriteStart),
+      patch_rewrite_attempt: gated(onPatchRewriteAttempt),
+      patch_rewrite_done: gated(onPatchRewriteDone),
+      task_title: gated(onTaskTitle),
+      skills_loaded: gated(onSkillsLoaded),
+    };
 
     socket.on("connect", onConnect);
     socket.on("disconnect", onDisconnect);
@@ -1201,36 +1105,18 @@ export default function useSocketWiring(
     socket.on("startup_tool_result", onStartupToolResult);
     socket.on("startup_tool_calls_done", onStartupToolCallsDone);
     socket.on("session_state", onSessionState);
-    socket.on("event_replay", onEventReplay);
-    socket.on("turn_start", onTurnStart);
-    socket.on("token", onToken);
-    socket.on("begin_interim_stream", onBeginInterimStream);
-    socket.on("begin_final_summary", onBeginFinalSummary);
-    socket.on("irat_thinking_clear", onIratThinkingClear);
-    socket.on("subturn_compaction", onSubturnCompaction);
-    socket.on("tool_call", onToolCall);
-    socket.on("tool_call_start", onToolCallStart);
-    socket.on("tool_result_chunk", onToolResultChunk);
-    socket.on("tool_result", onToolResult);
-    socket.on("message_done", onMessageDone);
-    socket.on("error", onError);
-    socket.on("todo_list_update", onTodoListUpdate);
-    socket.on("approval_request", onApprovalRequest);
-    socket.on("approval_resolved", onApprovalResolved);
-    socket.on("shell_output_snapshot", onShellOutputSnapshot);
     socket.on("terminal_open_panel", onTerminalOpenPanel);
-    socket.on("patch_rewrite_start", onPatchRewriteStart);
-    socket.on("patch_rewrite_attempt", onPatchRewriteAttempt);
-    socket.on("patch_rewrite_done", onPatchRewriteDone);
-    socket.on("task_title", (data: { turn_id: string; title: string }) => {
-      applyReplayEvent("task_title", data);
+    for (const [event, handler] of Object.entries(liveThreadHandlers)) {
+      socket.on(event, handler);
+    }
+    const unwireHistoryLoad = wireHistoryLoad(socket, {
+      loadIdRef: historyLoadIdRef,
+      setThread,
+      setProgress: setHistoryProgress,
+      setBusy,
+      applyReplayEvent,
+      finish: finishHistoryLoad,
     });
-    socket.on(
-      "skills_loaded",
-      (data: { turn_id: string; skill_names: string[] }) => {
-        applyReplayEvent("skills_loaded", data);
-      },
-    );
 
     // Connect after all handlers are registered so we never miss the connect event
     socket.connect();
@@ -1251,29 +1137,11 @@ export default function useSocketWiring(
       socket.off("startup_tool_result", onStartupToolResult);
       socket.off("startup_tool_calls_done", onStartupToolCallsDone);
       socket.off("session_state", onSessionState);
-      socket.off("event_replay", onEventReplay);
-      socket.off("turn_start", onTurnStart);
-      socket.off("token", onToken);
-      socket.off("begin_interim_stream", onBeginInterimStream);
-      socket.off("begin_final_summary", onBeginFinalSummary);
-      socket.off("irat_thinking_clear", onIratThinkingClear);
-      socket.off("subturn_compaction", onSubturnCompaction);
-      socket.off("tool_call", onToolCall);
-      socket.off("tool_call_start", onToolCallStart);
-      socket.off("tool_result_chunk", onToolResultChunk);
-      socket.off("tool_result", onToolResult);
-      socket.off("message_done", onMessageDone);
-      socket.off("error", onError);
-      socket.off("todo_list_update", onTodoListUpdate);
-      socket.off("approval_request", onApprovalRequest);
-      socket.off("approval_resolved", onApprovalResolved);
-      socket.off("shell_output_snapshot", onShellOutputSnapshot);
       socket.off("terminal_open_panel", onTerminalOpenPanel);
-      socket.off("patch_rewrite_start", onPatchRewriteStart);
-      socket.off("patch_rewrite_attempt", onPatchRewriteAttempt);
-      socket.off("patch_rewrite_done", onPatchRewriteDone);
-      socket.off("task_title");
-      socket.off("skills_loaded");
+      for (const [event, handler] of Object.entries(liveThreadHandlers)) {
+        socket.off(event, handler);
+      }
+      unwireHistoryLoad();
       socket.disconnect();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1295,7 +1163,9 @@ export default function useSocketWiring(
     toolsInfo,
     systemPrompt,
     backendLogs,
-    isLoadingBackendState,
+    historyLoading,
+    historyProgress,
+    historyError,
     sessionCost,
     sessionProfile,
     setSessionProfile,

@@ -2,9 +2,7 @@ from __future__ import annotations
 
 import json
 import time
-import uuid as _uuid_module
 from dataclasses import dataclass, field
-from typing import Any
 
 from src.utils.approval_modes import APPROVAL_MODE_DEFAULT
 
@@ -222,19 +220,6 @@ def subturn_to_dict(st: Subturn) -> dict:
     }
 
 
-def subturn_from_dict(d: dict) -> Subturn:
-    return Subturn(
-        id=d.get("id", str(_uuid_module.uuid4())),
-        user_text=d.get("user_text", ""),
-        user_text_with_context=d.get("user_text_with_context", ""),
-        exchanges=[llm_exchange_from_dict(ex) for ex in d.get("exchanges", [])],
-        is_continuation=d.get("is_continuation", False),
-        detailed_summary=d.get("detailed_summary"),
-        approval_mode=d.get("approval_mode"),
-        origin=d.get("origin", SUBTURN_ORIGIN_USER),
-    )
-
-
 def turn_to_dict(turn: Turn) -> dict:
     return {
         "id": turn.id,
@@ -246,60 +231,6 @@ def turn_to_dict(turn: Turn) -> dict:
         "completed": turn.completed,
         "task_title": turn.task_title,
         "selected_skill_ids": turn.selected_skill_ids,
-    }
-
-
-def turn_from_dict(d: dict) -> Turn:
-    if "subturns" in d:
-        subturns = [subturn_from_dict(st) for st in d["subturns"]]
-    else:
-        # Legacy migration (schema v3): wrap flat user_text + exchanges into a single Subturn
-        subturns = [
-            Subturn(
-                id=str(_uuid_module.uuid4()),
-                user_text=d.get("user_text", ""),
-                user_text_with_context=d.get("user_text_with_context", ""),
-                exchanges=[llm_exchange_from_dict(ex) for ex in d.get("exchanges", [])],
-                is_continuation=False,
-            )
-        ]
-    return Turn(
-        id=d["id"],
-        subturns=subturns,
-        todo_snapshot=d.get("todo_snapshot", []),
-        was_impossible=d.get("was_impossible", False),
-        impossible_reason=d.get("impossible_reason"),
-        was_cancelled=d.get("was_cancelled", False),
-        completed=d.get("completed", False),
-        task_title=d.get("task_title"),
-        selected_skill_ids=d.get("selected_skill_ids", []),
-    )
-
-
-def session_to_dict(session: Session) -> dict:
-    # Exclude "memory" (a RedisDict, persisted separately) and the transient
-    # "_report_impossible" flag. "todo_list" IS kept so the live working list
-    # survives a warm reload, matching event-replay reconstruction.
-    _EXCLUDED = {"memory", "_report_impossible"}
-    session_data_clean = {
-        k: v for k, v in session.session_data.items() if k not in _EXCLUDED
-    }
-    return {
-        "schema_version": session.schema_version,
-        "session_id": session.session_id,
-        "startup_done": session.startup_done,
-        "completed_turns": [turn_to_dict(t) for t in session.completed_turns],
-        "current_turn": (
-            turn_to_dict(session.current_turn) if session.current_turn else None
-        ),
-        "session_data": session_data_clean,
-        "initial_cwd": session.initial_cwd,
-        "load_custom_skills_tools": session.load_custom_skills_tools,
-        "startup_tool_calls": session.startup_tool_calls,
-        "interim_response_as_thinking": session.interim_response_as_thinking,
-        "created_at": session.created_at,
-        "profile_name": session.profile_name,
-        "approval_mode": session.approval_mode,
     }
 
 
@@ -364,23 +295,3 @@ def repair_incomplete_turn(session: Session) -> bool:
     session.completed_turns.append(turn)
     session.current_turn = None
     return True
-
-
-def session_from_dict(d: dict) -> Session:
-    return Session(
-        session_id=d.get("session_id", ""),
-        schema_version=d.get("schema_version", CURRENT_SCHEMA_VERSION),
-        startup_done=d.get("startup_done", False),
-        completed_turns=[turn_from_dict(t) for t in d.get("completed_turns", [])],
-        current_turn=(
-            turn_from_dict(d["current_turn"]) if d.get("current_turn") else None
-        ),
-        session_data=d.get("session_data", {}),
-        initial_cwd=d.get("initial_cwd", ""),
-        load_custom_skills_tools=d.get("load_custom_skills_tools", False),
-        startup_tool_calls=d.get("startup_tool_calls", []),
-        interim_response_as_thinking=d.get("interim_response_as_thinking", False),
-        created_at=d.get("created_at", 0.0),
-        profile_name=d.get("profile_name"),
-        approval_mode=d.get("approval_mode", APPROVAL_MODE_DEFAULT),
-    )

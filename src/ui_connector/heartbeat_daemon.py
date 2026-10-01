@@ -8,10 +8,15 @@ import threading
 import time
 from typing import TYPE_CHECKING, Callable, Iterable, Protocol
 
-from src.utils.heartbeat_settings import HEARTBEAT_INTERVALS_MINUTES
+from src.utils.heartbeat_settings import (
+    DEFAULT_HEARTBEAT_SETTINGS,
+    HEARTBEAT_INTERVALS_MINUTES,
+)
+from src.utils.session_events import EVT_HEARTBEAT_SETTINGS_SET
 from src.utils.sql.session_store_db import (
     list_session_meta,
     load_heartbeat_last_runs,
+    load_latest_event_payload,
     upsert_heartbeat_last_run,
 )
 
@@ -71,17 +76,28 @@ class DurableLastRunMap:
             self._values.pop(session_id, None)
 
 
-def _load_enabled_sessions() -> list[HeartbeatSession]:
-    from src.ui_connector.socket_handler_components import runtime_settings
-    from src.ui_connector.socket_handler_components.session_store import _load_session
+def _heartbeat_settings_for(session_id: str) -> dict:
+    """Read one session's heartbeat settings without rebuilding the session.
 
+    Live in-process settings win (they may not be saved yet); otherwise the
+    newest persisted `heartbeat_settings_set` event is authoritative.
+    """
+    from src.ui_connector.socket_handler_components import runtime_settings
+
+    live = runtime_settings.peek(session_id)
+    if live is not None:
+        return live.heartbeat_settings
+    payload = load_latest_event_payload(session_id, EVT_HEARTBEAT_SETTINGS_SET)
+    return (payload or {}).get("settings") or DEFAULT_HEARTBEAT_SETTINGS
+
+
+def _load_enabled_sessions() -> list[HeartbeatSession]:
     enabled: list[HeartbeatSession] = []
     for row in list_session_meta():
         if not row.get("heartbeat_enabled"):
             continue
         session_id = row["session_id"]
-        session = _load_session(session_id)
-        settings = runtime_settings.snapshot(session_id, session).heartbeat_settings
+        settings = _heartbeat_settings_for(session_id)
         if not settings.get("enabled"):
             continue
         enabled.append(

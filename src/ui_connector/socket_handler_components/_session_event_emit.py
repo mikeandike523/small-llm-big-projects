@@ -7,10 +7,11 @@ place.
 
 The cursor lives in Redis (`session:{id}:persist_state`) and records what has
 already been emitted: whether `session_created` fired, and per turn/subturn the
-flags + per-exchange hashes needed to detect deltas. Turns/subturns/exchanges
-are append-only in the model, and exchanges are mutated in place (tool results /
-final content fill in after first append), so exchanges use a content hash with
-last-writer-wins re-emission.
+title, flags + per-exchange hashes needed to detect deltas. Turns/subturns/
+exchanges are append-only in the model, and exchanges are mutated in place (tool
+results / final content fill in after first append), so exchanges use a content
+hash with last-writer-wins re-emission. A follow-up reopening a completed turn
+emits `turn_reopened`, so its next completion emits `turn_completed` again.
 
 IMPORTANT: after a cold load (Redis fully evicted) the cursor is gone. Callers
 must rebuild it from the replayed Session via :func:`build_cursor` before the
@@ -39,6 +40,8 @@ from src.utils.session_events import (
     EVT_HEARTBEAT_SETTINGS_SET,
     heartbeat_settings_payload,
     EVT_TURN_STARTED,
+    EVT_TURN_REOPENED,
+    EVT_STARTUP_DONE_SET,
     exchange_hash,
     exchange_payload,
     session_created_payload,
@@ -81,6 +84,11 @@ def compute_events(session: Session, cursor: dict) -> list[tuple[str, dict]]:
         cursor["created"] = True
         cursor["approval_mode"] = session.approval_mode
         cursor["profile_name"] = session.profile_name
+        cursor["startup_done"] = session.startup_done
+
+    if session.startup_done and not cursor.get("startup_done"):
+        events.append((EVT_STARTUP_DONE_SET, {}))
+        cursor["startup_done"] = True
 
     if cursor.get("profile_name") != session.profile_name:
         events.append((EVT_PROFILE_SET, profile_payload(session.profile_name)))
@@ -107,24 +115,40 @@ def compute_events(session: Session, cursor: dict) -> list[tuple[str, dict]]:
     all_turns = list(session.completed_turns)
     if session.current_turn is not None:
         all_turns.append(session.current_turn)
+    last_completed = session.completed_turns[-1] if session.completed_turns else None
 
     for turn in all_turns:
         tc = turns_cursor.get(turn.id)
+        # A persisted, completed turn can only change again by being reopened
+        # (a follow-up flips turn.completed back to False), so skip re-hashing
+        # its exchanges. The most recent completed turn is still checked to
+        # catch any trailing write that lands right after completion.
+        if (
+            tc is not None
+            and tc["completed"]
+            and turn.completed
+            and turn is not last_completed
+        ):
+            continue
         if tc is None:
             events.append((EVT_TURN_STARTED, {"turn_id": turn.id}))
             tc = {
-                "title_set": False,
+                "title": None,
                 "skills": None,
                 "completed": False,
                 "subturns": {},
             }
             turns_cursor[turn.id] = tc
 
-        if turn.task_title and not tc["title_set"]:
+        if tc["completed"] and not turn.completed:
+            events.append((EVT_TURN_REOPENED, {"turn_id": turn.id}))
+            tc["completed"] = False
+
+        if turn.task_title and tc.get("title") != turn.task_title:
             events.append(
                 (EVT_TITLE_SET, {"turn_id": turn.id, "title": turn.task_title})
             )
-            tc["title_set"] = True
+            tc["title"] = turn.task_title
 
         if turn.selected_skill_ids and tc["skills"] != turn.selected_skill_ids:
             events.append(
@@ -182,9 +206,14 @@ def compute_events(session: Session, cursor: dict) -> list[tuple[str, dict]]:
                 )
                 sc["summary"] = st.detailed_summary
 
-        if turn.completed and not tc["completed"]:
+        # Re-emit when a follow-up subturn completed the turn again, even if no
+        # save ever observed the reopened (completed=False) state in between.
+        if turn.completed and (
+            not tc["completed"] or tc.get("completed_subturns") != len(turn.subturns)
+        ):
             events.append((EVT_TURN_COMPLETED, turn_completed_payload(turn)))
             tc["completed"] = True
+            tc["completed_subturns"] = len(turn.subturns)
 
     # Session-global live todo list (last-writer-wins). Only emit once it has
     # ever been non-empty, so sessions that never use todos stay event-free.

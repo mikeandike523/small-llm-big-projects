@@ -295,7 +295,7 @@ async def _async_agent_loop(
                 had_tool_calls = True
                 blank_nudge_sent = False
                 current_subturn.exchanges.append(exchange)
-                _save_session(session_id, session)
+                _save_session(session_id, session, advance_stream_watermark=True)
 
                 if cancel_event.is_set():
                     was_cancelled = True
@@ -382,7 +382,9 @@ async def _async_agent_loop(
                             ),
                         )
                         current_subturn.exchanges.append(nudge_exchange)
-                        _save_session(session_id, session)
+                        _save_session(
+                            session_id, session, advance_stream_watermark=True
+                        )
                         continue
                 else:
                     _emit_backend_log(
@@ -434,7 +436,7 @@ async def _async_agent_loop(
                     user_continuation=continuation,
                 )
                 current_subturn.exchanges.append(interim_exchange)
-                _save_session(session_id, session)
+                _save_session(session_id, session, advance_stream_watermark=True)
                 _emit_backend_log(
                     session_id,
                     colored("[TODO REPROMPT]", "yellow", force_color=True)
@@ -500,7 +502,9 @@ async def _async_agent_loop(
                                 + " Final answer selector rejected all candidates — forcing summary",
                                 {"turn_id": turn_id},
                             )
-                            _save_session(session_id, session)
+                            _save_session(
+                                session_id, session, advance_stream_watermark=True
+                            )
                             continue
                         winner = final_answer_candidates[-1]
                     else:
@@ -581,7 +585,7 @@ async def _async_agent_loop(
                     + " Todos closed with no answer candidates — forcing summary",
                     {"turn_id": turn_id},
                 )
-                _save_session(session_id, session)
+                _save_session(session_id, session, advance_stream_watermark=True)
                 continue
 
             # Final response: no tool calls, or response after explicit reprompt.
@@ -723,5 +727,5 @@ async def _async_agent_loop(
                 {"message": err_msg, "turn_id": turn_id},
             )
 
-        _save_session(session_id, session)
+        _save_session(session_id, session, advance_stream_watermark=True)
         return had_tool_calls

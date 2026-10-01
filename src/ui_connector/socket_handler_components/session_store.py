@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import logging
 import os
 
@@ -17,16 +16,20 @@ from src.logic.system_prompt import (
     build_system_prompt,
     get_autoload_skill_entries,
 )
+from src.utils.event_log import (
+    latest_stream_id,
+    set_watermark,
+    trim_stream_upto,
+    watermark_key,
+)
 from src.utils.redis_dict import RedisDict
 from src.utils.session_model import (
     Session,
-    session_to_dict,
-    session_from_dict,
     repair_incomplete_turn,
     CURRENT_SCHEMA_VERSION,
 )
 from src.utils.session_events import derive_meta, replay_events
-from src.utils.session_schema_repair import repair_event_log, repair_session_dict
+from src.utils.session_schema_repair import repair_event_log
 from src.utils.sql.session_store_db import (
     append_events,
     delete_sessions,
@@ -212,13 +215,22 @@ def _init_session_caches(session: Session, session_id: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _session_from_db(session_id: str) -> Session | None:
-    """Load a session from the durable MySQL store (cache miss path).
+def _live_marker_key(session_id: str) -> str:
+    return f"session:{session_id}:live"
 
-    Reconstructs the Session by replaying its event log, rehydrates the Redis
-    memory hash from the metadata row, restores the Python-memory state (current
-    cwd, accumulated cost), and resyncs the persist cursor so the next save emits
-    only genuine deltas (the Redis cursor is gone on a cold load). Returns None if
+
+def _session_from_db(session_id: str, *, cold: bool) -> Session | None:
+    """Load a session from the durable MySQL store by replaying its event log.
+
+    Every load goes through here: MySQL is the only source of the session model
+    (there is no whole-session Redis copy). Each call returns an independent
+    Session object.
+
+    `cold` means this process's live Redis state for the session is gone (boot
+    flush or TTL expiry). Only then is the memory hash rehydrated from the
+    metadata row, the Python-memory state (current cwd, accumulated cost,
+    context usage) restored, and the persist cursor rebuilt. A warm load must
+    not touch those: they may hold live, not-yet-saved state. Returns None if
     there is no durable session (caller then creates a fresh Session).
     """
     try:
@@ -244,7 +256,8 @@ def _session_from_db(session_id: str) -> Session | None:
             meta, rows = repaired
         session = replay_events(session_id, rows)
         # Resync the cursor with the durable log (prevents duplicate re-emits).
-        save_cursor(r, session_id, build_cursor(session), _state._SESSION_TTL)
+        if cold or not load_cursor(r, session_id):
+            save_cursor(r, session_id, build_cursor(session), _state._SESSION_TTL)
     except Exception as exc:
         logger.warning("Could not replay DB session %s: %s", session_id, exc)
         try:
@@ -252,6 +265,9 @@ def _session_from_db(session_id: str) -> Session | None:
         except Exception:
             pass
         return Session(session_id=session_id)
+
+    if not cold:
+        return session
 
     # Rehydrate the session_memory hash into Redis so the RedisDict sees it.
     mem_hash_key = f"session:{session_id}:memory"
@@ -294,35 +310,9 @@ def _session_from_db(session_id: str) -> Session | None:
 
 def _load_session(session_id: str) -> Session:
     r = _state._get_redis()
-    raw = r.get(f"session:{session_id}")
-    cold = False
-    if raw:
-        try:
-            d = json.loads(raw)
-            if d.get("schema_version", 0) != CURRENT_SCHEMA_VERSION:
-                # See session_schema_repair.py: a registered chain can
-                # rewrite this dict forward to the current shape; if none is
-                # registered for this version gap (the common case today),
-                # fall back to a blank session rather than deserializing a
-                # shape session_from_dict() wasn't written to understand.
-                repaired = repair_session_dict(d, CURRENT_SCHEMA_VERSION)
-                session = (
-                    Session(session_id=session_id)
-                    if repaired is None
-                    else session_from_dict(repaired)
-                )
-            else:
-                session = session_from_dict(d)
-        except Exception:
-            session = Session(session_id=session_id)
-        # The warm blob reflects the last save; if the persist cursor was evicted
-        # independently, rebuild it so the next save doesn't re-emit every event.
-        if not load_cursor(r, session_id):
-            save_cursor(r, session_id, build_cursor(session), _state._SESSION_TTL)
-    else:
-        # Redis cache miss -> durable load from MySQL (e.g. after a restart).
-        cold = True
-        session = _session_from_db(session_id) or Session(session_id=session_id)
+    cold = not r.exists(_live_marker_key(session_id))
+    session = _session_from_db(session_id, cold=cold) or Session(session_id=session_id)
+    r.setex(_live_marker_key(session_id), _state._SESSION_TTL, "1")
 
     mem_hash_key = f"session:{session_id}:memory"
 
@@ -354,35 +344,47 @@ def _load_session(session_id: str) -> Session:
     if session.current_turn is not None and not _state.has_active_turn_task(session_id):
         needs_persist = repair_incomplete_turn(session)
 
-    # A cold (DB) load must warm the Redis cache; a repair must be persisted.
+    # A cold load refreshes the metadata row (and creates it for a brand-new
+    # session); a repair must be persisted.
     if cold or needs_persist:
         _save_session(session_id, session)
 
     return session
 
 
-def _save_session(session_id: str, session: Session) -> None:
-    """Serialize cursor/event/cache writes for one session."""
+def _save_session(
+    session_id: str, session: Session, *, advance_stream_watermark: bool = False
+) -> None:
+    """Serialize cursor/event/meta writes for one session.
+
+    `advance_stream_watermark` is passed ONLY by the agent loop's step-boundary
+    saves (each follows a whole-exchange append, or the turn's end). There every
+    socket event logged so far describes state that this save makes durable, so
+    the Redis event log's bookmark can move past them. Any other save (title,
+    settings endpoints, repair) may run mid-step on a different Session copy
+    and must leave the bookmark alone.
+    """
     from src.ui_connector.socket_handler_components import runtime_settings
 
     with runtime_settings.persistence_lock(session_id):
-        _save_session_locked(session_id, session)
+        _save_session_locked(session_id, session, advance_stream_watermark)
 
 
-def _save_session_locked(session_id: str, session: Session) -> None:
-    """Persist a session: append new events + upsert metadata (MySQL, durable),
-    then warm the Redis cache.
+def _save_session_locked(
+    session_id: str, session: Session, advance_stream_watermark: bool = False
+) -> None:
+    """Persist a session: append new events + upsert metadata (MySQL, durable).
 
     Events are derived by diffing the in-memory Session against the persist
-    cursor, so only new/changed state is appended. Writing MySQL first keeps the
-    durable copy authoritative if the process dies mid-save; the Redis blob is
-    just a hot cache (flushed and rebuilt from the event log on boot).
+    cursor, so only new/changed state is appended. MySQL is the only store of
+    the session model; nothing serializes the whole session.
     """
     from src.ui_connector.socket_handler_components import runtime_settings
 
     runtime_settings.merge_into_session(session_id, session)
     r = _state._get_redis()
-    blob = session_to_dict(session)
+    # Read before the diff: every event logged up to here is covered by it.
+    stream_mark = latest_stream_id(r, session_id) if advance_stream_watermark else None
 
     # Durable write to MySQL (source of truth).
     try:
@@ -414,11 +416,16 @@ def _save_session_locked(session_id: str, session: Session) -> None:
         )
     except Exception as exc:
         logger.warning("DB save failed for session %s: %s", session_id, exc)
+    else:
+        if stream_mark is not None:
+            # Only after a successful durable write: the logged events up to
+            # the mark are now in MySQL, so drop them from the Redis log.
+            set_watermark(r, session_id, stream_mark, _state._SESSION_TTL)
+            trim_stream_upto(r, session_id, stream_mark)
 
-    # Warm Redis cache (TTL is now just eviction; data survives in MySQL).
-    r.setex(f"session:{session_id}", _state._SESSION_TTL, json.dumps(blob))
     r.expire(f"session:{session_id}:memory", _state._SESSION_TTL)
     r.expire(f"session:{session_id}:events", _state._SESSION_TTL)
+    r.setex(_live_marker_key(session_id), _state._SESSION_TTL, "1")
 
 
 def _delete_sessions(session_ids: list[str]) -> None:
@@ -440,9 +447,10 @@ def _delete_sessions(session_ids: list[str]) -> None:
         forget_heartbeat_session(session_id)
         keys.extend(
             [
-                f"session:{session_id}",
+                _live_marker_key(session_id),
                 f"session:{session_id}:memory",
                 f"session:{session_id}:events",
+                watermark_key(session_id),
                 f"session:{session_id}:persist_state",
             ]
         )
@@ -465,13 +473,13 @@ def _delete_session(session_id: str) -> None:
 
 
 def invalidate_redis_session_cache_on_startup() -> None:
-    """Flush the Redis session cache at boot so it rehydrates from MySQL.
+    """Flush per-session Redis state at boot so it rehydrates from MySQL.
 
-    Sessions are now durable in MySQL (the `sessions` table); Redis only acts as
-    a hot write-through cache plus the live event/memory stores. Flushing the
-    cache on boot avoids serving a stale blob that may be inconsistent with the
-    durable copy (e.g. if the process died between the MySQL and Redis writes).
-    Durable session data is NOT deleted.
+    Sessions are durable in MySQL (`session_meta` + `session_events`); Redis
+    only holds live per-process state: the memory hash, the persist cursor, the
+    live marker, and the unsaved-event log with its bookmark. None of it is
+    valid across a restart (no turn survives one), so it is cleared and the
+    first load of each session is cold. Durable session data is NOT deleted.
     """
     try:
         r = _state._get_redis()

@@ -90,5 +90,4 @@ export interface Turn {
   isInterimStreaming: boolean;
   interimShowCharCount: boolean;
   interimCharCount: number;
-  interrupted?: boolean;
 }

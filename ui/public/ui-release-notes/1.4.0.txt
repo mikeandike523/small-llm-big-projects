@@ -1,0 +1,1 @@
+Session page loads history progressively, one turn at a time, with a spinner under the last loaded turn instead of a full-screen loading overlay; live events are held until history finishes loading; input disabled while loading

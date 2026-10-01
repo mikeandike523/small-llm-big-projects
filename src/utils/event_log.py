@@ -65,3 +65,45 @@ def get_events_since(r: redis.Redis, session_id: str, last_id: str) -> list[dict
             }
         )
     return result
+
+
+# ---------------------------------------------------------------------------
+# Bookmark ("watermark") linking this log to the durable MySQL event log
+# ---------------------------------------------------------------------------
+#
+# The agent loop's step-boundary saves record the id of the latest logged event
+# at save time: everything up to it is described by state now in MySQL. A page
+# load rebuilds history from MySQL and replays only the events after it.
+
+
+def watermark_key(session_id: str) -> str:
+    return f"session:{session_id}:events_watermark"
+
+
+def latest_stream_id(r: redis.Redis, session_id: str) -> str | None:
+    """Return the id of the newest logged event, or None if the log is empty."""
+    try:
+        entries = r.xrevrange(_stream_key(session_id), count=1)
+    except redis.ResponseError:
+        return None
+    return entries[0][0] if entries else None
+
+
+def get_watermark(r: redis.Redis, session_id: str) -> str:
+    """Return the bookmark, or "0-0" (replay the whole log) when unset."""
+    return r.get(watermark_key(session_id)) or "0-0"
+
+
+def set_watermark(r: redis.Redis, session_id: str, stream_id: str, ttl: int) -> None:
+    r.setex(watermark_key(session_id), ttl, stream_id)
+
+
+def trim_stream_upto(r: redis.Redis, session_id: str, stream_id: str) -> None:
+    """Drop logged events older than `stream_id` (they are durable in MySQL).
+
+    XTRIM MINID keeps `stream_id` itself; get_events_since() excludes it.
+    """
+    try:
+        r.xtrim(_stream_key(session_id), minid=stream_id)
+    except redis.ResponseError:
+        pass
