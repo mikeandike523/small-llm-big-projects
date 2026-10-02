@@ -21,12 +21,35 @@ HEARTBEAT_APPROVAL_POLICIES = [
     HEARTBEAT_APPROVAL_POLICY_FORCE_APPROVE,
 ]
 
+# How a heartbeat's message is admitted: the same choices as the chat
+# footer's "Follow up behavior" (auto-detect / force-follow-up /
+# force-new-task), passed to new_user_message as followup_behavior.
+HEARTBEAT_FOLLOWUP_AUTO = "auto"
+HEARTBEAT_FOLLOWUP_FORCE_FOLLOW_UP = "follow-up"
+HEARTBEAT_FOLLOWUP_FORCE_NEW_TASK = "new-task"
+
+HEARTBEAT_FOLLOWUP_BEHAVIORS = [
+    HEARTBEAT_FOLLOWUP_AUTO,
+    HEARTBEAT_FOLLOWUP_FORCE_FOLLOW_UP,
+    HEARTBEAT_FOLLOWUP_FORCE_NEW_TASK,
+]
+
 DEFAULT_HEARTBEAT_SETTINGS = {
     "enabled": False,
     "interval_minutes": HEARTBEAT_INTERVAL_DEFAULT,
     "instructions": "",
     "heartbeat_approval_policy": HEARTBEAT_APPROVAL_POLICY_WAIT_FOR_HUMAN,
+    "followup_behavior": HEARTBEAT_FOLLOWUP_AUTO,
 }
+
+
+def normalize_heartbeat_settings(value: dict | None) -> dict:
+    """Stored settings with defaults filled in for fields added later.
+
+    Settings are saved whole in `heartbeat_settings_set` events, so sessions
+    saved before a field existed (e.g. `followup_behavior`) lack it.
+    """
+    return {**DEFAULT_HEARTBEAT_SETTINGS, **(value or {})}
 
 
 def is_valid_heartbeat_settings(value: object) -> tuple[bool, str | None]:
@@ -53,6 +76,13 @@ def is_valid_heartbeat_settings(value: object) -> tuple[bool, str | None]:
         return (
             False,
             f"'heartbeat_approval_policy' must be one of: {', '.join(HEARTBEAT_APPROVAL_POLICIES)}",
+        )
+
+    followup_behavior = value.get("followup_behavior")
+    if followup_behavior not in HEARTBEAT_FOLLOWUP_BEHAVIORS:
+        return (
+            False,
+            f"'followup_behavior' must be one of: {', '.join(HEARTBEAT_FOLLOWUP_BEHAVIORS)}",
         )
 
     return True, None

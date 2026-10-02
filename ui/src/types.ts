@@ -5,6 +5,8 @@ export interface HeartbeatSettings {
   interval_minutes: number;
   instructions: string;
   heartbeat_approval_policy: "wait-for-human" | "force-fail" | "force-approve";
+  /** How each heartbeat message is admitted (the chat footer's choices). */
+  followup_behavior: "auto" | "follow-up" | "new-task";
 }
 
 export const HEARTBEAT_APPROVAL_POLICIES: HeartbeatSettings["heartbeat_approval_policy"][] =
@@ -15,7 +17,18 @@ export const DEFAULT_HEARTBEAT_SETTINGS: HeartbeatSettings = {
   interval_minutes: 30,
   instructions: "",
   heartbeat_approval_policy: "wait-for-human",
+  followup_behavior: "auto",
 };
+
+/** Heartbeat follow-up behaviors with the same labels as the chat footer. */
+export const HEARTBEAT_FOLLOWUP_BEHAVIORS: {
+  value: HeartbeatSettings["followup_behavior"];
+  label: string;
+}[] = [
+  { value: "auto", label: "auto-detect" },
+  { value: "follow-up", label: "force-follow-up" },
+  { value: "new-task", label: "force-new-task" },
+];
 
 export interface PatchRewriteState {
   status: "in_progress" | "success" | "failed";

@@ -58,6 +58,7 @@ def test_heartbeat_settings_are_revisioned_and_merge_into_stale_session() -> Non
         "interval_minutes": 15,
         "instructions": "check for CI failures",
         "heartbeat_approval_policy": "force-fail",
+        "followup_behavior": "new-task",
     }
     try:
         heartbeat = runtime_settings.set_heartbeat_settings(
@@ -82,6 +83,7 @@ def test_heartbeat_settings_change_is_emitted_and_replayed() -> None:
         "interval_minutes": 45,
         "instructions": "ping every 45 minutes",
         "heartbeat_approval_policy": "wait-for-human",
+        "followup_behavior": "follow-up",
     }
     session.session_data["heartbeat_settings"] = new_settings
 
@@ -96,3 +98,40 @@ def test_heartbeat_settings_change_is_emitted_and_replayed() -> None:
     ]
     restored = session_events.replay_events("s1", rows)
     assert restored.session_data["heartbeat_settings"] == new_settings
+
+
+def test_settings_saved_before_followup_behavior_replay_with_auto() -> None:
+    from src.utils.session_events import replay_events
+
+    old = {
+        "enabled": True,
+        "interval_minutes": 30,
+        "instructions": "check",
+        "heartbeat_approval_policy": "wait-for-human",
+    }
+    rows = [
+        {"event_type": "session_created", "payload": {}},
+        {"event_type": "heartbeat_settings_set", "payload": {"settings": old}},
+    ]
+    restored = replay_events("s1", rows)
+    assert restored.session_data["heartbeat_settings"] == {
+        **old,
+        "followup_behavior": "auto",
+    }
+
+
+def test_followup_behavior_is_validated() -> None:
+    from src.utils.heartbeat_settings import (
+        DEFAULT_HEARTBEAT_SETTINGS,
+        is_valid_heartbeat_settings,
+    )
+
+    for behavior in ("auto", "follow-up", "new-task"):
+        ok, _ = is_valid_heartbeat_settings(
+            {**DEFAULT_HEARTBEAT_SETTINGS, "followup_behavior": behavior}
+        )
+        assert ok
+    ok, error = is_valid_heartbeat_settings(
+        {**DEFAULT_HEARTBEAT_SETTINGS, "followup_behavior": "sometimes"}
+    )
+    assert not ok and "followup_behavior" in error

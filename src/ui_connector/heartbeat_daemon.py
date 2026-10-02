@@ -9,7 +9,7 @@ import time
 from typing import TYPE_CHECKING, Callable, Iterable, Protocol
 
 from src.utils.heartbeat_settings import (
-    DEFAULT_HEARTBEAT_SETTINGS,
+    normalize_heartbeat_settings,
     HEARTBEAT_INTERVALS_MINUTES,
 )
 from src.utils.session_events import EVT_HEARTBEAT_SETTINGS_SET
@@ -31,6 +31,8 @@ class HeartbeatSession:
     session_id: str
     interval_minutes: int
     instructions: str
+    # new_user_message followup_behavior: "auto", "follow-up" or "new-task".
+    followup_behavior: str
 
 
 @dataclass(frozen=True)
@@ -88,7 +90,7 @@ def _heartbeat_settings_for(session_id: str) -> dict:
     if live is not None:
         return live.heartbeat_settings
     payload = load_latest_event_payload(session_id, EVT_HEARTBEAT_SETTINGS_SET)
-    return (payload or {}).get("settings") or DEFAULT_HEARTBEAT_SETTINGS
+    return normalize_heartbeat_settings((payload or {}).get("settings"))
 
 
 def _load_enabled_sessions() -> list[HeartbeatSession]:
@@ -105,6 +107,7 @@ def _load_enabled_sessions() -> list[HeartbeatSession]:
                 session_id=session_id,
                 interval_minutes=int(settings["interval_minutes"]),
                 instructions=str(settings.get("instructions") or ""),
+                followup_behavior=settings["followup_behavior"],
             )
         )
     return enabled

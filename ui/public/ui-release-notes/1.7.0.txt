@@ -1,0 +1,1 @@
+Heartbeat settings dialog: new Heartbeat message mode select (auto-detect, force-follow-up, force-new-task)

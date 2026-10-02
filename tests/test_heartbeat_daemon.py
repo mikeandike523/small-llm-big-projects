@@ -32,10 +32,10 @@ class MemoryLastRuns:
 def test_cycle_counts_and_records_successful_runs(caplog) -> None:
     now = 10_000.0
     sessions = [
-        HeartbeatSession("first", 5, "do work"),
-        HeartbeatSession("due", 5, "do work"),
-        HeartbeatSession("waiting", 30, "do work"),
-        HeartbeatSession("invalid", 5, "  \t"),
+        HeartbeatSession("first", 5, "do work", "auto"),
+        HeartbeatSession("due", 5, "do work", "auto"),
+        HeartbeatSession("waiting", 30, "do work", "auto"),
+        HeartbeatSession("invalid", 5, "  \t", "auto"),
     ]
     last_runs = MemoryLastRuns({"due": 9_000.0, "waiting": 9_500.0})
     ran: list[str] = []
@@ -68,7 +68,7 @@ def test_failed_callback_does_not_advance_last_run(caplog) -> None:
         raise RuntimeError("boom")
 
     daemon = HeartbeatDaemon(
-        sessions_provider=lambda: [HeartbeatSession("s1", 5, "do work")],
+        sessions_provider=lambda: [HeartbeatSession("s1", 5, "do work", "auto")],
         run_heartbeat=fail,
         last_runs=last_runs,
         interval_seconds=300,
@@ -124,7 +124,7 @@ def test_durable_last_run_map_is_loaded_and_write_through(monkeypatch) -> None:
 def test_skipped_heartbeat_is_not_recorded() -> None:
     last_runs = MemoryLastRuns()
     daemon = HeartbeatDaemon(
-        sessions_provider=lambda: [HeartbeatSession("s1", 5, "do work")],
+        sessions_provider=lambda: [HeartbeatSession("s1", 5, "do work", "auto")],
         run_heartbeat=lambda _session: False,
         last_runs=last_runs,
         interval_seconds=300,

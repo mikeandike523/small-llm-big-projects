@@ -496,6 +496,7 @@ def api_session_set_heartbeat_settings(session_id: str):
         "interval_minutes": data.get("interval_minutes"),
         "instructions": data.get("instructions"),
         "heartbeat_approval_policy": data.get("heartbeat_approval_policy"),
+        "followup_behavior": data.get("followup_behavior"),
     }
 
     ok, error = is_valid_heartbeat_settings(heartbeat_settings)

@@ -34,7 +34,7 @@ from src.utils.session_model import (
     llm_exchange_to_dict,
 )
 from src.utils.approval_modes import APPROVAL_MODE_DEFAULT
-from src.utils.heartbeat_settings import DEFAULT_HEARTBEAT_SETTINGS
+from src.utils.heartbeat_settings import normalize_heartbeat_settings
 
 # ---------------------------------------------------------------------------
 # Event vocabulary
@@ -281,8 +281,8 @@ def _on_profile_set(state: ReplayState, p: dict) -> None:
 
 
 def _on_heartbeat_settings_set(state: ReplayState, p: dict) -> None:
-    state.session.session_data["heartbeat_settings"] = (
-        p.get("settings") or DEFAULT_HEARTBEAT_SETTINGS
+    state.session.session_data["heartbeat_settings"] = normalize_heartbeat_settings(
+        p.get("settings")
     )
 
 

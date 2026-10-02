@@ -3,6 +3,7 @@ import { css } from "@emotion/react";
 import { useEffect, useState } from "react";
 import {
   HEARTBEAT_APPROVAL_POLICIES,
+  HEARTBEAT_FOLLOWUP_BEHAVIORS,
   type HeartbeatSettings,
 } from "../types";
 import { formatIntervalMinutes } from "../utils/formatInterval";
@@ -286,6 +287,28 @@ export default function HeartbeatSettingsDialog({
             }
             placeholder="What should the agent do on each heartbeat?"
           />
+        </div>
+
+        <div css={fieldCss}>
+          <label css={fieldLabelCss}>Heartbeat message mode</label>
+          <select
+            css={selectCss}
+            value={draft.followup_behavior}
+            onChange={(e) =>
+              setDraft({
+                ...draft,
+                followup_behavior: e.target
+                  .value as HeartbeatSettings["followup_behavior"],
+              })
+            }
+            title="Whether each heartbeat starts a new task or follows up the latest one"
+          >
+            {HEARTBEAT_FOLLOWUP_BEHAVIORS.map(({ value, label }) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </select>
         </div>
 
         <div css={fieldCss}>

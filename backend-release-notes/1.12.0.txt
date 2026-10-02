@@ -1,0 +1,1 @@
+Heartbeat settings gain followup_behavior (auto / follow-up / new-task, default auto) controlling how each heartbeat message is admitted; older saved settings default to auto

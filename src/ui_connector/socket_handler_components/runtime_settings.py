@@ -4,7 +4,7 @@ from dataclasses import dataclass, replace
 import threading
 
 from src.utils.approval_modes import APPROVAL_MODE_DEFAULT
-from src.utils.heartbeat_settings import DEFAULT_HEARTBEAT_SETTINGS
+from src.utils.heartbeat_settings import normalize_heartbeat_settings
 from src.utils.session_model import Session
 
 
@@ -41,9 +41,8 @@ def initialize(session_id: str, session: Session) -> RuntimeSettings:
                 profile_revision=0,
                 approval_mode=session.approval_mode or APPROVAL_MODE_DEFAULT,
                 approval_mode_revision=0,
-                heartbeat_settings=dict(
+                heartbeat_settings=normalize_heartbeat_settings(
                     session.session_data.get("heartbeat_settings")
-                    or DEFAULT_HEARTBEAT_SETTINGS
                 ),
                 heartbeat_settings_revision=0,
             )
