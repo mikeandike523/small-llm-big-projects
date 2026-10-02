@@ -80,6 +80,15 @@ DEFINITION: dict = {
                     "minimum": MIN_TIMEOUT,
                     "maximum": MAX_TIMEOUT,
                 },
+                "pretty_json": {
+                    "type": "boolean",
+                    "description": (
+                        "Pretty-print a response body that is a valid JSON object "
+                        "or array (2-space indent), whatever the accept type. "
+                        "Default true. Set false to keep the body exactly as sent "
+                        "(compact JSON when accept is JSON)."
+                    ),
+                },
                 "debug_show_bad_json": {
                     "type": "boolean",
                     "description": (
@@ -128,6 +137,17 @@ DEFINITION: dict = {
 }
 
 
+def _pretty_json_text(text: str) -> str:
+    """Re-indent `text` if it is a JSON object or array; else return it as-is."""
+    try:
+        value = json.loads(text)
+    except ValueError:
+        return text
+    if not isinstance(value, (dict, list)):
+        return text
+    return json.dumps(value, indent=2, ensure_ascii=False)
+
+
 def needs_approval(
     args: dict, session_data: dict | None = None, special_resources: dict | None = None
 ) -> bool:
@@ -162,6 +182,7 @@ def execute(args, session_data, special_resources=None):
         else:
             return "Error: 'body' is an object but content_type is not JSON-like. Pass a string body or use a JSON content type."
     debug_show_bad_json: bool = bool(args.get("debug_show_bad_json", False))
+    pretty_json: bool = bool(args.get("pretty_json", True))
 
     target = args.get("target", "return_value")
 
@@ -225,6 +246,9 @@ def execute(args, session_data, special_resources=None):
         status_code = resp.status_code
         resp_ct = resp.headers.get("content-type")
         resp_text = resp.content.decode("utf-8", errors="replace")
+        # Straight off the wire, before any formatting or stubbing.
+        if pretty_json:
+            resp_text = _pretty_json_text(resp_text)
 
         if is_json_content_type(accept):
             try:
@@ -244,6 +268,7 @@ def execute(args, session_data, special_resources=None):
                     resp_text if (resp_json is None and debug_show_bad_json) else None
                 ),
                 json_error=json_error,
+                json_indent=2 if pretty_json else None,
             )
         else:
             result = format_response(

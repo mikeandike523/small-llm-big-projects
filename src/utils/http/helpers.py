@@ -20,6 +20,7 @@ def format_response(
     json_value: Any | None = None,
     text_value: str | None = None,
     json_error: str | None = None,
+    json_indent: int | None = 2,
 ) -> str:
     ct_line = response_content_type if response_content_type else "(not set)"
     lines: list[str] = []
@@ -34,7 +35,7 @@ def format_response(
     if is_json_content_type(accept):
         lines.append("Response JSON:")
         if json_value is not None:
-            lines.append(json.dumps(json_value, indent=2, ensure_ascii=False))
+            lines.append(json.dumps(json_value, indent=json_indent, ensure_ascii=False))
         else:
             err = json_error or "Invalid JSON in response body"
             lines.append(json.dumps({"error": err}, indent=2, ensure_ascii=False))

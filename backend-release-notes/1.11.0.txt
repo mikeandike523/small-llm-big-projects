@@ -1,0 +1,1 @@
+basic_web_request: new pretty_json option (default true) pretty-prints JSON object/array response bodies as soon as they are read; false keeps the body as sent

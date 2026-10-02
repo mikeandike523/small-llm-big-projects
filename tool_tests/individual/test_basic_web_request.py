@@ -88,6 +88,55 @@ def run(env: TestEnv, server: MicroServer | None = None):
             "testbody" in r3,
             f"got: {r3!r}",
         )
+        # pretty_json (default true) re-indents a JSON body for any accept type.
+        json_args = {
+            "url": f"{server.base_url}/json",
+            "method": "GET",
+            "timeout": 10,
+        }
+        r4, _ = execute_tool("basic_web_request", json_args, env.session_data)
+        cl.check(
+            "pretty_json default",
+            "A JSON body fetched with accept */* is pretty-printed by default",
+            '{\n  "ok": true\n}' in r4,
+            f"got: {r4!r}",
+        )
+
+        r5, _ = execute_tool(
+            "basic_web_request",
+            {**json_args, "pretty_json": False},
+            env.session_data,
+        )
+        cl.check(
+            "pretty_json false keeps raw body",
+            "pretty_json=false returns the JSON body exactly as sent",
+            '{"ok": true}' in r5 and '{\n  "ok"' not in r5,
+            f"got: {r5!r}",
+        )
+
+        r6, _ = execute_tool(
+            "basic_web_request",
+            {**json_args, "accept": "application/json", "pretty_json": False},
+            env.session_data,
+        )
+        cl.check(
+            "pretty_json false with JSON accept",
+            "pretty_json=false emits compact JSON when accept is JSON",
+            '{"ok": true}' in r6 and '{\n  "ok"' not in r6,
+            f"got: {r6!r}",
+        )
+
+        r7, _ = execute_tool(
+            "basic_web_request",
+            {**json_args, "url": f"{server.base_url}/hello"},
+            env.session_data,
+        )
+        cl.check(
+            "pretty_json leaves non-JSON alone",
+            "A plain-text body is returned unchanged",
+            "hello world" in r7,
+            f"got: {r7!r}",
+        )
     except Exception as e:
         cl.record_exception(e)
     return cl.result()
