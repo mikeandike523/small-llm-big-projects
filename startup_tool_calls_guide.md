@@ -168,9 +168,7 @@ handles normal turn tool calls. That skips several things:
 - **No auto-snapshot.** Writing a file here does not trigger the
   before-first-write snapshot that a normal in-turn write does
   (`src/tools/_file_snapshot.py`).
-- **No result stubbing.** Long results are still truncated per-line
-  (`TOOL_OUTPUT_MAX_COLUMNS`, applied inside `execute_tool` itself — this
-  part is identical), but the "stub into session memory with a preview"
+- **No result stubbing.** The "stub into session memory with a preview"
   behavior (`NO_STUB`, `custom_tool_guide.md` §7) only exists in
   `_execute_tools` and never runs here.
 - **A smaller `special_resources`.** Only these keys are populated:

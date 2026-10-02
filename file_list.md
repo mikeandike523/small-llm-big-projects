@@ -78,7 +78,6 @@ confirmed none present — see Issues section for anything notable).
 - [x] src/tools/change_pwd.py
 - [x] src/tools/check_terminal_state.py
 - [x] src/tools/code_interpreter.py
-- [x] src/tools/config.py
 - [x] src/tools/copy_dir.py
 - [x] src/tools/copy_file.py
 - [x] src/tools/create_dir.py

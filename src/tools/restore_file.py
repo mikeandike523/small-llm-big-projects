@@ -43,8 +43,6 @@ DEFINITION: dict = {
     },
 }
 
-NO_STUB = True
-
 
 def dirty_effects(args: dict) -> dict:
     if args.get("action", "restore") == "restore":

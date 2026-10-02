@@ -31,8 +31,6 @@ DEFINITION: dict = {
     },
 }
 
-NO_STUB = True
-
 
 def needs_approval(
     args: dict, session_data: dict | None = None, special_resources: dict | None = None

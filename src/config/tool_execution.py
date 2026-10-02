@@ -1,7 +1,6 @@
 """Configuration for the central tool dispatcher (src/tools/__init__.py).
 
-Kept in its own module, separate from src/tools/config.py (built-in-tool
-output constants), since this specifically configures the NextTool
+Kept in its own module since this specifically configures the NextTool
 delegation mechanism used by check_needs_approval/get_dirty_effects/
 execute_tool -- see custom_tool_guide.md's wrapping section.
 """

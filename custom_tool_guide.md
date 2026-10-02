@@ -313,12 +313,11 @@ def execute(args: dict, session_data: dict, special_resources: dict | None = Non
   effects are skipped for any result starting with `"Error"` — see §9).
 - Do not catch and swallow `ToolHangError`/`ToolTimeoutError` — let them
   propagate; the framework has dedicated handling for both (`src.utils.exceptions`).
-- Long return values are automatically truncated per-line
-  (`TOOL_OUTPUT_MAX_COLUMNS`) and, above a size threshold, "stubbed" into
-  session memory with a preview (see `_stub_tool_result` in
-  `tool_execution.py`). Set `NO_STUB = True` at module level to opt out for
-  tools whose full output the agent must always see verbatim (used by
-  `dom_analyzer.py`, `snapshot_file.py`, `restore_file.py`):
+- Long return values are, above a size threshold
+  (`system.return_value_max_chars`), "stubbed" into session memory with a
+  preview (see `_stub_tool_result` in `tool_execution.py`). Set
+  `NO_STUB = True` at module level to opt out for tools whose full output the
+  agent must always see verbatim (used by `dom_analyzer.py`):
 
   ```python
   NO_STUB = True

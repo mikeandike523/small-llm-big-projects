@@ -46,24 +46,9 @@ from src.tools import todo_list
 from src.tools import wikipedia
 from src.tools import write_text_file
 from src.utils.tool_calling.arguments import validate_tool_args
-from src.tools.config import TOOL_OUTPUT_MAX_COLUMNS
 from src.config.tool_execution import MAX_TOOL_DELEGATION_HOPS
-from src.utils.text_truncation import truncate_long_lines
 from src.tools._cancellation import check_cancelled, get_cancel_event
 from src.tools._custom_tool_reload import reload_modules
-
-
-def _truncate_columns(text: str) -> str:
-    """Cap every line of a tool result at TOOL_OUTPUT_MAX_COLUMNS characters.
-
-    Applied to every tool result in execute_tool so no single line of output
-    (e.g. minified/compiled content) can flood the context window. See
-    src/tools/config.py for the rationale and the no-escape-hatch policy.
-    """
-    if not isinstance(text, str):
-        return text
-    return truncate_long_lines(text, TOOL_OUTPUT_MAX_COLUMNS)
-
 
 # ---------------------------------------------------------------------------
 # Safe sibling-file imports for custom tool authors
@@ -601,7 +586,7 @@ def execute_tool(
             result = f"Failed to execute tool {name}:\n{tb}".rstrip()
         else:
             result = f"Failed to execute tool {name}:\n{e}"
-        return _truncate_columns(result), [NextTool(name, args)]
+        return result, [NextTool(name, args)]
 
     enable_redaction = redaction_state["enable_redaction"]
     bypass_redaction = (
@@ -610,17 +595,14 @@ def execute_tool(
         and redaction_state["requested_unredacted"]
     )
 
-    # Column truncation is applied last, AFTER redaction, so that secrets are
-    # detected/replaced against the full text and truncation can never split a
-    # secret and leak a partial value.
     if not enable_redaction or bypass_redaction:
-        return _truncate_columns(result), hop_path
+        return result, hop_path
 
     from src.redaction.core import redact as _redact
 
     _fp = args.get("path") or args.get("filepath") or None
     file_path = _fp if isinstance(_fp, str) else None
-    return _truncate_columns(_redact(file_path, result)), hop_path
+    return _redact(file_path, result), hop_path
 
 
 def extend_tool_definition(
