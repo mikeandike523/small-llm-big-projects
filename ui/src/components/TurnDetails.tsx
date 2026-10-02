@@ -29,8 +29,7 @@ const FALLBACK_TOOL_CALLS_COLUMN_WIDTH_PX = 340;
 // so scrolling tool calls does not scroll the thinking bubble away.
 const centerColumnCss = css`
   display: grid;
-  grid-template-rows: minmax(150px, 400px) minmax(200px, 500px);
-  max-height: 480px;
+  grid-template-rows: minmax(0, 4fr) minmax(0, 5fr);
   min-height: 0;
   min-width: 0;
   gap: 8px;
@@ -111,7 +110,7 @@ const todoColumnCss = css`
   padding-left: 16px;
   min-width: 0;
   overflow-y: auto;
-  max-height: 480px;
+  min-height: 0;
 `;
 
 const todoHeaderCss = css`

@@ -1,0 +1,1 @@
+Session history loads one turn at a time on request (load_turn) instead of streaming every turn; heartbeats now auto-detect new task vs. continuation and take over the latest turn when they continue it

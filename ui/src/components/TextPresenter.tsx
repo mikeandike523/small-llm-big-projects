@@ -12,7 +12,8 @@ import { useStickToBottom } from "use-stick-to-bottom";
 
 interface TextPresenterProps {
   content: string;
-  maxHeight: number;
+  /** Cap the height (px) and scroll inside; omit to let the parent scroll. */
+  maxHeight?: number;
   streaming?: boolean;
   initialMode?: "plain" | "markdown";
   /** Show the plain/MD toggle button. Default true. */
@@ -65,6 +66,20 @@ const scrollContainerCss = (maxHeight: number) => css`
   max-height: ${maxHeight}px;
   overflow-y: auto;
 `;
+
+const renderContent = (mode: "plain" | "markdown", content: string) =>
+  mode === "plain" ? (
+    <div css={plainCss}>{content}</div>
+  ) : (
+    <div css={markdownCss}>
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        rehypePlugins={[rehypeHighlight]}
+      >
+        {content}
+      </ReactMarkdown>
+    </div>
+  );
 
 const plainCss = css`
   white-space: pre-wrap;
@@ -212,22 +227,13 @@ export function TextPresenter({
           </button>
         </div>
       )}
-      <div ref={scrollRef} css={scrollContainerCss(maxHeight)}>
-        <div ref={contentRef}>
-          {mode === "plain" ? (
-            <div css={plainCss}>{content}</div>
-          ) : (
-            <div css={markdownCss}>
-              <ReactMarkdown
-                remarkPlugins={[remarkGfm]}
-                rehypePlugins={[rehypeHighlight]}
-              >
-                {content}
-              </ReactMarkdown>
-            </div>
-          )}
+      {maxHeight === undefined ? (
+        renderContent(mode, content)
+      ) : (
+        <div ref={scrollRef} css={scrollContainerCss(maxHeight)}>
+          <div ref={contentRef}>{renderContent(mode, content)}</div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

@@ -134,17 +134,26 @@ def load_event_page(
     ]
 
 
-def load_latest_event_payload(session_id: str, event_type: str) -> dict | None:
-    """Return the payload of the session's newest event of `event_type`."""
+def load_latest_event_payload(
+    session_id: str, event_type: str, *, upto_id: int | None = None
+) -> dict | None:
+    """Return the payload of the session's newest event of `event_type`.
+
+    With `upto_id`, only events with id <= upto_id are considered.
+    """
+    sql = (
+        "SELECT payload FROM session_events "
+        "WHERE session_id = %s AND event_type = %s"
+    )
+    params: tuple = (session_id, event_type)
+    if upto_id is not None:
+        sql += " AND id <= %s"
+        params += (upto_id,)
+    sql += " ORDER BY id DESC LIMIT 1"
     pool = get_pool()
     with pool.get_connection() as conn:
         with conn.cursor(dictionary=True) as cur:
-            cur.execute(
-                "SELECT payload FROM session_events "
-                "WHERE session_id = %s AND event_type = %s "
-                "ORDER BY id DESC LIMIT 1",
-                (session_id, event_type),
-            )
+            cur.execute(sql, params)
             row = cur.fetchone()
     return _normalize_json(row["payload"]) if row else None
 
@@ -178,15 +187,21 @@ def add_thinking_chars(
         conn.commit()
 
 
-def load_thinking_char_counts(session_id: str) -> dict[str, tuple[int, int]]:
-    """Return `{subturn_id: (native_chars, irat_chars)}` for a session."""
+def load_thinking_char_counts(
+    session_id: str, subturn_ids: list[str]
+) -> dict[str, tuple[int, int]]:
+    """Return `{subturn_id: (native_chars, irat_chars)}` for those subturns."""
+    if not subturn_ids:
+        return {}
+    placeholders = ", ".join(["%s"] * len(subturn_ids))
     pool = get_pool()
     with pool.get_connection() as conn:
         with conn.cursor(dictionary=True) as cur:
             cur.execute(
                 "SELECT subturn_id, native_chars, irat_chars "
-                "FROM subturn_thinking_chars WHERE session_id = %s",
-                (session_id,),
+                "FROM subturn_thinking_chars "
+                f"WHERE session_id = %s AND subturn_id IN ({placeholders})",
+                (session_id, *subturn_ids),
             )
             rows = cur.fetchall()
     return {

@@ -13,10 +13,13 @@ import TurnDetails from "./TurnDetails";
 import SubturnStatsPills from "../subcomponents/TurnContainer/SubturnStatsPills";
 import ContextNotesModal from "../subcomponents/TurnContainer/ContextNotesModal";
 
+// A turn fills its page: banner on top, body takes the remaining height.
 const turnWrapperCss = css`
   display: flex;
   flex-direction: column;
   gap: 0;
+  height: 100%;
+  min-height: 0;
 `;
 
 const turnBannerCss = css`
@@ -30,6 +33,7 @@ const turnBannerCss = css`
   border-bottom: none;
   border-radius: 8px 8px 0 0;
   padding: 5px 16px;
+  flex-shrink: 0;
 `;
 
 const taskTitleCss = css`
@@ -96,6 +100,8 @@ const OWNER_PILL_LABEL: Record<SubturnOrigin, string> = {
 // The turn body: the column grid plus, on the right edge, the "Details"
 // divider that collapses the Thinking/Tool Calls and Todo columns.
 const turnBodyCss = css`
+  flex: 1;
+  min-height: 0;
   display: flex;
   border: 1px solid #22304d;
   border-radius: 0 0 12px 12px;
@@ -111,6 +117,9 @@ const turnGridCss = (expanded: boolean) => css`
   grid-template-columns: ${expanded
     ? "minmax(0, 5fr) minmax(0, 4fr) minmax(0, 2fr)"
     : "minmax(0, 1fr)"};
+  /* Columns fill the height; pending approvals take an auto row below. */
+  grid-template-rows: minmax(0, 1fr);
+  min-height: 0;
   gap: 24px;
   padding: 20px 24px;
 `;
@@ -118,8 +127,8 @@ const turnGridCss = (expanded: boolean) => css`
 const leftColumnCss = css`
   ${scrollbarCss}
   min-width: 0;
+  min-height: 0;
   overflow-y: auto;
-  max-height: 480px;
 `;
 
 const leftContentCss = css`
@@ -136,6 +145,9 @@ const approvalRowCss = css`
   gap: 8px;
   border-top: 1px solid #22304d;
   padding-top: 16px;
+  max-height: 45vh;
+  overflow-y: auto;
+  ${scrollbarCss}
 `;
 
 const userBubbleCss = css`
@@ -148,8 +160,6 @@ const userBubbleCss = css`
   word-break: break-word;
   line-height: 1.5;
   align-self: flex-end;
-  max-height: 180px;
-  overflow-y: auto;
   box-shadow: 0 2px 10px rgba(29, 78, 216, 0.3);
 `;
 
@@ -405,7 +415,6 @@ export default function TurnContainer({
                       >
                         <TextPresenter
                           content={stContent}
-                          maxHeight={isLast ? 600 : 300}
                           streaming={isLast && isStreamingFinal}
                         />
                       </div>

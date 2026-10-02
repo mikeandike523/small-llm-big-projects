@@ -1,5 +1,4 @@
 import { css } from "@emotion/react";
-import scrollbarCss from "./scrollBarCss";
 import _spin from "./_spin";
 
 export const appLayoutCss = css`
@@ -46,14 +45,15 @@ export const mainAreaCss = css`
   height: 100%;
 `;
 
+// Holds the current page's turn, which fills all the room between the
+// pagination bar and the input bar (each turn column scrolls on its own).
 export const threadCss = css`
-  ${scrollbarCss}
   flex: 1;
-  overflow-y: auto;
-  padding: 24px 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
+  padding: 16px;
 `;
 
 export const inputBarCss = css`

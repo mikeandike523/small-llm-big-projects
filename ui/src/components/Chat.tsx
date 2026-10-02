@@ -2,7 +2,6 @@ import { css } from "@emotion/react";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { type Socket } from "socket.io-client";
-import { useStickToBottom } from "use-stick-to-bottom";
 import { FaHeartbeat, FaSyncAlt } from "react-icons/fa";
 import { toast } from "sonner";
 import {
@@ -31,13 +30,14 @@ import { fetchToolPreviewConfig } from "../api/toolPreviewConfig";
 import { createSocket } from "../socket";
 import HeartbeatSettingsDialog from "./HeartbeatSettingsDialog";
 import { formatIntervalMinutes } from "../utils/formatInterval";
-import HistoryLoadingRow from "../subcomponents/Chat/HistoryLoadingRow";
 import SessionErrorBanner from "../subcomponents/Chat/SessionErrorBanner";
+import StartupToolsButton from "../subcomponents/Chat/StartupToolsButton";
 import ToolModal from "../subcomponents/Chat/ToolModal";
+import TurnPagination from "../subcomponents/Chat/TurnPagination";
+import TurnPlaceholder from "../subcomponents/Chat/TurnPlaceholder";
 import { DebugPanel } from "./DebugPanel";
 import FormattedCostWithColor from "./FormattedCostWithColor";
 import ContextUsageBar from "./ContextUsageBar";
-import StartupToolCallsCard from "./StartupToolsCard";
 import { TerminalPanel } from "./TerminalPanel";
 import TurnContainer from "./TurnContainer";
 
@@ -83,12 +83,6 @@ export default function Chat() {
   const [debugOpen, setDebugOpen] = useState(false);
 
   const {
-    scrollRef: threadRef,
-    contentRef: threadContentRef,
-    scrollToBottom,
-  } = useStickToBottom();
-
-  const {
     thread,
     startupToolCalls,
     startupDone,
@@ -105,8 +99,14 @@ export default function Chat() {
     systemPrompt,
     backendLogs,
     historyLoading,
-    historyProgress,
     historyError,
+    turnIds,
+    page,
+    unseenLatest,
+    turnErrors,
+    goToPage,
+    retryTurn,
+    followNextTurn,
     sessionError,
     clearSessionError,
     sessionCost,
@@ -117,17 +117,24 @@ export default function Chat() {
     setContextUsageData,
     terminalOpen,
     setTerminalOpen,
-  } = useSocketWiring(socket, scrollToBottom);
+  } = useSocketWiring(socket);
+
+  // `thread` is the cache of loaded turns; the page shows one of them.
+  const latestTurnId = turnIds[turnIds.length - 1];
+  const currentTurnId = page > 0 ? turnIds[page - 1] : undefined;
+  const currentTurn = thread.find((t) => t.id === currentTurnId);
+  // Point the reader at the latest turn when it waits for approval elsewhere.
+  const latestNeedsApproval =
+    page !== turnIds.length &&
+    (thread.find((t) => t.id === latestTurnId)?.approvalItems.length ?? 0) > 0;
 
   // Electron's tab strip has no browser chrome to read a title from, so it
   // listens for the native page-title-updated event -- setting document.title
   // is the only hook needed to drive it (no custom IPC).
+  const latestTitle = thread.find((t) => t.id === latestTurnId)?.taskTitle;
   useEffect(() => {
-    const latestTitle = [...thread]
-      .reverse()
-      .find((t) => t.taskTitle)?.taskTitle;
     document.title = latestTitle ?? "New Session";
-  }, [thread]);
+  }, [latestTitle]);
 
   const [profiles, setProfiles] = useState<string[]>([]);
   const [approvalModes, setApprovalModes] = useState<string[]>([
@@ -273,14 +280,14 @@ export default function Chat() {
     });
     setBusy(true);
     setInputText("");
-    scrollToBottom();
+    followNextTurn();
   }, [
     inputText,
     followupBehavior,
     busy,
     connected,
     historyLoading,
-    scrollToBottom,
+    followNextTurn,
   ]);
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -344,6 +351,11 @@ export default function Chat() {
           </span>
           {contextUsageData && <ContextUsageBar data={contextUsageData} />}
           <div css={headerSideCss}>
+            <StartupToolsButton
+              toolCalls={startupToolCalls}
+              done={startupDone}
+              onViewFull={setModalContent}
+            />
             {loadCustomSkillsTools && (
               <button
                 onClick={handleReloadCustomizations}
@@ -467,39 +479,43 @@ export default function Chat() {
             )}{" "}
           </div>
         </div>
-        <div css={threadCss} ref={threadRef}>
-          <div
-            ref={threadContentRef}
-            css={css`
-              display: flex;
-              flex-direction: column;
-              gap: 28px;
-            `}
-          >
-            {startupToolCalls.length > 0 && (
-              <StartupToolCallsCard
-                toolCalls={startupToolCalls}
-                done={startupDone}
-                onViewFull={setModalContent}
-              />
-            )}
-            {thread.map((turn) => (
-              <TurnContainer
-                key={turn.id}
-                turn={turn}
-                onViewFull={setModalContent}
-                onApprove={approve}
-                onDeny={deny}
-                onDenyWithRedirect={denyWithRedirect}
-                onDenyAndStop={denyAndStop}
-              />
-            ))}
-            <HistoryLoadingRow
-              loading={historyLoading}
-              progress={historyProgress}
-              error={historyError}
+        {turnIds.length > 0 && page > 0 && (
+          <TurnPagination
+            page={page}
+            total={turnIds.length}
+            unseenLatest={unseenLatest || latestNeedsApproval}
+            onGo={goToPage}
+          />
+        )}
+        <div css={threadCss}>
+          {currentTurn ? (
+            <TurnContainer
+              key={currentTurn.id}
+              turn={currentTurn}
+              onViewFull={setModalContent}
+              onApprove={approve}
+              onDeny={deny}
+              onDenyWithRedirect={denyWithRedirect}
+              onDenyAndStop={denyAndStop}
             />
-          </div>
+          ) : historyError ? (
+            <TurnPlaceholder state="error" message={historyError} />
+          ) : historyLoading ? (
+            <TurnPlaceholder state="loading" message="Loading session…" />
+          ) : currentTurnId && turnErrors[currentTurnId] ? (
+            <TurnPlaceholder
+              state="error"
+              message={turnErrors[currentTurnId]}
+              onRetry={() => retryTurn(currentTurnId)}
+            />
+          ) : currentTurnId ? (
+            <TurnPlaceholder
+              state="loading"
+              message={`Loading turn ${page}…`}
+            />
+          ) : (
+            <TurnPlaceholder state="empty" />
+          )}
         </div>
         <SessionErrorBanner
           message={sessionError}

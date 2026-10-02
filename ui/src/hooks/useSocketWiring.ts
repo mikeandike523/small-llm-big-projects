@@ -12,7 +12,12 @@ import type {
 } from "../types";
 import { DEFAULT_HEARTBEAT_SETTINGS, toSubturnOrigin } from "../types";
 import type { BackendLogEntry, BackendLogContent } from "../types/DebugPanel";
-import { wireHistoryLoad, type HistoryProgress } from "./historyLoad";
+import {
+  backendTurnToFrontendTurn,
+  requestTurn,
+  turnEndedIn,
+} from "./turnLoad";
+import useTurnPages from "./useTurnPages";
 
 const MAX_LOGS = 100;
 
@@ -65,11 +70,11 @@ function updateToolCallById(
   };
 }
 
-export default function useSocketWiring(
-  socket: Socket,
-  scrollToBottom: () => void,
-) {
+export default function useSocketWiring(socket: Socket) {
+  // The cache of loaded turns (see useTurnPages), not the whole conversation.
   const [thread, setThread] = useState<Turn[]>([]);
+  const pages = useTurnPages(socket, thread, setThread);
+  const { noteTurnStarted } = pages;
   const [startupToolCalls, setStartupToolCalls] = useState<ToolCallEntry[]>([]);
   const [startupDone, setStartupDone] = useState(false);
   const [connected, setConnected] = useState(false);
@@ -98,18 +103,15 @@ export default function useSocketWiring(
   const [terminalOpen, setTerminalOpen] = useState(false);
   const [systemPrompt, setSystemPrompt] = useState<string | null>(null);
   const [backendLogs, setBackendLogs] = useState<BackendLogEntry[]>([]);
-  // Progressive history load (see historyLoad.ts). While loading, thread-
-  // mutating live events are queued in pendingLiveRef and flushed afterwards.
+  // The latest-turn load (see turnLoad.ts). While loading, thread-mutating
+  // live events are queued in pendingLiveRef and flushed afterwards.
   const [historyLoading, setHistoryLoading] = useState(true);
-  const [historyProgress, setHistoryProgress] = useState<HistoryProgress>({
-    loaded: 0,
-    total: null,
-  });
   const [historyError, setHistoryError] = useState<string | null>(null);
   // Errors not tied to a turn (e.g. a failed database save), shown as a banner.
   const [sessionError, setSessionError] = useState<string | null>(null);
   const historyLoadingRef = useRef(true);
-  const historyLoadIdRef = useRef<string | null>(null);
+  // Bumped per latest-turn load so a stale response is ignored.
+  const latestLoadRef = useRef(0);
   const pendingLiveRef = useRef<(() => void)[]>([]);
   const [sessionCost, setSessionCost] = useState<number | null>(null);
   const [sessionProfile, setSessionProfile] = useState<string | null>(null);
@@ -184,6 +186,7 @@ export default function useSocketWiring(
               ];
             }
           });
+          noteTurnStarted(id);
           break;
         }
         case "replay_content_snapshot": {
@@ -514,7 +517,7 @@ export default function useSocketWiring(
         }
       }
     },
-    [updateTurn],
+    [updateTurn, noteTurnStarted],
   );
 
   // ---------------------------------------------------------------------------
@@ -541,7 +544,40 @@ export default function useSocketWiring(
       for (const run of queued) run();
       setHistoryError(error);
       setHistoryLoading(false);
-      scrollToBottom();
+    }
+
+    // Load the turn list and the latest turn, with a running turn's live
+    // state replayed on top; other turns are fetched per page (useTurnPages).
+    function loadLatest() {
+      const generation = ++latestLoadRef.current;
+      requestTurn(socket, { latest: true })
+        .then((res) => {
+          if (generation !== latestLoadRef.current) return;
+          pages.setInitialTurnIds(res.turnIds);
+          if (res.turn) {
+            let turn = backendTurnToFrontendTurn(res.turn);
+            if (res.running && !turn.completed) {
+              // The saved todo list belongs to the running turn; newer
+              // todo_list_update events below override it.
+              turn = { ...turn, todoItems: res.liveTodoItems ?? [] };
+            }
+            setThread([turn]);
+          }
+          for (const ev of res.events) applyReplayEvent(ev.type, ev.data);
+          if (res.running && !turnEndedIn(res.events)) {
+            setThread((prev) =>
+              prev.map((t) => (t.completed ? t : { ...t, streaming: true })),
+            );
+            setBusy(true);
+          }
+          pages.markReady();
+          finishHistoryLoad(null);
+        })
+        .catch((err: Error) => {
+          if (generation !== latestLoadRef.current) return;
+          pages.markReady();
+          finishHistoryLoad(err.message);
+        });
     }
 
     function onConnect() {
@@ -550,11 +586,11 @@ export default function useSocketWiring(
       setCancelling(false);
       // Every (re)connect rebuilds the thread from the backend.
       historyLoadingRef.current = true;
-      historyLoadIdRef.current = null;
+      latestLoadRef.current += 1;
       pendingLiveRef.current = [];
       setHistoryLoading(true);
       setHistoryError(null);
-      setHistoryProgress({ loaded: 0, total: null });
+      pages.reset();
       setThread([]);
       socket.emit("resume_session");
       socket.emit("get_pwd");
@@ -717,6 +753,7 @@ export default function useSocketWiring(
     // resume_session could not load the session (e.g. MySQL is down):
     // there is no history to load; show why. Reloading the page retries.
     function onSessionLoadError({ message }: { message: string }) {
+      pages.markReady();
       finishHistoryLoad(message);
     }
 
@@ -734,6 +771,7 @@ export default function useSocketWiring(
     }) {
       if (data.schemaInvalid) {
         // Schema mismatch — there is no history to load.
+        pages.markReady();
         finishHistoryLoad(null);
         setThread([]);
         setStartupToolCalls([]);
@@ -768,10 +806,8 @@ export default function useSocketWiring(
         setLoadCustomSkillsTools(data.loadCustomSkillsTools);
       }
 
-      // The conversation itself streams in turn by turn (historyLoad.ts).
-      const loadId = crypto.randomUUID();
-      historyLoadIdRef.current = loadId;
-      socket.emit("begin_history_load", { loadId });
+      // The conversation itself loads one turn at a time (turnLoad.ts).
+      loadLatest();
     }
 
     // Shell output snapshot: emitted when browser reconnects during a running host_shell.
@@ -835,8 +871,8 @@ export default function useSocketWiring(
           return [...prev, newTurn(id, userText, origin, subturnId)];
         }
       });
+      noteTurnStarted(id);
       setBusy(true);
-      scrollToBottom();
     }
 
     function onToken(data: {
@@ -1125,14 +1161,6 @@ export default function useSocketWiring(
     for (const [event, handler] of Object.entries(liveThreadHandlers)) {
       socket.on(event, handler);
     }
-    const unwireHistoryLoad = wireHistoryLoad(socket, {
-      loadIdRef: historyLoadIdRef,
-      setThread,
-      setProgress: setHistoryProgress,
-      setBusy,
-      applyReplayEvent,
-      finish: finishHistoryLoad,
-    });
 
     // Connect after all handlers are registered so we never miss the connect event
     socket.connect();
@@ -1158,11 +1186,10 @@ export default function useSocketWiring(
       for (const [event, handler] of Object.entries(liveThreadHandlers)) {
         socket.off(event, handler);
       }
-      unwireHistoryLoad();
       socket.disconnect();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [socket, applyReplayEvent, updateTurn]);
+  }, [socket, applyReplayEvent, updateTurn, noteTurnStarted]);
 
   return {
     thread,
@@ -1181,8 +1208,14 @@ export default function useSocketWiring(
     systemPrompt,
     backendLogs,
     historyLoading,
-    historyProgress,
     historyError,
+    turnIds: pages.turnIds,
+    page: pages.page,
+    unseenLatest: pages.unseenLatest,
+    turnErrors: pages.turnErrors,
+    goToPage: pages.goToPage,
+    retryTurn: pages.retryTurn,
+    followNextTurn: pages.followNextTurn,
     sessionError,
     clearSessionError: () => setSessionError(null),
     sessionCost,

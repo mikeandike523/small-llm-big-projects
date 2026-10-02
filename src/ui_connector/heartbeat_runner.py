@@ -1,4 +1,9 @@
-"""Heartbeat runner: launches a heartbeat's instructions as a new-task turn.
+"""Heartbeat runner: sends a heartbeat's instructions as a message.
+
+The message uses "auto" follow-up detection, like Send with auto-detect: the
+continuation watchdog decides whether it starts a new task or continues the
+latest one. A continuation appends a heartbeat-origin subturn, so the turn's
+owner (its latest subturn's origin) flips to heartbeat.
 
 The daemon (``heartbeat_daemon.py``) decides *when* a session is due; this
 module decides *how* to fire it:
@@ -24,11 +29,11 @@ logger = logging.getLogger(__name__)
 
 HEARTBEAT_RETRY_SECONDS = 60.0
 HEARTBEAT_MAX_CANCEL_ATTEMPTS = 3
-HEARTBEAT_FOLLOWUP_BEHAVIOR = "new-task"
+HEARTBEAT_FOLLOWUP_BEHAVIOR = "auto"
 
 
-def _launch_new_task(session_id: str, text: str) -> bool:
-    """Start a turn exactly like clicking Send with "force new task" selected."""
+def _launch_heartbeat(session_id: str, text: str) -> bool:
+    """Send a message exactly like clicking Send with auto-detect selected."""
     from src.ui_connector.socket_handler_components.socket_events_turn import (
         new_user_message,
     )
@@ -68,7 +73,7 @@ class HeartbeatRunner:
     def __init__(
         self,
         *,
-        launch: Callable[[str, str], bool] = _launch_new_task,
+        launch: Callable[[str, str], bool] = _launch_heartbeat,
         running_turn_owner: Callable[[str], str | None] = _running_turn_owner,
         cancel: Callable[[str], None] = _cancel_turn,
         record_run: Callable[[str], None] = lambda _session_id: None,
@@ -141,7 +146,9 @@ class HeartbeatRunner:
         """
         for _ in range(2):
             if self._launch(session_id, text):
-                logger.info("Heartbeat launched: session_id=%s (new task)", session_id)
+                logger.info(
+                    "Heartbeat launched: session_id=%s (auto-detect)", session_id
+                )
                 return _LAUNCHED
             owner = self._running_turn_owner(session_id)
             if owner == SUBTURN_ORIGIN_USER:

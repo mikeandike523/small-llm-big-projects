@@ -7,7 +7,7 @@ import ToolCallCard from "./ToolCallCard";
 
 const toolCallsGroupCss = css`
   ${scrollbarCss}
-  max-height: 420px;
+  max-height: 65vh;
   overflow-y: auto;
   display: flex;
   flex-direction: column;

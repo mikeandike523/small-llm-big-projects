@@ -22,9 +22,6 @@ from src.ui_connector.socket_handler_components.session_store import (
 from src.ui_connector.socket_handler_components.terminal import _format_cmd_display
 from src.tools import execute_tool
 from src.utils.llm.factory import load_llm_config
-from src.ui_connector.socket_handler_components.history_loader import (
-    cancel_history_load,
-)
 from src.utils.request_error_formatting import failure_message
 from src.utils.session_model import CURRENT_SCHEMA_VERSION
 
@@ -122,8 +119,8 @@ def handle_resume_session(data: dict | None = None):
         emit("session_state", {"schemaInvalid": True})
         return
 
-    # Conversation history is NOT sent here: the client follows up with
-    # begin_history_load, which streams it turn by turn (history_loader.py).
+    # Conversation history is NOT sent here: the client asks for turns one at
+    # a time with load_turn, starting with the latest (history_loader.py).
     is_turn_active = _state.is_turn_reserved(session_id)
     emit(
         "session_state",
@@ -190,7 +187,6 @@ def handle_resume_session(data: dict | None = None):
 @socketio.on("disconnect")
 def handle_disconnect():
     sid = request.sid
-    cancel_history_load(sid)
     session_id = _state._sid_to_session_id.pop(sid, None)
     if session_id is None:
         # Terminal-only connection — clean up all terminals belonging to this sid.

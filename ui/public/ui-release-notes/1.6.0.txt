@@ -1,0 +1,1 @@
+One turn per page with a pagination bar (page links, ellipses, and a validated page-number box); turns fill the available space; turns load on demand with a small cache; startup tool calls moved to a header button and modal

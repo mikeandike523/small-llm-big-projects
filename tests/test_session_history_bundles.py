@@ -1,4 +1,4 @@
-"""Streaming per-turn history bundles and the event-model fixes they rely on."""
+"""Per-turn history loading and the event-model fixes it relies on."""
 
 from __future__ import annotations
 
@@ -199,54 +199,100 @@ class _FakeLock:
         return False
 
 
-@pytest.mark.parametrize("page_size", [1, 3, 200])
-def test_worker_streams_bundles_and_unsaved_events(monkeypatch, page_size) -> None:
-    session, log = _build_session()
-    cutoff = log.rows[-1]["id"]
-    sent: list[tuple[str, dict]] = []
-
-    def fake_emit(event, data, to=None, callback=None):
-        sent.append((event, data))
-        if callback is not None:
-            callback()
+def _wire_loader(monkeypatch, log, *, page_size=500, running=True, unsaved=()):
+    """Point history_loader at the in-memory event log."""
 
     def fake_page(session_id, after_id, upto_id, limit):
         rows = [r for r in log.rows if after_id < r["id"] <= upto_id]
         return rows[:limit]
 
-    unsaved = [{"id": "5-0", "type": "tool_call", "data": {"id": "c3"}}]
+    def fake_latest(session_id, event_type, *, upto_id=None):
+        rows = [
+            r
+            for r in log.rows
+            if r["event_type"] == event_type and (upto_id is None or r["id"] <= upto_id)
+        ]
+        return rows[-1]["payload"] if rows else None
+
     hl = history_loader
     monkeypatch.setattr(hl, "_PAGE_SIZE", page_size)
-    monkeypatch.setattr(hl.socketio, "emit", fake_emit)
-    monkeypatch.setattr(hl, "max_event_id", lambda sid: cutoff)
+    monkeypatch.setattr(hl, "max_event_id", lambda sid: log.rows[-1]["id"])
     monkeypatch.setattr(hl, "list_turn_starts", lambda sid: log.turn_starts())
     monkeypatch.setattr(hl, "load_event_page", fake_page)
+    monkeypatch.setattr(hl, "load_latest_event_payload", fake_latest)
     monkeypatch.setattr(hl, "load_session_meta", lambda sid: {"schema_version": 6})
-    monkeypatch.setattr(hl, "load_thinking_char_counts", lambda sid: {"st1": (12, 3)})
+    monkeypatch.setattr(
+        hl,
+        "load_thinking_char_counts",
+        lambda sid, ids: {"st1": (12, 3)} if "st1" in ids else {},
+    )
     monkeypatch.setattr(hl, "get_watermark", lambda r, sid: "4-0")
-    monkeypatch.setattr(hl, "get_events_since", lambda r, sid, w: unsaved)
+    monkeypatch.setattr(hl, "get_events_since", lambda r, sid, w: list(unsaved))
     monkeypatch.setattr(hl._state, "_get_redis", lambda: object())
-    monkeypatch.setattr(hl._state, "is_turn_reserved", lambda sid: True)
+    monkeypatch.setattr(hl._state, "is_turn_reserved", lambda sid: running)
     monkeypatch.setattr(
         hl.runtime_settings, "persistence_lock", lambda sid: _FakeLock()
     )
+    return hl
 
-    hl._stream_history("sid1", "s1", "load1", hl.threading.Event())
 
-    assert sent[0] == (
-        "history_load_started",
-        {"loadId": "load1", "turnIds": ["t1", "t2", "t3", "t4"], "running": True},
-    )
-    bundles = [d for e, d in sent if e == "history_turn_bundle"]
-    assert [b["seq"] for b in bundles] == [0, 1, 2, 3]
-    expected = _turns(session)
-    for turn in expected:
-        for st in turn["subturns"]:
-            st["native_thinking_chars"], st["irat_thinking_chars"] = (
-                (12, 3) if st["id"] == "st1" else (0, 0)
-            )
-    assert [b["turn"] for b in bundles] == expected
-    done_event, done = sent[-1]
-    assert done_event == "history_load_done"
-    assert done["events"] == unsaved
-    assert done["liveTodoItems"] is not None
+def _with_thinking(turn: dict) -> dict:
+    for st in turn["subturns"]:
+        st["native_thinking_chars"], st["irat_thinking_chars"] = (
+            (12, 3) if st["id"] == "st1" else (0, 0)
+        )
+    return turn
+
+
+@pytest.mark.parametrize("page_size", [1, 3, 500])
+def test_load_turn_returns_each_turn_exactly_as_full_replay(
+    monkeypatch, page_size
+) -> None:
+    session, log = _build_session()
+    hl = _wire_loader(monkeypatch, log, page_size=page_size)
+
+    for expected in _turns(session):
+        result = hl.load_turn("s1", expected["id"])
+        assert result == {"turnId": expected["id"], "turn": _with_thinking(expected)}
+
+
+def test_load_turn_unknown_id_is_an_error(monkeypatch) -> None:
+    _, log = _build_session()
+    hl = _wire_loader(monkeypatch, log)
+    assert "error" in hl.load_turn("s1", "nope")
+
+
+def test_load_latest_turn_includes_running_state(monkeypatch) -> None:
+    session, log = _build_session()
+    unsaved = [{"id": "5-0", "type": "tool_call", "data": {"id": "c3"}}]
+    hl = _wire_loader(monkeypatch, log, unsaved=unsaved)
+
+    result = hl.load_latest_turn("s1")
+
+    assert result["turnIds"] == ["t1", "t2", "t3", "t4"]
+    assert result["turn"] == _with_thinking(_turns(session)[-1])
+    assert result["running"] is True
+    assert result["events"] == unsaved
+    assert [i["text"] for i in result["liveTodoItems"]] == ["a"]
+
+
+def test_load_latest_turn_when_idle_has_no_live_state(monkeypatch) -> None:
+    _, log = _build_session()
+    hl = _wire_loader(monkeypatch, log, running=False)
+
+    result = hl.load_latest_turn("s1")
+
+    assert result["running"] is False
+    assert result["events"] == []
+    assert result["liveTodoItems"] is None
+
+
+def test_load_latest_turn_of_an_empty_session(monkeypatch) -> None:
+    log = _EventLog()
+    log.save(Session(session_id="s1"))
+    hl = _wire_loader(monkeypatch, log, running=False)
+
+    result = hl.load_latest_turn("s1")
+
+    assert result["turnIds"] == []
+    assert result["turn"] is None

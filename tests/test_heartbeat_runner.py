@@ -133,3 +133,25 @@ def test_shutdown_aborts_retry_wait() -> None:
     assert not h.runner.cancel_and_retry("s1", "work")
     assert h.calls == [("cancel", "s1")]
     assert h.recorded == []
+
+
+def test_heartbeat_message_uses_auto_followup_detection(monkeypatch) -> None:
+    import src.ui_connector.app  # noqa: F401 - server import order (avoids cycles)
+    from src.ui_connector import heartbeat_runner
+    from src.ui_connector.socket_handler_components import socket_events_turn
+
+    seen = {}
+
+    def fake_new_user_message(session_id, data, turn_id, behavior, **kwargs):
+        seen.update(session_id=session_id, data=data, behavior=behavior, **kwargs)
+        return True
+
+    monkeypatch.setattr(socket_events_turn, "new_user_message", fake_new_user_message)
+    assert heartbeat_runner._launch_heartbeat("s1", "check build")
+    assert seen == {
+        "session_id": "s1",
+        "data": {"text": "check build"},
+        "behavior": "auto",
+        "background": True,
+        "origin": SUBTURN_ORIGIN_HEARTBEAT,
+    }
