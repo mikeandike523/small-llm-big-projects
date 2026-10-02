@@ -41,6 +41,9 @@ class _Handler(BaseHTTPRequestHandler):
   </body>
 </html>""",
             )
+        elif self.path == "/long-line":
+            # One 1000-char line between two short ones, for column truncation.
+            self._send(200, "text/plain", "short\n" + "x" * 1000 + "\nend")
         else:
             self._send(404, "text/plain", "not found")
 

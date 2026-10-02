@@ -89,6 +89,47 @@ def run(env: TestEnv, server: MicroServer | None = None):
             f"got: {r!r}",
         )
 
+        # Inline results cut long lines at COLUMN_TRUNCATION_WIDTH by default.
+        long_args = {
+            "url": f"{server.base_url}/long-line",
+            "check_robots": False,
+            "min_delay_seconds": 0,
+        }
+        r, _ = execute_tool("scrape_web_page", long_args, env.session_data)
+        lines = r.split("\n")
+        cl.check(
+            "long lines truncated by default",
+            "A 1000-char line is cut to 300 chars plus a '[... 700 more chars]' marker",
+            "x" * 300 + "[... 700 more chars]" in lines and "end" in lines,
+            f"got line lengths: {[len(line) for line in lines]}",
+        )
+
+        r, _ = execute_tool(
+            "scrape_web_page",
+            {**long_args, "never_truncate_columns": True},
+            env.session_data,
+        )
+        cl.check(
+            "never_truncate_columns keeps full lines",
+            "never_truncate_columns=true returns the 1000-char line in full",
+            "x" * 1000 in r and "more chars]" not in r,
+            f"got line lengths: {[len(line) for line in r.split(chr(10))]}",
+        )
+
+        # Session-memory writes are never truncated.
+        r, _ = execute_tool(
+            "scrape_web_page",
+            {**long_args, "target": "session_memory", "memory_key": "long_page"},
+            env.session_data,
+        )
+        stored = env.session_data.get("memory", {}).get("long_page", "")
+        cl.check(
+            "session memory not truncated",
+            "Content written to session memory keeps the 1000-char line in full",
+            "x" * 1000 in stored and "more chars]" not in stored,
+            f"result: {r!r}; stored line lengths: {[len(line) for line in stored.split(chr(10))]}",
+        )
+
     except Exception as e:
         cl.record_exception(e)
     return cl.result()

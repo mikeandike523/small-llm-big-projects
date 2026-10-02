@@ -1,0 +1,1 @@
+Remove global 500-column tool-output truncation (agents did not notice it); scrape_web_page now cuts inline lines at 300 chars with a '[... N more chars]' marker, disabled by never_truncate_columns

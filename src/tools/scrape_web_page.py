@@ -13,6 +13,7 @@ from src.tools._validate_timeout import validate_timeout
 from src.tools._cancellation import check_cancelled, get_cancel_event, wait_or_cancel
 from src.tools._async_http import request_with_cancel
 from src.utils.exceptions import ToolTimeoutError
+from src.utils.text_truncation import truncate_long_lines
 
 DEFAULT_TIMEOUT = 20  # seconds per request
 MIN_TIMEOUT = 5
@@ -22,6 +23,9 @@ DEFAULT_MIN_DELAY = 1.0  # politeness delay before fetching
 _JITTER = (0.05, 0.35)  # random seconds added on top of min_delay
 _RETRY_STATUS_CODES = frozenset({429, 500, 502, 503, 504})
 _MAX_RETRY_DELAY = 30.0
+# Per-line cap for content returned inline (not for session-memory writes),
+# so minified scripts/styles and long blobs don't flood the context window.
+COLUMN_TRUNCATION_WIDTH = 300
 
 _USER_AGENT = "Mozilla/5.0 (compatible; slbp-agent/1.0; +https://github.com/mikeandike523/small-llm-big-projects)"
 _HEADERS = {
@@ -45,7 +49,9 @@ DEFINITION: dict = {
             "Respectfully scrape a web page with proper user agent, robots.txt checking, and jitter. "
             "Pairs well with brave_web_search. "
             "Robots.txt failures are fail-open (request proceeds). "
-            "For large pages use target='session_memory' and read in chunks with text_editor."
+            "For large pages use target='session_memory' and read in chunks with text_editor. "
+            f"When returned directly, lines longer than {COLUMN_TRUNCATION_WIDTH} characters are cut "
+            "and end with a '[... N more chars]' marker; see never_truncate_columns."
         ),
         "parameters": {
             "type": "object",
@@ -138,6 +144,16 @@ DEFINITION: dict = {
                         "When true (default), apply basic noise-reduction filters to the output. "
                         "Currently strips base64-encoded data URIs (e.g. inline images) and replaces "
                         "them with a '<base64 data>' placeholder. Applies in all output modes."
+                    ),
+                },
+                "never_truncate_columns": {
+                    "type": "boolean",
+                    "description": (
+                        f"When false (default) and target is 'return_value', every line longer than "
+                        f"{COLUMN_TRUNCATION_WIDTH} characters is cut and ends with a '[... N more chars]' "
+                        "marker (typical for minified scripts, inline styles, and blobs). "
+                        "Set to true to return every line in full. "
+                        "Content written to session memory is never truncated."
                     ),
                 },
             },
@@ -381,6 +397,7 @@ def execute(
     target: str = args.get("target", "return_value")
     memory_key: str | None = args.get("memory_key")
     apply_filters: bool = args.get("apply_basic_filters", True)
+    never_truncate_columns: bool = args.get("never_truncate_columns", False)
 
     if target == "session_memory" and not memory_key:
         return "Error: 'memory_key' is required when target is 'session_memory'."
@@ -399,9 +416,7 @@ def execute(
 
     # --- robots.txt check (fail-open) ---
     if check_robots_flag:
-        allowed, note = _check_robots(
-            url, headers, timeout, max_retries, cancel_event
-        )
+        allowed, note = _check_robots(url, headers, timeout, max_retries, cancel_event)
         if not allowed:
             return f"Error: {note}"
         # note (soft warnings) are silently dropped — don't clutter the result
@@ -457,7 +472,9 @@ def execute(
 
     # --- deliver ---
     if target == "return_value":
-        return result
+        if never_truncate_columns:
+            return result
+        return truncate_long_lines(result, COLUMN_TRUNCATION_WIDTH)
 
     if target == "session_memory":
         memory = ensure_session_memory(session_data)

@@ -9,7 +9,7 @@ def truncate_long_lines(text: str, max_len: int) -> str:
     measuring, excluded from the length count, and restored afterward —
     so both '\\n' and '\\r\\n' line endings round-trip correctly.
 
-    Appends '[... N more bytes]' to any truncated line (mirrors rg --max-columns-preview).
+    Appends '[... N more chars]' to any truncated line (mirrors rg --max-columns-preview).
     max_len=0 disables truncation and returns text unchanged.
     """
     if max_len == 0:
@@ -19,6 +19,6 @@ def truncate_long_lines(text: str, max_len: int) -> str:
         has_cr = line.endswith("\r")
         content = line[:-1] if has_cr else line
         if len(content) > max_len:
-            content = content[:max_len] + f"[... {len(content) - max_len} more bytes]"
+            content = content[:max_len] + f"[... {len(content) - max_len} more chars]"
         out.append((content + "\r") if has_cr else content)
     return "\n".join(out)
