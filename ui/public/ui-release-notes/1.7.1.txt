@@ -1,0 +1,1 @@
+Fixed niconsistent layout with details view.

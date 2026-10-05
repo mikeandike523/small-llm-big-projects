@@ -110,18 +110,39 @@ const turnBodyCss = css`
   overflow: hidden;
 `;
 
-const turnGridCss = (expanded: boolean) => css`
+const turnGridCss = css`
   flex: 1;
   min-width: 0;
   display: grid;
-  grid-template-columns: ${expanded
-    ? "minmax(0, 5fr) minmax(0, 4fr) minmax(0, 2fr)"
-    : "minmax(0, 1fr)"};
-  /* Columns fill the height; pending approvals take an auto row below. */
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr);
   min-height: 0;
   gap: 24px;
   padding: 20px 24px;
+`;
+
+const detailsWrapperCss = (expanded: boolean) => css`
+  width: ${expanded ? "40%" : "0px"};
+  min-width: ${expanded ? "340px" : "0px"};
+  max-width: ${expanded ? "620px" : "0px"};
+  transition:
+    width 0.2s ease,
+    min-width 0.2s ease,
+    max-width 0.2s ease;
+  overflow: hidden;
+  flex-shrink: 0;
+  height: 100%;
+`;
+
+const detailsGridCss = css`
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  min-height: 0;
+  height: 100%;
+  gap: 24px;
+  padding: 20px 24px;
+  border-left: 1px solid #22304d;
 `;
 
 const leftColumnCss = css`
@@ -384,7 +405,7 @@ export default function TurnContainer({
         )}
       </div>
       <div css={turnBodyCss}>
-        <div css={turnGridCss(expanded)}>
+        <div css={turnGridCss}>
           {/* Left column: user message(s) + AI content — one bubble-group per subturn */}
           <div css={leftColumnCss} ref={leftScrollRef}>
             <div css={leftContentCss} ref={leftContentRef}>
@@ -454,8 +475,6 @@ export default function TurnContainer({
             </div>
           </div>
 
-          {expanded && <TurnDetails turn={turn} onViewFull={onViewFull} />}
-
           {/* Full-width bottom row: pending approvals (shown even when collapsed) */}
           {pendingApprovals.length > 0 && (
             <div css={approvalRowCss}>
@@ -481,6 +500,13 @@ export default function TurnContainer({
           label="Details"
           side="right"
         />
+        <div css={detailsWrapperCss(expanded)}>
+          {expanded && (
+            <div css={detailsGridCss}>
+              <TurnDetails turn={turn} onViewFull={onViewFull} />
+            </div>
+          )}
+        </div>
       </div>
       {compactionModalSubturnId &&
         (() => {
