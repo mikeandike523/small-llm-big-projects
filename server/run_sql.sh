@@ -80,7 +80,11 @@ cleanup() {
 }
 trap cleanup EXIT
 
-if [[ ! -t 0 ]]; then
+# Only slurp stdin when no explicit input was given; otherwise a non-TTY stdin
+# that never closes (e.g. paramiko/fabric) would block here forever.
+echo "[run_sql] checking stdin (tty=$([[ -t 0 ]] && echo yes || echo no), file=${FILE:-} sql_set=$([[ -n "$SQL" ]] && echo yes || echo no) dir=${MIGRATIONS_DIR:-})" >&2
+if [[ ! -t 0 && -z "$FILE" && -z "$SQL" && -z "$MIGRATIONS_DIR" ]]; then
+	echo "[run_sql] reading stdin until EOF..." >&2
 	STDIN_PRESENT=1
 	STDIN_FILE="$(mktemp)"
 	cat > "$STDIN_FILE"
@@ -111,6 +115,7 @@ run_mysql_file() {
 		echo "DRY: docker compose -f $COMPOSE_FILE exec -T mysql mysql -u $USER -p*** -D $DB --show-warnings --verbose < $sqlfile"
 		return 0
 	fi
+	echo "[run_sql] invoking docker compose exec for file $sqlfile" >&2
 	docker compose -f "$COMPOSE_FILE" exec -T "${DOCKER_MYSQL_ENV[@]}" mysql "${MYSQL_ARGS[@]}" < "$sqlfile"
 }
 
@@ -127,7 +132,8 @@ run_mysql_sql() {
 		echo "DRY: docker compose -f $COMPOSE_FILE exec -T mysql mysql -u $USER -p*** -D $DB --show-warnings --verbose -e '<SQL>'"
 		return 0
 	fi
-	docker compose -f "$COMPOSE_FILE" exec -T "${DOCKER_MYSQL_ENV[@]}" mysql "${MYSQL_ARGS[@]}" -e "$sql"
+	echo "[run_sql] invoking docker compose exec for inline SQL" >&2
+	docker compose -f "$COMPOSE_FILE" exec -T "${DOCKER_MYSQL_ENV[@]}" mysql "${MYSQL_ARGS[@]}" -e "$sql" < /dev/null
 }
 
 run_mysql_stdin() {

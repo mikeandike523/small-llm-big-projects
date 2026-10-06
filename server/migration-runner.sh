@@ -164,12 +164,15 @@ cmd_show() {
 # Subcommand: up
 # ═══════════════════════════════════════════════════════════════════════════════
 cmd_up() {
+	echo "[migrate] ensuring migration_version table..." >&2
 	ensure_migration_version_table
+	echo "[migrate] table ready; reading current versions..." >&2
 
 	# ── Read current state ─────────────────────────────────────────────────
 	local current_structure current_seed
 	get_current_versions current_structure current_seed
 
+	echo "[migrate] current: structure=$current_structure seed=$current_seed; scanning migrations..." >&2
 	# ── Discover available migrations ──────────────────────────────────────
 	local max_structure max_seed max_version
 	max_structure=$(get_max_version_in_dir "$SCRIPT_DIR/migrations/structure")
