@@ -44,8 +44,8 @@ while [[ $# -gt 0 ]]; do
 	esac
 done
 
-if [[ ! -x "$RUN_SQL" ]]; then
-	echo "Error: run_sql.sh not found or not executable at $RUN_SQL" >&2
+if [[ ! -f "$RUN_SQL" ]]; then
+	echo "Error: run_sql.sh not found at $RUN_SQL" >&2
 	exit 2
 fi
 
@@ -74,7 +74,7 @@ fi
 
 query_sql() {
 	local sql="$1"
-	"$RUN_SQL" -d "$DB" -u "$USER" -P "$PASSWORD" -q -B -c "$sql"
+	bash "$RUN_SQL" -d "$DB" -u "$USER" -P "$PASSWORD" -q -B -c "$sql"
 }
 
 sql_ident() {
@@ -124,13 +124,13 @@ fi
 fk_checks_disabled=0
 reenable_fk_checks() {
 	if [[ $fk_checks_disabled -eq 1 ]]; then
-		"$RUN_SQL" -d "$DB" -u "$USER" -P "$PASSWORD" -q -c "SET FOREIGN_KEY_CHECKS = 1;" >/dev/null 2>&1 || true
+		bash "$RUN_SQL" -d "$DB" -u "$USER" -P "$PASSWORD" -q -c "SET FOREIGN_KEY_CHECKS = 1;" >/dev/null 2>&1 || true
 	fi
 }
 trap reenable_fk_checks EXIT
 
 echo "Disabling foreign key checks..."
-"$RUN_SQL" -d "$DB" -u "$USER" -P "$PASSWORD" -q -c "SET FOREIGN_KEY_CHECKS = 0; SET SQL_SAFE_UPDATES = 0;"
+bash "$RUN_SQL" -d "$DB" -u "$USER" -P "$PASSWORD" -q -c "SET FOREIGN_KEY_CHECKS = 0; SET SQL_SAFE_UPDATES = 0;"
 fk_checks_disabled=1
 
 echo "Deleting views..."
@@ -164,7 +164,7 @@ for name in "${tables[@]}"; do
 done
 
 echo "Re-enabling foreign key checks..."
-"$RUN_SQL" -d "$DB" -u "$USER" -P "$PASSWORD" -q -c "SET FOREIGN_KEY_CHECKS = 1;"
+bash "$RUN_SQL" -d "$DB" -u "$USER" -P "$PASSWORD" -q -c "SET FOREIGN_KEY_CHECKS = 1;"
 fk_checks_disabled=0
 
 echo "Reset complete."

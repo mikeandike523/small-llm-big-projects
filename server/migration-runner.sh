@@ -37,8 +37,8 @@ EOF
 }
 
 # ── Prerequisite check ───────────────────────────────────────────────────────
-if [[ ! -x "$RUN_SQL" ]]; then
-	echo -e "${BOLD_RED}Error: run_sql.sh not found or not executable at $RUN_SQL${NC}" >&2
+if [[ ! -f "$RUN_SQL" ]]; then
+	echo -e "${BOLD_RED}Error: run_sql.sh not found at $RUN_SQL${NC}" >&2
 	exit 2
 fi
 
@@ -46,17 +46,17 @@ fi
 # Uses -B -q for batch mode, quiet output (tab-separated, no column headers).
 # All arguments are passed directly to run_sql.sh.
 run_sql_query() {
-	"$RUN_SQL" -B -q -c "$1"
+	bash "$RUN_SQL" -B -q -c "$1"
 }
 
 # ── Helper: run an SQL statement quietly (no batch mode needed) ──────────────
 run_sql_quiet() {
-	"$RUN_SQL" -q -c "$1"
+	bash "$RUN_SQL" -q -c "$1"
 }
 
 # ── Helper: run a SQL file (migration) with full output ──────────────────────
 run_sql_file() {
-	"$RUN_SQL" -f "$1"
+	bash "$RUN_SQL" -f "$1"
 }
 
 # ── ensure_migration_version_table ──────────────────────────────────────────
