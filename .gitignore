@@ -29,3 +29,6 @@ node_modules
 
 .pytest_cache
 .ruff_cache
+
+# command config for demo server automation
+demo-server-config.jsonc

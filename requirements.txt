@@ -29,3 +29,6 @@ psutil
 # Dev dependencies
 black
 ruff
+json5
+fabric
+paramiko
