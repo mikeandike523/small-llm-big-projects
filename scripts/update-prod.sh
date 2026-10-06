@@ -14,7 +14,7 @@ cd ..
 
 cd server
 
-# bash migration-runner.sh up
+bash migration-runner.sh up
 
 # bash setup_piston.sh
 
