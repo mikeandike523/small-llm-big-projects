@@ -48,7 +48,7 @@ if not SSH_CONFIG_PATH.exists():
     sys.exit(f"SSH config not found: {SSH_CONFIG_PATH}")
 
 ssh_cfg = SSHConfig()
-ssh_cfg.parse(SSH_CONFIG_PATH.read_text())
+ssh_cfg.parse(SSH_CONFIG_PATH.open("r"))
 host_entry = ssh_cfg.lookup(CONFIG["hostname"])
 
 if not host_entry.get("hostname"):
@@ -67,5 +67,8 @@ conn = Connection(
 )
 
 print(f"Connecting to {CONFIG['user']}@{host_entry['hostname']} ...")
-conn.run(CONFIG["command"], echo=True)
+# Remote output is UTF-8; invoke otherwise decodes with the Windows locale codepage.
+for stream in (sys.stdout, sys.stderr):
+    stream.reconfigure(encoding="utf-8", errors="replace")
+conn.run(CONFIG["command"], echo=True, encoding="utf-8")
 print("Done.")
