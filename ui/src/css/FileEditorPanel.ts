@@ -63,7 +63,10 @@ export const editorTabCss = (
   border: 0;
   border-right: 1px solid ${spBorder};
   border-top: 1px solid ${active ? spAccentBright : "transparent"};
-  background: ${active ? spBg : spHeaderBg};
+  background: ${active
+    ? "linear-gradient(180deg, rgba(77, 134, 191, 0.34), rgba(77, 134, 191, 0.2))"
+    : spHeaderBg};
+  box-shadow: ${active ? "inset 0 -2px 0 rgba(111, 168, 222, 0.72)" : "none"};
   color: ${active ? spTextMain : spTextMuted};
   font-family: ${fontMono};
   font-size: 11px;

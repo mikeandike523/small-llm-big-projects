@@ -1,8 +1,12 @@
 /** @jsxImportSource @emotion/react */
 import Editor from "@monaco-editor/react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { VscClose, VscSave } from "react-icons/vsc";
 import { readExplorerFile, writeExplorerFile } from "../api/fileExplorer";
+import {
+  CLOSE_EDITOR_WHEN_LAST_TAB_CLOSES,
+  SCROLL_EXPLORER_ON_CLOSE_FOCUS_CHANGE,
+} from "../constants/text-editor-behavior";
 import {
   dirtyMarkerCss,
   editorActionCss,
@@ -38,6 +42,7 @@ interface Props {
   sessionId: string;
   request: EditorOpenRequest | null;
   onClose: () => void;
+  onRevealFile: (path: string) => void;
 }
 
 interface StoredWorkspace {
@@ -111,6 +116,7 @@ export default function FileEditorPanel({
   sessionId,
   request,
   onClose,
+  onRevealFile,
 }: Props) {
   const storageKey = `slbp:file-editor:${sessionId}`;
   const restored = useMemo(() => restoredWorkspace(storageKey), [storageKey]);
@@ -123,6 +129,8 @@ export default function FileEditorPanel({
       : (restored.tabs[0]?.path ?? null),
   );
   const [draggedPath, setDraggedPath] = useState<string | null>(null);
+  const tabsScrollerRef = useRef<HTMLDivElement | null>(null);
+  const activeTabElementRef = useRef<HTMLButtonElement | null>(null);
 
   const loadFile = useCallback(
     async (path: string) => {
@@ -203,6 +211,29 @@ export default function FileEditorPanel({
     writeSessionValue(storageKey, JSON.stringify(workspace));
   }, [activePath, storageKey, tabs]);
 
+  const tabOrder = tabs.map((tab) => tab.path).join("\0");
+
+  useEffect(() => {
+    if (!open || !activePath) return;
+    const animationFrame = window.requestAnimationFrame(() => {
+      const scroller = tabsScrollerRef.current;
+      const activeElement = activeTabElementRef.current;
+      if (!scroller || !activeElement) return;
+      const scrollerRect = scroller.getBoundingClientRect();
+      const activeRect = activeElement.getBoundingClientRect();
+      const centeredLeft =
+        scroller.scrollLeft +
+        activeRect.left -
+        scrollerRect.left -
+        (scroller.clientWidth - activeRect.width) / 2;
+      scroller.scrollTo({
+        left: Math.max(0, centeredLeft),
+        behavior: "smooth",
+      });
+    });
+    return () => window.cancelAnimationFrame(animationFrame);
+  }, [activePath, open, request, tabOrder]);
+
   const activeTab = tabs.find((tab) => tab.path === activePath) ?? null;
   const activeDirty = Boolean(
     activeTab && activeTab.content !== activeTab.savedContent,
@@ -228,13 +259,19 @@ export default function FileEditorPanel({
         return;
       const remaining = tabs.filter((candidate) => candidate.path !== path);
       setTabs(remaining);
+      if (remaining.length === 0 && CLOSE_EDITOR_WHEN_LAST_TAB_CLOSES) {
+        onClose();
+      }
       if (activePath === path) {
-        setActivePath(
-          remaining[Math.min(index, remaining.length - 1)]?.path ?? null,
-        );
+        const nextPath =
+          remaining[Math.min(index, remaining.length - 1)]?.path ?? null;
+        setActivePath(nextPath);
+        if (nextPath && SCROLL_EXPLORER_ON_CLOSE_FOCUS_CHANGE) {
+          onRevealFile(nextPath);
+        }
       }
     },
-    [activePath, tabs],
+    [activePath, onClose, onRevealFile, tabs],
   );
 
   const saveActive = useCallback(async () => {
@@ -300,12 +337,18 @@ export default function FileEditorPanel({
       }}
     >
       <div css={editorTopBarCss}>
-        <div css={editorTabsCss} role="tablist" aria-label="Open files">
+        <div
+          ref={tabsScrollerRef}
+          css={editorTabsCss}
+          role="tablist"
+          aria-label="Open files"
+        >
           {tabs.map((tab) => {
             const dirty = tab.content !== tab.savedContent;
             return (
               <button
                 key={tab.path}
+                ref={tab.path === activePath ? activeTabElementRef : undefined}
                 type="button"
                 role="tab"
                 aria-selected={tab.path === activePath}
@@ -316,7 +359,11 @@ export default function FileEditorPanel({
                 )}
                 title={tab.path}
                 draggable
-                onClick={() => setActivePath(tab.path)}
+                onClick={() => {
+                  if (tab.path === activePath) return;
+                  setActivePath(tab.path);
+                  onRevealFile(tab.path);
+                }}
                 onDoubleClick={() => pinTab(tab.path)}
                 onDragStart={(event) => {
                   event.dataTransfer.effectAllowed = "move";

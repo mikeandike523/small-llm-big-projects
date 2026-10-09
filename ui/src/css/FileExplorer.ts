@@ -77,7 +77,11 @@ export const treeCss = css`
   font-size: 12px;
 `;
 
-export const nodeRowCss = (indent: number, clickable: boolean) => css`
+export const nodeRowCss = (
+  indent: number,
+  clickable: boolean,
+  focused = false,
+) => css`
   width: 100%;
   min-width: max-content;
   height: 24px;
@@ -87,7 +91,7 @@ export const nodeRowCss = (indent: number, clickable: boolean) => css`
   padding: 0 10px 0 ${8 + indent * 14}px;
   box-sizing: border-box;
   border: 0;
-  background: transparent;
+  background: ${focused ? "rgba(77, 134, 191, 0.28)" : "transparent"};
   color: ${spTextMain};
   font: inherit;
   text-align: left;
@@ -95,7 +99,9 @@ export const nodeRowCss = (indent: number, clickable: boolean) => css`
   cursor: ${clickable ? "pointer" : "default"};
 
   &:hover {
-    background: rgba(77, 134, 191, 0.12);
+    background: ${focused
+      ? "rgba(77, 134, 191, 0.34)"
+      : "rgba(77, 134, 191, 0.12)"};
   }
 
   &:focus-visible {

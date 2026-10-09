@@ -1,0 +1,1 @@
+Refine editor tab focus and Explorer reveal scrolling

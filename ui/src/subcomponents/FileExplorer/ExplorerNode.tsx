@@ -1,5 +1,5 @@
 /** @jsxImportSource @emotion/react */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { FileIcon, defaultStyles } from "react-file-icon";
 import type { DefaultExtensionType } from "react-file-icon";
 import { FiChevronDown, FiChevronRight } from "react-icons/fi";
@@ -18,6 +18,7 @@ import type {
   FileExplorerEntry,
   FileExplorerListing,
   EditorOpenRequest,
+  ExplorerRevealRequest,
 } from "../../types/FileExplorer";
 
 interface Props {
@@ -30,6 +31,8 @@ interface Props {
   homePath: string;
   onRootLoaded?: (listing: FileExplorerListing) => void;
   onOpenFile: (request: EditorOpenRequest) => void;
+  focusedPath: string | null;
+  revealRequest: ExplorerRevealRequest | null;
 }
 
 function extensionFor(name: string): string {
@@ -43,11 +46,30 @@ function ExplorerFile({
   entry,
   indent,
   onOpenFile,
+  focused,
+  active,
+  revealRequest,
 }: {
   entry: FileExplorerEntry;
   indent: number;
   onOpenFile: (request: EditorOpenRequest) => void;
+  focused: boolean;
+  active: boolean;
+  revealRequest: ExplorerRevealRequest | null;
 }) {
+  const rowRef = useRef<HTMLButtonElement | null>(null);
+  useEffect(() => {
+    if (!active || revealRequest?.path !== entry.path) return;
+    const animationFrame = window.requestAnimationFrame(() => {
+      rowRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+        inline: "center",
+      });
+    });
+    return () => window.cancelAnimationFrame(animationFrame);
+  }, [active, entry.path, revealRequest]);
+
   const extension = extensionFor(entry.name);
   const iconStyle = defaultStyles[extension as DefaultExtensionType] ?? {
     color: "#41566d",
@@ -57,8 +79,10 @@ function ExplorerFile({
   return (
     <button
       type="button"
-      css={nodeRowCss(indent, true)}
+      ref={rowRef}
+      css={nodeRowCss(indent, true, focused)}
       role="treeitem"
+      aria-current={focused ? "true" : undefined}
       title={entry.path}
       onClick={() =>
         onOpenFile({ path: entry.path, pinned: false, requestId: Date.now() })
@@ -98,6 +122,8 @@ export default function ExplorerNode({
   homePath,
   onRootLoaded,
   onOpenFile,
+  focusedPath,
+  revealRequest,
 }: Props) {
   const [expanded, setExpanded] = useState(root);
   const [entries, setEntries] = useState<FileExplorerEntry[] | null>(null);
@@ -176,6 +202,8 @@ export default function ExplorerNode({
                 sessionId={sessionId}
                 homePath={homePath}
                 onOpenFile={onOpenFile}
+                focusedPath={focusedPath}
+                revealRequest={revealRequest}
               />
             ) : (
               <ExplorerFile
@@ -183,6 +211,9 @@ export default function ExplorerNode({
                 entry={entry}
                 indent={indent + 1}
                 onOpenFile={onOpenFile}
+                focused={entry.path === focusedPath}
+                active={active}
+                revealRequest={revealRequest}
               />
             ),
           )}

@@ -16,3 +16,8 @@ export interface EditorOpenRequest {
   pinned: boolean;
   requestId: number;
 }
+
+export interface ExplorerRevealRequest {
+  path: string;
+  requestId: number;
+}

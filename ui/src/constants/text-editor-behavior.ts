@@ -1,0 +1,2 @@
+export const CLOSE_EDITOR_WHEN_LAST_TAB_CLOSES = true;
+export const SCROLL_EXPLORER_ON_CLOSE_FOCUS_CHANGE = true;

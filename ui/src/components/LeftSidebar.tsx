@@ -1,5 +1,5 @@
 /** @jsxImportSource @emotion/react */
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Resizable } from "re-resizable";
 import { GiAnt } from "react-icons/gi";
 import { VscFiles } from "react-icons/vsc";
@@ -12,7 +12,10 @@ import {
   sidebarViewCss,
 } from "../css/LeftSidebar";
 import type { Props as DebugPanelProps } from "../types/DebugPanel";
-import type { EditorOpenRequest } from "../types/FileExplorer";
+import type {
+  EditorOpenRequest,
+  ExplorerRevealRequest,
+} from "../types/FileExplorer";
 import { readSessionValue, writeSessionValue } from "../utils/sessionStorage";
 import { DebugPanel } from "./DebugPanel";
 import FileExplorer from "./FileExplorer";
@@ -90,6 +93,9 @@ export default function LeftSidebar(props: Props) {
   const [editorRequest, setEditorRequest] = useState<EditorOpenRequest | null>(
     null,
   );
+  const [explorerRevealRequest, setExplorerRevealRequest] =
+    useState<ExplorerRevealRequest | null>(null);
+  const explorerRevealSequence = useRef(0);
   const persistWidth = useMemo(() => createWidthStorageThrottle(120), []);
 
   useEffect(
@@ -160,6 +166,7 @@ export default function LeftSidebar(props: Props) {
               initialCwd={props.envInfo?.initialCwd ?? ""}
               sessionId={props.sessionId}
               editorOpen={editorOpen}
+              revealRequest={explorerRevealRequest}
               onToggleEditor={() => setEditorOpen((value) => !value)}
               onOpenFile={(request) => {
                 setEditorRequest(request);
@@ -178,6 +185,13 @@ export default function LeftSidebar(props: Props) {
             sessionId={props.sessionId}
             request={editorRequest}
             onClose={() => setEditorOpen(false)}
+            onRevealFile={(path) => {
+              explorerRevealSequence.current += 1;
+              setExplorerRevealRequest({
+                path,
+                requestId: explorerRevealSequence.current,
+              });
+            }}
           />
         </div>
       </Resizable>

@@ -1,5 +1,5 @@
 /** @jsxImportSource @emotion/react */
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { VscOpenPreview } from "react-icons/vsc";
 import {
   explorerHeaderCss,
@@ -12,6 +12,7 @@ import {
 import ExplorerNode from "../subcomponents/FileExplorer/ExplorerNode";
 import type {
   EditorOpenRequest,
+  ExplorerRevealRequest,
   FileExplorerListing,
 } from "../types/FileExplorer";
 
@@ -22,6 +23,7 @@ interface Props {
   editorOpen: boolean;
   onToggleEditor: () => void;
   onOpenFile: (request: EditorOpenRequest) => void;
+  revealRequest: ExplorerRevealRequest | null;
 }
 
 export default function FileExplorer({
@@ -31,13 +33,19 @@ export default function FileExplorer({
   editorOpen,
   onToggleEditor,
   onOpenFile,
+  revealRequest,
 }: Props) {
   const [rootPath, setRootPath] = useState(initialCwd);
   const [homePath, setHomePath] = useState("");
+  const [focusedPath, setFocusedPath] = useState<string | null>(null);
   const onRootLoaded = useCallback((listing: FileExplorerListing) => {
     setRootPath(listing.root_path);
     setHomePath(listing.home_path);
   }, []);
+
+  useEffect(() => {
+    if (revealRequest) setFocusedPath(revealRequest.path);
+  }, [revealRequest]);
 
   return (
     <div css={explorerPanelCss}>
@@ -66,7 +74,12 @@ export default function FileExplorer({
               sessionId={sessionId}
               homePath={homePath}
               onRootLoaded={onRootLoaded}
-              onOpenFile={onOpenFile}
+              focusedPath={focusedPath}
+              revealRequest={revealRequest}
+              onOpenFile={(request) => {
+                setFocusedPath(request.path);
+                onOpenFile(request);
+              }}
             />
           ) : (
             <div>Loading session working directory…</div>
