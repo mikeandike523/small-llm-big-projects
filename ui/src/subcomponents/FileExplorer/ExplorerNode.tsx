@@ -17,6 +17,7 @@ import {
 import type {
   FileExplorerEntry,
   FileExplorerListing,
+  EditorOpenRequest,
 } from "../../types/FileExplorer";
 
 interface Props {
@@ -28,6 +29,7 @@ interface Props {
   sessionId: string;
   homePath: string;
   onRootLoaded?: (listing: FileExplorerListing) => void;
+  onOpenFile: (request: EditorOpenRequest) => void;
 }
 
 function extensionFor(name: string): string {
@@ -40,9 +42,11 @@ function extensionFor(name: string): string {
 function ExplorerFile({
   entry,
   indent,
+  onOpenFile,
 }: {
   entry: FileExplorerEntry;
   indent: number;
+  onOpenFile: (request: EditorOpenRequest) => void;
 }) {
   const extension = extensionFor(entry.name);
   const iconStyle = defaultStyles[extension as DefaultExtensionType] ?? {
@@ -51,13 +55,24 @@ function ExplorerFile({
     glyphColor: "#c9def2",
   };
   return (
-    <div css={nodeRowCss(indent, false)} role="treeitem" title={entry.path}>
+    <button
+      type="button"
+      css={nodeRowCss(indent, true)}
+      role="treeitem"
+      title={entry.path}
+      onClick={() =>
+        onOpenFile({ path: entry.path, pinned: false, requestId: Date.now() })
+      }
+      onDoubleClick={() =>
+        onOpenFile({ path: entry.path, pinned: true, requestId: Date.now() })
+      }
+    >
       <span css={chevronCss} />
       <span css={fileIconCss}>
         <FileIcon extension={extension || undefined} {...iconStyle} />
       </span>
       <span>{entry.name}</span>
-    </div>
+    </button>
   );
 }
 
@@ -82,6 +97,7 @@ export default function ExplorerNode({
   sessionId,
   homePath,
   onRootLoaded,
+  onOpenFile,
 }: Props) {
   const [expanded, setExpanded] = useState(root);
   const [entries, setEntries] = useState<FileExplorerEntry[] | null>(null);
@@ -159,12 +175,14 @@ export default function ExplorerNode({
                 path={entry.path}
                 sessionId={sessionId}
                 homePath={homePath}
+                onOpenFile={onOpenFile}
               />
             ) : (
               <ExplorerFile
                 key={entry.path}
                 entry={entry}
                 indent={indent + 1}
+                onOpenFile={onOpenFile}
               />
             ),
           )}

@@ -10,3 +10,9 @@ export interface FileExplorerListing {
   path: string;
   entries: FileExplorerEntry[];
 }
+
+export interface EditorOpenRequest {
+  path: string;
+  pinned: boolean;
+  requestId: number;
+}

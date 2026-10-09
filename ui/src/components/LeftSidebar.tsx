@@ -12,9 +12,11 @@ import {
   sidebarViewCss,
 } from "../css/LeftSidebar";
 import type { Props as DebugPanelProps } from "../types/DebugPanel";
+import type { EditorOpenRequest } from "../types/FileExplorer";
 import { readSessionValue, writeSessionValue } from "../utils/sessionStorage";
 import { DebugPanel } from "./DebugPanel";
 import FileExplorer from "./FileExplorer";
+import FileEditorPanel from "./FileEditorPanel";
 
 type SidebarView = "explorer" | "debug";
 type Props = Omit<DebugPanelProps, "open">;
@@ -84,6 +86,10 @@ export default function LeftSidebar(props: Props) {
     storedActiveView,
   );
   const [panelWidth, setPanelWidth] = useState(storedPanelWidth);
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [editorRequest, setEditorRequest] = useState<EditorOpenRequest | null>(
+    null,
+  );
   const persistWidth = useMemo(() => createWidthStorageThrottle(120), []);
 
   useEffect(
@@ -153,6 +159,12 @@ export default function LeftSidebar(props: Props) {
               active={activeView === "explorer"}
               initialCwd={props.envInfo?.initialCwd ?? ""}
               sessionId={props.sessionId}
+              editorOpen={editorOpen}
+              onToggleEditor={() => setEditorOpen((value) => !value)}
+              onOpenFile={(request) => {
+                setEditorRequest(request);
+                setEditorOpen(true);
+              }}
             />
           </div>
           <div
@@ -161,6 +173,12 @@ export default function LeftSidebar(props: Props) {
           >
             <DebugPanel open={activeView === "debug"} {...props} />
           </div>
+          <FileEditorPanel
+            open={activeView === "explorer" && editorOpen}
+            sessionId={props.sessionId}
+            request={editorRequest}
+            onClose={() => setEditorOpen(false)}
+          />
         </div>
       </Resizable>
     </aside>

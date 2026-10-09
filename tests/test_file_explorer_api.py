@@ -7,6 +7,8 @@ from src.utils.session_model import Session
 import src.ui_connector.socket_handler_components.file_explorer_api as explorer_api
 from src.ui_connector.socket_handler_components.file_explorer_api import (
     list_directory,
+    read_file,
+    write_file,
 )
 
 
@@ -86,3 +88,57 @@ def test_file_explorer_route_rejects_path_outside_root(
     )
 
     assert response.status_code == 403
+
+
+def test_read_and_write_file_inside_root(tmp_path: Path) -> None:
+    file_path = tmp_path / "notes.txt"
+    file_path.write_text("before", encoding="utf-8")
+
+    result = read_file(str(tmp_path), str(file_path))
+    assert result["content"] == "before"
+
+    write_file(str(tmp_path), str(file_path), "after\n")
+    assert file_path.read_text(encoding="utf-8") == "after\n"
+
+
+def test_read_file_rejects_binary_and_outside_root(tmp_path: Path) -> None:
+    root = tmp_path / "root"
+    root.mkdir()
+    binary = root / "image.bin"
+    binary.write_bytes(b"data\x00more")
+    outside = tmp_path / "outside.txt"
+    outside.write_text("nope", encoding="utf-8")
+
+    with pytest.raises(explorer_api.ExplorerPathError):
+        read_file(str(root), str(binary))
+    with pytest.raises(PermissionError):
+        read_file(str(root), str(outside))
+
+
+def test_file_editor_routes_read_and_write(tmp_path: Path, monkeypatch) -> None:
+    file_path = tmp_path / "editable.ts"
+    file_path.write_text("const value = 1;", encoding="utf-8")
+    monkeypatch.setattr(
+        explorer_api,
+        "_load_session",
+        lambda session_id: Session(session_id=session_id, initial_cwd=str(tmp_path)),
+    )
+    client = app.test_client()
+
+    read_response = client.post(
+        "/api/file-explorer/read",
+        json={"session_id": "session-1", "path": str(file_path)},
+    )
+    write_response = client.post(
+        "/api/file-explorer/write",
+        json={
+            "session_id": "session-1",
+            "path": str(file_path),
+            "content": "const value = 2;",
+        },
+    )
+
+    assert read_response.status_code == 200
+    assert read_response.get_json()["content"] == "const value = 1;"
+    assert write_response.status_code == 200
+    assert file_path.read_text(encoding="utf-8") == "const value = 2;"

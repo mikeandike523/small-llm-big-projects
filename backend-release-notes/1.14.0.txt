@@ -1,0 +1,1 @@
+Add session-scoped file editor read and write APIs

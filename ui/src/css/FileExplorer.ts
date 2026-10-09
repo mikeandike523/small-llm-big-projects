@@ -37,6 +37,30 @@ export const explorerHeaderCss = css`
   letter-spacing: 0.08em;
 `;
 
+export const explorerHeaderTitleCss = css`
+  flex: 1;
+  min-width: 0;
+`;
+
+export const explorerHeaderButtonCss = (active: boolean) => css`
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid ${active ? spAccentBright : "transparent"};
+  border-radius: 4px;
+  background: ${active ? "rgba(77, 134, 191, 0.2)" : "transparent"};
+  color: ${active ? spTextMain : spTextMuted};
+  cursor: pointer;
+
+  &:hover {
+    color: ${spTextMain};
+    background: rgba(77, 134, 191, 0.18);
+  }
+`;
+
 export const treeScrollCss = css`
   flex: 1;
   min-height: 0;
