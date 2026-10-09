@@ -7,7 +7,6 @@ import { toast } from "sonner";
 import {
   appLayoutCss,
   dashboardButtonCss,
-  debugPanelWrapperCss,
   followupFooterCss,
   followupLabelCss,
   followupOptionCss,
@@ -35,7 +34,7 @@ import StartupToolsButton from "../subcomponents/Chat/StartupToolsButton";
 import ToolModal from "../subcomponents/Chat/ToolModal";
 import TurnPagination from "../subcomponents/Chat/TurnPagination";
 import TurnPlaceholder from "../subcomponents/Chat/TurnPlaceholder";
-import { DebugPanel } from "./DebugPanel";
+import LeftSidebar from "./LeftSidebar";
 import FormattedCostWithColor from "./FormattedCostWithColor";
 import ContextUsageBar from "./ContextUsageBar";
 import { TerminalPanel } from "./TerminalPanel";
@@ -80,7 +79,6 @@ export default function Chat() {
     "auto" | "follow-up" | "new-task"
   >("auto");
   const [modalContent, setModalContent] = useState<string | null>(null);
-  const [debugOpen, setDebugOpen] = useState(false);
 
   const {
     thread,
@@ -303,21 +301,16 @@ export default function Chat() {
 
   return (
     <div css={appLayoutCss}>
-      {/* Debug panel */}
-      <div css={debugPanelWrapperCss(debugOpen)}>
-        <DebugPanel
-          open={debugOpen}
-          onToggle={() => setDebugOpen((o) => !o)}
-          pwd={pwd}
-          sessionId={sessionId}
-          envInfo={envInfo}
-          skillsInfo={skillsInfo}
-          toolsInfo={toolsInfo}
-          systemPrompt={systemPrompt}
-          backendLogs={backendLogs}
-          socket={socket}
-        />
-      </div>
+      <LeftSidebar
+        pwd={pwd}
+        sessionId={sessionId}
+        envInfo={envInfo}
+        skillsInfo={skillsInfo}
+        toolsInfo={toolsInfo}
+        systemPrompt={systemPrompt}
+        backendLogs={backendLogs}
+        socket={socket}
+      />
 
       {/* Main content area */}
       <div css={mainAreaCss}>

@@ -50,7 +50,6 @@ export interface MemKeyEvent {
 
 export interface Props {
   open: boolean;
-  onToggle: () => void;
   pwd: string;
   sessionId: string;
   envInfo: EnvInfo | null;

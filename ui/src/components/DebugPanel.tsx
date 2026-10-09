@@ -25,14 +25,12 @@ import {
   tabContentAreaCss,
   tabPanelCss,
 } from "../css/DebugPanel";
-import { panelRootCss } from "../css/SidePanelTheme";
 import BackendLogsTab from "../subcomponents/DebugPanel/BackendLogsTab";
 import DirtyTab from "../subcomponents/DebugPanel/DirtyTab";
 import MemTabFooter from "../subcomponents/DebugPanel/MemTabFooter";
 import SessionMemTab from "../subcomponents/DebugPanel/SessionMemTab";
 import SystemTab from "../subcomponents/DebugPanel/SystemTab";
 import { MemKeyEvent, Props } from "../types/DebugPanel";
-import PanelDivider from "./PanelDivider";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -65,7 +63,6 @@ interface MemModal {
 
 export function DebugPanel({
   open,
-  onToggle,
   pwd,
   sessionId,
   envInfo,
@@ -176,7 +173,7 @@ export function DebugPanel({
 
   return (
     <>
-      {memModal && (
+      {open && memModal && (
         <div css={modalOverlayCss} onClick={() => setMemModal(null)}>
           <div css={modalCardCss} onClick={(e) => e.stopPropagation()}>
             <div css={modalHeaderCss}>
@@ -226,84 +223,69 @@ export function DebugPanel({
         </div>
       )}
 
-      <div css={panelRootCss}>
-        {open && (
-          <div css={panelCss}>
-            <div css={headerCss}>
-              <span css={headerTitleCss}>Debug</span>
-            </div>
+      <div css={panelCss}>
+        <div css={headerCss}>
+          <span css={headerTitleCss}>Debug</span>
+        </div>
 
-            <div css={tabBarCss}>
-              {TABS.map((tab) => (
-                <button
-                  key={tab.id}
-                  css={tabButtonCss(activeTab === tab.id)}
-                  onClick={() => setActiveTab(tab.id)}
-                >
-                  {tab.label}
-                </button>
-              ))}
-            </div>
+        <div css={tabBarCss}>
+          {TABS.map((tab) => (
+            <button
+              key={tab.id}
+              css={tabButtonCss(activeTab === tab.id)}
+              onClick={() => setActiveTab(tab.id)}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
 
-            <div css={tabContentAreaCss}>
-              <div css={tabPanelCss(activeTab === "system")}>
-                <SystemTab
-                  pwd={pwd}
-                  sessionId={sessionId}
-                  envInfo={envInfo}
-                  skillsInfo={skillsInfo}
-                  toolsInfo={toolsInfo}
-                />
-              </div>
+        <div css={tabContentAreaCss}>
+          <div css={tabPanelCss(activeTab === "system")}>
+            <SystemTab
+              pwd={pwd}
+              sessionId={sessionId}
+              envInfo={envInfo}
+              skillsInfo={skillsInfo}
+              toolsInfo={toolsInfo}
+            />
+          </div>
 
-              {/* Session memory tab: flex column with scrollable content + fixed footer */}
-              <div css={memTabContainerCss(activeTab === "session")}>
-                <div css={memTabScrollCss}>
-                  <SessionMemTab
-                    keys={sessionMemKeys}
-                    dirtyMemKeys={new Set(dirtyMemKeys)}
-                    seenMemKeys={new Set(seenMemKeys)}
-                    onRefresh={refreshMemoryKeys}
-                    onView={viewMemoryValue}
-                    loading={sessionMemLoading}
-                  />
-                </div>
-                <div css={memTabFooterCss}>
-                  <MemTabFooter event={lastSessionMemEvent} />
-                </div>
-              </div>
-
-              <div css={promptPanelCss(activeTab === "prompt")}>
-                {systemPrompt !== null ? (
-                  systemPrompt
-                ) : (
-                  <span css={placeholderCss}>Not yet received.</span>
-                )}
-              </div>
-              <BackendLogsTab
-                logs={backendLogs}
-                visible={activeTab === "logs"}
+          {/* Session memory tab: flex column with scrollable content + fixed footer */}
+          <div css={memTabContainerCss(activeTab === "session")}>
+            <div css={memTabScrollCss}>
+              <SessionMemTab
+                keys={sessionMemKeys}
+                dirtyMemKeys={new Set(dirtyMemKeys)}
+                seenMemKeys={new Set(seenMemKeys)}
+                onRefresh={refreshMemoryKeys}
+                onView={viewMemoryValue}
+                loading={sessionMemLoading}
               />
-
-              <div css={tabPanelCss(activeTab === "dirty")}>
-                <DirtyTab
-                  files={dirtyFiles}
-                  seenFiles={seenFiles.filter((f) => !dirtyFiles.includes(f))}
-                  memKeys={dirtyMemKeys}
-                  seenMemKeys={seenMemKeys.filter(
-                    (k) => !dirtyMemKeys.includes(k),
-                  )}
-                />
-              </div>
+            </div>
+            <div css={memTabFooterCss}>
+              <MemTabFooter event={lastSessionMemEvent} />
             </div>
           </div>
-        )}
-        <PanelDivider
-          open={open}
-          onToggle={onToggle}
-          label="Debug"
-          side="left"
-        />
+
+          <div css={promptPanelCss(activeTab === "prompt")}>
+            {systemPrompt !== null ? (
+              systemPrompt
+            ) : (
+              <span css={placeholderCss}>Not yet received.</span>
+            )}
+          </div>
+          <BackendLogsTab logs={backendLogs} visible={activeTab === "logs"} />
+
+          <div css={tabPanelCss(activeTab === "dirty")}>
+            <DirtyTab
+              files={dirtyFiles}
+              seenFiles={seenFiles.filter((f) => !dirtyFiles.includes(f))}
+              memKeys={dirtyMemKeys}
+              seenMemKeys={seenMemKeys.filter((k) => !dirtyMemKeys.includes(k))}
+            />
+          </div>
+        </div>
       </div>
     </>
   );

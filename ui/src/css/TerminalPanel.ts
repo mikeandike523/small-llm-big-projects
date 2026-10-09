@@ -27,6 +27,15 @@ export const panelCss = css`
   position: relative;
 `;
 
+// The drawer viewport clips this full-width rail while opening and closing.
+// Keeping the rail at its final width prevents xterm from observing every
+// intermediate drawer width and recalculating its rows and columns.
+export const panelRailCss = css`
+  width: var(--terminal-panel-open-width, 680px);
+  min-width: var(--terminal-panel-open-width, 680px);
+  flex: none;
+`;
+
 export const headerCss = css`
   display: flex;
   align-items: center;

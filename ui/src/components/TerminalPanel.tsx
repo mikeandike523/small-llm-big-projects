@@ -23,6 +23,7 @@ import {
   newButtonCss,
   pageCss,
   panelCss,
+  panelRailCss,
   spinnerCss,
   tabBarCss,
   tabButtonCss,
@@ -78,10 +79,10 @@ export function TerminalPanel({
   variant,
 }: Props) {
   const isPage = variant === "page";
-  const isOpen = isPage || !!open;
   const [tabs, setTabs] = useState<TerminalTabState[]>([]);
   const [activeTabIdx, setActiveTabIdx] = useState(0);
   const tabsRef = useRef<TerminalTabState[]>([]);
+  const panelContentRef = useRef<HTMLDivElement | null>(null);
 
   const [askModalOpen, setAskModalOpen] = useState(false);
   const [askModalText, setAskModalText] = useState("");
@@ -94,15 +95,6 @@ export function TerminalPanel({
   // Keyed by terminal_id. Lives outside React state so appending never triggers
   // a re-render or causes the init effect to re-run (which was the root bug).
   const outputBufferRef = useRef<Map<string, string>>(new Map());
-
-  // Polling heuristic: delay terminal creation when panel is animating open.
-  const openRef = useRef(open);
-  const panelTransitioningRef = useRef(false);
-  const pendingCreatedRef = useRef<
-    Array<{ terminal_id: string; name: string; cmd_display?: string }>
-  >([]);
-  const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const panelDivRef = useRef<HTMLDivElement | null>(null);
 
   // Tooltip state: null = hidden, otherwise track position + text + animation phase.
   const [tooltip, setTooltip] = useState<{
@@ -168,8 +160,10 @@ export function TerminalPanel({
   }, []);
 
   useEffect(() => {
-    openRef.current = isOpen;
-  }, [isOpen]);
+    if (panelContentRef.current) {
+      panelContentRef.current.inert = !isPage && !open;
+    }
+  }, [isPage, open]);
 
   useEffect(
     () => () => {
@@ -219,13 +213,6 @@ export function TerminalPanel({
     const data = outputBufferRef.current.get(terminalId) ?? "";
     outputBufferRef.current.delete(terminalId);
     return data;
-  }, []);
-
-  const clearPoll = useCallback(() => {
-    if (pollTimerRef.current) {
-      clearInterval(pollTimerRef.current);
-      pollTimerRef.current = null;
-    }
   }, []);
 
   const createTerminalTab = useCallback(
@@ -291,42 +278,7 @@ export function TerminalPanel({
       name: string;
       cmd_display?: string;
     }) {
-      if (panelTransitioningRef.current) {
-        if (
-          !pendingCreatedRef.current.some((e) => e.terminal_id === terminal_id)
-        ) {
-          pendingCreatedRef.current.push({ terminal_id, name, cmd_display });
-        }
-        return;
-      }
       createTerminalTab(terminal_id, name, cmd_display);
-    }
-
-    function onTerminalOpenPanel() {
-      // If the panel was closed, start polling until it has animated to its full width
-      // before flushing any queued terminal_created events. This prevents xterm from
-      // fitting itself against the narrow mid-transition container.
-      if (!openRef.current) {
-        panelTransitioningRef.current = true;
-        let pollCount = 0;
-        clearPoll();
-        pollTimerRef.current = setInterval(() => {
-          pollCount++;
-          const width = panelDivRef.current?.getBoundingClientRect().width ?? 0;
-          const expected = Math.min(
-            680,
-            Math.max(280, window.innerWidth * 0.38),
-          );
-          if (width >= expected * 0.9 || pollCount >= 6) {
-            clearPoll();
-            panelTransitioningRef.current = false;
-            const pending = pendingCreatedRef.current.splice(0);
-            for (const evt of pending) {
-              createTerminalTab(evt.terminal_id, evt.name, evt.cmd_display);
-            }
-          }
-        }, 500);
-      }
     }
 
     function onTerminalSessionsState({
@@ -360,20 +312,15 @@ export function TerminalPanel({
     socket.on("terminal_output", onTerminalOutput);
     socket.on("terminal_exited", onTerminalExited);
     socket.on("terminal_created", onTerminalCreated);
-    socket.on("terminal_open_panel", onTerminalOpenPanel);
     socket.on("terminal_sessions_state", onTerminalSessionsState);
 
     return () => {
       socket.off("terminal_output", onTerminalOutput);
       socket.off("terminal_exited", onTerminalExited);
       socket.off("terminal_created", onTerminalCreated);
-      socket.off("terminal_open_panel", onTerminalOpenPanel);
       socket.off("terminal_sessions_state", onTerminalSessionsState);
-      clearPoll();
-      pendingCreatedRef.current = [];
-      panelTransitioningRef.current = false;
     };
-  }, [socket, updateTab, createTerminalTab, clearPoll]);
+  }, [socket, updateTab, createTerminalTab]);
 
   useEffect(() => {
     if (tabs.length === 0) {
@@ -445,7 +392,11 @@ export function TerminalPanel({
   const activeTab = tabs[activeTabIdx];
 
   const inner = (
-    <div css={isPage ? pageCss : panelCss}>
+    <div
+      ref={panelContentRef}
+      css={isPage ? pageCss : panelCss}
+      aria-hidden={!isPage && !open}
+    >
       {!isPage && (
         <div css={headerCss}>
           <span css={titleCss}>Terminal</span>
@@ -489,7 +440,7 @@ export function TerminalPanel({
               key={tab.terminalId}
               tab={tab}
               active={idx === activeTabIdx}
-              panelOpen={isOpen}
+              panelOpen={isPage || !!open}
               socket={socket}
               updateTab={updateTab}
               drainBuffer={drainBuffer}
@@ -593,7 +544,7 @@ export function TerminalPanel({
   if (isPage) return inner;
 
   return (
-    <div css={panelRootCss} ref={panelDivRef}>
+    <div css={[panelRootCss, panelRailCss]}>
       <PanelDivider
         open={!!open}
         onToggle={onToggle!}
@@ -601,7 +552,7 @@ export function TerminalPanel({
         side="right"
         badge={tabs.length}
       />
-      {open && inner}
+      {inner}
     </div>
   );
 }

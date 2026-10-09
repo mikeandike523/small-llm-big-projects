@@ -32,14 +32,9 @@ export default function TerminalTab({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const openedRef = useRef(false);
 
-  // Refs that always hold the latest prop values so rAF and ResizeObserver
-  // callbacks never act on stale closures. Initialized from props so they
-  // are correct even before the sync effects below have a chance to run.
-  const panelOpenRef = useRef(panelOpen);
+  // Keep callbacks from acting on an inactive, display:none terminal without
+  // recreating the ResizeObserver on every tab switch.
   const activeRef = useRef(active);
-  useEffect(() => {
-    panelOpenRef.current = panelOpen;
-  }, [panelOpen]);
   useEffect(() => {
     activeRef.current = active;
   }, [active]);
@@ -67,7 +62,6 @@ export default function TerminalTab({
     if (pending) xterm.write(pending);
 
     xterm.open(containerRef.current);
-    xterm.focus();
 
     const dataDisposable = xterm.onData((data) => {
       socket.emit("terminal_input", { terminal_id: tab.terminalId, data });
@@ -84,12 +78,10 @@ export default function TerminalTab({
     // to this xterm instance instead of going to the buffer.
     updateTab(tab.terminalId, { xterm, fitAddon });
 
-    // Defer fit so the layout has settled. Read refs (not closure values) so
-    // we never fit a tab that became inactive or whose panel closed before the
-    // frame fired — avoiding a fit on a display:none container.
+    // Defer fit so layout has settled, while avoiding an inactive terminal's
+    // display:none container.
     requestAnimationFrame(() => {
-      if (panelOpenRef.current && activeRef.current)
-        safeFit(containerRef.current, fitAddon);
+      if (activeRef.current) safeFit(containerRef.current, fitAddon);
     });
 
     return () => {
@@ -104,21 +96,26 @@ export default function TerminalTab({
     };
   }, [socket, tab.terminalId, updateTab, drainBuffer]);
 
-  // Fit whenever the tab becomes active or the panel opens. fitAddon in deps
-  // so this fires once fitAddon is available after init.
+  // Opening the drawer or selecting this tab should focus it, but mounting a
+  // terminal behind the closed clipping viewport must not steal focus.
   useEffect(() => {
-    if (!panelOpen || !active) return;
+    if (panelOpen && active) tab.xterm?.focus();
+  }, [active, panelOpen, tab.xterm]);
+
+  // Fit whenever the tab becomes active. The fixed-width drawer rail remains
+  // measurable while clipped closed, so opening does not require another fit.
+  useEffect(() => {
+    if (!active) return;
     safeFit(containerRef.current, tab.fitAddon);
-  }, [active, panelOpen, tab.fitAddon]);
+  }, [active, tab.fitAddon]);
 
   // Container resize → refit, but only when this tab is the visible one.
   // ResizeObserver is recreated only when fitAddon changes (via refs for the
-  // panelOpen/active guards so we don't recreate on every tab switch).
+  // active guard so we don't recreate it on every tab switch).
   useEffect(() => {
     if (!containerRef.current || !tab.fitAddon) return;
     const obs = new ResizeObserver(() => {
-      if (panelOpenRef.current && activeRef.current)
-        safeFit(containerRef.current, tab.fitAddon);
+      if (activeRef.current) safeFit(containerRef.current, tab.fitAddon);
     });
     obs.observe(containerRef.current);
     return () => obs.disconnect();

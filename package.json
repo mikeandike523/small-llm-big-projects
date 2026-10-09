@@ -1,6 +1,6 @@
 {
   "name": "small-llm-big-projects",
-  "version": "1.12.0",
+  "version": "1.13.0",
   "description": "",
   "main": "index.js",
   "scripts": {
@@ -13,7 +13,7 @@
     "python:check-unused-imports": "ruff check . --select=F401",
     "release-manager": "bash release_manager.sh",
     "update-prod": "bash scripts/update-prod.sh",
-    "remote-update-demo-server":"bash python_in_env.sh scripts/remote_update_demo_server.py"
+    "remote-update-demo-server": "bash python_in_env.sh scripts/remote_update_demo_server.py"
   },
   "keywords": [],
   "author": "",

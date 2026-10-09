@@ -11,28 +11,11 @@ export const appLayoutCss = css`
   color: #e0e0e0;
 `;
 
-export const debugPanelWrapperCss = (open: boolean) => css`
-  width: ${open ? "20%" : "28px"};
-  min-width: ${open ? "160px" : "28px"};
-  max-width: ${open ? "320px" : "28px"};
-  transition:
-    width 0.2s ease,
-    min-width 0.2s ease,
-    max-width 0.2s ease;
-  overflow: hidden;
-  flex-shrink: 0;
-  height: 100%;
-`;
-
 export const terminalPanelWrapperCss = (open: boolean) => css`
-  width: ${open ? "38%" : "28px"};
-  min-width: ${open ? "280px" : "28px"};
-  max-width: ${open ? "680px" : "28px"};
-  transition:
-    width 0.2s ease,
-    min-width 0.2s ease,
-    max-width 0.2s ease;
-  overflow: hidden;
+  --terminal-panel-open-width: clamp(280px, 38vw, 680px);
+  width: ${open ? "var(--terminal-panel-open-width)" : "28px"};
+  transition: width 0.2s ease;
+  overflow: clip;
   flex-shrink: 0;
   height: 100%;
 `;
