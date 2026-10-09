@@ -1,5 +1,5 @@
 /** @jsxImportSource @emotion/react */
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Resizable } from "re-resizable";
 import { GiAnt } from "react-icons/gi";
 import { VscFiles } from "react-icons/vsc";
@@ -12,12 +12,14 @@ import {
   sidebarViewCss,
 } from "../css/LeftSidebar";
 import type { Props as DebugPanelProps } from "../types/DebugPanel";
+import { readSessionValue, writeSessionValue } from "../utils/sessionStorage";
 import { DebugPanel } from "./DebugPanel";
 import FileExplorer from "./FileExplorer";
 
 type SidebarView = "explorer" | "debug";
 type Props = Omit<DebugPanelProps, "open">;
 const WIDTH_STORAGE_KEY = "slbp:left-sidebar-width";
+const VIEW_STORAGE_KEY = "slbp:left-sidebar-view";
 const DEFAULT_PANEL_WIDTH = 360;
 const MIN_PANEL_WIDTH = 280;
 const MAX_PANEL_WIDTH = 640;
@@ -27,18 +29,75 @@ function clampWidth(value: number): number {
 }
 
 function storedPanelWidth(): number {
-  const stored = Number(sessionStorage.getItem(WIDTH_STORAGE_KEY));
+  const stored = Number(readSessionValue(WIDTH_STORAGE_KEY));
   return Number.isFinite(stored) && stored > 0
     ? clampWidth(stored)
     : DEFAULT_PANEL_WIDTH;
 }
 
+function storedActiveView(): SidebarView | null {
+  const stored = readSessionValue(VIEW_STORAGE_KEY);
+  return stored === "explorer" || stored === "debug" ? stored : null;
+}
+
+function createWidthStorageThrottle(waitMs: number) {
+  let lastWrite = 0;
+  let timeout: ReturnType<typeof setTimeout> | null = null;
+  let pendingWidth: number | null = null;
+
+  function commit(width: number) {
+    lastWrite = Date.now();
+    pendingWidth = null;
+    writeSessionValue(WIDTH_STORAGE_KEY, String(width));
+  }
+
+  function schedule(width: number) {
+    pendingWidth = width;
+    const remaining = waitMs - (Date.now() - lastWrite);
+    if (remaining <= 0) {
+      if (timeout) clearTimeout(timeout);
+      timeout = null;
+      commit(width);
+    } else if (!timeout) {
+      timeout = setTimeout(() => {
+        timeout = null;
+        if (pendingWidth !== null) commit(pendingWidth);
+      }, remaining);
+    }
+  }
+
+  schedule.flush = () => {
+    if (timeout) clearTimeout(timeout);
+    timeout = null;
+    if (pendingWidth !== null) commit(pendingWidth);
+  };
+  schedule.cancel = () => {
+    if (timeout) clearTimeout(timeout);
+    timeout = null;
+    pendingWidth = null;
+  };
+  return schedule;
+}
+
 export default function LeftSidebar(props: Props) {
-  const [activeView, setActiveView] = useState<SidebarView | null>(null);
+  const [activeView, setActiveView] = useState<SidebarView | null>(
+    storedActiveView,
+  );
   const [panelWidth, setPanelWidth] = useState(storedPanelWidth);
+  const persistWidth = useMemo(() => createWidthStorageThrottle(120), []);
+
+  useEffect(
+    () => () => {
+      persistWidth.flush();
+      persistWidth.cancel();
+    },
+    [persistWidth],
+  );
 
   function toggleView(view: SidebarView) {
-    setActiveView((current) => (current === view ? null : view));
+    const next = activeView === view ? null : view;
+    setActiveView(next);
+    writeSessionValue(VIEW_STORAGE_KEY, next ?? "closed");
   }
 
   return (
@@ -72,12 +131,15 @@ export default function LeftSidebar(props: Props) {
         maxWidth={activeView ? MAX_PANEL_WIDTH : 0}
         enable={{ right: activeView !== null }}
         onResize={(_event, _direction, element) => {
-          setPanelWidth(clampWidth(element.offsetWidth));
+          const width = clampWidth(element.offsetWidth);
+          setPanelWidth(width);
+          persistWidth(width);
         }}
         onResizeStop={(_event, _direction, element) => {
           const width = clampWidth(element.offsetWidth);
           setPanelWidth(width);
-          sessionStorage.setItem(WIDTH_STORAGE_KEY, String(width));
+          persistWidth(width);
+          persistWidth.flush();
         }}
         handleComponent={{ right: <div css={resizeHandleCss} /> }}
         style={{ flexShrink: 0, overflow: "visible" }}

@@ -4,6 +4,8 @@ import _spin from "./_spin";
 export const appLayoutCss = css`
   display: flex;
   flex-direction: row;
+  position: relative;
+  overflow: hidden;
   height: 100vh;
   font-family: "Segoe UI", system-ui, sans-serif;
   font-size: 15px;
@@ -13,11 +15,15 @@ export const appLayoutCss = css`
 
 export const terminalPanelWrapperCss = (open: boolean) => css`
   --terminal-panel-open-width: clamp(280px, 38vw, 680px);
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 50;
   width: ${open ? "var(--terminal-panel-open-width)" : "28px"};
   transition: width 0.2s ease;
   overflow: clip;
-  flex-shrink: 0;
-  height: 100%;
+  box-shadow: ${open ? "-8px 0 24px rgba(0, 0, 0, 0.38)" : "none"};
 `;
 
 export const mainAreaCss = css`

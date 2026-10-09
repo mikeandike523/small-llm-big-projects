@@ -18,8 +18,14 @@ import {
   turnEndedIn,
 } from "./turnLoad";
 import useTurnPages from "./useTurnPages";
+import { readSessionValue, writeSessionValue } from "../utils/sessionStorage";
 
 const MAX_LOGS = 100;
+const TERMINAL_OPEN_STORAGE_KEY = "slbp:terminal-open";
+
+function storedTerminalOpen(): boolean {
+  return readSessionValue(TERMINAL_OPEN_STORAGE_KEY) === "open";
+}
 
 function newTurn(
   id: string,
@@ -100,7 +106,7 @@ export default function useSocketWiring(socket: Socket) {
     names: string[];
     customPlugins: { name: string; count: number; path: string }[] | null;
   } | null>(null);
-  const [terminalOpen, setTerminalOpen] = useState(false);
+  const [terminalOpen, setTerminalOpen] = useState(storedTerminalOpen);
   const [systemPrompt, setSystemPrompt] = useState<string | null>(null);
   const [backendLogs, setBackendLogs] = useState<BackendLogEntry[]>([]);
   // The latest-turn load (see turnLoad.ts). While loading, thread-mutating
@@ -129,6 +135,13 @@ export default function useSocketWiring(socket: Socket) {
     total_tokens: number | null;
     known_max_context: number;
   } | null>(null);
+
+  useEffect(() => {
+    writeSessionValue(
+      TERMINAL_OPEN_STORAGE_KEY,
+      terminalOpen ? "open" : "closed",
+    );
+  }, [terminalOpen]);
 
   // ---------------------------------------------------------------------------
   // Thread helpers

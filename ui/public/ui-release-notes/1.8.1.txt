@@ -1,0 +1,1 @@
+Persist panel state and overlay the terminal
