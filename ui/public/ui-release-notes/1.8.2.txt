@@ -1,0 +1,1 @@
+fixed screen space usage of terminal divider bar

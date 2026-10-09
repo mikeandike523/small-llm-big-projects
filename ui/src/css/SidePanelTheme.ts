@@ -30,6 +30,8 @@ export const spTextTitle = "#8fb0d0";
 export const spTextMuted = "#6c88a4";
 export const spTextDim = "#4f6a82";
 
+export const panelDividerWidth = "28px";
+
 export const panelRootCss = css`
   display: flex;
   flex-direction: row;
@@ -38,7 +40,7 @@ export const panelRootCss = css`
 `;
 
 export const dividerCss = css`
-  width: 28px;
+  width: ${panelDividerWidth};
   flex-shrink: 0;
   height: 100%;
   display: flex;

@@ -1,5 +1,6 @@
 import { css } from "@emotion/react";
 import _spin from "./_spin";
+import { panelDividerWidth } from "./SidePanelTheme";
 
 export const appLayoutCss = css`
   display: flex;
@@ -20,10 +21,19 @@ export const terminalPanelWrapperCss = (open: boolean) => css`
   right: 0;
   bottom: 0;
   z-index: 50;
-  width: ${open ? "var(--terminal-panel-open-width)" : "28px"};
+  width: ${open ? "var(--terminal-panel-open-width)" : panelDividerWidth};
   transition: width 0.2s ease;
   overflow: clip;
   box-shadow: ${open ? "-8px 0 24px rgba(0, 0, 0, 0.38)" : "none"};
+`;
+
+export const terminalPanelDockCss = css`
+  width: ${panelDividerWidth};
+  flex: 0 0 ${panelDividerWidth};
+  height: 100%;
+  position: relative;
+  overflow: visible;
+  z-index: 50;
 `;
 
 export const mainAreaCss = css`

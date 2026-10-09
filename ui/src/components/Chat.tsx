@@ -20,6 +20,7 @@ import {
   spinnerCss,
   statusCss,
   stopButtonCss,
+  terminalPanelDockCss,
   terminalPanelWrapperCss,
   textareaCss,
   threadCss,
@@ -571,13 +572,15 @@ export default function Chat() {
       </div>
 
       {/* Terminal panel */}
-      <div css={terminalPanelWrapperCss(terminalOpen)}>
-        <TerminalPanel
-          open={terminalOpen}
-          onToggle={() => setTerminalOpen((o) => !o)}
-          socket={socket}
-          busy={busy}
-        />
+      <div css={terminalPanelDockCss}>
+        <div css={terminalPanelWrapperCss(terminalOpen)}>
+          <TerminalPanel
+            open={terminalOpen}
+            onToggle={() => setTerminalOpen((o) => !o)}
+            socket={socket}
+            busy={busy}
+          />
+        </div>
       </div>
     </div>
   );
