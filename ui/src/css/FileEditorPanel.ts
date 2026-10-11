@@ -79,6 +79,14 @@ export const editorTabCss = (
   }
 `;
 
+export const editorTabParentPathCss = css`
+  color: ${spTextDim};
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex-shrink: 1;
+`;
+
 export const editorTabNameCss = css`
   overflow: hidden;
   text-overflow: ellipsis;

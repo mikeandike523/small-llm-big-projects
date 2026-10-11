@@ -183,6 +183,7 @@ export default function LeftSidebar(props: Props) {
           <FileEditorPanel
             open={activeView === "explorer" && editorOpen}
             sessionId={props.sessionId}
+            rootPath={props.envInfo?.initialCwd ?? ""}
             request={editorRequest}
             onClose={() => setEditorOpen(false)}
             onRevealFile={(path) => {

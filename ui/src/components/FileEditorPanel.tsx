@@ -17,6 +17,7 @@ import {
   editorStatusCss,
   editorTabCss,
   editorTabNameCss,
+  editorTabParentPathCss,
   editorTabsCss,
   editorTopBarCss,
   statusAccentCss,
@@ -29,6 +30,7 @@ import { readSessionValue, writeSessionValue } from "../utils/sessionStorage";
 interface EditorTab {
   path: string;
   name: string;
+  parentDir: string;
   content: string;
   savedContent: string;
   preview: boolean;
@@ -40,6 +42,7 @@ interface EditorTab {
 interface Props {
   open: boolean;
   sessionId: string;
+  rootPath: string;
   request: EditorOpenRequest | null;
   onClose: () => void;
   onRevealFile: (path: string) => void;
@@ -52,10 +55,22 @@ interface StoredWorkspace {
 
 const fileName = (path: string) => path.split(/[\\/]/).pop() || path;
 
-function blankTab(path: string, preview: boolean): EditorTab {
+function parentDirName(path: string, rootPath: string): string {
+  if (!rootPath) return "";
+  const normPath = path.replace(/\\/g, "/");
+  const normRoot = rootPath.replace(/\\/g, "/");
+  const prefix = normRoot.endsWith("/") ? normRoot : `${normRoot}/`;
+  if (!normPath.startsWith(prefix)) return "";
+  const rel = normPath.slice(prefix.length);
+  const slash = rel.lastIndexOf("/");
+  return slash >= 0 ? rel.slice(0, slash) : "";
+}
+
+function blankTab(path: string, preview: boolean, parentDir: string): EditorTab {
   return {
     path,
     name: fileName(path),
+    parentDir,
     content: "",
     savedContent: "",
     preview,
@@ -114,6 +129,7 @@ function restoredWorkspace(storageKey: string): StoredWorkspace {
 export default function FileEditorPanel({
   open,
   sessionId,
+  rootPath,
   request,
   onClose,
   onRevealFile,
@@ -121,7 +137,9 @@ export default function FileEditorPanel({
   const storageKey = `slbp:file-editor:${sessionId}`;
   const restored = useMemo(() => restoredWorkspace(storageKey), [storageKey]);
   const [tabs, setTabs] = useState<EditorTab[]>(() =>
-    restored.tabs.map((tab) => blankTab(tab.path, tab.preview)),
+    restored.tabs.map((tab) =>
+      blankTab(tab.path, tab.preview, parentDirName(tab.path, rootPath)),
+    ),
   );
   const [activePath, setActivePath] = useState<string | null>(() =>
     restored.tabs.some((tab) => tab.path === restored.activePath)
@@ -186,7 +204,11 @@ export default function FileEditorPanel({
             )
           : current;
       }
-      const next = blankTab(request.path, !request.pinned);
+      const next = blankTab(
+        request.path,
+        !request.pinned,
+        parentDirName(request.path, rootPath),
+      );
       if (!request.pinned) {
         const previewIndex = current.findIndex(
           (tab) => tab.preview && tab.content === tab.savedContent,
@@ -344,6 +366,8 @@ export default function FileEditorPanel({
           aria-label="Open files"
         >
           {tabs.map((tab) => {
+            const nameCount = tabs.filter((t) => t.name === tab.name).length;
+            const ambiguous = nameCount >= 2;
             const dirty = tab.content !== tab.savedContent;
             return (
               <button
@@ -374,7 +398,12 @@ export default function FileEditorPanel({
                 onDrop={() => moveTab(tab.path)}
                 onDragEnd={() => setDraggedPath(null)}
               >
-                <span css={editorTabNameCss}>{tab.name}</span>
+                <span css={editorTabNameCss}>
+                  {ambiguous && tab.parentDir && (
+                    <span css={editorTabParentPathCss}>{`${tab.parentDir}/`}</span>
+                  )}
+                  {tab.name}
+                </span>
                 {dirty && <span css={dirtyMarkerCss}>●</span>}
                 <span
                   css={tabCloseCss}
