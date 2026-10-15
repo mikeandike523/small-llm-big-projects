@@ -1,5 +1,5 @@
 """
-Launches/talks to the SLBP Electron desktop app instead of a plain webbrowser.open().
+Launches sessions in either the SLBP Electron desktop app or a web browser.
 
 Mirrors the .slbp-server.json pattern in server_state.py: the Electron app writes
 its own control-server port to .slbp-app-server.json at the repo root on startup,
@@ -18,7 +18,9 @@ import subprocess
 import sys
 import tempfile
 import time
+import webbrowser
 from pathlib import Path
+from urllib.parse import urlencode
 
 import click
 import httpx
@@ -269,6 +271,11 @@ def open_session(session_id: str, proxy_port: int) -> None:
         port,
         {"sessionId": session_id, "proxyOrigin": f"http://localhost:{proxy_port}"},
     )
+
+
+def open_session_in_browser(session_id: str, proxy_port: int) -> None:
+    query = urlencode({"sessionId": session_id})
+    webbrowser.open(f"http://localhost:{proxy_port}/session?{query}")
 
 
 def open_dashboard(proxy_port: int) -> None:

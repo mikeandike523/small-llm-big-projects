@@ -7,7 +7,7 @@ import httpx
 
 from src.cli_obj import cli
 from src.data import get_pool
-from src.utils.app_launcher import open_session
+from src.utils.app_launcher import open_session, open_session_in_browser
 from src.utils.server_state import read_state
 from src.utils.sql.kv_manager import KVManager
 from src.utils.param_helper import get_param_value
@@ -58,19 +58,25 @@ def session():
     default=APPROVAL_MODE_DEFAULT,
     help="Approval mode for this session.",
 )
+@click.option(
+    "--browser",
+    is_flag=True,
+    help="Open the session in the default web browser instead of the desktop app.",
+)
 def session_new(
     load_custom_skills_tools,
     load_startup_tool_calls,
     cwd,
     starting_profile,
     approval_mode,
+    browser,
 ):
     """
-    Create a new agentic session and open it in the default web browser.
+    Create a new agentic session and open it in the SLBP desktop app.
 
     Run from the directory you want the agent to work in, or pass --cwd explicitly.
     Per-session context (working directory, skills, custom tools) is captured here,
-    not at server startup.
+    not at server startup. Pass --browser to use the default web browser instead.
 
     Requires `slbp server run` to already be running.
     """
@@ -156,4 +162,7 @@ def session_new(
     click.echo(f"[slbp] Profile: {starting_profile or effective_profile}")
     click.echo(f"[slbp] Approval mode: {approval_mode}")
     click.echo(f"[slbp] CWD: {session_cwd}")
-    open_session(session_id, proxy_port)
+    if browser:
+        open_session_in_browser(session_id, proxy_port)
+    else:
+        open_session(session_id, proxy_port)

@@ -26,6 +26,10 @@ import {
 } from "../css/FileEditorPanel";
 import type { EditorOpenRequest } from "../types/FileExplorer";
 import { readSessionValue, writeSessionValue } from "../utils/sessionStorage";
+import {
+  configureFileEditorLanguages,
+  languageFor,
+} from "./fileEditorLanguage";
 
 interface EditorTab {
   path: string;
@@ -78,34 +82,6 @@ function blankTab(path: string, preview: boolean, parentDir: string): EditorTab 
     saving: false,
     error: "",
   };
-}
-
-function languageFor(path: string): string {
-  const extension = path.split(".").pop()?.toLowerCase();
-  const languages: Record<string, string> = {
-    c: "c",
-    cc: "cpp",
-    cpp: "cpp",
-    cs: "csharp",
-    css: "css",
-    go: "go",
-    html: "html",
-    java: "java",
-    js: "javascript",
-    json: "json",
-    jsx: "javascript",
-    md: "markdown",
-    py: "python",
-    rs: "rust",
-    sh: "shell",
-    sql: "sql",
-    ts: "typescript",
-    tsx: "typescript",
-    xml: "xml",
-    yaml: "yaml",
-    yml: "yaml",
-  };
-  return languages[extension ?? ""] ?? "plaintext";
 }
 
 function restoredWorkspace(storageKey: string): StoredWorkspace {
@@ -453,6 +429,7 @@ export default function FileEditorPanel({
             language={languageFor(activeTab.path)}
             value={activeTab.content}
             theme="vs-dark"
+            beforeMount={configureFileEditorLanguages}
             onChange={(value) => {
               const content = value ?? "";
               setTabs((current) =>
@@ -467,6 +444,15 @@ export default function FileEditorPanel({
               automaticLayout: true,
               fontSize: 13,
               minimap: { enabled: true },
+              quickSuggestions: false,
+              suggestOnTriggerCharacters: false,
+              wordBasedSuggestions: "off",
+              parameterHints: { enabled: false },
+              hover: { enabled: false },
+              links: false,
+              codeLens: false,
+              inlayHints: { enabled: "off" },
+              "semanticHighlighting.enabled": false,
               scrollBeyondLastLine: false,
               tabSize: 2,
             }}
