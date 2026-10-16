@@ -2,6 +2,7 @@
 
 set -euo pipefail
 
+pnpm install
 
 # We only really use worktrees on windows for now
 python -m venv .venv
