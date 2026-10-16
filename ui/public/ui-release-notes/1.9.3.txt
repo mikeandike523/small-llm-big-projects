@@ -1,0 +1,1 @@
+Changed default width of debug panel.

@@ -1,5 +1,9 @@
 # CLAUDE.md -- Environment and Development Tips for this Project
 
+## Worktrees and Collaboration
+
+You may be working inside of a worktree so that multiple agents can collaborate. A setup script called "pnpm run setup-worktree" was called to give you the basic .venv, and isntall pnpm packages in ui and desktop/*. .env and other gitignored dotfiles have not been copied, as they are not necessary. The true running process will live inthe main worktree, and you should NOT call "slbp" to run any servers or attempt to debug/test any UI code on your own. Humans are responsible for integration testing because the system is incredibly complex and visual. Nevertheless, you should be able to run the basic tests outlined in the "Testing" section since those run with the python and node environments that are available int he worktree.
+
 ## Project Overview
 
 This project is called "small-llm-big-projects" or "slbp" for short.
@@ -165,18 +169,21 @@ unfamiliar or destructive operations.
 There are two separate, non-overlapping test suites. Know which one you're touching:
 
 - **`tests/` (pytest)** — general/architecture-level testing: socket handler wiring, CLI arg parsing, skill registry logic, terminal PTY behavior, output truncation, etc. Not tied to any one tool. Run with:
+
   ```
   bash python_in_env.sh -m pytest -q tests/
   ```
+
   **Always pass `tests/` explicitly.** There is no `pytest.ini`/`pyproject.toml` configuring `testpaths`, so a bare `pytest` with no path argument walks the whole repo from root — including `server/mysqldata/`, the bind-mounted MySQL Docker data directory. On Windows, `server/mysqldata/mysql.sock` is a Unix-socket symlink that pytest's directory-collection `stat()` call can't handle, raising `OSError: [WinError 1920]` and aborting collection before any real test runs. This is a Windows/pytest quirk, not a project bug — scoping the invocation to `tests/` avoids it entirely.
 
   `tests/` is populated more ad hoc (by whichever agent/session needed it at the time) and can drift out of date. If a case fails because it references a renamed param or an outdated schema rather than an actual regression, update the test to match current behavior rather than assuming the code is wrong.
-
 - **`tool_tests/` (custom runner)** — tests actual tool *implementations* (the Python functions in `src/tools/`, e.g. `list_dir`, `basic_web_request`, `code_interpreter`). This project doesn't use an MCP server; tools are plain Python modules with a `DEFINITION` schema and a callable, so a generic pytest-style unit test doesn't fit well — `tool_tests/` spins up a real micro HTTP server plus a per-tool sandboxed env and drives each tool end-to-end. Run with:
+
   ```
   ./tool_tests/run_all.sh
   ./tool_tests/view.sh   # serves the generated test_results/ report in a browser
   ```
+
   `tool_tests/individual/` is generally kept up to date as tools change, more so than `tests/`.
 
 ## File Length Goal: 500 Lines Maximum

@@ -28,7 +28,7 @@ type Props = Omit<DebugPanelProps, "open"> & {
 };
 const WIDTH_STORAGE_KEY = "slbp:left-sidebar-width";
 const VIEW_STORAGE_KEY = "slbp:left-sidebar-view";
-const DEFAULT_PANEL_WIDTH = 360;
+const DEFAULT_PANEL_WIDTH = 450;
 const MIN_PANEL_WIDTH = 280;
 const MAX_PANEL_WIDTH = 640;
 
