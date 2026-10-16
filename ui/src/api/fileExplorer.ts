@@ -1,4 +1,17 @@
-import type { FileExplorerListing } from "../types/FileExplorer";
+import type {
+  ExplorerDownloadJob,
+  FileExplorerListing,
+} from "../types/FileExplorer";
+
+export class FileExplorerApiError extends Error {
+  constructor(
+    message: string,
+    readonly backendLogged: boolean,
+  ) {
+    super(message);
+    this.name = "FileExplorerApiError";
+  }
+}
 
 async function postFileExplorer<T>(route: string, body: object): Promise<T> {
   const response = await fetch(`${window.location.origin}${route}`, {
@@ -56,4 +69,61 @@ export async function writeExplorerFile(
     path,
     content,
   });
+}
+
+async function downloadJobRequest(
+  url: string,
+  init?: RequestInit,
+  backendErrorsLogged = false,
+): Promise<ExplorerDownloadJob> {
+  let response: Response;
+  try {
+    response = await fetch(url, init);
+  } catch (error) {
+    throw new FileExplorerApiError(
+      error instanceof Error ? error.message : "Could not reach the server",
+      false,
+    );
+  }
+  const data = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new FileExplorerApiError(
+      data?.error || `Download request failed (${response.status})`,
+      backendErrorsLogged,
+    );
+  }
+  return data as ExplorerDownloadJob;
+}
+
+export function createExplorerDownload(
+  sessionId: string,
+  path: string,
+): Promise<ExplorerDownloadJob> {
+  return downloadJobRequest(
+    `${window.location.origin}/api/file-explorer/downloads`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ session_id: sessionId, path }),
+    },
+    true,
+  );
+}
+
+export function getExplorerDownload(
+  downloadId: string,
+): Promise<ExplorerDownloadJob> {
+  return downloadJobRequest(
+    `${window.location.origin}/api/file-explorer/downloads/${encodeURIComponent(downloadId)}`,
+  );
+}
+
+export function startBrowserDownload(contentUrl: string): void {
+  const link = document.createElement("a");
+  link.href = new URL(contentUrl, window.location.origin).toString();
+  link.download = "";
+  link.style.display = "none";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
 }

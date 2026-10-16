@@ -1,12 +1,22 @@
 from __future__ import annotations
 
 import os
+import logging
 from pathlib import Path
 
-from flask import jsonify, request
+from flask import jsonify, request, send_file
 
 from src.ui_connector.app import app
 from src.ui_connector.socket_handler_components.session_store import _load_session
+from src.ui_connector.socket_handler_components.emit import _emit_backend_log
+from src.ui_connector.socket_handler_components.file_download_jobs import (
+    DownloadJobError,
+    create_download_job,
+    get_download_job,
+    mark_download_complete,
+)
+
+logger = logging.getLogger(__name__)
 
 
 class ExplorerPathError(ValueError):
@@ -153,9 +163,27 @@ def _file_error_response(exc: Exception):
         return jsonify({"error": str(exc)}), 404
     if isinstance(exc, PermissionError):
         return jsonify({"error": str(exc)}), 403
-    if isinstance(exc, (ExplorerPathError, IsADirectoryError)):
+    if isinstance(exc, (DownloadJobError, ExplorerPathError, IsADirectoryError)):
         return jsonify({"error": str(exc)}), 400
     return jsonify({"error": f"Could not access file: {exc}"}), 500
+
+
+def _emit_download_request_error(
+    session_id: object, path_value: object, exc: Exception
+) -> None:
+    if not isinstance(session_id, str) or not session_id.strip():
+        return
+    try:
+        _emit_backend_log(
+            session_id.strip(),
+            {
+                "source": "file-download",
+                "path": path_value,
+                "error": f"{type(exc).__name__}: {exc}",
+            },
+        )
+    except Exception:
+        logger.exception("Could not emit Debug Panel log for download request")
 
 
 @app.route("/api/file-explorer/read", methods=["POST"])
@@ -215,3 +243,66 @@ def api_file_explorer_list():
         return jsonify({"error": str(exc)}), 400
     except OSError as exc:
         return jsonify({"error": f"Could not list directory: {exc}"}), 500
+
+
+@app.route("/api/file-explorer/downloads", methods=["POST"])
+def api_file_explorer_create_download():
+    data = request.get_json(force=True, silent=True) or {}
+    session_id = data.get("session_id")
+    path_value = data.get("path")
+    try:
+        _data, session, requested_path = _file_request_data()
+        root = Path(session.initial_cwd).resolve(strict=True)
+        source = _resolve_session_path(session.initial_cwd, requested_path, "download")
+        job = create_download_job(session_id.strip(), root, source)
+        return jsonify(job.snapshot()), 202
+    except (
+        DownloadJobError,
+        ExplorerPathError,
+        FileNotFoundError,
+        PermissionError,
+        OSError,
+    ) as exc:
+        _emit_download_request_error(session_id, path_value, exc)
+        return _file_error_response(exc)
+    except Exception as exc:
+        logger.exception("Unexpected error while creating file download")
+        _emit_download_request_error(session_id, path_value, exc)
+        return _file_error_response(exc)
+
+
+@app.route("/api/file-explorer/downloads/<job_id>", methods=["GET"])
+def api_file_explorer_download_status(job_id: str):
+    job = get_download_job(job_id)
+    if job is None:
+        return jsonify({"error": "Download job not found or expired"}), 404
+    return jsonify(job.snapshot())
+
+
+@app.route("/api/file-explorer/downloads/<job_id>/content", methods=["GET"])
+def api_file_explorer_download_content(job_id: str):
+    job = get_download_job(job_id)
+    if job is None:
+        return jsonify({"error": "Download job not found or expired"}), 404
+    with job.lock:
+        if job.state != "ready" or job.prepared_path is None:
+            return jsonify({"error": "Download is not ready"}), 409
+        prepared_path = job.prepared_path
+        download_name = job.download_name
+    try:
+        response = send_file(
+            prepared_path,
+            as_attachment=True,
+            download_name=download_name,
+            conditional=True,
+        )
+    except (FileNotFoundError, PermissionError, OSError) as exc:
+        _emit_download_request_error(job.session_id, str(job.source), exc)
+        return _file_error_response(exc)
+    except Exception as exc:
+        logger.exception("Unexpected error while starting download %s", job.id)
+        _emit_download_request_error(job.session_id, str(job.source), exc)
+        return _file_error_response(exc)
+    if job.temporary:
+        response.call_on_close(lambda: mark_download_complete(job))
+    return response

@@ -31,7 +31,9 @@ def _prepare_session_creation(monkeypatch):
     monkeypatch.setattr(
         session_route, "require_active_profile", lambda _kv: "default-profile"
     )
-    monkeypatch.setattr(session_route, "get_param_value", lambda *_args, **_kwargs: False)
+    monkeypatch.setattr(
+        session_route, "get_param_value", lambda *_args, **_kwargs: False
+    )
     monkeypatch.setattr(
         session_route,
         "read_state",
@@ -81,9 +83,7 @@ def test_session_new_defaults_to_desktop_app(monkeypatch):
         lambda *args: browser_calls.append(args),
     )
 
-    result = CliRunner().invoke(
-        cli, ["session", "new", "--no-load-startup-tool-calls"]
-    )
+    result = CliRunner().invoke(cli, ["session", "new", "--no-load-startup-tool-calls"])
 
     assert result.exit_code == 0
     assert desktop_calls == [("session-123", 5200)]
@@ -95,7 +95,8 @@ def test_session_new_help_documents_browser_flag():
 
     assert result.exit_code == 0
     assert "--browser" in result.output
-    assert "default web browser instead of the desktop app" in result.output
+    assert "default web browser" in result.output
+    assert "instead of the desktop app" in result.output
 
 
 def test_browser_launcher_opens_session_url(monkeypatch):

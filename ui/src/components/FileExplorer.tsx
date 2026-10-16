@@ -12,6 +12,7 @@ import {
 import ExplorerNode from "../subcomponents/FileExplorer/ExplorerNode";
 import type {
   EditorOpenRequest,
+  ExplorerDownloadRequest,
   ExplorerRevealRequest,
   FileExplorerListing,
 } from "../types/FileExplorer";
@@ -23,6 +24,7 @@ interface Props {
   editorOpen: boolean;
   onToggleEditor: () => void;
   onOpenFile: (request: EditorOpenRequest) => void;
+  onDownload: (request: ExplorerDownloadRequest) => void;
   revealRequest: ExplorerRevealRequest | null;
 }
 
@@ -33,6 +35,7 @@ export default function FileExplorer({
   editorOpen,
   onToggleEditor,
   onOpenFile,
+  onDownload,
   revealRequest,
 }: Props) {
   const [rootPath, setRootPath] = useState(initialCwd);
@@ -73,9 +76,11 @@ export default function FileExplorer({
               root
               sessionId={sessionId}
               homePath={homePath}
+              path={rootPath || initialCwd}
               onRootLoaded={onRootLoaded}
               focusedPath={focusedPath}
               revealRequest={revealRequest}
+              onDownload={onDownload}
               onOpenFile={(request) => {
                 setFocusedPath(request.path);
                 onOpenFile(request);

@@ -109,6 +109,18 @@ export default function useSocketWiring(socket: Socket) {
   const [terminalOpen, setTerminalOpen] = useState(storedTerminalOpen);
   const [systemPrompt, setSystemPrompt] = useState<string | null>(null);
   const [backendLogs, setBackendLogs] = useState<BackendLogEntry[]>([]);
+  const nextClientLogId = useRef(-1);
+  const appendClientDebugLog = useCallback((content: BackendLogContent) => {
+    const entry: BackendLogEntry = {
+      id: nextClientLogId.current,
+      content,
+    };
+    nextClientLogId.current -= 1;
+    setBackendLogs((previous) => {
+      const next = [...previous, entry];
+      return next.length > MAX_LOGS ? next.slice(next.length - MAX_LOGS) : next;
+    });
+  }, []);
   // The latest-turn load (see turnLoad.ts). While loading, thread-mutating
   // live events are queued in pendingLiveRef and flushed afterwards.
   const [historyLoading, setHistoryLoading] = useState(true);
@@ -1220,6 +1232,7 @@ export default function useSocketWiring(socket: Socket) {
     toolsInfo,
     systemPrompt,
     backendLogs,
+    appendClientDebugLog,
     historyLoading,
     historyError,
     turnIds: pages.turnIds,

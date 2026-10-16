@@ -26,6 +26,7 @@ import {
   threadCss,
 } from "../css/Chat";
 import useSocketWiring from "../hooks/useSocketWiring";
+import useSessionDownloads from "../hooks/useSessionDownloads";
 import { fetchToolPreviewConfig } from "../api/toolPreviewConfig";
 import { createSocket } from "../socket";
 import HeartbeatSettingsDialog from "./HeartbeatSettingsDialog";
@@ -40,6 +41,7 @@ import FormattedCostWithColor from "./FormattedCostWithColor";
 import ContextUsageBar from "./ContextUsageBar";
 import { TerminalPanel } from "./TerminalPanel";
 import TurnContainer from "./TurnContainer";
+import FolderDownloadCards from "./FolderDownloadCards";
 
 export default function Chat() {
   const navigate = useNavigate();
@@ -97,6 +99,7 @@ export default function Chat() {
     toolsInfo,
     systemPrompt,
     backendLogs,
+    appendClientDebugLog,
     historyLoading,
     historyError,
     turnIds,
@@ -117,6 +120,10 @@ export default function Chat() {
     terminalOpen,
     setTerminalOpen,
   } = useSocketWiring(socket);
+  const { folderCards, startDownload } = useSessionDownloads(
+    sessionId,
+    appendClientDebugLog,
+  );
 
   // `thread` is the cache of loaded turns; the page shows one of them.
   const latestTurnId = turnIds[turnIds.length - 1];
@@ -310,8 +317,11 @@ export default function Chat() {
         toolsInfo={toolsInfo}
         systemPrompt={systemPrompt}
         backendLogs={backendLogs}
+        onDownloadExplorerEntry={startDownload}
         socket={socket}
       />
+
+      <FolderDownloadCards cards={folderCards} />
 
       {/* Main content area */}
       <div css={mainAreaCss}>

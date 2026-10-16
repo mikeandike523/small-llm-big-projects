@@ -146,3 +146,29 @@ export const statusRowCss = (indent: number, error = false) => css`
   font-size: 11px;
   white-space: nowrap;
 `;
+
+export const contextMenuContentCss = css`
+  z-index: 200;
+  min-width: 150px;
+  padding: 5px;
+  border: 1px solid #34465d;
+  border-radius: 6px;
+  background: #17202b;
+  color: ${spTextMain};
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  font-family: ${fontMono};
+  font-size: 12px;
+`;
+
+export const contextMenuItemCss = css`
+  padding: 6px 9px;
+  border-radius: 4px;
+  cursor: default;
+  outline: none;
+  user-select: none;
+
+  &[data-highlighted] {
+    background: rgba(77, 134, 191, 0.3);
+    color: #fff;
+  }
+`;

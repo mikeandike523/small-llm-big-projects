@@ -14,6 +14,7 @@ import {
 import type { Props as DebugPanelProps } from "../types/DebugPanel";
 import type {
   EditorOpenRequest,
+  ExplorerDownloadRequest,
   ExplorerRevealRequest,
 } from "../types/FileExplorer";
 import { readSessionValue, writeSessionValue } from "../utils/sessionStorage";
@@ -22,7 +23,9 @@ import FileExplorer from "./FileExplorer";
 import FileEditorPanel from "./FileEditorPanel";
 
 type SidebarView = "explorer" | "debug";
-type Props = Omit<DebugPanelProps, "open">;
+type Props = Omit<DebugPanelProps, "open"> & {
+  onDownloadExplorerEntry: (request: ExplorerDownloadRequest) => void;
+};
 const WIDTH_STORAGE_KEY = "slbp:left-sidebar-width";
 const VIEW_STORAGE_KEY = "slbp:left-sidebar-view";
 const DEFAULT_PANEL_WIDTH = 360;
@@ -167,6 +170,7 @@ export default function LeftSidebar(props: Props) {
               sessionId={props.sessionId}
               editorOpen={editorOpen}
               revealRequest={explorerRevealRequest}
+              onDownload={props.onDownloadExplorerEntry}
               onToggleEditor={() => setEditorOpen((value) => !value)}
               onOpenFile={(request) => {
                 setEditorRequest(request);

@@ -1,3 +1,6 @@
+import io
+import time
+import zipfile
 from pathlib import Path
 
 import pytest
@@ -5,6 +8,7 @@ import pytest
 from src.ui_connector.app import app
 from src.utils.session_model import Session
 import src.ui_connector.socket_handler_components.file_explorer_api as explorer_api
+import src.ui_connector.socket_handler_components.file_download_jobs as download_jobs
 from src.ui_connector.socket_handler_components.file_explorer_api import (
     list_directory,
     read_file,
@@ -142,3 +146,108 @@ def test_file_editor_routes_read_and_write(tmp_path: Path, monkeypatch) -> None:
     assert read_response.get_json()["content"] == "const value = 1;"
     assert write_response.status_code == 200
     assert file_path.read_text(encoding="utf-8") == "const value = 2;"
+
+
+def _download_client(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr(
+        explorer_api,
+        "_load_session",
+        lambda session_id: Session(session_id=session_id, initial_cwd=str(tmp_path)),
+    )
+    return app.test_client()
+
+
+def _wait_for_download(client, download_id: str) -> dict:
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        response = client.get(f"/api/file-explorer/downloads/{download_id}")
+        assert response.status_code == 200
+        payload = response.get_json()
+        if payload["state"] in {"ready", "failed"}:
+            return payload
+        time.sleep(0.02)
+    raise AssertionError("Download job did not reach a terminal preparation state")
+
+
+def test_file_download_is_immediately_ready(tmp_path: Path, monkeypatch) -> None:
+    source = tmp_path / "report.txt"
+    source.write_text("download contents", encoding="utf-8")
+    client = _download_client(tmp_path, monkeypatch)
+
+    created = client.post(
+        "/api/file-explorer/downloads",
+        json={"session_id": "session-1", "path": str(source)},
+    )
+
+    assert created.status_code == 202
+    payload = created.get_json()
+    assert payload["state"] == "ready"
+    assert payload["archive_bytes"] == len(b"download contents")
+    downloaded = client.get(payload["content_url"])
+    assert downloaded.status_code == 200
+    assert downloaded.data == b"download contents"
+    assert downloaded.content_length == len(b"download contents")
+    assert "report.txt" in downloaded.headers["Content-Disposition"]
+
+
+def test_directory_download_builds_zip_on_disk(tmp_path: Path, monkeypatch) -> None:
+    folder = tmp_path / "project"
+    empty = folder / "empty"
+    nested = folder / "src"
+    empty.mkdir(parents=True)
+    nested.mkdir()
+    source_file = nested / "main.py"
+    source_file.write_text("print('hello')\n", encoding="utf-8")
+    client = _download_client(tmp_path, monkeypatch)
+
+    created = client.post(
+        "/api/file-explorer/downloads",
+        json={"session_id": "session-1", "path": str(folder)},
+    )
+    payload = _wait_for_download(client, created.get_json()["download_id"])
+
+    assert payload["state"] == "ready"
+    assert payload["download_name"] == "project.zip"
+    downloaded = client.get(payload["content_url"])
+    assert downloaded.status_code == 200
+    assert downloaded.content_length == len(downloaded.data)
+    with zipfile.ZipFile(io.BytesIO(downloaded.data)) as archive:
+        assert "project/" in archive.namelist()
+        assert "project/empty/" in archive.namelist()
+        assert archive.read("project/src/main.py") == source_file.read_bytes()
+    downloaded.close()
+
+
+def test_directory_job_reports_limit_failure_to_debug_panel(
+    tmp_path: Path, monkeypatch
+) -> None:
+    folder = tmp_path / "large"
+    folder.mkdir()
+    (folder / "content.bin").write_bytes(b"content that exceeds a tiny test cap")
+    emitted = []
+    monkeypatch.setattr(download_jobs, "MAX_ARCHIVE_BYTES", 20)
+    monkeypatch.setattr(
+        download_jobs.tempfile,
+        "mkstemp",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("oversized archive should fail before creating a temp file")
+        ),
+    )
+    monkeypatch.setattr(
+        download_jobs,
+        "_emit_backend_log",
+        lambda session_id, content: emitted.append((session_id, content)),
+    )
+    client = _download_client(tmp_path, monkeypatch)
+
+    created = client.post(
+        "/api/file-explorer/downloads",
+        json={"session_id": "session-1", "path": str(folder)},
+    )
+    payload = _wait_for_download(client, created.get_json()["download_id"])
+
+    assert payload["state"] == "failed"
+    assert "2 GiB download limit" in payload["error"]
+    assert len(emitted) == 1
+    assert emitted[0][0] == "session-1"
+    assert emitted[0][1]["source"] == "file-download"

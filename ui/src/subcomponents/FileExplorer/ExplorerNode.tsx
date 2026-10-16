@@ -1,5 +1,7 @@
 /** @jsxImportSource @emotion/react */
 import { useEffect, useRef, useState } from "react";
+import type { ReactNode } from "react";
+import * as ContextMenu from "@radix-ui/react-context-menu";
 import { FileIcon, defaultStyles } from "react-file-icon";
 import type { DefaultExtensionType } from "react-file-icon";
 import { FiChevronDown, FiChevronRight } from "react-icons/fi";
@@ -10,6 +12,8 @@ import {
   fileIconCss,
   folderIconCss,
   nodeRowCss,
+  contextMenuContentCss,
+  contextMenuItemCss,
   rootHomeCss,
   rootPathCss,
   statusRowCss,
@@ -18,6 +22,7 @@ import type {
   FileExplorerEntry,
   FileExplorerListing,
   EditorOpenRequest,
+  ExplorerDownloadRequest,
   ExplorerRevealRequest,
 } from "../../types/FileExplorer";
 
@@ -31,6 +36,7 @@ interface Props {
   homePath: string;
   onRootLoaded?: (listing: FileExplorerListing) => void;
   onOpenFile: (request: EditorOpenRequest) => void;
+  onDownload: (request: ExplorerDownloadRequest) => void;
   focusedPath: string | null;
   revealRequest: ExplorerRevealRequest | null;
 }
@@ -49,6 +55,7 @@ function ExplorerFile({
   focused,
   active,
   revealRequest,
+  onDownload,
 }: {
   entry: FileExplorerEntry;
   indent: number;
@@ -56,6 +63,7 @@ function ExplorerFile({
   focused: boolean;
   active: boolean;
   revealRequest: ExplorerRevealRequest | null;
+  onDownload: (request: ExplorerDownloadRequest) => void;
 }) {
   const rowRef = useRef<HTMLButtonElement | null>(null);
   useEffect(() => {
@@ -77,26 +85,54 @@ function ExplorerFile({
     glyphColor: "#c9def2",
   };
   return (
-    <button
-      type="button"
-      ref={rowRef}
-      css={nodeRowCss(indent, true, focused)}
-      role="treeitem"
-      aria-current={focused ? "true" : undefined}
-      title={entry.path}
-      onClick={() =>
-        onOpenFile({ path: entry.path, pinned: false, requestId: Date.now() })
-      }
-      onDoubleClick={() =>
-        onOpenFile({ path: entry.path, pinned: true, requestId: Date.now() })
-      }
-    >
-      <span css={chevronCss} />
-      <span css={fileIconCss}>
-        <FileIcon extension={extension || undefined} {...iconStyle} />
-      </span>
-      <span>{entry.name}</span>
-    </button>
+    <EntryContextMenu entry={entry} onDownload={onDownload}>
+      <button
+        type="button"
+        ref={rowRef}
+        css={nodeRowCss(indent, true, focused)}
+        role="treeitem"
+        aria-current={focused ? "true" : undefined}
+        title={entry.path}
+        onClick={() =>
+          onOpenFile({ path: entry.path, pinned: false, requestId: Date.now() })
+        }
+        onDoubleClick={() =>
+          onOpenFile({ path: entry.path, pinned: true, requestId: Date.now() })
+        }
+      >
+        <span css={chevronCss} />
+        <span css={fileIconCss}>
+          <FileIcon extension={extension || undefined} {...iconStyle} />
+        </span>
+        <span>{entry.name}</span>
+      </button>
+    </EntryContextMenu>
+  );
+}
+
+function EntryContextMenu({
+  entry,
+  onDownload,
+  children,
+}: {
+  entry: ExplorerDownloadRequest;
+  onDownload: (request: ExplorerDownloadRequest) => void;
+  children: ReactNode;
+}) {
+  return (
+    <ContextMenu.Root>
+      <ContextMenu.Trigger asChild>{children}</ContextMenu.Trigger>
+      <ContextMenu.Portal>
+        <ContextMenu.Content css={contextMenuContentCss}>
+          <ContextMenu.Item
+            css={contextMenuItemCss}
+            onSelect={() => onDownload(entry)}
+          >
+            Download
+          </ContextMenu.Item>
+        </ContextMenu.Content>
+      </ContextMenu.Portal>
+    </ContextMenu.Root>
   );
 }
 
@@ -122,6 +158,7 @@ export default function ExplorerNode({
   homePath,
   onRootLoaded,
   onOpenFile,
+  onDownload,
   focusedPath,
   revealRequest,
 }: Props) {
@@ -168,22 +205,39 @@ export default function ExplorerNode({
       )}
     </>
   );
+  const directoryParts = name.split(/[\\/]/).filter(Boolean);
+  const directoryName = directoryParts[directoryParts.length - 1] || name;
+  const directoryEntry: ExplorerDownloadRequest | null = path
+    ? { name: directoryName, path, kind: "directory" }
+    : null;
 
   return (
     <div role="treeitem" aria-expanded={expanded}>
       {root ? (
-        <div css={nodeRowCss(indent, false)} title={name}>
-          {row}
-        </div>
+        directoryEntry ? (
+          <EntryContextMenu entry={directoryEntry} onDownload={onDownload}>
+            <div css={nodeRowCss(indent, false)} title={name}>
+              {row}
+            </div>
+          </EntryContextMenu>
+        ) : (
+          <div css={nodeRowCss(indent, false)} title={name}>
+            {row}
+          </div>
+        )
       ) : (
-        <button
-          type="button"
-          css={nodeRowCss(indent, true)}
-          onClick={() => setExpanded((value) => !value)}
-          title={path}
-        >
-          {row}
-        </button>
+        directoryEntry && (
+          <EntryContextMenu entry={directoryEntry} onDownload={onDownload}>
+            <button
+              type="button"
+              css={nodeRowCss(indent, true)}
+              onClick={() => setExpanded((value) => !value)}
+              title={path}
+            >
+              {row}
+            </button>
+          </EntryContextMenu>
+        )
       )}
       {expanded && entries === null && !error && (
         <div css={statusRowCss(indent)}>Loading…</div>
@@ -204,6 +258,7 @@ export default function ExplorerNode({
                 onOpenFile={onOpenFile}
                 focusedPath={focusedPath}
                 revealRequest={revealRequest}
+                onDownload={onDownload}
               />
             ) : (
               <ExplorerFile
@@ -214,6 +269,7 @@ export default function ExplorerNode({
                 focused={entry.path === focusedPath}
                 active={active}
                 revealRequest={revealRequest}
+                onDownload={onDownload}
               />
             ),
           )}
