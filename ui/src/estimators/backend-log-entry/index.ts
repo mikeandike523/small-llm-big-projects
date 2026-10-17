@@ -1,5 +1,5 @@
 // Height estimator for the virtualized Backend Logs list
-// (BackendLogsTab.tsx's virtualizer). Feeds useVirtualizer's estimateSize so
+// (BackendLogsList.tsx's virtualizer). Feeds useVirtualizer's estimateSize so
 // the initial guess is close to the real rendered height — measureElement
 // still corrects it after mount, this only shrinks the gap that causes the
 // "anchor to end" scroll position to jump when a new/unmeasured row appears.
@@ -20,7 +20,29 @@ import {
   SINGLE_ENTRY_BORDER_PX,
 } from "./constants";
 
+// Per-entry cache. TanStack re-estimates every unmeasured row whenever it
+// recomputes measurements -- on remount, and (with anchorTo: "end") on every
+// first/last-key change, i.e. every incoming log once the buffer is full.
+// Object entries cost a JSON.stringify each, so cache per entry + width.
+// Evicted entries are garbage-collected out of the WeakMap.
+const estimateCache = new WeakMap<
+  BackendLogEntry,
+  { panelWidthPx: number; height: number }
+>();
+
 export function estimateBackendLogRowHeight(
+  entry: BackendLogEntry,
+  panelWidthPx: number,
+): number {
+  const hit = estimateCache.get(entry);
+  if (hit !== undefined && hit.panelWidthPx === panelWidthPx) return hit.height;
+
+  const height = computeBackendLogRowHeight(entry, panelWidthPx);
+  estimateCache.set(entry, { panelWidthPx, height });
+  return height;
+}
+
+function computeBackendLogRowHeight(
   entry: BackendLogEntry,
   panelWidthPx: number,
 ): number {

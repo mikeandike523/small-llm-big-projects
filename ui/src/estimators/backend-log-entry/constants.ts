@@ -1,4 +1,4 @@
-// Numeric mirrors of the CSS in subcomponents/DebugPanel/BackendLogsTab.tsx,
+// Numeric mirrors of the CSS in subcomponents/DebugPanel/BackendLogsList.tsx,
 // BackendLogEntryItem.tsx and BackendLogMultiCard.tsx. Feeds the backend-log
 // virtualizer's estimateSize — measureElement corrects the real height after
 // mount, this only shrinks the "anchor to end" jump on new/unmeasured rows.
@@ -23,7 +23,7 @@ export const MULTI_CARD_VERTICAL_PADDING_PX = 8;
 export const MULTI_CARD_HORIZONTAL_PADDING_PX = 8;
 export const MULTI_CARD_VERTICAL_MARGIN_PX = 6;
 
-// logsPanelCss: padding: 6px (all sides) on the scrollable panel itself —
+// logsScrollCss (BackendLogsList.tsx): padding: 6px (all sides) on the scroll viewport —
 // reduces the width available to every row before any per-row padding.
 export const PANEL_HORIZONTAL_PADDING_PX = 12;
 
