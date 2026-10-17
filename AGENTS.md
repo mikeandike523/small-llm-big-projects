@@ -239,4 +239,4 @@ One function in `src/ui_connector/socket_handler_components/emit.py:47-51`. Emit
 
 **Injection points:** `emit_backend_log` is placed in `special_resources` during tool execution (`tool_execution.py:74`) and startup calls (`socket_events.py:226`). Tools like `host_shell.py` and `_managed_process.py` receive it as a parameter.
 
-**Frontend:** `BackendLogsTab.tsx` renders in the Debug Panel via `ansi-to-react`. `useSocketWiring.ts` accumulates up to 100 entries per session.
+**Frontend:** `BackendLogsTab.tsx` renders in the Debug Panel via `ansi-to-react`, with text / row-1 filters that take effect on Apply (`backendLogFilter.ts`, `useFilteredLogs.ts`). `useSocketWiring.ts` keeps the single unfiltered buffer, up to `MAX_LOGS` (1000, `hooks/backendLogBuffer.ts`) entries per session.
