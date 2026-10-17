@@ -11,7 +11,12 @@ import type {
   SubturnOrigin,
 } from "../types";
 import { DEFAULT_HEARTBEAT_SETTINGS, toSubturnOrigin } from "../types";
-import type { BackendLogEntry, BackendLogContent } from "../types/DebugPanel";
+import type {
+  BackendLogEntry,
+  BackendLogContent,
+  BackendLogWireEntry,
+} from "../types/DebugPanel";
+import { appendCapped, normalizeWireEntry, withSeq } from "./backendLogBuffer";
 import {
   backendTurnToFrontendTurn,
   requestTurn,
@@ -20,7 +25,6 @@ import {
 import useTurnPages from "./useTurnPages";
 import { readSessionValue, writeSessionValue } from "../utils/sessionStorage";
 
-const MAX_LOGS = 100;
 const TERMINAL_OPEN_STORAGE_KEY = "slbp:terminal-open";
 
 function storedTerminalOpen(): boolean {
@@ -110,16 +114,16 @@ export default function useSocketWiring(socket: Socket) {
   const [systemPrompt, setSystemPrompt] = useState<string | null>(null);
   const [backendLogs, setBackendLogs] = useState<BackendLogEntry[]>([]);
   const nextClientLogId = useRef(-1);
+  // Assigned outside setState updaters so a double-invoked updater (strict
+  // mode) can never skip or reuse a seq.
+  const nextLogSeq = useRef(0);
   const appendClientDebugLog = useCallback((content: BackendLogContent) => {
-    const entry: BackendLogEntry = {
-      id: nextClientLogId.current,
-      content,
-    };
+    const entry = withSeq(
+      { id: nextClientLogId.current, content },
+      nextLogSeq.current++,
+    );
     nextClientLogId.current -= 1;
-    setBackendLogs((previous) => {
-      const next = [...previous, entry];
-      return next.length > MAX_LOGS ? next.slice(next.length - MAX_LOGS) : next;
-    });
+    setBackendLogs((previous) => appendCapped(previous, entry));
   }, []);
   // The latest-turn load (see turnLoad.ts). While loading, thread-mutating
   // live events are queued in pendingLiveRef and flushed afterwards.
@@ -725,28 +729,12 @@ export default function useSocketWiring(socket: Socket) {
         setHeartbeatSettings(data.heartbeatSettings);
       }
     }
-    function onBackendLog(entry: BackendLogEntry) {
-      let normalizedEntry: BackendLogEntry | null = entry;
+    function onBackendLog(wireEntry: BackendLogWireEntry) {
+      const normalized = normalizeWireEntry(wireEntry);
+      if (normalized === null) return;
 
-      if (entry.multiple === true) {
-        if (!Array.isArray(entry.content) || entry.content.length === 0) {
-          normalizedEntry = null;
-        } else if (entry.content.length === 1) {
-          normalizedEntry = {
-            id: entry.id,
-            content: entry.content[0] as BackendLogContent,
-          };
-        }
-      }
-
-      if (normalizedEntry === null) return;
-
-      setBackendLogs((prev) => {
-        const next = [...prev, normalizedEntry];
-        return next.length > MAX_LOGS
-          ? next.slice(next.length - MAX_LOGS)
-          : next;
-      });
+      const entry = withSeq(normalized, nextLogSeq.current++);
+      setBackendLogs((prev) => appendCapped(prev, entry));
     }
 
     function onStartupToolCall({

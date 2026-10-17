@@ -29,19 +29,29 @@ export type BackendLogContent =
   | Record<string, unknown>
   | unknown[];
 
+// `seq` is assigned client-side on arrival (hooks/backendLogBuffer.ts) and
+// strictly increases across server and client entries. `id` cannot be used
+// for ordering: client-originated entries use negative ids.
 export interface BackendLogSingleEntry {
   id: number;
+  seq: number;
   multiple?: false;
   content: BackendLogContent;
 }
 
 export interface BackendLogMultiEntry {
   id: number;
+  seq: number;
   multiple: true;
   content: BackendLogContent[];
 }
 
 export type BackendLogEntry = BackendLogSingleEntry | BackendLogMultiEntry;
+
+// The `backend_log` socket payload, before a `seq` is assigned.
+export type BackendLogWireEntry =
+  | Omit<BackendLogSingleEntry, "seq">
+  | Omit<BackendLogMultiEntry, "seq">;
 
 export interface MemKeyEvent {
   key: string;
