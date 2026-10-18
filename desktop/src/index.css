@@ -21,15 +21,17 @@ body {
 }
 
 .tab-strip {
-  flex: 1;
+  /* Sized to its tabs (basis auto, no grow) so "+ Dashboard" sits right after
+     the last tab. It may shrink once the row is full, and min-width: 0 lets it
+     shrink below its content width (a flex item's default min-width is its
+     content), at which point overflow-x takes over and the tabs scroll. */
+  flex: 0 1 auto;
+  min-width: 0;
   display: flex;
   align-items: stretch;
   overflow-x: auto;
-  /* Intentionally NOT no-drag here: this container spans nearly the entire
-     titlebar width (flex: 1), so marking it no-drag made almost the whole
-     bar undraggable, including empty space with no tab under the cursor.
-     Only the individual .tab elements below opt out, so empty strip space
-     still inherits "drag" from .titlebar. */
+  /* Intentionally NOT no-drag here: only the individual .tab elements opt
+     out, so any empty space still inherits "drag" from .titlebar. */
 }
 
 .tab {
@@ -38,6 +40,8 @@ body {
   gap: 8px;
   padding: 0 12px;
   max-width: 200px;
+  /* Keep tabs at full size; the strip scrolls instead of squashing them. */
+  flex-shrink: 0;
   border-right: 1px solid #34353d;
   cursor: pointer;
   font-size: 13px;
@@ -47,6 +51,9 @@ body {
 
 .fixed-tab-strip {
   flex-shrink: 0;
+  /* Absorbs the free space, pinning Health/Settings to the window controls.
+     That empty gap is .titlebar's own area, so it stays draggable. */
+  margin-left: auto;
   display: flex;
   align-items: stretch;
 }

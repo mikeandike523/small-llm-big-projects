@@ -75,7 +75,14 @@ logEl.addEventListener('scroll', () => {
   stickToBottom = logEl.scrollTop + logEl.clientHeight >= logEl.scrollHeight - 4;
 });
 
+// Tab ids seen in the previous render, so a newly created tab can be scrolled
+// into view. Starts empty, which also scrolls to the restored tabs on startup.
+let knownTabIds = new Set<string>();
+
 function renderTabs(payload: TabsUpdatePayload) {
+  // Emptying the strip clamps scrollLeft to 0, so carry it across the rebuild.
+  const prevScrollLeft = stripEl.scrollLeft;
+  let newTabEl: HTMLElement | null = null;
   stripEl.innerHTML = '';
   fixedStripEl.innerHTML = '';
   for (const tab of payload.tabs) {
@@ -103,7 +110,12 @@ function renderTabs(payload: TabsUpdatePayload) {
     }
 
     (isFixed ? fixedStripEl : stripEl).appendChild(tabEl);
+    if (!isFixed && !knownTabIds.has(tab.id)) newTabEl = tabEl;
   }
+
+  stripEl.scrollLeft = prevScrollLeft;
+  newTabEl?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  knownTabIds = new Set(payload.tabs.map((tab) => tab.id));
 
   const wasHidden = healthPanelEl.classList.contains('hidden');
   const isHealthActive = payload.activeId === 'health';
