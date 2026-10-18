@@ -5,7 +5,8 @@ import path from 'node:path';
 
 export const TAB_STRIP_HEIGHT = 40;
 
-export type TabKind = 'session' | 'dashboard' | 'health';
+export type TabKind = 'session' | 'dashboard' | 'health' | 'settings';
+type RemoteTabKind = 'session' | 'dashboard';
 
 interface TabRecord {
   id: string;
@@ -17,8 +18,8 @@ interface TabRecord {
   // starting a session from the dashboard). Session tabs are always resumed at
   // their canonical session URL.
   currentUrl?: string;
-  // null only for the health tab, which is rendered by the base window's own
-  // page rather than a WebContentsView (the backend may not exist yet).
+  // null for permanent desktop-owned tabs, which are rendered by the base
+  // window rather than a WebContentsView.
   view: WebContentsView | null;
 }
 
@@ -29,7 +30,7 @@ export interface TabDescriptor {
 }
 
 interface PersistedTab {
-  kind: TabKind;
+  kind: RemoteTabKind;
   sessionId?: string;
   proxyOrigin: string;
   // Present for dashboard tabs so that e.g. a dashboard that spawned a new
@@ -42,7 +43,7 @@ interface PersistedState {
   activeId?: string;
 }
 
-function urlFor(kind: TabKind, proxyOrigin: string, sessionId?: string): string {
+function urlFor(kind: RemoteTabKind, proxyOrigin: string, sessionId?: string): string {
   return kind === 'dashboard'
     ? `${proxyOrigin}/`
     : `${proxyOrigin}/session?sessionId=${sessionId}`;
@@ -66,25 +67,30 @@ export class TabManager {
   private pendingPersistJson: string | null = null;
   private persistWrite: Promise<void> = Promise.resolve();
 
-  constructor(win: BrowserWindow) {
+  constructor(
+    win: BrowserWindow,
+    private readonly onChildViewAdded?: () => void,
+  ) {
     this.win = win;
     this.persistFile = path.join(app.getPath('userData'), 'tabs.json');
     this.win.on('resize', () => this.layoutActive());
-    this.initHealthTab();
+    this.initBuiltInTabs();
   }
 
-  /** Always tab[0], permanent, unclosable, never persisted -- synthesized fresh on every launch. */
-  private initHealthTab(): void {
-    const record: TabRecord = {
-      id: 'health',
-      kind: 'health',
-      proxyOrigin: '',
-      label: 'Health',
-      view: null,
-    };
-    this.tabs.set(record.id, record);
-    this.order.push(record.id);
-    this.activeId = record.id;
+  /** Permanent, unclosable tabs rendered by the base window rather than child views. */
+  private initBuiltInTabs(): void {
+    for (const record of [
+      { id: 'health', kind: 'health', label: 'Health' },
+      { id: 'settings', kind: 'settings', label: 'Settings' },
+    ] as const) {
+      this.tabs.set(record.id, {
+        ...record,
+        proxyOrigin: '',
+        view: null,
+      });
+      this.order.push(record.id);
+    }
+    this.activeId = 'health';
   }
 
   // Public entry points, called from ipcMain handlers registered once in main.ts.
@@ -124,6 +130,7 @@ export class TabManager {
 
     if (state) {
       for (const t of state.tabs) {
+        if (t.kind !== 'session' && t.kind !== 'dashboard') continue;
         this.createTab(t.kind, t.proxyOrigin, t.sessionId, false, t.currentUrl);
       }
       if (state.activeId && this.tabs.has(state.activeId)) {
@@ -137,7 +144,7 @@ export class TabManager {
   }
 
   private createTab(
-    kind: TabKind,
+    kind: RemoteTabKind,
     proxyOrigin: string,
     sessionId?: string,
     activate = true,
@@ -163,6 +170,7 @@ export class TabManager {
     this.order.push(id);
     view.setVisible(false);
     this.win.contentView.addChildView(view);
+    this.onChildViewAdded?.();
 
     view.webContents.setWindowOpenHandler(({ url, disposition }) => {
       this.handleWindowOpen(record, url, disposition);
@@ -239,7 +247,7 @@ export class TabManager {
 
   private doCloseTab(id: string): void {
     const record = this.tabs.get(id);
-    if (!record || record.kind === 'health') return;
+    if (!record || record.view === null) return;
 
     if (this.activeId === id) {
       record.view?.setVisible(false);
@@ -294,19 +302,20 @@ export class TabManager {
   }
 
   private persistedJson(): string {
+    const persistedTabs: PersistedTab[] = [];
+    for (const id of this.order) {
+      const tab = this.tabs.get(id);
+      if (!tab || (tab.kind !== 'session' && tab.kind !== 'dashboard')) continue;
+      persistedTabs.push({
+        kind: tab.kind,
+        sessionId: tab.sessionId,
+        proxyOrigin: tab.proxyOrigin,
+        currentUrl: tab.currentUrl,
+      });
+    }
     const data: PersistedState = {
-      // The health tab is synthesized fresh on every launch, never restored.
-      tabs: this.order
-        .filter((id) => this.tabs.get(id)!.kind !== 'health')
-        .map((id) => {
-          const t = this.tabs.get(id)!;
-          return {
-            kind: t.kind,
-            sessionId: t.sessionId,
-            proxyOrigin: t.proxyOrigin,
-            currentUrl: t.currentUrl,
-          };
-        }),
+      // Built-in tabs are synthesized fresh on every launch, never restored.
+      tabs: persistedTabs,
       activeId: this.activeId ?? undefined,
     };
     return JSON.stringify(data, null, 2);
