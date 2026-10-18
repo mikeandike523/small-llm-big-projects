@@ -52,6 +52,7 @@ document.getElementById('win-maximize')!.addEventListener('click', () => window.
 document.getElementById('win-close')!.addEventListener('click', () => window.windowAPI.close());
 
 const stripEl = document.getElementById('tab-strip')!;
+const fixedStripEl = document.getElementById('fixed-tab-strip')!;
 const healthPanelEl = document.getElementById('health-panel')!;
 const settingsPanelEl = document.getElementById('settings-panel')!;
 const statusBadgeEl = document.getElementById('health-status-badge')!;
@@ -76,7 +77,11 @@ logEl.addEventListener('scroll', () => {
 
 function renderTabs(payload: TabsUpdatePayload) {
   stripEl.innerHTML = '';
+  fixedStripEl.innerHTML = '';
   for (const tab of payload.tabs) {
+    // Health and Settings are permanent, so they sit in their own strip on the
+    // right next to the window controls instead of scrolling with session tabs.
+    const isFixed = tab.kind === 'health' || tab.kind === 'settings';
     const tabEl = document.createElement('div');
     tabEl.className = 'tab' + (tab.id === payload.activeId ? ' tab-active' : '');
 
@@ -86,7 +91,7 @@ function renderTabs(payload: TabsUpdatePayload) {
     labelEl.addEventListener('click', () => window.tabsAPI.switchTab(tab.id));
     tabEl.appendChild(labelEl);
 
-    if (tab.kind !== 'health' && tab.kind !== 'settings') {
+    if (!isFixed) {
       const closeEl = document.createElement('span');
       closeEl.className = 'tab-close';
       closeEl.textContent = '×';
@@ -97,7 +102,7 @@ function renderTabs(payload: TabsUpdatePayload) {
       tabEl.appendChild(closeEl);
     }
 
-    stripEl.appendChild(tabEl);
+    (isFixed ? fixedStripEl : stripEl).appendChild(tabEl);
   }
 
   const wasHidden = healthPanelEl.classList.contains('hidden');
