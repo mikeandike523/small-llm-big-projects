@@ -1,0 +1,134 @@
+.settings-panel {
+  position: absolute;
+  inset: 40px 0 0;
+  overflow-y: auto;
+  background: #1e1f24;
+}
+
+.settings-panel.hidden {
+  display: none;
+}
+
+.settings-content {
+  width: min(820px, calc(100% - 48px));
+  margin: 0 auto;
+  padding: 34px 0;
+}
+
+.settings-content h1 {
+  margin: 0 0 24px;
+  font-size: 24px;
+  font-weight: 600;
+}
+
+.settings-section {
+  padding: 20px;
+  border: 1px solid #3b3c45;
+  border-radius: 9px;
+  background: #26272e;
+}
+
+.settings-section-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.settings-section h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.settings-section p {
+  margin: 6px 0 0;
+  color: #a9aab4;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.settings-value-badge {
+  flex-shrink: 0;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: #343640;
+  color: #c7c8d0;
+  font-size: 11px;
+}
+
+.settings-path-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+.settings-path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  padding: 8px 10px;
+  border: 1px solid #383a43;
+  border-radius: 6px;
+  background: #191a1f;
+  color: #d6d7dd;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-button {
+  flex-shrink: 0;
+  padding: 7px 11px;
+  border: 1px solid #526bb2;
+  border-radius: 6px;
+  background: #344779;
+  color: #eef2ff;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.settings-button:hover:not(:disabled) {
+  background: #3e548e;
+}
+
+.settings-button-secondary {
+  border-color: #454751;
+  background: #303139;
+  color: #d7d7dd;
+}
+
+.settings-button-secondary:hover:not(:disabled) {
+  background: #393a43;
+}
+
+.settings-button:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.settings-section .settings-help {
+  margin-top: 12px;
+  color: #858690;
+  font-size: 11px;
+}
+
+.settings-help code {
+  color: #bfc8e8;
+}
+
+.settings-section .settings-error {
+  color: #ef9297;
+}
+
+.settings-error:empty {
+  display: none;
+}
+
+@media (max-width: 720px) {
+  .settings-path-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}

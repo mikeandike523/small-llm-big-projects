@@ -4,6 +4,8 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import type { TabsUpdatePayload, HealthSnapshot } from './preload';
 import type { HealthStatus, HealthStatusKind } from './main/serverLauncher';
+import type { DownloadSettingsSnapshot } from './shared/downloads';
+import './settings.css';
 
 declare global {
   interface Window {
@@ -23,6 +25,11 @@ declare global {
       getSnapshot: () => Promise<HealthSnapshot>;
       openDashboard: () => Promise<void>;
       restartServer: () => Promise<void>;
+    };
+    settingsAPI: {
+      getDownloads: () => Promise<DownloadSettingsSnapshot>;
+      chooseDownloads: () => Promise<DownloadSettingsSnapshot>;
+      resetDownloads: () => Promise<DownloadSettingsSnapshot>;
     };
     changelogAPI: {
       getVersion: () => Promise<string>;
@@ -46,6 +53,7 @@ document.getElementById('win-close')!.addEventListener('click', () => window.win
 
 const stripEl = document.getElementById('tab-strip')!;
 const healthPanelEl = document.getElementById('health-panel')!;
+const settingsPanelEl = document.getElementById('settings-panel')!;
 const statusBadgeEl = document.getElementById('health-status-badge')!;
 const statusDetailEl = document.getElementById('health-status-detail')!;
 const openDashboardBtn = document.getElementById('health-open-dashboard') as HTMLButtonElement;
@@ -78,7 +86,7 @@ function renderTabs(payload: TabsUpdatePayload) {
     labelEl.addEventListener('click', () => window.tabsAPI.switchTab(tab.id));
     tabEl.appendChild(labelEl);
 
-    if (tab.kind !== 'health') {
+    if (tab.kind !== 'health' && tab.kind !== 'settings') {
       const closeEl = document.createElement('span');
       closeEl.className = 'tab-close';
       closeEl.textContent = '×';
@@ -95,6 +103,7 @@ function renderTabs(payload: TabsUpdatePayload) {
   const wasHidden = healthPanelEl.classList.contains('hidden');
   const isHealthActive = payload.activeId === 'health';
   healthPanelEl.classList.toggle('hidden', !isHealthActive);
+  settingsPanelEl.classList.toggle('hidden', payload.activeId !== 'settings');
 
   if (isHealthActive && wasHidden) {
     // While hidden the panel is display:none, so #health-log's scrollTop/scrollHeight
@@ -107,6 +116,53 @@ function renderTabs(payload: TabsUpdatePayload) {
 }
 
 window.tabsAPI.onUpdate(renderTabs);
+
+// --- Settings tab ---
+
+const downloadsPathEl = document.getElementById('settings-downloads-path')!;
+const downloadsDefaultEl = document.getElementById('settings-downloads-default')!;
+const downloadsErrorEl = document.getElementById('settings-downloads-error')!;
+const chooseDownloadsBtn = document.getElementById('settings-choose-downloads') as HTMLButtonElement;
+const resetDownloadsBtn = document.getElementById('settings-reset-downloads') as HTMLButtonElement;
+
+function renderDownloadSettings(settings: DownloadSettingsSnapshot): void {
+  downloadsPathEl.textContent = settings.directory;
+  downloadsPathEl.title = settings.directory;
+  downloadsDefaultEl.textContent = settings.usesDefault ? 'System default' : 'Custom';
+  resetDownloadsBtn.disabled = settings.usesDefault;
+}
+
+chooseDownloadsBtn.addEventListener('click', () => {
+  chooseDownloadsBtn.disabled = true;
+  downloadsErrorEl.textContent = '';
+  void window.settingsAPI
+    .chooseDownloads()
+    .then(renderDownloadSettings)
+    .catch((error) => {
+      downloadsErrorEl.textContent = `Could not change the download folder: ${String(error)}`;
+    })
+    .finally(() => {
+      chooseDownloadsBtn.disabled = false;
+    });
+});
+
+resetDownloadsBtn.addEventListener('click', () => {
+  resetDownloadsBtn.disabled = true;
+  downloadsErrorEl.textContent = '';
+  void window.settingsAPI
+    .resetDownloads()
+    .then(renderDownloadSettings)
+    .catch((error) => {
+      downloadsErrorEl.textContent = `Could not reset the download folder: ${String(error)}`;
+    })
+    .finally(() => {
+      resetDownloadsBtn.disabled = false;
+    });
+});
+
+void window.settingsAPI.getDownloads().then(renderDownloadSettings).catch((error) => {
+  downloadsErrorEl.textContent = `Could not load download settings: ${String(error)}`;
+});
 
 // --- Health tab ---
 

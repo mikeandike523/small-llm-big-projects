@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type { TabDescriptor } from './main/tabManager';
 import type { HealthStatus } from './main/serverLauncher';
+import type { DownloadSettingsSnapshot } from './shared/downloads';
 
 export interface TabsUpdatePayload {
   tabs: TabDescriptor[];
@@ -33,6 +34,12 @@ contextBridge.exposeInMainWorld('healthAPI', {
   getSnapshot: (): Promise<HealthSnapshot> => ipcRenderer.invoke('health:get-snapshot'),
   openDashboard: () => ipcRenderer.invoke('health:open-dashboard'),
   restartServer: () => ipcRenderer.invoke('health:restart-server'),
+});
+
+contextBridge.exposeInMainWorld('settingsAPI', {
+  getDownloads: () => ipcRenderer.invoke('settings:get-downloads') as Promise<DownloadSettingsSnapshot>,
+  chooseDownloads: () => ipcRenderer.invoke('settings:choose-downloads') as Promise<DownloadSettingsSnapshot>,
+  resetDownloads: () => ipcRenderer.invoke('settings:reset-downloads') as Promise<DownloadSettingsSnapshot>,
 });
 
 contextBridge.exposeInMainWorld('processDoctorAPI', {

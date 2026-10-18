@@ -30,6 +30,30 @@
         <button id="health-copy-log-path" class="health-copy-btn" title="Copy log file path">⧉</button>
       </div>
     </div>
+    <div id="settings-panel" class="settings-panel hidden">
+      <div class="settings-content">
+        <h1>Settings</h1>
+        <section class="settings-section">
+          <div class="settings-section-heading">
+            <div>
+              <h2>Downloads</h2>
+              <p>Choose where the desktop app saves downloaded files and ZIP archives.</p>
+            </div>
+            <span id="settings-downloads-default" class="settings-value-badge">System default</span>
+          </div>
+          <div class="settings-path-row">
+            <code id="settings-downloads-path" class="settings-path"></code>
+            <button id="settings-choose-downloads" class="settings-button">Choose folder</button>
+            <button id="settings-reset-downloads" class="settings-button settings-button-secondary">Use system default</button>
+          </div>
+          <p class="settings-help">
+            Existing files are preserved. Repeated names use browser-style suffixes such as
+            <code>report (1).pdf</code>.
+          </p>
+          <p id="settings-downloads-error" class="settings-error" role="alert"></p>
+        </section>
+      </div>
+    </div>
     <dialog id="changelog-dialog" class="changelog-dialog">
       <div class="changelog-header">
         <span class="changelog-title">Desktop Changelogs</span>
