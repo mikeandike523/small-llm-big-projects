@@ -6,6 +6,7 @@ import type { TabsUpdatePayload, HealthSnapshot } from './preload';
 import type { HealthStatus, HealthStatusKind } from './main/serverLauncher';
 import type { DesktopDownload, DownloadSettingsSnapshot } from './shared/downloads';
 import './settings.css';
+import './emptyPage.css';
 import './shared/progressRing.css';
 import './titlebar/titlebar.css';
 import { TITLEBAR_ICONS, setButtonIcon } from './titlebar/icons';
@@ -62,6 +63,9 @@ const settingsTabBtn = document.getElementById('fixed-tab-settings') as HTMLButt
 const downloadsTabBtn = document.getElementById('fixed-tab-downloads') as HTMLButtonElement;
 const downloadsPanelEl = document.getElementById('downloads-panel')!;
 const healthPanelEl = document.getElementById('health-panel')!;
+const emptyPanelEl = document.getElementById('empty-panel')!;
+const emptyOpenDashboardBtn = document.getElementById('empty-open-dashboard') as HTMLButtonElement;
+const emptyHintEl = document.getElementById('empty-hint')!;
 const settingsPanelEl = document.getElementById('settings-panel')!;
 const statusBadgeEl = document.getElementById('health-status-badge')!;
 const statusDetailEl = document.getElementById('health-status-detail')!;
@@ -129,6 +133,7 @@ function renderTabs(payload: TabsUpdatePayload) {
   const isHealthActive = payload.activeId === 'health';
   healthPanelEl.classList.toggle('hidden', !isHealthActive);
   settingsPanelEl.classList.toggle('hidden', payload.activeId !== 'settings');
+  emptyPanelEl.classList.toggle('hidden', payload.activeId !== null);
   downloadsPanelEl.classList.toggle('hidden', payload.activeId !== 'downloads');
   downloadsPage.setVisible(payload.activeId === 'downloads');
 
@@ -240,6 +245,9 @@ function renderStatus(status: HealthStatus) {
   // race a kill against a not-yet-finished respawn.
   restartServerBtn.disabled = status.kind === 'checking';
   tabDashboardBtn.disabled = status.kind !== 'running';
+  emptyOpenDashboardBtn.disabled = status.kind !== 'running';
+  emptyHintEl.textContent =
+    status.kind === 'running' ? '' : `Server: ${STATUS_LABELS[status.kind]} — see the Health page for details.`;
 }
 
 // The renderer holds no line-history logic of its own -- the main process's
@@ -276,6 +284,10 @@ openDashboardBtn.addEventListener('click', () => {
 });
 
 tabDashboardBtn.addEventListener('click', () => {
+  void window.healthAPI.openDashboard();
+});
+
+emptyOpenDashboardBtn.addEventListener('click', () => {
   void window.healthAPI.openDashboard();
 });
 

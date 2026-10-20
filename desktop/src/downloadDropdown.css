@@ -44,9 +44,13 @@ body.shown .dropdown-shell {
 }
 
 .dropdown-list {
-  /* Capped to the view (which main clamps to the window), so a very long
-     list scrolls instead of overflowing. */
-  max-height: calc(100vh - var(--panel-padding) - 2px - var(--footer-height) - 2px);
+  /* Capped to the window's available height (sent by main), so a very long
+     list scrolls instead of overflowing. Not 100vh: the view lags the content
+     by an IPC round trip, which made the list overflow (scrollbar flash) on
+     every growth. */
+  max-height: calc(
+    var(--view-max-height, 100vh) - var(--panel-padding) - 2px - var(--footer-height) - 2px
+  );
   overflow-y: auto;
   scrollbar-width: thin;
 }

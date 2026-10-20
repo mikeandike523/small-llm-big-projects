@@ -29,6 +29,8 @@ export class DropdownController {
   private loaded = false;
   private anchor: DropdownAnchor | null = null;
   private requestedHeight = INITIAL_HEIGHT;
+  // Last window-limited height sent to the renderer; -1 forces a resend.
+  private sentMaxHeight = -1;
 
   constructor(
     private readonly win: BrowserWindow,
@@ -50,6 +52,8 @@ export class DropdownController {
     this.view.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
     this.view.webContents.on('did-finish-load', () => {
       this.loaded = true;
+      this.sentMaxHeight = -1;
+      this.layout();
       this.publish();
     });
     this.view.webContents.on('render-process-gone', (_event, details) => {
@@ -179,17 +183,19 @@ export class DropdownController {
   }
 
   private readonly layout = (): void => {
+    const bounds = this.win.getContentBounds();
+    const y = this.anchor?.bottom ?? TAB_STRIP_HEIGHT;
+    const maxHeight = Math.max(0, bounds.height - y - DROPDOWN_MARGIN);
+    this.sendMaxHeight(maxHeight);
     if (!this.memberIds && !this.closing) {
       this.view.setVisible(false);
       return;
     }
-    const bounds = this.win.getContentBounds();
     const width = Math.max(0, Math.min(DROPDOWN_WIDTH, bounds.width - DROPDOWN_MARGIN * 2));
     const anchorRight = this.anchor?.right ?? bounds.width;
     const x = Math.max(DROPDOWN_MARGIN, Math.min(anchorRight - width, bounds.width - width - DROPDOWN_MARGIN));
-    const y = this.anchor?.bottom ?? TAB_STRIP_HEIGHT;
     // Never taller than the window; the renderer's list scrolls beyond this.
-    const height = Math.min(this.requestedHeight, Math.max(0, bounds.height - y - DROPDOWN_MARGIN));
+    const height = Math.min(this.requestedHeight, maxHeight);
     if (width === 0 || height === 0) {
       this.view.setVisible(false);
       return;
@@ -197,4 +203,16 @@ export class DropdownController {
     this.view.setBounds({ x: Math.round(x), y: Math.round(y), width, height });
     this.view.setVisible(true);
   };
+
+  /**
+   * The renderer caps its list by the window's available height, not by the
+   * view's current height (100vh): the view only follows the content after an
+   * IPC round trip, so a 100vh cap briefly overflowed and flashed a scrollbar
+   * whenever the content grew.
+   */
+  private sendMaxHeight(maxHeight: number): void {
+    if (maxHeight === this.sentMaxHeight || !this.loaded || this.view.webContents.isDestroyed()) return;
+    this.sentMaxHeight = maxHeight;
+    this.view.webContents.send('dropdown:max-height', maxHeight);
+  }
 }

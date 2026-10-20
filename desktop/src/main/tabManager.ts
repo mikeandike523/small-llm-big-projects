@@ -2,6 +2,7 @@ import { app, BrowserWindow, WebContentsView, shell } from 'electron';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
+import { nextActiveAfterClose, restoredActiveId, type PersistedActive } from '../shared/tabSelection';
 
 export const TAB_STRIP_HEIGHT = 40;
 
@@ -40,8 +41,10 @@ interface PersistedTab {
 
 interface PersistedState {
   tabs: PersistedTab[];
-  activeId?: string;
+  active?: PersistedActive;
 }
+
+const BUILT_IN_IDS = ['health', 'settings', 'downloads'];
 
 function urlFor(kind: RemoteTabKind, proxyOrigin: string, sessionId?: string): string {
   return kind === 'dashboard'
@@ -60,6 +63,7 @@ export class TabManager {
   private win: BrowserWindow;
   private tabs = new Map<string, TabRecord>();
   private order: string[] = [];
+  // null shows the base window's "No tabs open" page.
   private activeId: string | null = null;
   private nextId = 1;
   private persistFile: string;
@@ -92,7 +96,6 @@ export class TabManager {
       });
       this.order.push(record.id);
     }
-    this.activeId = 'health';
   }
 
   // Public entry points, called from ipcMain handlers registered once in main.ts.
@@ -130,19 +133,18 @@ export class TabManager {
       state = null;
     }
 
-    if (state) {
-      for (const t of state.tabs) {
-        if (t.kind !== 'session' && t.kind !== 'dashboard') continue;
-        this.createTab(t.kind, t.proxyOrigin, t.sessionId, false, t.currentUrl);
-      }
-      if (state.activeId && this.tabs.has(state.activeId)) {
-        this.doSwitchTo(state.activeId);
-        return;
-      }
+    const restoredIds: string[] = [];
+    for (const t of state?.tabs ?? []) {
+      if (t.kind !== 'session' && t.kind !== 'dashboard') continue;
+      restoredIds.push(this.createTab(t.kind, t.proxyOrigin, t.sessionId, false, t.currentUrl));
     }
-    // Nothing persisted (or nothing restorable) -- still push the initial
-    // tab list so the health tab shows up in the strip right away.
-    this.doSwitchTo('health');
+    // Always ends in doSwitchTo, which also pushes the initial tab list.
+    this.doSwitchTo(restoredActiveId(state?.active, restoredIds, BUILT_IN_IDS));
+  }
+
+  /** Session/dashboard tabs, in strip order. */
+  private stripIds(): string[] {
+    return this.order.filter((id) => this.tabs.get(id)?.view);
   }
 
   private createTab(
@@ -229,15 +231,15 @@ export class TabManager {
     void shell.openExternal(url);
   }
 
-  private doSwitchTo(id: string): void {
-    const record = this.tabs.get(id);
-    if (!record) return;
+  private doSwitchTo(id: string | null): void {
+    const record = id === null ? null : this.tabs.get(id);
+    if (id !== null && !record) return;
 
     for (const tab of this.tabs.values()) {
       tab.view?.setVisible(tab.id === id);
     }
     this.activeId = id;
-    if (record.view) {
+    if (record?.view) {
       this.layoutActive();
       record.view.webContents.focus();
     } else {
@@ -251,19 +253,18 @@ export class TabManager {
     const record = this.tabs.get(id);
     if (!record || record.view === null) return;
 
-    if (this.activeId === id) {
-      record.view?.setVisible(false);
-      this.activeId = null;
-    }
+    const wasActive = this.activeId === id;
+    // Chosen before removal: the right neighbour, else the left one, else the
+    // "No tabs open" page. Never a built-in page the user didn't ask for.
+    const next = wasActive ? nextActiveAfterClose(this.stripIds(), id) : this.activeId;
     this.tabs.delete(id);
     this.order = this.order.filter((t) => t !== id);
-    if (record.view) {
-      this.win.contentView.removeChildView(record.view);
-      record.view.webContents.close();
-    }
+    record.view.setVisible(false);
+    this.win.contentView.removeChildView(record.view);
+    record.view.webContents.close();
 
-    if (!this.activeId && this.order.length > 0) {
-      this.doSwitchTo(this.order[this.order.length - 1]);
+    if (wasActive) {
+      this.doSwitchTo(next);
     } else {
       this.pushTabList();
       this.persist();
@@ -315,10 +316,17 @@ export class TabManager {
         currentUrl: tab.currentUrl,
       });
     }
+    let active: PersistedActive = null;
+    if (this.activeId && BUILT_IN_IDS.includes(this.activeId)) {
+      active = { builtInId: this.activeId };
+    } else if (this.activeId) {
+      // Strip ids are regenerated on launch, so store the position instead.
+      active = { stripIndex: this.stripIds().indexOf(this.activeId) };
+    }
     const data: PersistedState = {
       // Built-in tabs are synthesized fresh on every launch, never restored.
       tabs: persistedTabs,
-      activeId: this.activeId ?? undefined,
+      active,
     };
     return JSON.stringify(data, null, 2);
   }

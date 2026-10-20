@@ -10,6 +10,7 @@ declare global {
       onUpdate: (callback: (state: DropdownState) => void) => () => void;
       onOpened: (callback: () => void) => () => void;
       onClosing: (callback: () => void) => () => void;
+      onMaxHeight: (callback: (height: number) => void) => () => void;
       notifyClosed: () => void;
       setHeight: (height: number) => void;
       cancel: (id: string) => Promise<boolean>;
@@ -188,6 +189,10 @@ function reportHeight(): void {
 }
 
 window.dropdownAPI.onUpdate(render);
+
+window.dropdownAPI.onMaxHeight((height) => {
+  document.documentElement.style.setProperty('--view-max-height', `${height}px`);
+});
 
 window.dropdownAPI.onOpened(() => {
   closing = false;

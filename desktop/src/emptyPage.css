@@ -1,0 +1,28 @@
+/* Shown when no tab is active, e.g. after closing the last session/dashboard tab. */
+.empty-panel {
+  position: absolute;
+  inset: 40px 0 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  background: #1e1f24;
+  color: #e8e8ec;
+}
+
+.empty-panel.hidden {
+  display: none;
+}
+
+.empty-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.empty-hint {
+  margin: 0;
+  color: #8a8d97;
+  font-size: 12px;
+}
