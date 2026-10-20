@@ -1,15 +1,34 @@
-export type DesktopDownloadState = 'progressing' | 'completed' | 'cancelled' | 'failed';
+export type DownloadState = 'pending' | 'finalized';
+export type FinalizeReason = 'done' | 'failed' | 'canceled';
 
-export interface DesktopDownload {
+interface DesktopDownloadBase {
   id: string;
   filename: string;
   savePath: string;
   receivedBytes: number;
   totalBytes: number;
   bytesPerSecond: number;
-  state: DesktopDownloadState;
   startedAt: number;
   error?: string;
+  // Hidden from the titlebar dropdown only; the Downloads page ignores it.
+  dismissedFromDropdown?: boolean;
+}
+
+export type DesktopDownload = DesktopDownloadBase &
+  ({ state: 'pending' } | { state: 'finalized'; finalizeReason: FinalizeReason; finalizedAt: number });
+
+export type FinalizedDownload = Extract<DesktopDownload, { state: 'finalized' }>;
+
+/** What the dropdown view renders: its members, in display order. */
+export interface DropdownState {
+  items: DesktopDownload[];
+}
+
+/** The Downloads icon's rect in the base window, in CSS pixels. */
+export interface DropdownAnchor {
+  left: number;
+  right: number;
+  bottom: number;
 }
 
 export interface DownloadSettingsSnapshot {

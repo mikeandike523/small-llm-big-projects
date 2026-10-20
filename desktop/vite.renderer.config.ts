@@ -7,7 +7,7 @@ export default defineConfig({
     rollupOptions: {
       input: {
         main: path.resolve(__dirname, 'index.html'),
-        downloadOverlay: path.resolve(__dirname, 'download-overlay.html'),
+        downloadDropdown: path.resolve(__dirname, 'download-dropdown.html'),
       },
     },
   },

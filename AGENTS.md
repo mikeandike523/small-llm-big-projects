@@ -25,10 +25,14 @@ The repository has four main application areas:
   chat, configuration pages, and browser terminal UI. Production assets are
   built into `ui/dist/` and served by `ui/serve.cjs`.
 - **`desktop/`** -- the Electron Forge desktop shell. Its base renderer is
-  vanilla TypeScript/DOM code (not React) and owns the custom title bar,
-  Health page, changelog dialog, and Process Doctor xterm dialog. Session and
+  vanilla TypeScript/DOM code (not React) and owns the custom icon title bar
+  (`src/titlebar/`, SVGs in `src/titlebar-icons/`), Health, Settings and
+  Downloads pages, changelog dialog, and Process Doctor xterm dialog. Session and
   dashboard tabs are separate `WebContentsView`s that load the React UI from
-  the running SLBP proxy. Main-process lifecycle code, preload IPC bridges,
+  the running SLBP proxy. The Downloads dropdown is its own small
+  `WebContentsView` (`download-dropdown.html`, `src/main/dropdownController.ts`)
+  layered above the tabs; download history persists to
+  `userData/downloads-history.json` (`src/main/downloadHistory.ts`). Main-process lifecycle code, preload IPC bridges,
   shared log state, packaging configuration, and desktop scripts all live
   here. Packaged builds are written beneath `desktop/out/`.
 - **`server/`** -- local infrastructure and database operations: Docker Compose
@@ -130,6 +134,7 @@ node serve.cjs      # serve built UI assets (normally started by SLBP)
 ```bash
 pnpm start               # Electron Forge development mode
 pnpm run lint            # lint desktop TypeScript
+pnpm run test            # node --test unit tests (desktop/tests/*.test.mjs)
 pnpm exec tsc --noEmit   # TypeScript check without emitting files
 pnpm run build-icons     # regenerate ico/icns/png from assets/logo.svg
 pnpm run close-desktop   # gracefully close this repo's app, then force stragglers

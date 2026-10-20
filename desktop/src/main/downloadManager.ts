@@ -1,13 +1,11 @@
-import { BrowserWindow, type DownloadItem, type Session, WebContentsView, shell } from 'electron';
+import { BrowserWindow, type DownloadItem, type Session, type WebContents, shell } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import type { DesktopDownload } from '../shared/downloads';
+import type { DesktopDownload, FinalizeReason } from '../shared/downloads';
 import type { DownloadSettingsStore } from './downloadSettings';
-import { TAB_STRIP_HEIGHT } from './tabManager';
-
-const OVERLAY_WIDTH = 420;
-const OVERLAY_MARGIN = 16;
+import { DownloadHistoryStore, INTERRUPTED_MESSAGE } from './downloadHistory';
+import { DropdownController } from './dropdownController';
 
 function normalizedDestination(value: string): string {
   const resolved = path.resolve(value);
@@ -36,14 +34,28 @@ export function nextAvailableDownloadPath(
   throw new Error('Could not choose an available download filename.');
 }
 
-export class DownloadManager {
-  readonly view: WebContentsView;
+function finalize(download: DesktopDownload, reason: FinalizeReason, error?: string): DesktopDownload {
+  return {
+    ...download,
+    bytesPerSecond: 0,
+    state: 'finalized',
+    finalizeReason: reason,
+    finalizedAt: Date.now(),
+    error,
+  };
+}
 
-  private readonly downloads = new Map<string, DesktopDownload>();
+/**
+ * Captures every download from the shared Electron session into the
+ * persisted history, and publishes it to the base window (Downloads icon and
+ * page) and to the Downloads dropdown.
+ */
+export class DownloadManager {
+  readonly dropdown: DropdownController;
+
+  private readonly history = new DownloadHistoryStore();
   private readonly activeItems = new Map<string, DownloadItem>();
   private readonly reservedDestinations = new Set<string>();
-  private overlayLoaded = false;
-  private requestedHeight = 120;
   private disposed = false;
 
   private readonly willDownload = (_event: Electron.Event, item: DownloadItem): void => {
@@ -54,70 +66,69 @@ export class DownloadManager {
     private readonly win: BrowserWindow,
     private readonly electronSession: Session,
     private readonly settings: DownloadSettingsStore,
-    overlayUrl: string,
+    dropdownUrl: string,
     preloadPath: string,
   ) {
-    this.view = new WebContentsView({
-      webPreferences: {
-        preload: preloadPath,
-        contextIsolation: true,
-        sandbox: true,
-        backgroundThrottling: false,
-      },
-    });
-    this.view.setBackgroundColor('#00000000');
-    this.view.setVisible(false);
-    this.win.contentView.addChildView(this.view);
-    this.view.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
-    this.view.webContents.on('did-finish-load', () => {
-      this.overlayLoaded = true;
-      this.publish();
-    });
-    this.view.webContents.on('render-process-gone', (_event, details) => {
-      console.error(`[DEBUG] download overlay renderer exited: ${details.reason}`);
-    });
-    void this.view.webContents.loadURL(overlayUrl);
-
+    this.dropdown = new DropdownController(win, () => this.history.all(), dropdownUrl, preloadPath);
     this.electronSession.on('will-download', this.willDownload);
-    this.win.on('resize', this.layout);
   }
 
-  ownsSender(senderId: number): boolean {
-    return !this.view.webContents.isDestroyed() && this.view.webContents.id === senderId;
+  ownsDropdown(contents: WebContents): boolean {
+    return this.dropdown.ownsContents(contents);
   }
 
   getSnapshot(): DesktopDownload[] {
-    return Array.from(this.downloads.values(), (download) => ({ ...download }));
+    return this.history.snapshot();
   }
 
-  bringToFront(): void {
-    if (this.disposed) return;
-    this.win.contentView.addChildView(this.view);
-  }
-
-  setOverlayHeight(height: number): void {
-    if (!Number.isFinite(height)) return;
-    this.requestedHeight = Math.max(0, Math.ceil(height));
-    this.layout();
+  /** Ids of completed downloads whose file is no longer on disk. */
+  missingFileIds(): string[] {
+    return this.history
+      .all()
+      .filter(
+        (download) =>
+          download.state === 'finalized' &&
+          download.finalizeReason === 'done' &&
+          !fs.existsSync(download.savePath),
+      )
+      .map((download) => download.id);
   }
 
   cancel(id: string): boolean {
-    const download = this.downloads.get(id);
+    const download = this.history.get(id);
     const item = this.activeItems.get(id);
-    if (!download || !item || download.state !== 'progressing') return false;
-    download.state = 'cancelled';
-    download.error = undefined;
+    if (!download || !item || download.state !== 'pending') return false;
+    this.history.put(finalize(download, 'canceled'));
     this.publish();
     item.cancel();
     return true;
   }
 
-  dismiss(id: string): boolean {
-    const download = this.downloads.get(id);
-    if (!download || download.state === 'progressing') return false;
-    this.downloads.delete(id);
+  dismissFromDropdown(id: string): boolean {
+    const download = this.history.get(id);
+    if (!download || download.state !== 'finalized') return false;
+    download.dismissedFromDropdown = true;
+    this.history.touch();
+    this.dropdown.removeMember(id);
     this.publish();
     return true;
+  }
+
+  removeFromHistory(id: string): boolean {
+    const download = this.history.get(id);
+    if (!download || download.state !== 'finalized') return false;
+    this.history.remove(id);
+    this.dropdown.removeMember(id);
+    this.publish();
+    return true;
+  }
+
+  clearHistory(): void {
+    for (const download of this.history.all()) {
+      if (download.state === 'finalized') this.dropdown.removeMember(download.id);
+    }
+    this.history.clearFinalized();
+    this.publish();
   }
 
   async open(id: string): Promise<string> {
@@ -131,39 +142,22 @@ export class DownloadManager {
     return true;
   }
 
-  dispose(): void {
+  async dispose(): Promise<void> {
     if (this.disposed) return;
     this.disposed = true;
     this.electronSession.off('will-download', this.willDownload);
-    this.win.off('resize', this.layout);
-    for (const item of this.activeItems.values()) item.cancel();
+    // Record downloads cut off by closing the app as interrupted, not as
+    // canceled -- the user didn't choose to stop them.
+    for (const [id, item] of this.activeItems) {
+      const download = this.history.get(id);
+      if (download?.state === 'pending') this.history.put(finalize(download, 'failed', INTERRUPTED_MESSAGE));
+      item.cancel();
+    }
     this.activeItems.clear();
     this.reservedDestinations.clear();
-    this.win.contentView.removeChildView(this.view);
-    if (!this.view.webContents.isDestroyed()) this.view.webContents.close();
+    this.dropdown.dispose();
+    await this.history.flush();
   }
-
-  private readonly layout = (): void => {
-    if (this.disposed || this.downloads.size === 0 || this.requestedHeight <= 0) {
-      this.view.setVisible(false);
-      return;
-    }
-    const bounds = this.win.getContentBounds();
-    const width = Math.max(0, Math.min(OVERLAY_WIDTH, bounds.width - OVERLAY_MARGIN * 2));
-    const maxHeight = Math.max(0, bounds.height - TAB_STRIP_HEIGHT - OVERLAY_MARGIN * 2);
-    const height = Math.min(this.requestedHeight, maxHeight);
-    if (width === 0 || height === 0) {
-      this.view.setVisible(false);
-      return;
-    }
-    this.view.setBounds({
-      x: bounds.width - width - OVERLAY_MARGIN,
-      y: bounds.height - height - OVERLAY_MARGIN,
-      width,
-      height,
-    });
-    this.view.setVisible(true);
-  };
 
   private captureDownload(item: DownloadItem): void {
     const id = randomUUID();
@@ -177,89 +171,86 @@ export class DownloadManager {
       this.reservedDestinations.add(normalizedDestination(destination));
     } catch (error) {
       console.error(`[DEBUG] failed to start download ${filename}: ${String(error)}`);
-      this.downloads.set(id, {
+      const startedAt = Date.now();
+      this.history.put({
         id,
         filename,
         savePath: destination,
         receivedBytes: 0,
         totalBytes: item.getTotalBytes(),
         bytesPerSecond: 0,
-        state: 'failed',
-        startedAt: Date.now(),
+        startedAt,
+        state: 'finalized',
+        finalizeReason: 'failed',
+        finalizedAt: startedAt,
         error: `Could not create the download file: ${String(error)}`,
       });
       item.cancel();
+      this.dropdown.addDownload(id);
       this.publish();
       return;
     }
 
-    const download: DesktopDownload = {
+    this.history.put({
       id,
       filename: path.basename(destination),
       savePath: destination,
       receivedBytes: item.getReceivedBytes(),
       totalBytes: item.getTotalBytes(),
       bytesPerSecond: 0,
-      state: 'progressing',
       startedAt: Date.now(),
-    };
-    this.downloads.set(id, download);
+      state: 'pending',
+    });
     this.activeItems.set(id, item);
+    this.dropdown.addDownload(id);
     this.publish();
 
     item.on('updated', (_event, state) => {
-      const current = this.downloads.get(id);
-      if (!current || current.state === 'cancelled') return;
+      const current = this.history.get(id);
+      if (!current || current.state !== 'pending') return;
       current.receivedBytes = item.getReceivedBytes();
       current.totalBytes = item.getTotalBytes();
       current.bytesPerSecond = item.getCurrentBytesPerSecond();
-      // An `updated` interruption can be transient. Keep the row active until
-      // DownloadItem emits its terminal `done` state.
+      // An `updated` interruption can be transient. Keep the row pending
+      // until DownloadItem emits its terminal `done` state.
       current.error = state === 'interrupted' ? 'Connection interrupted; waiting for Chromium.' : undefined;
+      // Progress ticks are not persisted; only structural changes are.
       this.publish();
     });
 
     item.once('done', (_event, state) => {
       this.activeItems.delete(id);
       this.reservedDestinations.delete(normalizedDestination(destination));
-      const current = this.downloads.get(id);
-      if (!current) return;
+      const current = this.history.get(id);
+      // Already finalized: canceled by the user, or interrupted by dispose().
+      if (!current || current.state !== 'pending' || this.disposed) return;
       current.receivedBytes = item.getReceivedBytes();
       current.totalBytes = item.getTotalBytes();
-      current.bytesPerSecond = 0;
       if (state === 'completed') {
-        current.state = 'completed';
-        current.error = undefined;
-      } else if (current.state === 'cancelled' || state === 'cancelled') {
-        current.state = 'cancelled';
-        current.error = undefined;
+        this.history.put(finalize(current, 'done'));
+      } else if (state === 'cancelled') {
+        this.history.put(finalize(current, 'canceled'));
       } else {
-        current.state = 'failed';
-        current.error = 'The download was interrupted before it completed.';
         console.error(`[DEBUG] download interrupted: ${destination}`);
+        this.history.put(finalize(current, 'failed', 'The download was interrupted before it completed.'));
       }
       this.publish();
     });
   }
 
   private completedDownload(id: string): DesktopDownload {
-    const download = this.downloads.get(id);
-    if (!download || download.state !== 'completed') {
+    const download = this.history.get(id);
+    if (!download || download.state !== 'finalized' || download.finalizeReason !== 'done') {
       throw new Error('The requested download has not completed.');
     }
     return download;
   }
 
   private publish(): void {
-    if (this.downloads.size === 0) {
-      this.view.setVisible(false);
-    } else {
-      // The empty overlay reports zero height. Give the first subsequent row
-      // enough space to render and report its exact content height.
-      if (this.requestedHeight <= 0) this.requestedHeight = 120;
-      this.layout();
+    if (this.disposed) return;
+    this.dropdown.publish();
+    if (!this.win.webContents.isDestroyed()) {
+      this.win.webContents.send('downloads:update', this.history.snapshot());
     }
-    if (!this.overlayLoaded || this.view.webContents.isDestroyed()) return;
-    this.view.webContents.send('downloads:update', this.getSnapshot());
   }
 }

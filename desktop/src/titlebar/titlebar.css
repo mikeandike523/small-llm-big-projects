@@ -1,0 +1,101 @@
+/* Titlebar icon buttons: "+ Dashboard", Health, Settings, Downloads. The
+   SVGs are inlined with stroke="currentColor", so `color` styles them. */
+.titlebar-icon-btn {
+  position: relative;
+  flex-shrink: 0;
+  width: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: #9d9ea8;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+
+.titlebar-icon-btn:hover:not(:disabled) {
+  background: #34353d;
+  color: #ffffff;
+}
+
+.titlebar-icon-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* The page this icon opens is the active tab. */
+.titlebar-icon-btn.active {
+  background: #1e1f24;
+  color: #ffffff;
+}
+
+.titlebar-icon-glyph {
+  display: block;
+  width: 20px;
+  height: 20px;
+}
+
+.titlebar-icon-glyph > svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* Downloads icon: a progress ring around the arrow plus a count badge, both
+   shown only while something is pending. */
+.downloads-indicator {
+  --ring-track: #3a3b44;
+  --ring-fill: #6c8cff;
+}
+
+.downloads-indicator .titlebar-icon-glyph {
+  width: 16px;
+  height: 16px;
+  transition:
+    width 150ms ease,
+    height 150ms ease;
+}
+
+.downloads-indicator:not(.has-pending) .titlebar-icon-glyph {
+  width: 20px;
+  height: 20px;
+}
+
+.downloads-indicator-ring {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 28px;
+  height: 28px;
+  margin: -14px 0 0 -14px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 150ms ease;
+}
+
+.downloads-indicator-badge {
+  position: absolute;
+  top: 4px;
+  right: 3px;
+  min-width: 15px;
+  height: 15px;
+  box-sizing: border-box;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: #6c8cff;
+  color: #ffffff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 15px;
+  text-align: center;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 150ms ease;
+}
+
+.downloads-indicator.has-pending .downloads-indicator-ring,
+.downloads-indicator.has-pending .downloads-indicator-badge {
+  opacity: 1;
+}

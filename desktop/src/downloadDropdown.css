@@ -1,0 +1,227 @@
+:root {
+  color-scheme: light;
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial,
+    sans-serif;
+  background: transparent;
+  --panel-padding: 10px;
+  --footer-height: 37px;
+  --ring-track: #e3e5ec;
+  --ring-fill: #3b6cff;
+}
+
+html,
+body {
+  margin: 0;
+  overflow: hidden;
+  background: transparent;
+}
+
+/* The view is transparent and slightly larger than the panel so the panel's
+   shadow has room; this padding is that room. */
+.dropdown-shell {
+  box-sizing: border-box;
+  padding: 2px var(--panel-padding) var(--panel-padding);
+  opacity: 0;
+  transform: translateY(-4px);
+  transition:
+    opacity 140ms ease,
+    transform 140ms ease;
+}
+
+body.shown .dropdown-shell {
+  opacity: 1;
+  transform: none;
+}
+
+.dropdown-panel {
+  overflow: hidden;
+  border: 1px solid #dfe1e7;
+  border-radius: 10px;
+  background: #ffffff;
+  color: #1d1e22;
+  box-shadow: 0 6px 22px rgb(0 0 0 / 35%);
+}
+
+.dropdown-list {
+  /* Capped to the view (which main clamps to the window), so a very long
+     list scrolls instead of overflowing. */
+  max-height: calc(100vh - var(--panel-padding) - 2px - var(--footer-height) - 2px);
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+/* One-row grid: animating the row between 0fr and 1fr animates the item's
+   height to/from its natural size, so items below slide up or down. */
+.dropdown-item {
+  display: grid;
+  grid-template-rows: 1fr;
+  opacity: 1;
+  /* Entering: expand first, then fade in. */
+  transition:
+    grid-template-rows 200ms ease,
+    opacity 160ms ease 120ms;
+}
+
+.dropdown-item-entering {
+  grid-template-rows: 0fr;
+  opacity: 0;
+}
+
+.dropdown-item-leaving {
+  grid-template-rows: 0fr;
+  opacity: 0;
+  pointer-events: none;
+  /* Leaving: fade out first, then collapse. */
+  transition:
+    opacity 160ms ease,
+    grid-template-rows 200ms ease 140ms;
+}
+
+.dropdown-item-inner {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.dropdown-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 11px 10px 11px 12px;
+  border-bottom: 1px solid #eceef2;
+}
+
+.download-status-icon {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  margin-top: 1px;
+}
+
+.download-status-icon > svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.download-status-done {
+  color: #1f9d55;
+}
+
+.download-status-failed {
+  color: #d93a3f;
+}
+
+.download-status-canceled {
+  color: #8a8d97;
+}
+
+.dropdown-card-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.dropdown-card-name {
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dropdown-card-detail {
+  margin-top: 3px;
+  overflow: hidden;
+  color: #6b6e78;
+  font-size: 11px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dropdown-card-failed .dropdown-card-detail {
+  color: #c4323a;
+  white-space: normal;
+}
+
+.dropdown-card-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.dropdown-action {
+  padding: 4px 9px;
+  border: 1px solid #d5d8df;
+  border-radius: 5px;
+  background: #f6f7f9;
+  color: #2a2c33;
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.dropdown-action:hover:not(:disabled) {
+  border-color: #b9bdc7;
+  background: #eceef2;
+}
+
+.dropdown-action:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.dropdown-dismiss {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #8a8d97;
+  cursor: pointer;
+  font-size: 17px;
+  line-height: 20px;
+}
+
+.dropdown-dismiss:hover {
+  background: #eceef2;
+  color: #1d1e22;
+}
+
+.dropdown-empty {
+  display: none;
+  padding: 16px 12px;
+  color: #6b6e78;
+  font-size: 12px;
+  text-align: center;
+}
+
+.dropdown-empty.visible {
+  display: block;
+}
+
+.dropdown-footer {
+  box-sizing: border-box;
+  height: var(--footer-height);
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0 8px;
+  background: #fafbfc;
+}
+
+.dropdown-view-all {
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #2f5fe0;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.dropdown-view-all:hover {
+  background: #eef2fd;
+}

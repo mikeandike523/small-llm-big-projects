@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+  <!-- Gear: 8 trapezoidal teeth, outer radius 10, root radius 7.6, centred at (12, 12) -->
+  <path d="M10.23 4.61L10.59 2.10L13.41 2.10L13.77 4.61L15.97 5.52L18.00 4.00L20.00 6.00L18.48 8.03L19.39 10.23L21.90 10.59L21.90 13.41L19.39 13.77L18.48 15.97L20.00 18.00L18.00 20.00L15.97 18.48L13.77 19.39L13.41 21.90L10.59 21.90L10.23 19.39L8.03 18.48L6.00 20.00L4.00 18.00L5.52 15.97L4.61 13.77L2.10 13.41L2.10 10.59L4.61 10.23L5.52 8.03L4.00 6.00L6.00 4.00L8.03 5.52Z" />
+  <!-- Axle hole -->
+  <circle cx="12" cy="12" r="3" />
+</svg>

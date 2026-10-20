@@ -1,0 +1,1 @@
+Icon titlebar (new dashboard, health, settings, downloads). Downloads now show in a dropdown under the Downloads icon (progress ring + count badge) instead of corner cards, with a persisted, live Downloads history page via View all.

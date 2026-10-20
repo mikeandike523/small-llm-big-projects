@@ -51,17 +51,11 @@ body {
 
 .fixed-tab-strip {
   flex-shrink: 0;
-  /* Absorbs the free space, pinning Health/Settings to the window controls.
+  /* Absorbs the free space, pinning the Health/Settings/Downloads icons to the window controls.
      That empty gap is .titlebar's own area, so it stays draggable. */
   margin-left: auto;
   display: flex;
   align-items: stretch;
-}
-
-/* Fixed tabs sit on the right, so their divider goes on the left side. */
-.fixed-tab-strip .tab {
-  border-right: none;
-  border-left: 1px solid #34353d;
 }
 
 .tab-active {
@@ -82,28 +76,6 @@ body {
 
 .tab-close:hover {
   opacity: 1;
-}
-
-.tab-dashboard-btn {
-  flex-shrink: 0;
-  border: none;
-  background: transparent;
-  color: #b7b8c2;
-  font-size: 13px;
-  padding: 0 14px;
-  cursor: pointer;
-  -webkit-app-region: no-drag;
-  white-space: nowrap;
-}
-
-.tab-dashboard-btn:hover {
-  background: #34353d;
-  color: #ffffff;
-}
-
-.tab-dashboard-btn:disabled {
-  opacity: 0.5;
-  cursor: default;
 }
 
 .window-controls {

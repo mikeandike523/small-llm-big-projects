@@ -7,8 +7,12 @@
   <body>
     <div id="titlebar" class="titlebar">
       <div id="tab-strip" class="tab-strip"></div>
-      <button id="tab-dashboard-btn" class="tab-dashboard-btn" title="Open Dashboard">+ Dashboard</button>
-      <div id="fixed-tab-strip" class="fixed-tab-strip"></div>
+      <button id="tab-dashboard-btn" class="titlebar-icon-btn tab-dashboard-btn" title="New dashboard" aria-label="New dashboard"></button>
+      <div class="fixed-tab-strip">
+        <button id="fixed-tab-health" class="titlebar-icon-btn" title="Health" aria-label="Health"></button>
+        <button id="fixed-tab-settings" class="titlebar-icon-btn" title="Settings" aria-label="Settings"></button>
+        <button id="fixed-tab-downloads" class="titlebar-icon-btn downloads-indicator" title="Downloads" aria-label="Downloads"></button>
+      </div>
       <div class="window-controls">
         <button id="win-minimize" class="win-btn" title="Minimize">&#8211;</button>
         <button id="win-maximize" class="win-btn" title="Maximize">&#9633;</button>
@@ -53,6 +57,16 @@
           </p>
           <p id="settings-downloads-error" class="settings-error" role="alert"></p>
         </section>
+      </div>
+    </div>
+    <div id="downloads-panel" class="downloads-panel hidden">
+      <div class="downloads-content">
+        <div class="downloads-header">
+          <h1>Downloads</h1>
+          <button id="downloads-clear-history" class="downloads-clear-history">Clear history</button>
+        </div>
+        <div id="downloads-sections"></div>
+        <p id="downloads-empty" class="downloads-empty">No downloads yet.</p>
       </div>
     </div>
     <dialog id="changelog-dialog" class="changelog-dialog">

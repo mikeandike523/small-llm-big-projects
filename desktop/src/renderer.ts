@@ -4,8 +4,13 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import type { TabsUpdatePayload, HealthSnapshot } from './preload';
 import type { HealthStatus, HealthStatusKind } from './main/serverLauncher';
-import type { DownloadSettingsSnapshot } from './shared/downloads';
+import type { DesktopDownload, DownloadSettingsSnapshot } from './shared/downloads';
 import './settings.css';
+import './shared/progressRing.css';
+import './titlebar/titlebar.css';
+import { TITLEBAR_ICONS, setButtonIcon } from './titlebar/icons';
+import { initDownloadsIndicator } from './titlebar/downloadsIndicator';
+import { initDownloadsPage } from './downloadsPage';
 
 declare global {
   interface Window {
@@ -52,7 +57,10 @@ document.getElementById('win-maximize')!.addEventListener('click', () => window.
 document.getElementById('win-close')!.addEventListener('click', () => window.windowAPI.close());
 
 const stripEl = document.getElementById('tab-strip')!;
-const fixedStripEl = document.getElementById('fixed-tab-strip')!;
+const healthTabBtn = document.getElementById('fixed-tab-health') as HTMLButtonElement;
+const settingsTabBtn = document.getElementById('fixed-tab-settings') as HTMLButtonElement;
+const downloadsTabBtn = document.getElementById('fixed-tab-downloads') as HTMLButtonElement;
+const downloadsPanelEl = document.getElementById('downloads-panel')!;
 const healthPanelEl = document.getElementById('health-panel')!;
 const settingsPanelEl = document.getElementById('settings-panel')!;
 const statusBadgeEl = document.getElementById('health-status-badge')!;
@@ -84,11 +92,10 @@ function renderTabs(payload: TabsUpdatePayload) {
   const prevScrollLeft = stripEl.scrollLeft;
   let newTabEl: HTMLElement | null = null;
   stripEl.innerHTML = '';
-  fixedStripEl.innerHTML = '';
   for (const tab of payload.tabs) {
-    // Health and Settings are permanent, so they sit in their own strip on the
-    // right next to the window controls instead of scrolling with session tabs.
-    const isFixed = tab.kind === 'health' || tab.kind === 'settings';
+    // Health, Settings and Downloads are permanent icon buttons on the right
+    // (static in index.html); only session/dashboard tabs go in the strip.
+    if (tab.kind === 'health' || tab.kind === 'settings' || tab.kind === 'downloads') continue;
     const tabEl = document.createElement('div');
     tabEl.className = 'tab' + (tab.id === payload.activeId ? ' tab-active' : '');
 
@@ -98,20 +105,21 @@ function renderTabs(payload: TabsUpdatePayload) {
     labelEl.addEventListener('click', () => window.tabsAPI.switchTab(tab.id));
     tabEl.appendChild(labelEl);
 
-    if (!isFixed) {
-      const closeEl = document.createElement('span');
-      closeEl.className = 'tab-close';
-      closeEl.textContent = '×';
-      closeEl.addEventListener('click', (event) => {
-        event.stopPropagation();
-        window.tabsAPI.closeTab(tab.id);
-      });
-      tabEl.appendChild(closeEl);
-    }
+    const closeEl = document.createElement('span');
+    closeEl.className = 'tab-close';
+    closeEl.textContent = '×';
+    closeEl.addEventListener('click', (event) => {
+      event.stopPropagation();
+      window.tabsAPI.closeTab(tab.id);
+    });
+    tabEl.appendChild(closeEl);
 
-    (isFixed ? fixedStripEl : stripEl).appendChild(tabEl);
-    if (!isFixed && !knownTabIds.has(tab.id)) newTabEl = tabEl;
+    stripEl.appendChild(tabEl);
+    if (!knownTabIds.has(tab.id)) newTabEl = tabEl;
   }
+  healthTabBtn.classList.toggle('active', payload.activeId === 'health');
+  settingsTabBtn.classList.toggle('active', payload.activeId === 'settings');
+  downloadsTabBtn.classList.toggle('active', payload.activeId === 'downloads');
 
   stripEl.scrollLeft = prevScrollLeft;
   newTabEl?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
@@ -121,6 +129,8 @@ function renderTabs(payload: TabsUpdatePayload) {
   const isHealthActive = payload.activeId === 'health';
   healthPanelEl.classList.toggle('hidden', !isHealthActive);
   settingsPanelEl.classList.toggle('hidden', payload.activeId !== 'settings');
+  downloadsPanelEl.classList.toggle('hidden', payload.activeId !== 'downloads');
+  downloadsPage.setVisible(payload.activeId === 'downloads');
 
   if (isHealthActive && wasHidden) {
     // While hidden the panel is display:none, so #health-log's scrollTop/scrollHeight
@@ -131,6 +141,23 @@ function renderTabs(payload: TabsUpdatePayload) {
     logEl.scrollTop = logEl.scrollHeight;
   }
 }
+
+// --- Titlebar icons and Downloads ---
+
+setButtonIcon(tabDashboardBtn, TITLEBAR_ICONS.newDashboard);
+setButtonIcon(healthTabBtn, TITLEBAR_ICONS.health);
+setButtonIcon(settingsTabBtn, TITLEBAR_ICONS.settings);
+healthTabBtn.addEventListener('click', () => window.tabsAPI.switchTab('health'));
+settingsTabBtn.addEventListener('click', () => window.tabsAPI.switchTab('settings'));
+
+const updateDownloadsIndicator = initDownloadsIndicator(downloadsTabBtn);
+const downloadsPage = initDownloadsPage();
+function renderDownloads(downloads: DesktopDownload[]): void {
+  updateDownloadsIndicator(downloads);
+  downloadsPage.update(downloads);
+}
+window.downloadsAPI.onUpdate(renderDownloads);
+void window.downloadsAPI.getSnapshot().then(renderDownloads);
 
 window.tabsAPI.onUpdate(renderTabs);
 

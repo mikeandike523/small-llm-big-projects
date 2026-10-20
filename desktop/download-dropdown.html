@@ -1,0 +1,23 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'"
+    />
+    <title>Downloads</title>
+  </head>
+  <body>
+    <div id="dropdown-shell" class="dropdown-shell">
+      <div class="dropdown-panel">
+        <main id="dropdown-list" class="dropdown-list" aria-live="polite"></main>
+        <div id="dropdown-empty" class="dropdown-empty">No recent downloads</div>
+        <div class="dropdown-footer">
+          <button id="dropdown-view-all" class="dropdown-view-all" type="button">View all</button>
+        </div>
+      </div>
+    </div>
+    <script type="module" src="/src/downloadDropdown.ts"></script>
+  </body>
+</html>

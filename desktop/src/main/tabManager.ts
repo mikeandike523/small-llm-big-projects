@@ -5,7 +5,7 @@ import path from 'node:path';
 
 export const TAB_STRIP_HEIGHT = 40;
 
-export type TabKind = 'session' | 'dashboard' | 'health' | 'settings';
+export type TabKind = 'session' | 'dashboard' | 'health' | 'settings' | 'downloads';
 type RemoteTabKind = 'session' | 'dashboard';
 
 interface TabRecord {
@@ -82,6 +82,8 @@ export class TabManager {
     for (const record of [
       { id: 'health', kind: 'health', label: 'Health' },
       { id: 'settings', kind: 'settings', label: 'Settings' },
+      // Opened via the dropdown's "View all"; its titlebar icon opens the dropdown.
+      { id: 'downloads', kind: 'downloads', label: 'Downloads' },
     ] as const) {
       this.tabs.set(record.id, {
         ...record,

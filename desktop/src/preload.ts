@@ -1,7 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type { TabDescriptor } from './main/tabManager';
 import type { HealthStatus } from './main/serverLauncher';
-import type { DownloadSettingsSnapshot } from './shared/downloads';
+import type { DesktopDownload, DownloadSettingsSnapshot, DropdownAnchor } from './shared/downloads';
 
 export interface TabsUpdatePayload {
   tabs: TabDescriptor[];
@@ -40,6 +40,22 @@ contextBridge.exposeInMainWorld('settingsAPI', {
   getDownloads: () => ipcRenderer.invoke('settings:get-downloads') as Promise<DownloadSettingsSnapshot>,
   chooseDownloads: () => ipcRenderer.invoke('settings:choose-downloads') as Promise<DownloadSettingsSnapshot>,
   resetDownloads: () => ipcRenderer.invoke('settings:reset-downloads') as Promise<DownloadSettingsSnapshot>,
+});
+
+// The Downloads icon (progress ring/badge) and the Downloads page.
+contextBridge.exposeInMainWorld('downloadsAPI', {
+  getSnapshot: () => ipcRenderer.invoke('downloads:get-snapshot') as Promise<DesktopDownload[]>,
+  onUpdate: (callback: (downloads: DesktopDownload[]) => void) => {
+    ipcRenderer.on('downloads:update', (_event, downloads: DesktopDownload[]) => callback(downloads));
+  },
+  toggleDropdown: () => ipcRenderer.invoke('downloads:toggle-dropdown') as Promise<void>,
+  setDropdownAnchor: (anchor: DropdownAnchor) => ipcRenderer.send('downloads:set-dropdown-anchor', anchor),
+  cancel: (id: string) => ipcRenderer.invoke('downloads:cancel', id) as Promise<boolean>,
+  open: (id: string) => ipcRenderer.invoke('downloads:open', id) as Promise<string>,
+  showInFolder: (id: string) => ipcRenderer.invoke('downloads:show-in-folder', id) as Promise<boolean>,
+  removeFromHistory: (id: string) => ipcRenderer.invoke('downloads:remove-from-history', id) as Promise<boolean>,
+  clearHistory: () => ipcRenderer.invoke('downloads:clear-history') as Promise<void>,
+  getMissingFileIds: () => ipcRenderer.invoke('downloads:get-missing-file-ids') as Promise<string[]>,
 });
 
 contextBridge.exposeInMainWorld('processDoctorAPI', {

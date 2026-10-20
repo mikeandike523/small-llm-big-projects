@@ -1,0 +1,38 @@
+/* Determinate progress ring from progressRingSvg() (downloadStatusIcons.ts).
+   pathLength="100" on the circles makes stroke-dashoffset the unfilled
+   percent. Colours come from --ring-track / --ring-fill on an ancestor. */
+.progress-ring {
+  display: block;
+  width: 100%;
+  height: 100%;
+  /* Start the fill at 12 o'clock rather than 3 o'clock. */
+  transform: rotate(-90deg);
+}
+
+.progress-ring circle {
+  fill: none;
+  stroke-width: 2.5;
+}
+
+.progress-ring-track {
+  stroke: var(--ring-track, rgb(127 127 127 / 30%));
+}
+
+.progress-ring-fill {
+  stroke: var(--ring-fill, #3b6cff);
+  stroke-dasharray: 100;
+  transition: stroke-dashoffset 200ms linear;
+}
+
+.progress-ring-spinning {
+  animation: progress-ring-spin 1s linear infinite;
+}
+
+@keyframes progress-ring-spin {
+  from {
+    transform: rotate(-90deg);
+  }
+  to {
+    transform: rotate(270deg);
+  }
+}

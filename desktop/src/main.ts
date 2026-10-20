@@ -10,6 +10,7 @@ import { getCurrentVersion, readIndex, readNote } from './main/changelog';
 import { ProcessDoctorTerminal } from './main/processDoctor';
 import { DownloadManager } from './main/downloadManager';
 import { DownloadSettingsStore } from './main/downloadSettings';
+import type { DropdownAnchor } from './shared/downloads';
 
 if (started) {
   app.quit();
@@ -97,30 +98,63 @@ ipcMain.handle('changelog:get-version', () => getCurrentVersion());
 ipcMain.handle('changelog:get-index', () => readIndex());
 ipcMain.handle('changelog:get-note', (_event, version: string) => readNote(version));
 
-function downloadManagerForSender(senderId: number): DownloadManager | null {
-  return downloadManager?.ownsSender(senderId) ? downloadManager : null;
+function downloadManagerForDropdown(sender: Electron.WebContents): DownloadManager | null {
+  return downloadManager?.ownsDropdown(sender) ? downloadManager : null;
 }
 
-ipcMain.handle('downloads:get-snapshot', (event) => downloadManagerForSender(event.sender.id)?.getSnapshot() ?? []);
-ipcMain.on('downloads:set-overlay-height', (event, height: number) => {
-  downloadManagerForSender(event.sender.id)?.setOverlayHeight(height);
-});
-ipcMain.handle(
-  'downloads:cancel',
-  (event, id: string) => downloadManagerForSender(event.sender.id)?.cancel(id) ?? false,
-);
-ipcMain.handle(
-  'downloads:dismiss',
-  (event, id: string) => downloadManagerForSender(event.sender.id)?.dismiss(id) ?? false,
-);
-ipcMain.handle('downloads:open', (event, id: string) => {
-  const manager = downloadManagerForSender(event.sender.id);
+function downloadManagerForBase(senderId: number): DownloadManager | null {
+  return isBaseRenderer(senderId) ? downloadManager : null;
+}
+
+/** Calls from the dropdown view or the base window (Downloads icon and page). */
+function downloadManagerForEither(event: Electron.IpcMainInvokeEvent): DownloadManager {
+  const manager = downloadManagerForDropdown(event.sender) ?? downloadManagerForBase(event.sender.id);
   if (!manager) throw new Error('Download manager is unavailable.');
-  return manager.open(id);
+  return manager;
+}
+
+// Every webContents (base window, tab views, the dropdown itself) reports its
+// mouse-downs so the dropdown can close on a click anywhere else.
+app.on('web-contents-created', (_event, contents) => {
+  contents.on('input-event', (_inputEvent, input) => {
+    downloadManager?.dropdown.handleInput(contents, input);
+  });
 });
+
+ipcMain.handle('downloads:get-snapshot', (event) => downloadManagerForEither(event).getSnapshot());
+ipcMain.handle('downloads:cancel', (event, id: string) => downloadManagerForEither(event).cancel(id));
+ipcMain.handle('downloads:open', (event, id: string) => downloadManagerForEither(event).open(id));
+ipcMain.handle('downloads:show-in-folder', (event, id: string) => downloadManagerForEither(event).showInFolder(id));
+
+// Dropdown view only.
+ipcMain.on('dropdown:set-height', (event, height: number) => {
+  downloadManagerForDropdown(event.sender)?.dropdown.setHeight(height);
+});
+ipcMain.on('dropdown:closed', (event) => downloadManagerForDropdown(event.sender)?.dropdown.finishClose());
 ipcMain.handle(
-  'downloads:show-in-folder',
-  (event, id: string) => downloadManagerForSender(event.sender.id)?.showInFolder(id) ?? false,
+  'dropdown:dismiss',
+  (event, id: string) => downloadManagerForDropdown(event.sender)?.dismissFromDropdown(id) ?? false,
+);
+ipcMain.handle('dropdown:view-all', (event) => {
+  const manager = downloadManagerForDropdown(event.sender);
+  if (!manager) return;
+  manager.dropdown.close();
+  tabManager?.switchTo('downloads');
+});
+
+// Base window only (Downloads icon and page).
+ipcMain.on('downloads:set-dropdown-anchor', (event, anchor: DropdownAnchor) => {
+  downloadManagerForBase(event.sender.id)?.dropdown.setAnchor(anchor);
+});
+ipcMain.handle('downloads:toggle-dropdown', (event) => downloadManagerForBase(event.sender.id)?.dropdown.toggle());
+ipcMain.handle(
+  'downloads:remove-from-history',
+  (event, id: string) => downloadManagerForBase(event.sender.id)?.removeFromHistory(id) ?? false,
+);
+ipcMain.handle('downloads:clear-history', (event) => downloadManagerForBase(event.sender.id)?.clearHistory());
+ipcMain.handle(
+  'downloads:get-missing-file-ids',
+  (event) => downloadManagerForBase(event.sender.id)?.missingFileIds() ?? [],
 );
 
 function isBaseRenderer(senderId: number): boolean {
@@ -172,16 +206,16 @@ const createWindow = () => {
     );
   }
 
-  tabManager = new TabManager(mainWindow, () => downloadManager?.bringToFront());
+  tabManager = new TabManager(mainWindow, () => downloadManager?.dropdown.bringToFront());
   downloadSettings = new DownloadSettingsStore();
-  const overlayUrl = MAIN_WINDOW_VITE_DEV_SERVER_URL
-    ? new URL('/download-overlay.html', MAIN_WINDOW_VITE_DEV_SERVER_URL).toString()
-    : pathToFileURL(path.join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}/download-overlay.html`)).toString();
+  const dropdownUrl = MAIN_WINDOW_VITE_DEV_SERVER_URL
+    ? new URL('/download-dropdown.html', MAIN_WINDOW_VITE_DEV_SERVER_URL).toString()
+    : pathToFileURL(path.join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}/download-dropdown.html`)).toString();
   downloadManager = new DownloadManager(
     mainWindow,
     session.defaultSession,
     downloadSettings,
-    overlayUrl,
+    dropdownUrl,
     path.join(__dirname, 'downloadPreload.js'),
   );
   let tabViewsDisposed = false;
@@ -189,11 +223,11 @@ const createWindow = () => {
     processDoctorTerminal.stop();
     if (tabViewsDisposed) return;
     event.preventDefault();
-    downloadManager?.dispose();
+    const disposeDownloads = downloadManager?.dispose() ?? Promise.resolve();
     downloadManager = null;
     downloadSettings = null;
     const disposeTabs = tabManager?.dispose() ?? Promise.resolve();
-    void disposeTabs.finally(() => {
+    void Promise.allSettled([disposeDownloads, disposeTabs]).finally(() => {
       tabViewsDisposed = true;
       tabManager = null;
       mainWindow.close();
