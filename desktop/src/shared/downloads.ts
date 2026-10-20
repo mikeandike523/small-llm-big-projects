@@ -10,8 +10,6 @@ interface DesktopDownloadBase {
   bytesPerSecond: number;
   startedAt: number;
   error?: string;
-  // Hidden from the titlebar dropdown only; the Downloads page ignores it.
-  dismissedFromDropdown?: boolean;
 }
 
 export type DesktopDownload = DesktopDownloadBase &

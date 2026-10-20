@@ -5,6 +5,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import type { TabsUpdatePayload, HealthSnapshot } from './preload';
 import type { HealthStatus, HealthStatusKind } from './main/serverLauncher';
 import type { DesktopDownload, DownloadSettingsSnapshot } from './shared/downloads';
+import type { OverlayId } from './shared/tabSelection';
 import './settings.css';
 import './emptyPage.css';
 import './shared/progressRing.css';
@@ -19,6 +20,7 @@ declare global {
       onUpdate: (callback: (payload: TabsUpdatePayload) => void) => void;
       switchTab: (id: string) => Promise<void>;
       closeTab: (id: string) => Promise<void>;
+      toggleOverlay: (id: OverlayId) => Promise<void>;
     };
     windowAPI: {
       minimize: () => Promise<void>;
@@ -97,9 +99,8 @@ function renderTabs(payload: TabsUpdatePayload) {
   let newTabEl: HTMLElement | null = null;
   stripEl.innerHTML = '';
   for (const tab of payload.tabs) {
-    // Health, Settings and Downloads are permanent icon buttons on the right
-    // (static in index.html); only session/dashboard tabs go in the strip.
-    if (tab.kind === 'health' || tab.kind === 'settings' || tab.kind === 'downloads') continue;
+    // The focus tab stays highlighted under an overlay: it is still what
+    // closing the overlay returns to.
     const tabEl = document.createElement('div');
     tabEl.className = 'tab' + (tab.id === payload.activeId ? ' tab-active' : '');
 
@@ -121,21 +122,23 @@ function renderTabs(payload: TabsUpdatePayload) {
     stripEl.appendChild(tabEl);
     if (!knownTabIds.has(tab.id)) newTabEl = tabEl;
   }
-  healthTabBtn.classList.toggle('active', payload.activeId === 'health');
-  settingsTabBtn.classList.toggle('active', payload.activeId === 'settings');
-  downloadsTabBtn.classList.toggle('active', payload.activeId === 'downloads');
+  // Health, Settings and Downloads are overlay toggles (static icons in index.html).
+  const { overlay } = payload;
+  healthTabBtn.classList.toggle('active', overlay === 'health');
+  settingsTabBtn.classList.toggle('active', overlay === 'settings');
+  downloadsTabBtn.classList.toggle('active', overlay === 'downloads');
 
   stripEl.scrollLeft = prevScrollLeft;
   newTabEl?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   knownTabIds = new Set(payload.tabs.map((tab) => tab.id));
 
   const wasHidden = healthPanelEl.classList.contains('hidden');
-  const isHealthActive = payload.activeId === 'health';
+  const isHealthActive = overlay === 'health';
   healthPanelEl.classList.toggle('hidden', !isHealthActive);
-  settingsPanelEl.classList.toggle('hidden', payload.activeId !== 'settings');
-  emptyPanelEl.classList.toggle('hidden', payload.activeId !== null);
-  downloadsPanelEl.classList.toggle('hidden', payload.activeId !== 'downloads');
-  downloadsPage.setVisible(payload.activeId === 'downloads');
+  settingsPanelEl.classList.toggle('hidden', overlay !== 'settings');
+  downloadsPanelEl.classList.toggle('hidden', overlay !== 'downloads');
+  downloadsPage.setVisible(overlay === 'downloads');
+  emptyPanelEl.classList.toggle('hidden', overlay !== null || payload.activeId !== null);
 
   if (isHealthActive && wasHidden) {
     // While hidden the panel is display:none, so #health-log's scrollTop/scrollHeight
@@ -152,8 +155,8 @@ function renderTabs(payload: TabsUpdatePayload) {
 setButtonIcon(tabDashboardBtn, TITLEBAR_ICONS.newDashboard);
 setButtonIcon(healthTabBtn, TITLEBAR_ICONS.health);
 setButtonIcon(settingsTabBtn, TITLEBAR_ICONS.settings);
-healthTabBtn.addEventListener('click', () => window.tabsAPI.switchTab('health'));
-settingsTabBtn.addEventListener('click', () => window.tabsAPI.switchTab('settings'));
+healthTabBtn.addEventListener('click', () => window.tabsAPI.toggleOverlay('health'));
+settingsTabBtn.addEventListener('click', () => window.tabsAPI.toggleOverlay('settings'));
 
 const updateDownloadsIndicator = initDownloadsIndicator(downloadsTabBtn);
 const downloadsPage = initDownloadsPage();

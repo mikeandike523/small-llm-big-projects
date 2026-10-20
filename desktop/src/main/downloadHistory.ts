@@ -61,11 +61,6 @@ export class DownloadHistoryStore {
     this.persist();
   }
 
-  /** Persist after an in-place structural change to an existing entry. */
-  touch(): void {
-    this.persist();
-  }
-
   remove(id: string): boolean {
     const removed = this.downloads.delete(id);
     if (removed) this.persist();

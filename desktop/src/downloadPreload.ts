@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld('dropdownAPI', {
   onClosing: (callback: () => void) => subscribe('dropdown:closing', callback),
   onMaxHeight: (callback: (height: number) => void) => subscribe('dropdown:max-height', callback),
   notifyClosed: () => ipcRenderer.send('dropdown:closed'),
+  autoHide: () => ipcRenderer.send('dropdown:auto-hide'),
   setHeight: (height: number) => ipcRenderer.send('dropdown:set-height', height),
   cancel: (id: string) => ipcRenderer.invoke('downloads:cancel', id) as Promise<boolean>,
   dismiss: (id: string) => ipcRenderer.invoke('dropdown:dismiss', id) as Promise<boolean>,

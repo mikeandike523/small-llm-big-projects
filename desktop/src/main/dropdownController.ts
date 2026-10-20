@@ -8,12 +8,18 @@ import { TAB_STRIP_HEIGHT } from './tabManager';
 const DROPDOWN_WIDTH = 392;
 const DROPDOWN_MARGIN = 4;
 const INITIAL_HEIGHT = 120;
-// Fallback in case the renderer never acknowledges its fade-out.
-const CLOSE_FALLBACK_MS = 250;
+// Fallback in case the renderer never acknowledges its fade-out; must exceed
+// DROPDOWN_FADE_MS in downloadDropdown.ts.
+const CLOSE_FALLBACK_MS = 1000;
 
 /**
  * Owns the Downloads dropdown: a transparent WebContentsView layered above the
  * tab views and anchored under the titlebar's Downloads icon.
+ *
+ * It opens only when a download starts (never while the Downloads page is
+ * showing, which already lists it), never takes focus, and closes on a click
+ * elsewhere, window blur, dismissing its last item, or the renderer's
+ * auto-hide once everything in it has finished.
  *
  * Membership is a snapshot: it is chosen by selectDropdownIds() when the
  * dropdown opens and, while open, only grows (new downloads) or shrinks
@@ -35,6 +41,7 @@ export class DropdownController {
   constructor(
     private readonly win: BrowserWindow,
     private readonly allDownloads: () => DesktopDownload[],
+    private readonly isSuppressed: () => boolean,
     url: string,
     preloadPath: string,
   ) {
@@ -76,37 +83,27 @@ export class DropdownController {
     this.win.contentView.addChildView(this.view);
   }
 
-  open({ focus }: { focus: boolean }): void {
-    if (!this.memberIds) {
-      this.memberIds = selectDropdownIds(this.allDownloads());
-    }
-    this.cancelClose();
-    this.layout();
-    this.publish();
-    if (this.loaded) this.view.webContents.send('dropdown:opened');
-    if (focus) this.view.webContents.focus();
-  }
-
-  toggle(): void {
-    if (this.memberIds) this.close();
-    else this.open({ focus: true });
-  }
-
   /** A download just started: add it to an open dropdown, or open one. */
   addDownload(id: string): void {
+    if (this.isSuppressed()) return;
     if (this.memberIds) {
       this.memberIds = addToOpenDropdown(this.memberIds, id);
       this.publish();
-    } else {
-      // Never steal focus from whatever the user is typing into.
-      this.open({ focus: false });
+      return;
     }
+    this.memberIds = selectDropdownIds(this.allDownloads(), id);
+    this.cancelClose();
+    this.layout();
+    this.publish();
+    // Never takes focus from whatever the user is typing into.
+    if (this.loaded) this.view.webContents.send('dropdown:opened');
   }
 
   removeMember(id: string): void {
     if (!this.memberIds) return;
     this.memberIds = this.memberIds.filter((memberId) => memberId !== id);
-    this.publish();
+    if (this.memberIds.length === 0) this.close();
+    else this.publish();
   }
 
   close(): void {
@@ -136,17 +133,13 @@ export class DropdownController {
   }
 
   /**
-   * Close on a mouse-down anywhere else. Watching input rather than focus
-   * also covers a dropdown that opened without focus (new download), and a
-   * click into a tab view that already had focus.
+   * Close on a mouse-down anywhere else, the Downloads icon included (its
+   * click then opens the Downloads page). Watching input rather than focus
+   * covers the dropdown never having focus, and a click into a tab view that
+   * already had focus.
    */
   handleInput(contents: WebContents, input: Electron.InputEvent): void {
     if (!this.memberIds || input.type !== 'mouseDown' || this.ownsContents(contents)) return;
-    if (contents.id === this.win.webContents.id && this.anchor) {
-      // The Downloads icon toggles the dropdown itself on click.
-      const { x, y } = input as Electron.MouseInputEvent;
-      if (x >= this.anchor.left && x <= this.anchor.right && y <= this.anchor.bottom) return;
-    }
     this.close();
   }
 

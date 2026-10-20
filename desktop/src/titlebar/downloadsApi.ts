@@ -6,7 +6,6 @@ declare global {
     downloadsAPI: {
       getSnapshot: () => Promise<DesktopDownload[]>;
       onUpdate: (callback: (downloads: DesktopDownload[]) => void) => void;
-      toggleDropdown: () => Promise<void>;
       setDropdownAnchor: (anchor: DropdownAnchor) => void;
       cancel: (id: string) => Promise<boolean>;
       open: (id: string) => Promise<string>;

@@ -24,9 +24,10 @@ body {
   padding: 2px var(--panel-padding) var(--panel-padding);
   opacity: 0;
   transform: translateY(-4px);
+  /* --dropdown-fade-ms is set from DROPDOWN_FADE_MS in downloadDropdown.ts. */
   transition:
-    opacity 140ms ease,
-    transform 140ms ease;
+    opacity var(--dropdown-fade-ms, 300ms) ease,
+    transform var(--dropdown-fade-ms, 300ms) ease;
 }
 
 body.shown .dropdown-shell {
@@ -191,18 +192,6 @@ body.shown .dropdown-shell {
 .dropdown-dismiss:hover {
   background: #eceef2;
   color: #1d1e22;
-}
-
-.dropdown-empty {
-  display: none;
-  padding: 16px 12px;
-  color: #6b6e78;
-  font-size: 12px;
-  text-align: center;
-}
-
-.dropdown-empty.visible {
-  display: block;
 }
 
 .dropdown-footer {

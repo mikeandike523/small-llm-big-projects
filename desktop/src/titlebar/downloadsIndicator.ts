@@ -5,10 +5,10 @@ import { progressRingSvg, updateProgressRing } from '../shared/downloadStatusIco
 import { TITLEBAR_ICONS, setButtonIcon } from './icons';
 
 /**
- * The titlebar Downloads icon: toggles the Downloads dropdown, and while
+ * The titlebar Downloads icon: toggles the Downloads page overlay, and while
  * anything is pending shows a ring filled to the mean progress of pending
  * downloads plus a count badge. It also tells main where the icon is, so
- * the dropdown can anchor under it.
+ * the new-download dropdown can anchor under it.
  */
 export function initDownloadsIndicator(button: HTMLButtonElement): (downloads: DesktopDownload[]) => void {
   setButtonIcon(button, TITLEBAR_ICONS.downloads);
@@ -21,7 +21,7 @@ export function initDownloadsIndicator(button: HTMLButtonElement): (downloads: D
   badge.setAttribute('aria-hidden', 'true');
   button.append(ring, badge);
 
-  button.addEventListener('click', () => void window.downloadsAPI.toggleDropdown());
+  button.addEventListener('click', () => void window.tabsAPI.toggleOverlay('downloads'));
 
   const reportAnchor = () => {
     const rect = button.getBoundingClientRect();

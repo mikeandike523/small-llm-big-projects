@@ -11,6 +11,7 @@ import { ProcessDoctorTerminal } from './main/processDoctor';
 import { DownloadManager } from './main/downloadManager';
 import { DownloadSettingsStore } from './main/downloadSettings';
 import type { DropdownAnchor } from './shared/downloads';
+import { isOverlayId } from './shared/tabSelection';
 
 if (started) {
   app.quit();
@@ -62,6 +63,9 @@ ipcMain.handle('window:toggle-maximize', () =>
 ipcMain.handle('window:close', () => currentWindow?.close());
 ipcMain.handle('tabs:switch', (_event, id: string) => tabManager?.switchTo(id));
 ipcMain.handle('tabs:close', (_event, id: string) => tabManager?.closeTabById(id));
+ipcMain.handle('tabs:toggle-overlay', (_event, id: unknown) => {
+  if (isOverlayId(id)) tabManager?.toggleOverlay(id);
+});
 ipcMain.handle('health:get-snapshot', () => serverLifecycleHandle?.getSnapshot());
 ipcMain.handle('health:restart-server', () => serverLifecycleHandle?.restart());
 ipcMain.handle('health:open-dashboard', () => {
@@ -131,6 +135,7 @@ ipcMain.on('dropdown:set-height', (event, height: number) => {
   downloadManagerForDropdown(event.sender)?.dropdown.setHeight(height);
 });
 ipcMain.on('dropdown:closed', (event) => downloadManagerForDropdown(event.sender)?.dropdown.finishClose());
+ipcMain.on('dropdown:auto-hide', (event) => downloadManagerForDropdown(event.sender)?.dropdown.close());
 ipcMain.handle(
   'dropdown:dismiss',
   (event, id: string) => downloadManagerForDropdown(event.sender)?.dismissFromDropdown(id) ?? false,
@@ -139,14 +144,14 @@ ipcMain.handle('dropdown:view-all', (event) => {
   const manager = downloadManagerForDropdown(event.sender);
   if (!manager) return;
   manager.dropdown.close();
-  tabManager?.switchTo('downloads');
+  // Opens, never toggles: "View all" must not close an open Downloads page.
+  tabManager?.openOverlay('downloads');
 });
 
 // Base window only (Downloads icon and page).
 ipcMain.on('downloads:set-dropdown-anchor', (event, anchor: DropdownAnchor) => {
   downloadManagerForBase(event.sender.id)?.dropdown.setAnchor(anchor);
 });
-ipcMain.handle('downloads:toggle-dropdown', (event) => downloadManagerForBase(event.sender.id)?.dropdown.toggle());
 ipcMain.handle(
   'downloads:remove-from-history',
   (event, id: string) => downloadManagerForBase(event.sender.id)?.removeFromHistory(id) ?? false,
@@ -206,7 +211,13 @@ const createWindow = () => {
     );
   }
 
-  tabManager = new TabManager(mainWindow, () => downloadManager?.dropdown.bringToFront());
+  tabManager = new TabManager(mainWindow, {
+    onChildViewAdded: () => downloadManager?.dropdown.bringToFront(),
+    // The Downloads page already lists new downloads; the dropdown would be redundant.
+    onOverlayChanged: (overlay) => {
+      if (overlay === 'downloads') downloadManager?.dropdown.close();
+    },
+  });
   downloadSettings = new DownloadSettingsStore();
   const dropdownUrl = MAIN_WINDOW_VITE_DEV_SERVER_URL
     ? new URL('/download-dropdown.html', MAIN_WINDOW_VITE_DEV_SERVER_URL).toString()
@@ -217,6 +228,7 @@ const createWindow = () => {
     downloadSettings,
     dropdownUrl,
     path.join(__dirname, 'downloadPreload.js'),
+    () => tabManager?.currentOverlay === 'downloads',
   );
   let tabViewsDisposed = false;
   mainWindow.on('close', (event) => {

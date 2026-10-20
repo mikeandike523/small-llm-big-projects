@@ -1,26 +1,17 @@
 import type { DesktopDownload } from './downloads';
 
-/** Finalized items fill the dropdown up to this many slots when it opens. */
-export const DROPDOWN_FINALIZED_FILL = 3;
-
 /**
- * The dropdown's members at the moment it opens: every pending download
- * (newest first), then the newest undismissed finalized downloads, filling up
- * to DROPDOWN_FINALIZED_FILL slots. This is the only place history is pulled
- * into the dropdown -- while it stays open, members are only added (new
- * downloads) or dismissed, never evicted or backfilled.
+ * The dropdown only opens because a download started. Its members at that
+ * moment: the new download on top, then every other pending download (newest
+ * first). History stays on the Downloads page -- while the dropdown is open,
+ * members are only added (new downloads) or dismissed, never backfilled.
  */
-export function selectDropdownIds(downloads: readonly DesktopDownload[]): string[] {
-  const pending = downloads
-    .filter((download) => download.state === 'pending')
-    .sort((a, b) => b.startedAt - a.startedAt);
-  const finalized = downloads
-    .flatMap((download) =>
-      download.state === 'finalized' && !download.dismissedFromDropdown ? [download] : [],
-    )
-    .sort((a, b) => b.finalizedAt - a.finalizedAt)
-    .slice(0, Math.max(0, DROPDOWN_FINALIZED_FILL - pending.length));
-  return [...pending, ...finalized].map((download) => download.id);
+export function selectDropdownIds(downloads: readonly DesktopDownload[], newId: string): string[] {
+  const otherPending = downloads
+    .filter((download) => download.state === 'pending' && download.id !== newId)
+    .sort((a, b) => b.startedAt - a.startedAt)
+    .map((download) => download.id);
+  return [newId, ...otherPending];
 }
 
 /** A download that starts while the dropdown is open goes on top. */

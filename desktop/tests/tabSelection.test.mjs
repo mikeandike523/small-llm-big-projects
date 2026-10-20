@@ -1,36 +1,43 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { nextActiveAfterClose, restoredActiveId } from '../src/shared/tabSelection.ts';
+import {
+  isOverlayId,
+  nextActiveAfterClose,
+  restoredActiveId,
+  toggledOverlay,
+} from '../src/shared/tabSelection.ts';
 
-test('closing a middle tab activates its right neighbour', () => {
+test('closing a middle tab focuses its right neighbour', () => {
   assert.equal(nextActiveAfterClose(['a', 'b', 'c'], 'b'), 'c');
 });
 
-test('closing the rightmost tab activates its left neighbour', () => {
+test('closing the rightmost tab focuses its left neighbour', () => {
   assert.equal(nextActiveAfterClose(['a', 'b', 'c'], 'c'), 'b');
 });
 
-test('closing the only tab leaves nothing active', () => {
+test('closing the only tab leaves no focus tab', () => {
   assert.equal(nextActiveAfterClose(['a'], 'a'), null);
 });
 
-test('an unknown id leaves nothing active', () => {
+test('an unknown id leaves no focus tab', () => {
   assert.equal(nextActiveAfterClose(['a', 'b'], 'zzz'), null);
 });
 
-const BUILT_INS = ['health', 'settings', 'downloads'];
-
-test('restores a built-in page by id', () => {
-  assert.equal(restoredActiveId({ builtInId: 'downloads' }, ['t1'], BUILT_INS), 'downloads');
+test('an overlay icon toggles its own overlay and replaces another', () => {
+  assert.equal(toggledOverlay(null, 'downloads'), 'downloads');
+  assert.equal(toggledOverlay('downloads', 'downloads'), null);
+  assert.equal(toggledOverlay('health', 'settings'), 'settings');
 });
 
-test('restores a strip tab by position', () => {
-  assert.equal(restoredActiveId({ stripIndex: 1 }, ['t1', 't2'], BUILT_INS), 't2');
+test('overlay ids are validated', () => {
+  assert.equal(isOverlayId('health'), true);
+  assert.equal(isOverlayId('tab-1'), false);
+  assert.equal(isOverlayId(undefined), false);
 });
 
-test('falls back to the first strip tab, then to nothing', () => {
-  assert.equal(restoredActiveId({ stripIndex: 5 }, ['t1', 't2'], BUILT_INS), 't1');
-  assert.equal(restoredActiveId({ builtInId: 'gone' }, ['t1'], BUILT_INS), 't1');
-  assert.equal(restoredActiveId(undefined, [], BUILT_INS), null);
-  assert.equal(restoredActiveId(null, [], BUILT_INS), null);
+test('restores the focus tab by position, falling back to the first, then none', () => {
+  assert.equal(restoredActiveId(1, ['t1', 't2']), 't2');
+  assert.equal(restoredActiveId(5, ['t1', 't2']), 't1');
+  assert.equal(restoredActiveId(undefined, ['t1']), 't1');
+  assert.equal(restoredActiveId(0, []), null);
 });

@@ -68,8 +68,15 @@ export class DownloadManager {
     private readonly settings: DownloadSettingsStore,
     dropdownUrl: string,
     preloadPath: string,
+    isDropdownSuppressed: () => boolean,
   ) {
-    this.dropdown = new DropdownController(win, () => this.history.all(), dropdownUrl, preloadPath);
+    this.dropdown = new DropdownController(
+      win,
+      () => this.history.all(),
+      isDropdownSuppressed,
+      dropdownUrl,
+      preloadPath,
+    );
     this.electronSession.on('will-download', this.willDownload);
   }
 
@@ -107,10 +114,7 @@ export class DownloadManager {
   dismissFromDropdown(id: string): boolean {
     const download = this.history.get(id);
     if (!download || download.state !== 'finalized') return false;
-    download.dismissedFromDropdown = true;
-    this.history.touch();
     this.dropdown.removeMember(id);
-    this.publish();
     return true;
   }
 

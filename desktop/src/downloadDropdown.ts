@@ -12,6 +12,7 @@ declare global {
       onClosing: (callback: () => void) => () => void;
       onMaxHeight: (callback: (height: number) => void) => () => void;
       notifyClosed: () => void;
+      autoHide: () => void;
       setHeight: (height: number) => void;
       cancel: (id: string) => Promise<boolean>;
       dismiss: (id: string) => Promise<boolean>;
@@ -22,12 +23,19 @@ declare global {
   }
 }
 
+// How long the dropdown stays up once every download in it has finished
+// (paused while the pointer is over it).
+const AUTO_HIDE_DELAY_MS = 3000;
+// Duration of the whole dropdown's fade in and fade away.
+const DROPDOWN_FADE_MS = 300;
+
 // Must cover the longest .dropdown-item transition (fade + collapse).
 const LEAVE_FALLBACK_MS = 600;
 
+document.documentElement.style.setProperty('--dropdown-fade-ms', `${DROPDOWN_FADE_MS}ms`);
+
 const shellEl = document.getElementById('dropdown-shell')!;
 const listEl = document.getElementById('dropdown-list')!;
-const emptyEl = document.getElementById('dropdown-empty')!;
 const viewAllBtn = document.getElementById('dropdown-view-all') as HTMLButtonElement;
 
 interface Row {
@@ -39,6 +47,17 @@ interface Row {
 const rows = new Map<string, Row>();
 let shown = false;
 let closing = false;
+let hovered = false;
+let items: DesktopDownload[] = [];
+let autoHideTimer: ReturnType<typeof setTimeout> | null = null;
+
+/** (Re)start the auto-hide countdown if everything shown has finished. */
+function scheduleAutoHide(): void {
+  if (autoHideTimer) clearTimeout(autoHideTimer);
+  autoHideTimer = null;
+  if (!shown || hovered || items.some((download) => download.state === 'pending')) return;
+  autoHideTimer = setTimeout(() => window.dropdownAPI.autoHide(), AUTO_HIDE_DELAY_MS);
+}
 
 function actionButton(label: string, action: () => Promise<unknown>): HTMLButtonElement {
   const button = document.createElement('button');
@@ -175,7 +194,8 @@ function render(state: DropdownState): void {
     if (expectedNext !== row.el) listEl.insertBefore(row.el, expectedNext);
     previous = row.el;
   }
-  emptyEl.classList.toggle('visible', state.items.length === 0);
+  items = state.items;
+  scheduleAutoHide();
   requestAnimationFrame(reportHeight);
 }
 
@@ -199,13 +219,24 @@ window.dropdownAPI.onOpened(() => {
   requestAnimationFrame(() => {
     shown = true;
     document.body.classList.add('shown');
+    scheduleAutoHide();
   });
 });
 
 window.dropdownAPI.onClosing(() => {
   closing = true;
   shown = false;
+  scheduleAutoHide();
   document.body.classList.remove('shown');
+});
+
+shellEl.addEventListener('mouseenter', () => {
+  hovered = true;
+  scheduleAutoHide();
+});
+shellEl.addEventListener('mouseleave', () => {
+  hovered = false;
+  scheduleAutoHide();
 });
 
 shellEl.addEventListener('transitionend', (event) => {

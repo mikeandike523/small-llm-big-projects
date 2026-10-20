@@ -1,12 +1,10 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { TabDescriptor } from './main/tabManager';
+import type { TabsUpdatePayload } from './main/tabManager';
+import type { OverlayId } from './shared/tabSelection';
 import type { HealthStatus } from './main/serverLauncher';
 import type { DesktopDownload, DownloadSettingsSnapshot, DropdownAnchor } from './shared/downloads';
 
-export interface TabsUpdatePayload {
-  tabs: TabDescriptor[];
-  activeId: string | null;
-}
+export type { TabsUpdatePayload };
 
 export interface HealthSnapshot {
   status: HealthStatus;
@@ -22,6 +20,7 @@ contextBridge.exposeInMainWorld('tabsAPI', {
   },
   switchTab: (id: string) => ipcRenderer.invoke('tabs:switch', id),
   closeTab: (id: string) => ipcRenderer.invoke('tabs:close', id),
+  toggleOverlay: (id: OverlayId) => ipcRenderer.invoke('tabs:toggle-overlay', id),
 });
 
 contextBridge.exposeInMainWorld('healthAPI', {
@@ -48,7 +47,6 @@ contextBridge.exposeInMainWorld('downloadsAPI', {
   onUpdate: (callback: (downloads: DesktopDownload[]) => void) => {
     ipcRenderer.on('downloads:update', (_event, downloads: DesktopDownload[]) => callback(downloads));
   },
-  toggleDropdown: () => ipcRenderer.invoke('downloads:toggle-dropdown') as Promise<void>,
   setDropdownAnchor: (anchor: DropdownAnchor) => ipcRenderer.send('downloads:set-dropdown-anchor', anchor),
   cancel: (id: string) => ipcRenderer.invoke('downloads:cancel', id) as Promise<boolean>,
   open: (id: string) => ipcRenderer.invoke('downloads:open', id) as Promise<string>,

@@ -26,30 +26,21 @@ function finalized(id, finalizedAt, extra = {}) {
   };
 }
 
-test('no pending: newest three undismissed finalized', () => {
-  const ids = selectDropdownIds([
-    finalized('a', 1),
-    finalized('b', 2),
-    finalized('c', 3, { dismissedFromDropdown: true }),
-    finalized('d', 4, { finalizeReason: 'failed' }),
-    finalized('e', 5, { finalizeReason: 'canceled' }),
-  ]);
-  assert.deepEqual(ids, ['e', 'd', 'b']);
+test('opens with the new download on top, then other pending newest first', () => {
+  const ids = selectDropdownIds(
+    [pending('p1', 10), finalized('a', 1), pending('new', 5), pending('p2', 20)],
+    'new',
+  );
+  assert.deepEqual(ids, ['new', 'p2', 'p1']);
 });
 
-test('pending first (newest first), finalized fill the remainder', () => {
-  const ids = selectDropdownIds([pending('p1', 10), finalized('a', 1), finalized('b', 2), pending('p2', 20)]);
-  assert.deepEqual(ids, ['p2', 'p1', 'b']);
+test('finished history never fills the dropdown', () => {
+  assert.deepEqual(selectDropdownIds([finalized('a', 1), finalized('b', 2), pending('new', 3)], 'new'), ['new']);
 });
 
-test('pending are never capped and leave no finalized slots', () => {
-  const downloads = [1, 2, 3, 4, 5].map((n) => pending(`p${n}`, n));
-  downloads.push(finalized('a', 100));
-  assert.deepEqual(selectDropdownIds(downloads), ['p5', 'p4', 'p3', 'p2', 'p1']);
-});
-
-test('empty history', () => {
-  assert.deepEqual(selectDropdownIds([]), []);
+test('a download that failed at once still opens the dropdown', () => {
+  const failed = finalized('new', 4, { finalizeReason: 'failed' });
+  assert.deepEqual(selectDropdownIds([failed, pending('p1', 1)], 'new'), ['new', 'p1']);
 });
 
 test('new download while open goes on top, without duplicates', () => {

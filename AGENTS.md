@@ -29,7 +29,10 @@ The repository has four main application areas:
   (`src/titlebar/`, SVGs in `src/titlebar-icons/`), Health, Settings and
   Downloads pages, changelog dialog, and Process Doctor xterm dialog. Session and
   dashboard tabs are separate `WebContentsView`s that load the React UI from
-  the running SLBP proxy. The Downloads dropdown is its own small
+  the running SLBP proxy. Health, Settings and Downloads are not tabs but
+  full-size overlays over the focus tab, toggled by their titlebar icons
+  (`src/shared/tabSelection.ts`, `src/main/tabManager.ts`). The Downloads
+  dropdown appears only when a download starts and is its own small
   `WebContentsView` (`download-dropdown.html`, `src/main/dropdownController.ts`)
   layered above the tabs; download history persists to
   `userData/downloads-history.json` (`src/main/downloadHistory.ts`). Main-process lifecycle code, preload IPC bridges,

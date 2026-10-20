@@ -2,12 +2,17 @@ import { app, BrowserWindow, WebContentsView, shell } from 'electron';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
-import { nextActiveAfterClose, restoredActiveId, type PersistedActive } from '../shared/tabSelection';
+import {
+  isOverlayId,
+  nextActiveAfterClose,
+  restoredActiveId,
+  toggledOverlay,
+  type OverlayId,
+} from '../shared/tabSelection';
 
 export const TAB_STRIP_HEIGHT = 40;
 
-export type TabKind = 'session' | 'dashboard' | 'health' | 'settings' | 'downloads';
-type RemoteTabKind = 'session' | 'dashboard';
+export type TabKind = 'session' | 'dashboard';
 
 interface TabRecord {
   id: string;
@@ -19,9 +24,7 @@ interface TabRecord {
   // starting a session from the dashboard). Session tabs are always resumed at
   // their canonical session URL.
   currentUrl?: string;
-  // null for permanent desktop-owned tabs, which are rendered by the base
-  // window rather than a WebContentsView.
-  view: WebContentsView | null;
+  view: WebContentsView;
 }
 
 export interface TabDescriptor {
@@ -30,8 +33,16 @@ export interface TabDescriptor {
   label: string;
 }
 
+export interface TabsUpdatePayload {
+  tabs: TabDescriptor[];
+  // The focus tab; null shows the base window's "No tabs open" page.
+  activeId: string | null;
+  // Drawn by the base window on top of the focus tab.
+  overlay: OverlayId | null;
+}
+
 interface PersistedTab {
-  kind: RemoteTabKind;
+  kind: TabKind;
   sessionId?: string;
   proxyOrigin: string;
   // Present for dashboard tabs so that e.g. a dashboard that spawned a new
@@ -41,12 +52,11 @@ interface PersistedTab {
 
 interface PersistedState {
   tabs: PersistedTab[];
-  active?: PersistedActive;
+  activeIndex?: number;
+  overlay?: OverlayId | null;
 }
 
-const BUILT_IN_IDS = ['health', 'settings', 'downloads'];
-
-function urlFor(kind: RemoteTabKind, proxyOrigin: string, sessionId?: string): string {
+function urlFor(kind: TabKind, proxyOrigin: string, sessionId?: string): string {
   return kind === 'dashboard'
     ? `${proxyOrigin}/`
     : `${proxyOrigin}/session?sessionId=${sessionId}`;
@@ -58,6 +68,10 @@ function urlFor(kind: RemoteTabKind, proxyOrigin: string, sessionId?: string): s
  * Session/dashboard tabs stay attached while inactive and are hidden/shown on
  * switch, so their renderers stay warm without paying native view attach costs
  * on every tab change. Tabs are persisted to disk so a relaunch can restore them.
+ *
+ * Health, Settings and Downloads are not tabs but overlays (see
+ * shared/tabSelection.ts): base-window pages drawn over the focus tab, whose
+ * view is hidden while one is showing.
  */
 export class TabManager {
   private win: BrowserWindow;
@@ -65,6 +79,7 @@ export class TabManager {
   private order: string[] = [];
   // null shows the base window's "No tabs open" page.
   private activeId: string | null = null;
+  private overlay: OverlayId | null = null;
   private nextId = 1;
   private persistFile: string;
   private persistTimer: NodeJS.Timeout | null = null;
@@ -73,34 +88,32 @@ export class TabManager {
 
   constructor(
     win: BrowserWindow,
-    private readonly onChildViewAdded?: () => void,
+    private readonly hooks: {
+      onChildViewAdded?: () => void;
+      onOverlayChanged?: (overlay: OverlayId | null) => void;
+    } = {},
   ) {
     this.win = win;
     this.persistFile = path.join(app.getPath('userData'), 'tabs.json');
     this.win.on('resize', () => this.layoutActive());
-    this.initBuiltInTabs();
   }
 
-  /** Permanent, unclosable tabs rendered by the base window rather than child views. */
-  private initBuiltInTabs(): void {
-    for (const record of [
-      { id: 'health', kind: 'health', label: 'Health' },
-      { id: 'settings', kind: 'settings', label: 'Settings' },
-      // Opened via the dropdown's "View all"; its titlebar icon opens the dropdown.
-      { id: 'downloads', kind: 'downloads', label: 'Downloads' },
-    ] as const) {
-      this.tabs.set(record.id, {
-        ...record,
-        proxyOrigin: '',
-        view: null,
-      });
-      this.order.push(record.id);
-    }
+  get currentOverlay(): OverlayId | null {
+    return this.overlay;
   }
 
   // Public entry points, called from ipcMain handlers registered once in main.ts.
+  /** Focus a tab; this also closes any overlay, since the user asked to see the tab. */
   switchTo(id: string): void {
     this.doSwitchTo(id);
+  }
+
+  toggleOverlay(id: OverlayId): void {
+    this.setOverlay(toggledOverlay(this.overlay, id));
+  }
+
+  openOverlay(id: OverlayId): void {
+    this.setOverlay(id);
   }
 
   closeTabById(id: string): void {
@@ -138,17 +151,20 @@ export class TabManager {
       if (t.kind !== 'session' && t.kind !== 'dashboard') continue;
       restoredIds.push(this.createTab(t.kind, t.proxyOrigin, t.sessionId, false, t.currentUrl));
     }
-    // Always ends in doSwitchTo, which also pushes the initial tab list.
-    this.doSwitchTo(restoredActiveId(state?.active, restoredIds, BUILT_IN_IDS));
+    this.activeId = restoredActiveId(state?.activeIndex, restoredIds);
+    // Always ends in setOverlay, which also pushes the initial tab list.
+    this.setOverlay(isOverlayId(state?.overlay) ? state.overlay : null, { force: true });
   }
 
-  /** Session/dashboard tabs, in strip order. */
-  private stripIds(): string[] {
-    return this.order.filter((id) => this.tabs.get(id)?.view);
+  private setOverlay(overlay: OverlayId | null, { force = false } = {}): void {
+    if (overlay === this.overlay && !force) return;
+    this.overlay = overlay;
+    this.showCurrent();
+    this.hooks.onOverlayChanged?.(overlay);
   }
 
   private createTab(
-    kind: RemoteTabKind,
+    kind: TabKind,
     proxyOrigin: string,
     sessionId?: string,
     activate = true,
@@ -174,7 +190,7 @@ export class TabManager {
     this.order.push(id);
     view.setVisible(false);
     this.win.contentView.addChildView(view);
-    this.onChildViewAdded?.();
+    this.hooks.onChildViewAdded?.();
 
     view.webContents.setWindowOpenHandler(({ url, disposition }) => {
       this.handleWindowOpen(record, url, disposition);
@@ -231,17 +247,25 @@ export class TabManager {
     void shell.openExternal(url);
   }
 
-  private doSwitchTo(id: string | null): void {
-    const record = id === null ? null : this.tabs.get(id);
-    if (id !== null && !record) return;
-
-    for (const tab of this.tabs.values()) {
-      tab.view?.setVisible(tab.id === id);
-    }
+  private doSwitchTo(id: string): void {
+    if (!this.tabs.has(id)) return;
     this.activeId = id;
-    if (record?.view) {
+    const hadOverlay = this.overlay !== null;
+    this.overlay = null;
+    this.showCurrent();
+    if (hadOverlay) this.hooks.onOverlayChanged?.(null);
+  }
+
+  /** Show the overlay if any, else the focus tab, else the "No tabs open" page. */
+  private showCurrent(): void {
+    const visibleId = this.overlay ? null : this.activeId;
+    for (const tab of this.tabs.values()) {
+      tab.view.setVisible(tab.id === visibleId);
+    }
+    const visible = visibleId ? this.tabs.get(visibleId) : undefined;
+    if (visible) {
       this.layoutActive();
-      record.view.webContents.focus();
+      visible.view.webContents.focus();
     } else {
       this.win.webContents.focus();
     }
@@ -251,30 +275,23 @@ export class TabManager {
 
   private doCloseTab(id: string): void {
     const record = this.tabs.get(id);
-    if (!record || record.view === null) return;
+    if (!record) return;
 
-    const wasActive = this.activeId === id;
     // Chosen before removal: the right neighbour, else the left one, else the
-    // "No tabs open" page. Never a built-in page the user didn't ask for.
-    const next = wasActive ? nextActiveAfterClose(this.stripIds(), id) : this.activeId;
+    // "No tabs open" page. An open overlay stays open on top.
+    if (this.activeId === id) this.activeId = nextActiveAfterClose(this.order, id);
     this.tabs.delete(id);
     this.order = this.order.filter((t) => t !== id);
     record.view.setVisible(false);
     this.win.contentView.removeChildView(record.view);
     record.view.webContents.close();
-
-    if (wasActive) {
-      this.doSwitchTo(next);
-    } else {
-      this.pushTabList();
-      this.persist();
-    }
+    this.showCurrent();
   }
 
   private layoutActive(): void {
     if (!this.activeId) return;
     const record = this.tabs.get(this.activeId);
-    if (!record || !record.view) return;
+    if (!record) return;
     const bounds = this.win.getContentBounds();
     record.view.setBounds({
       x: 0,
@@ -289,13 +306,13 @@ export class TabManager {
       const t = this.tabs.get(id)!;
       return { id: t.id, kind: t.kind, label: t.label };
     });
-    this.win.webContents.send('tabs:update', { tabs: list, activeId: this.activeId });
+    const payload: TabsUpdatePayload = { tabs: list, activeId: this.activeId, overlay: this.overlay };
+    this.win.webContents.send('tabs:update', payload);
   }
 
   async dispose(): Promise<void> {
     await this.flushPersist();
     for (const tab of this.tabs.values()) {
-      if (!tab.view) continue;
       this.win.contentView.removeChildView(tab.view);
       tab.view.webContents.close();
     }
@@ -308,7 +325,7 @@ export class TabManager {
     const persistedTabs: PersistedTab[] = [];
     for (const id of this.order) {
       const tab = this.tabs.get(id);
-      if (!tab || (tab.kind !== 'session' && tab.kind !== 'dashboard')) continue;
+      if (!tab) continue;
       persistedTabs.push({
         kind: tab.kind,
         sessionId: tab.sessionId,
@@ -316,17 +333,11 @@ export class TabManager {
         currentUrl: tab.currentUrl,
       });
     }
-    let active: PersistedActive = null;
-    if (this.activeId && BUILT_IN_IDS.includes(this.activeId)) {
-      active = { builtInId: this.activeId };
-    } else if (this.activeId) {
-      // Strip ids are regenerated on launch, so store the position instead.
-      active = { stripIndex: this.stripIds().indexOf(this.activeId) };
-    }
     const data: PersistedState = {
-      // Built-in tabs are synthesized fresh on every launch, never restored.
       tabs: persistedTabs,
-      active,
+      // Tab ids are regenerated on launch, so store the position instead.
+      activeIndex: this.activeId ? this.order.indexOf(this.activeId) : undefined,
+      overlay: this.overlay,
     };
     return JSON.stringify(data, null, 2);
   }
