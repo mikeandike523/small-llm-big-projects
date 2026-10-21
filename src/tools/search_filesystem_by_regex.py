@@ -79,13 +79,30 @@ DEFINITION: dict = {
 def needs_approval(
     args: dict, session_data: dict | None = None, special_resources: dict | None = None
 ) -> bool:
-    from src.tools._approval import ApprovalContext, is_full_auto, needs_path_approval
+    from src.tools._approval import (
+        ApprovalContext,
+        _resolve,
+        is_full_auto,
+        needs_path_approval,
+    )
 
     if is_full_auto(special_resources):
         return False
-    return needs_path_approval(
-        args.get("path"), ctx=ApprovalContext.from_special_resources(special_resources)
-    )
+    ctx = ApprovalContext.from_special_resources(special_resources)
+    if needs_path_approval(args.get("path"), ctx=ctx):
+        return True
+    # use_gitignore=false searches ignored and hidden files too, and the output
+    # is file *contents* (matching lines). The root-path check above cannot
+    # vouch for everything beneath a directory, so without this a search of
+    # "." could print the lines of a git-ignored .env that read_text_file
+    # would have asked about. Always ask for a directory search with ignores
+    # off; a single-file search is already fully covered by the check above.
+    if not args.get("use_gitignore", True):
+        try:
+            return os.path.isdir(_resolve(args.get("path") or ".", ctx=ctx))
+        except RuntimeError:
+            return True  # no session CWD to resolve against: ask
+    return False
 
 
 _BOLD = "\033[1m"
