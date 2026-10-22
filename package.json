@@ -14,7 +14,9 @@
     "release-manager": "bash release_manager.sh",
     "update-prod": "bash scripts/update-prod.sh",
     "remote-update-demo-server": "bash python_in_env.sh scripts/remote_update_demo_server.py",
-    "setup-worktree": "bash scripts/setup-worktree.sh"
+    "setup-worktree": "bash scripts/setup-worktree.sh",
+    "add-worktree-new-branch":"bash scripts/add-worktree-new-branch.sh",
+    "add-worktree-existing-branch":"bash scripts/add-worktree-existing-branch.sh"
   },
   "keywords": [],
   "author": "",
