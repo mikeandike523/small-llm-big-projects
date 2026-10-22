@@ -86,20 +86,21 @@ def get_shell() -> str:
 def format_environment_info(
     current_cwd: str | None = None,
     initial_cwd: str | None = None,
+    scratchpad_dir: str | None = None,
 ) -> str:
     """
     Return a multi-line environment snapshot for prompts and tool output.
     """
     cwd = (current_cwd or os.getcwd()).replace("\\", "/")
     home_dir = str(Path.home()).replace("\\", "/")
-    workspace_dir = get_default_workspace_dir()
     lines = [
         f"OS: {get_os()}",
         f"Shell: {get_shell()}",
         f"Current CWD: {cwd}",
         f"User Home Dir: {home_dir}",
-        f"Global SLBP Workspace: {workspace_dir}",
     ]
+    if scratchpad_dir:
+        lines.append(f"Session Scratchpad: {scratchpad_dir}")
     if initial_cwd:
         initial_cwd_norm = initial_cwd.replace("\\", "/")
         if initial_cwd_norm != cwd:
@@ -107,23 +108,9 @@ def format_environment_info(
     return "\n".join(lines)
 
 
-def get_default_workspace_dir() -> str:
-    """
-    Return the app-managed default workspace directory under the user's home directory.
-    """
-    return str(Path.home() / ".slbp" / "workspace").replace("\\", "/")
-
-
 def get_terminal_default_cwd() -> str:
     """
-    Return the default working directory for standalone terminal tabs:
-    ``~/.slbp/workspace``, created silently if missing.
-    Falls back to the user's home directory if the workspace cannot be created.
+    Return the fallback working directory for terminal tabs whose session has
+    no tracked cwd: the user's home directory.
     """
-    home = Path.home()
-    workspace = home / ".slbp" / "workspace"
-    try:
-        workspace.mkdir(parents=True, exist_ok=True)
-    except OSError:
-        return str(home).replace("\\", "/")
-    return str(workspace).replace("\\", "/")
+    return str(Path.home()).replace("\\", "/")

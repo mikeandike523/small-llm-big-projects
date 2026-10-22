@@ -44,7 +44,7 @@ Do NOT use `host_shell` with cat, sed, awk, or echo redirects for file writing.
 
 ### Match Project Style and Environment
 
-Always explore the repo thoroughly before starting a new coding task. Use session memory to record notes on key files and details.
+Always explore the repo or codebase thoroughly before starting a new coding task. Use session memory to record notes on key files and details.
 
 Before writing code, use `get_environment_info` when OS, shell, or working-directory details matter to the task. Scan the environment for AGENTS.md, CLAUDE.md, AGENTS.txt, and CLAUDE.txt — read those for coding style, build/lint/typecheck commands, framework choices, and constraints. Write key takeaways to session memory.
 
@@ -78,7 +78,11 @@ Use `code_interpreter` for small or one-off computations — runs Python in a sa
 
 Scripts must be non-interactive — design as one-shot: receive data via argv/memory, produce output via stdout, exit. For stateful programs (games, quizzes, simulations), store state in session memory between calls and pass it in as an argument each turn.
 
-For scratch files that must persist on the host, write to the global workspace (`get_global_workspace_dir`), not inside the active project.
+For temporary files, in order of preference:
+
+1. Keep the data in session memory or a `code_interpreter` run — no file on disk at all.
+2. Write it to this session's scratchpad folder: {{ SCRATCHPAD_PATH }}
+3. Only when the file must sit next to the project (e.g. a script that imports project modules), create it in the current folder and delete it when you are done.
 
 ### Running Commands
 

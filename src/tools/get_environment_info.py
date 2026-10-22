@@ -9,7 +9,7 @@ DEFINITION: dict = {
         "name": "get_environment_info",
         "description": (
             "Return the current environment information: OS, shell, current working directory, "
-            "initial working directory, user home directory, and global SLBP workspace directory. "
+            "initial working directory, user home directory, and this session's scratchpad folder. "
             "Optionally write the result to session memory."
         ),
         "parameters": {
@@ -52,7 +52,11 @@ def execute(
     current_cwd = (sr.get("session_current_working_dir") or "").replace("\\", "/")
     initial_cwd = (sr.get("session_init_working_dir") or "").replace("\\", "/")
 
-    result = format_environment_info(current_cwd=current_cwd, initial_cwd=initial_cwd)
+    result = format_environment_info(
+        current_cwd=current_cwd,
+        initial_cwd=initial_cwd,
+        scratchpad_dir=sr.get("session_scratchpad_dir"),
+    )
 
     if target == "return_value":
         return result

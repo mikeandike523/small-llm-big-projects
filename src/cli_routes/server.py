@@ -11,7 +11,6 @@ from termcolor import colored
 from src.cli_obj import cli
 from src.cli_routes.server_task import task as _task_group
 from src.utils.docker_compose import _find_docker_compose, get_service_port
-from src.utils.env_info import get_default_workspace_dir
 from src.utils.free_port import find_free_port, find_preferred_port
 from src.utils.process import ManagedProcess, find_bash, run_processes
 from src.utils.server_state import clear_state, get_running_server_state, write_state
@@ -295,9 +294,6 @@ def server_run(
         click.echo(click.style(f"Warning: Could not verify config: {exc}", fg="yellow"))
 
     bash = find_bash()
-    workspace_dir = get_default_workspace_dir()
-    Path(workspace_dir).mkdir(parents=True, exist_ok=True)
-
     flask_port = find_free_port()
     ui_port = dashboard_port if dashboard_port is not None else find_free_port()
     gw_port = proxy_port if proxy_port is not None else find_preferred_port()
@@ -306,7 +302,6 @@ def server_run(
     click.echo(
         f"[slbp] Allocated ports - proxy:{gw_port}  flask:{flask_port}  ui:{ui_port}"
     )
-    click.echo(f"[slbp] Workspace: {workspace_dir}")
 
     server_cwd = os.getcwd()
     flask_env: dict[str, str] = {

@@ -8,6 +8,7 @@ import src.ui_connector.socket_handler_components.state as _state
 from src.ui_connector.app import socketio
 from src.terminal import PtyProcess, TerminalSession
 from src.utils.env_info import format_environment_info, get_terminal_default_cwd
+from src.utils.session_dirs import get_session_scratchpad_dir
 from src.utils.session_model import Session
 
 
@@ -80,6 +81,7 @@ def _build_starting_environment_info(session: Session) -> str:
     return format_environment_info(
         current_cwd=snapshot_cwd,
         initial_cwd=session.initial_cwd or None,
+        scratchpad_dir=get_session_scratchpad_dir(session.session_id),
     )
 
 

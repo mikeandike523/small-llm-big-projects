@@ -887,7 +887,7 @@ Because your custom tool code executes *inside that same running process*
 spawn a subprocess), this means **every custom tool can freely do**:
 
 ```python
-from src.utils.env_info import get_default_workspace_dir
+from src.utils.env_info import get_os
 from src.tools._approval import ApprovalContext, is_full_auto
 from src.utils.exceptions import ToolTimeoutError
 ```

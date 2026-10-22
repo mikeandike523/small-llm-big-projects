@@ -21,6 +21,7 @@ from src.ui_connector.socket_handler_components.session_store import (
 )
 from src.ui_connector.socket_handler_components.terminal import _format_cmd_display
 from src.tools import execute_tool
+from src.utils.session_dirs import get_session_scratchpad_dir
 from src.utils.llm.factory import load_llm_config
 from src.utils.request_error_formatting import failure_message
 from src.utils.session_model import CURRENT_SCHEMA_VERSION
@@ -349,6 +350,7 @@ def handle_run_startup_tool_calls():
         "emit_backend_log": lambda *msgs: _emit_backend_log(session_id, *msgs),
         "session_init_working_dir": session.initial_cwd,
         "session_current_working_dir": _startup_cwd,
+        "session_scratchpad_dir": get_session_scratchpad_dir(session_id),
         "approval_mode": session.approval_mode,
         "create_file_auto_eol": _startup_auto_eol,
         "on_cwd_change": None,

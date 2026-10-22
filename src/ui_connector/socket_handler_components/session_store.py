@@ -9,6 +9,10 @@ from src.ui_connector.socket_handler_components.emit import _emit_and_log
 from src.ui_connector.socket_handler_components.terminal import (
     _build_starting_environment_info,
 )
+from src.ui_connector.socket_handler_components.session_setup import (
+    _build_prompt_placeholders,
+    _ensure_session_dirs_reported,
+)
 from src.ui_connector.socket_handler_components.state import SessionToolManifest
 from src.tools import ALL_TOOL_DEFINITIONS, _TOOL_MAP, load_custom_tools
 from src.logic.system_prompt import (
@@ -23,6 +27,7 @@ from src.utils.event_log import (
     watermark_key,
 )
 from src.utils.redis_dict import RedisDict
+from src.utils.session_dirs import delete_session_scratchpad
 from src.utils.session_model import (
     Session,
     repair_incomplete_turn,
@@ -141,6 +146,7 @@ def _init_session_caches(session: Session, session_id: str) -> None:
     Skill registry is built before tool loading: tool loading needs the
     resolved skill id set to validate skill-scoped plugin namespaces against.
     """
+    _ensure_session_dirs_reported(session, session_id)
     skills_path = (
         os.path.join(session.initial_cwd, "skills")
         if session.load_custom_skills_tools
@@ -198,6 +204,7 @@ def _init_session_caches(session: Session, session_id: str) -> None:
         _state._session_system_prompts[session_id] = build_system_prompt(
             starting_environment_info=_build_starting_environment_info(session),
             autoload_entries=autoload_entries,
+            placeholders=_build_prompt_placeholders(session, session_id),
         )
 
     _state._session_project_config[session_id] = {
@@ -459,6 +466,7 @@ def _delete_sessions(session_ids: list[str]) -> None:
         _state._session_current_cwd.pop(session_id, None)
         _state._session_costs.pop(session_id, None)
         _state._session_last_context_usage.pop(session_id, None)
+        delete_session_scratchpad(session_id)
 
 
 def _delete_session(session_id: str) -> None:

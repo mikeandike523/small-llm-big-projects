@@ -1,6 +1,6 @@
 {
   "name": "small-llm-big-projects",
-  "version": "1.14.0",
+  "version": "1.15.0",
   "description": "",
   "main": "index.js",
   "scripts": {
@@ -15,9 +15,9 @@
     "update-prod": "bash scripts/update-prod.sh",
     "remote-update-demo-server": "bash python_in_env.sh scripts/remote_update_demo_server.py",
     "setup-worktree": "bash scripts/setup-worktree.sh",
-    "add-worktree-new-branch":"bash scripts/add-worktree-new-branch.sh",
-    "add-worktree-existing-branch":"bash scripts/add-worktree-existing-branch.sh",
-    "worktree-shell":"bash scripts/worktree-shell.sh"
+    "add-worktree-new-branch": "bash scripts/add-worktree-new-branch.sh",
+    "add-worktree-existing-branch": "bash scripts/add-worktree-existing-branch.sh",
+    "worktree-shell": "bash scripts/worktree-shell.sh"
   },
   "keywords": [],
   "author": "",

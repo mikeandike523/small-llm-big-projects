@@ -260,6 +260,9 @@ export default function NewSessionDialog({
   initialCwd,
 }: Props) {
   const [cwd, setCwd] = useState(initialCwd ?? "");
+  // Issued by the backend when the dialog opens, so the suggested workspace
+  // folder can be named after the session it will belong to.
+  const [sessionId, setSessionId] = useState<string | null>(null);
   const [workspaceDir, setWorkspaceDir] = useState<string>("");
   const [flags, setFlags] = useState<SessionDefaults>(() => ({
     ...sessionDefaults,
@@ -279,14 +282,17 @@ export default function NewSessionDialog({
 
   const cwdEmpty = cwd.trim() === "";
 
-  // Fetch default workspace directory as default CWD on mount (skip if initialCwd was provided)
+  // Fetch a session id and its workspace folder on mount; the folder becomes
+  // the default CWD unless initialCwd was provided. If this fails, the backend
+  // generates an id at creation instead.
   useEffect(() => {
-    fetch("/api/system-info")
+    fetch("/api/sessions/new-id")
       .then((r) => r.json())
       .then((d) => {
-        const dir = d.workspace_dir || d.home_dir || "";
-        setWorkspaceDir(dir);
-        if (dir && !initialCwd) setCwd(dir);
+        if (!d.session_id || !d.workspace_dir) return;
+        setSessionId(d.session_id);
+        setWorkspaceDir(d.workspace_dir);
+        if (!initialCwd) setCwd(d.workspace_dir);
       })
       .catch(() => {});
   }, []);
@@ -324,6 +330,7 @@ export default function NewSessionDialog({
 
     const payload: Record<string, unknown> = {
       initial_cwd: cwd,
+      session_id: sessionId ?? undefined,
       interim_response_as_thinking:
         sessionDefaults.interim_response_as_thinking,
       profile_name: selectedProfile || null,
@@ -397,7 +404,7 @@ export default function NewSessionDialog({
                     style={{ cursor: "pointer", textDecoration: "underline" }}
                     onClick={() => setCwd(workspaceDir)}
                   >
-                    Use global workspace
+                    Use new session workspace
                   </span>
                 </span>
               ) : (

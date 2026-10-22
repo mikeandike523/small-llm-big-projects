@@ -34,8 +34,11 @@ from src.ui_connector.socket_handler_components.emit import _emit_backend_log
 from src.ui_connector.socket_handler_components.terminal import (
     _build_starting_environment_info,
 )
+from src.ui_connector.socket_handler_components.session_setup import (
+    _build_prompt_placeholders,
+)
 from src.ui_connector.socket_handler_components.state import SessionToolManifest
-from src.utils.sql.session_store_db import list_session_meta
+from src.utils.sql.session_store_db import list_session_meta, load_session_meta
 from src.data import get_pool
 from src.tools import (
     ALL_TOOL_DEFINITIONS,
@@ -52,14 +55,17 @@ from src.logic.system_prompt import (
 from src.utils.sql.kv_manager import KVManager
 from src.utils.param_helper import get_param_value
 from src.utils.profile_utils import get_active_profile, _kv_prefix
-from src.utils.env_info import get_default_workspace_dir
+from src.utils.session_dirs import ensure_session_dirs, is_valid_session_id
 from src.utils.session_model import Session
 from src.utils.approval_modes import (
     APPROVAL_MODE_DEFAULT,
     APPROVAL_MODES,
     is_valid_approval_mode,
 )
-from src.utils.heartbeat_settings import is_valid_heartbeat_settings, get_heartbeat_intervals_payload
+from src.utils.heartbeat_settings import (
+    is_valid_heartbeat_settings,
+    get_heartbeat_intervals_payload,
+)
 from src.utils.startup_tool_calls import validate_startup_tool_calls
 
 logger = logging.getLogger(__name__)
@@ -70,6 +76,8 @@ def api_create_session():
     """
     Create a new session with per-session context.
     Body (JSON):
+      session_id                    str?  — id issued by GET /api/sessions/new-id
+                                            (a fresh one is generated if omitted)
       initial_cwd                   str   — working directory for this session
       load_custom_skills_tools      bool  — load cwd/skills and cwd/tools
       startup_tool_calls_path       str?  — path to startup_tool_calls.json (or null)
@@ -79,15 +87,24 @@ def api_create_session():
     """
     data = request.get_json(force=True, silent=True) or {}
 
-    session_id = str(_uuid_module.uuid4())
+    raw_session_id = data.get("session_id")
+    if raw_session_id is None:
+        session_id = str(_uuid_module.uuid4())
+    elif not is_valid_session_id(raw_session_id):
+        return jsonify({"error": "session_id must be a lowercase UUID string."}), 400
+    elif load_session_meta(raw_session_id) is not None:
+        return jsonify({"error": f"Session {raw_session_id} already exists."}), 409
+    else:
+        session_id = raw_session_id
     initial_cwd = data.get("initial_cwd", "")
     if not initial_cwd or not initial_cwd.strip():
         return (
             jsonify(
                 {
                     "error": (
-                        "initial_cwd is required. "
-                        "If no specific project is needed, pass the global workspace path."
+                        "initial_cwd is required. If no specific project is "
+                        "needed, pass the session workspace path from "
+                        "GET /api/sessions/new-id."
                     )
                 }
             ),
@@ -175,6 +192,11 @@ def api_create_session():
         approval_mode=approval_mode,
     )
 
+    try:
+        ensure_session_dirs(session_id, initial_cwd)
+    except OSError as exc:
+        return jsonify({"error": f"Could not create session folders: {exc}"}), 500
+
     # Validate builtin tools for reserved parameter names before touching session state.
     # Custom tools are validated inside load_custom_tools (raises RuntimeError on violation).
     _builtin_err = validate_no_reserved_params(_TOOL_MAP)
@@ -225,6 +247,7 @@ def api_create_session():
     _state._session_system_prompts[session_id] = build_system_prompt(
         starting_environment_info=_build_starting_environment_info(session),
         autoload_entries=get_autoload_skill_entries(registry),
+        placeholders=_build_prompt_placeholders(session, session_id),
     )
     _state._session_project_config[session_id] = {
         "initial_cwd": initial_cwd,
@@ -558,7 +581,6 @@ def api_system_info():
     return jsonify(
         {
             "home_dir": str(pathlib.Path.home()).replace("\\", "/"),
-            "workspace_dir": get_default_workspace_dir(),
         }
     )
 
@@ -614,7 +636,9 @@ def api_folder_pick():
     the chosen path.  Returns {"path": "<chosen>"} or {"path": null} if cancelled.
     """
     data = request.get_json(force=True, silent=True) or {}
-    initial_dir = data.get("initial_dir") or str(pathlib.Path.home())
+    initial_dir = data.get("initial_dir") or ""
+    if not os.path.isdir(initial_dir):  # e.g. a not-yet-created session workspace
+        initial_dir = str(pathlib.Path.home())
 
     script = (
         "import tkinter, tkinter.filedialog, sys; "
