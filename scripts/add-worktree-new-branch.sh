@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-local branch_name="$1"
+branch_name="$1"
 
 git worktree add -b "$branch_name" "../slbp-worktrees/$branch_name"
 
