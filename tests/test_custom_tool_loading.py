@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from src.tools import load_custom_tools, reload_custom_tools
+from src.tools import load_custom_tools, looks_like_tool, reload_custom_tools
 
 
 def _write(path: Path, text: str) -> None:
@@ -68,6 +68,117 @@ def test_explicit_tool_namespace_overrides_folder_name(tmp_path: Path) -> None:
     assert set(result.by_skill.keys()) == {"custom_ns"}
     defs, _ = result.by_skill["custom_ns"]
     assert [d["function"]["name"] for d in defs] == ["custom_ns_do_thing"]
+
+
+def test_root_tool_uses_skill_namespace_as_its_public_name(tmp_path: Path) -> None:
+    _write(
+        tmp_path / "folder_name" / "__init__.py",
+        'TOOL_NAMESPACE = "custom_ns"\nROOT_TOOL = "entry.py"\n',
+    )
+    _write(tmp_path / "folder_name" / "entry.py", _tool_file("internal_name"))
+
+    result = load_custom_tools(
+        str(tmp_path),
+        session_prefix=_prefix(),
+        known_skill_ids=frozenset({"custom_ns"}),
+    )
+
+    assert result.unscoped_defs == []
+    defs, tool_map = result.by_skill["custom_ns"]
+    assert [d["function"]["name"] for d in defs] == ["custom_ns"]
+    assert set(tool_map) == {"custom_ns"}
+
+
+def test_root_tool_allows_non_tool_sibling_helper(tmp_path: Path) -> None:
+    _write(tmp_path / "weather" / "__init__.py", 'ROOT_TOOL = "weather.py"\n')
+    _write(
+        tmp_path / "weather" / "formatting.py",
+        "def format_result(value):\n    return str(value)\n",
+    )
+    _write(
+        tmp_path / "weather" / "weather.py",
+        "from src.tools import import_local\n"
+        'FORMATTING = import_local("formatting.py")\n'
+        + _tool_file("forecast").replace(
+            'return "ok"', 'return FORMATTING.format_result("ok")'
+        ),
+    )
+
+    result = load_custom_tools(
+        str(tmp_path),
+        session_prefix=_prefix(),
+        known_skill_ids=frozenset({"weather"}),
+    )
+
+    defs, tool_map = result.by_skill["weather"]
+    assert [d["function"]["name"] for d in defs] == ["weather"]
+    assert tool_map["weather"].execute({}, {}) == "ok"
+
+
+def test_root_tool_rejects_another_tool_file(tmp_path: Path) -> None:
+    _write(tmp_path / "weather" / "__init__.py", 'ROOT_TOOL = "weather.py"\n')
+    _write(tmp_path / "weather" / "weather.py", _tool_file("forecast"))
+    _write(tmp_path / "weather" / "legacy.py", _tool_file("legacy"))
+
+    with pytest.raises(RuntimeError, match="also contains other tool files.*legacy.py"):
+        load_custom_tools(
+            str(tmp_path),
+            session_prefix=_prefix(),
+            known_skill_ids=frozenset({"weather"}),
+        )
+
+
+def test_root_tool_must_reference_an_existing_tool_file(tmp_path: Path) -> None:
+    _write(tmp_path / "weather" / "__init__.py", 'ROOT_TOOL = "missing.py"\n')
+
+    with pytest.raises(RuntimeError, match="referenced file does not exist"):
+        load_custom_tools(
+            str(tmp_path),
+            session_prefix=_prefix(),
+            known_skill_ids=frozenset({"weather"}),
+        )
+
+
+def test_root_tool_rejects_a_referenced_helper_file(tmp_path: Path) -> None:
+    _write(tmp_path / "weather" / "__init__.py", 'ROOT_TOOL = "helper.py"\n')
+    _write(tmp_path / "weather" / "helper.py", "VALUE = 1\n")
+
+    with pytest.raises(RuntimeError, match="does not define DEFINITION and execute"):
+        load_custom_tools(
+            str(tmp_path),
+            session_prefix=_prefix(),
+            known_skill_ids=frozenset({"weather"}),
+        )
+
+
+def test_underscore_prefixed_python_files_are_not_discovered(tmp_path: Path) -> None:
+    _write(tmp_path / "_broken_root.py", "this is invalid python")
+    _write(tmp_path / "weather" / "__init__.py", 'ROOT_TOOL = "weather.py"\n')
+    _write(tmp_path / "weather" / "weather.py", _tool_file("forecast"))
+    _write(tmp_path / "weather" / "_legacy.py", "this is invalid python")
+
+    result = load_custom_tools(
+        str(tmp_path),
+        session_prefix=_prefix(),
+        known_skill_ids=frozenset({"weather"}),
+    )
+
+    assert result.unscoped_defs == []
+    defs, _ = result.by_skill["weather"]
+    assert [d["function"]["name"] for d in defs] == ["weather"]
+
+
+def test_looks_like_tool_uses_the_required_tool_contract() -> None:
+    class Module:
+        DEFINITION = {}
+
+        @staticmethod
+        def execute():
+            pass
+
+    assert looks_like_tool(Module()) is True
+    del Module.execute
+    assert looks_like_tool(Module()) is False
 
 
 def test_unscoped_root_tool_has_no_prefix_and_is_not_skill_gated(

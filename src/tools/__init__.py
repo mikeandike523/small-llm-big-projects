@@ -728,12 +728,17 @@ def _load_tool_module(tool_path: str, module_name: str) -> object | None:
         sys.modules.pop(module_name, None)
         return None
 
-    if not hasattr(module, "execute"):
+    if not looks_like_tool(module):
         sys.modules.pop(module_name, None)
         raise RuntimeError(
             f"Custom tool {tool_path!r} has DEFINITION but is missing required function 'execute'."
         )
     return module
+
+
+def looks_like_tool(module: object) -> bool:
+    """Return whether an imported module satisfies the basic tool shape."""
+    return hasattr(module, "DEFINITION") and hasattr(module, "execute")
 
 
 def _base_tool_name(module: object, tool_path: str) -> str:
@@ -865,7 +870,9 @@ def load_custom_tools(
         root_files = sorted(
             f
             for f in os.listdir(tools_dir)
-            if f.lower().endswith(".py") and f not in _RESERVED_ROOT_FILES
+            if f.lower().endswith(".py")
+            and not f.startswith("_")
+            and f not in _RESERVED_ROOT_FILES
         )
     except (FileNotFoundError, OSError) as e:
         raise RuntimeError(f"Cannot list tools/ directory at {tools_dir!r}: {e}") from e
@@ -937,6 +944,22 @@ def load_custom_tools(
             # No explicit TOOL_NAMESPACE — default to the plugin folder name.
             tool_namespace = plugin_name
 
+        root_tool_declared = hasattr(init_module, "ROOT_TOOL")
+        root_tool_file = getattr(init_module, "ROOT_TOOL", None)
+        if root_tool_declared and (
+            not isinstance(root_tool_file, str)
+            or not root_tool_file.strip()
+            or root_tool_file != os.path.basename(root_tool_file)
+            or not root_tool_file.lower().endswith(".py")
+            or root_tool_file.startswith("_")
+            or root_tool_file == "__init__.py"
+        ):
+            raise RuntimeError(
+                f"Plugin __init__.py at {plugin_init!r} declares ROOT_TOOL, but it "
+                "must be a non-empty, non-underscore-prefixed .py filename directly "
+                "inside the plugin folder."
+            )
+
         if known_skill_ids is not None and tool_namespace not in known_skill_ids:
             raise RuntimeError(
                 f"Custom tool plugin {plugin_dir!r} resolves to namespace {tool_namespace!r}, "
@@ -957,17 +980,18 @@ def load_custom_tools(
             plugin_files = sorted(
                 f
                 for f in os.listdir(plugin_dir)
-                if f.lower().endswith(".py") and f != "__init__.py"
+                if f.lower().endswith(".py")
+                and not f.startswith("_")
+                and f != "__init__.py"
             )
         except (FileNotFoundError, OSError) as e:
             raise RuntimeError(
                 f"Cannot list plugin directory {plugin_dir!r}: {e}"
             ) from e
 
-        plugin_tool_count = 0
-        skill_defs = by_skill_defs.setdefault(tool_namespace, [])
-        skill_map = by_skill_map.setdefault(tool_namespace, {})
-
+        # Import each candidate once and collect only modules matching the tool
+        # contract. Plain sibling helpers are allowed even in ROOT_TOOL plugins.
+        discovered_tools: list[tuple[str, str, str, object]] = []
         for tool_file in plugin_files:
             tool_path = os.path.join(plugin_dir, tool_file)
             stem = os.path.splitext(tool_file)[0]
@@ -977,8 +1001,47 @@ def load_custom_tools(
             if module is None:
                 continue  # helper file, not a tool
 
+            discovered_tools.append((tool_file, tool_path, module_name, module))
+
+        if root_tool_declared:
+            discovered_names = {tool_file for tool_file, *_ in discovered_tools}
+            if root_tool_file not in discovered_names:
+                root_tool_path = os.path.join(plugin_dir, root_tool_file)
+                if not os.path.isfile(root_tool_path):
+                    detail = "the referenced file does not exist"
+                else:
+                    detail = (
+                        "the referenced file does not define DEFINITION and execute"
+                    )
+                raise RuntimeError(
+                    f"Plugin __init__.py at {plugin_init!r} declares "
+                    f"ROOT_TOOL={root_tool_file!r}, but {detail}."
+                )
+
+            other_tools = sorted(discovered_names - {root_tool_file})
+            if other_tools:
+                raise RuntimeError(
+                    f"Plugin {plugin_dir!r} declares ROOT_TOOL={root_tool_file!r}, but "
+                    f"also contains other tool files: {', '.join(repr(f) for f in other_tools)}. "
+                    "A ROOT_TOOL plugin may contain only one tool; rename inactive tool "
+                    "files with a leading underscore or remove them."
+                )
+
+            discovered_tools = [
+                item for item in discovered_tools if item[0] == root_tool_file
+            ]
+
+        plugin_tool_count = 0
+        skill_defs = by_skill_defs.setdefault(tool_namespace, [])
+        skill_map = by_skill_map.setdefault(tool_namespace, {})
+
+        for tool_file, tool_path, module_name, module in discovered_tools:
             base_tool_name = _base_tool_name(module, tool_path)
-            tool_name = f"{tool_namespace}_{base_tool_name}"
+            tool_name = (
+                tool_namespace
+                if root_tool_declared
+                else f"{tool_namespace}_{base_tool_name}"
+            )
 
             try:
                 prefixed_def = _finalize_tool_def(

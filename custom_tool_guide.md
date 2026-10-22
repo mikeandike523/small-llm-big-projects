@@ -63,7 +63,8 @@ used to be the only time the tool set was ever discovered from disk).
     my_plugin/                   # skill-scoped plugin
       __init__.py                # required (content now optional — see §2)
       do_thing.py                # a tool (has DEFINITION + execute)
-      _helpers.py                # a helper module (no DEFINITION — not a tool, see §3)
+      helpers.py                 # allowed helper module (no DEFINITION — see §3)
+      _old_tool.py               # ignored entirely because its name starts with _
     another_plugin/
       __init__.py
       ...
@@ -86,6 +87,11 @@ used to be the only time the tool set was ever discovered from disk).
      files nested further inside a plugin folder are not scanned as tools.
   3. Files without a top-level `DEFINITION` attribute, in either category,
      are silently treated as **helper modules**, not tools (see §3).
+- Python filenames beginning with `_` are ignored during discovery and are not
+  imported. This is useful for private helpers loaded explicitly with
+  `import_local`, archived tool files, and other files that should not
+  participate in validation. The reserved control files `__init__.py` and
+  `_exclude_builtin_tools.py` remain special cases and are still executed.
 - `tools/__init__.py` (directly under `tools/`, not inside a plugin) is
   optional and runs exactly once per session, before anything else is loaded —
   the intended use is adding a vendored dependency directory to `sys.path`.
@@ -107,10 +113,11 @@ used to be the only time the tool set was ever discovered from disk).
 
 ## 2. Anatomy of a plugin `__init__.py`
 
-`TOOL_NAMESPACE` is **optional**:
+`TOOL_NAMESPACE` and `ROOT_TOOL` are **optional**:
 
 ```python
 TOOL_NAMESPACE = "my_plugin"   # optional — defaults to the plugin's folder name
+ROOT_TOOL = "entry.py"         # optional — expose one tool as "my_plugin"
 ```
 
 If omitted, the plugin's namespace defaults to its **folder name**. An
@@ -133,6 +140,15 @@ file is valid as long as the folder name happens to match a skill id.
 
 Anything else the `__init__.py` does (imports, setup code, `sys.path`
 manipulation local to this plugin) runs once when the plugin is discovered.
+
+`ROOT_TOOL` puts the plugin into single-entry-point mode. It must name a
+non-underscore-prefixed `.py` file directly inside the plugin folder. That file
+must be a valid tool, and it is exposed under the resolved namespace itself
+rather than `f"{namespace}_{base_name}"`. It remains skill-scoped and is only
+active when the matching skill is active. Other sibling Python files may be
+ordinary helpers, but if any other one defines both `DEFINITION` and `execute`,
+loading fails. Prefix an inactive or archived tool file with `_` to exclude it
+from discovery entirely.
 
 ---
 
@@ -224,6 +240,8 @@ injected automatically for tools that opt into redaction — see §10.
 
 - **Skill-scoped**: final tool name = `f"{tool_namespace}_{DEFINITION['function']['name']}"`
   (see §2 for how `tool_namespace` resolves).
+- **Skill-scoped `ROOT_TOOL`**: final tool name = `tool_namespace`; the base
+  name in its definition is still required and validated but is not exposed.
 - **Unscoped**: final tool name = `DEFINITION['function']['name']` verbatim —
   no prefix.
 - If that name already exists — a built-in tool, an unscoped custom tool, or
@@ -1011,6 +1029,9 @@ Before wiring a new tool file into a session, confirm:
       see §6).
 - [ ] If skill-scoped: the resolved namespace (folder name, or explicit
       `TOOL_NAMESPACE`) matches an existing skill id — built-in or custom.
+- [ ] If using `ROOT_TOOL`: it names the plugin's sole discovered tool;
+      non-tool sibling helpers are allowed, and intentionally ignored Python
+      files begin with `_`.
 - [ ] The resulting final tool name doesn't collide with a built-in, an
       unscoped custom tool, or another plugin's tool.
 - [ ] `needs_approval` added (or deliberately omitted) for anything that
