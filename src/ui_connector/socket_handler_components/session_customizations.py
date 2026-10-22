@@ -13,6 +13,9 @@ from src.ui_connector.socket_handler_components.state import SessionToolManifest
 from src.ui_connector.socket_handler_components.terminal import (
     _build_starting_environment_info,
 )
+from src.ui_connector.socket_handler_components.session_setup import (
+    _build_prompt_placeholders,
+)
 from src.utils.session_model import Session
 
 
@@ -53,6 +56,7 @@ def reload_session_customizations(session: Session, session_id: str) -> None:
     system_prompt = build_system_prompt(
         starting_environment_info=_build_starting_environment_info(session),
         autoload_entries=get_autoload_skill_entries(registry),
+        placeholders=_build_prompt_placeholders(session, session_id),
     )
 
     if _state.is_turn_reserved(session_id):

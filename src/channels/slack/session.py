@@ -21,7 +21,7 @@ from src.utils.sql.session_store_db import (
 )
 from src.utils.session_model import Session
 from src.utils.session_events import session_created_payload, derive_meta
-from src.utils.env_info import get_default_workspace_dir
+from src.utils.session_dirs import ensure_session_dirs, get_session_workspace_dir
 
 logger = logging.getLogger(__name__)
 
@@ -169,7 +169,8 @@ def _create_slack_session() -> str:
     available for the next step of processing.
     """
     session_id = str(_uuid_module.uuid4())
-    workspace_dir = get_default_workspace_dir()
+    workspace_dir = get_session_workspace_dir(session_id)
+    ensure_session_dirs(session_id, workspace_dir)
 
     session = Session(
         session_id=session_id,

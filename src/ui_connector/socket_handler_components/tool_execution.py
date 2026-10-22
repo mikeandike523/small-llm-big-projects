@@ -35,6 +35,7 @@ from src.tools import (
 from src.tools import _dirty_cache
 from src.tools import _file_snapshot
 from src.tools.todo_list import format_items_for_ui as _todo_format_items_for_ui
+from src.utils.session_dirs import get_session_scratchpad_dir
 from src.utils.session_model import Session, Turn, LLMExchange, ToolCallRecord
 from src.utils.exceptions import ToolHangError, ToolTimeoutError
 
@@ -89,6 +90,7 @@ def _execute_tools(
         "session_id": session_id,
         "session_init_working_dir": session.initial_cwd,
         "session_current_working_dir": _current_cwd,
+        "session_scratchpad_dir": get_session_scratchpad_dir(session_id),
         "approval_mode": approval_mode,
         "create_file_auto_eol": create_file_auto_eol,
         "on_cwd_change": None,

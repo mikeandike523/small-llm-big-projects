@@ -1,0 +1,1 @@
+The New Session dialog now suggests a fresh per-session workspace folder (~/.slbp/workspaces/<session-id>) instead of the global workspace, and the empty-folder link reads 'Use new session workspace'.

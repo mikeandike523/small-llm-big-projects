@@ -23,7 +23,6 @@ from src.tools import delete_file
 from src.tools import find_files_by_name
 from src.tools import line_reader
 from src.tools import get_environment_info
-from src.tools import get_global_workspace_dir
 from src.tools import get_pwd
 from src.tools import host_check_command
 from src.tools import host_shell
@@ -172,9 +171,6 @@ ALL_TOOL_DEFINITIONS: list[dict] = [
     _inject_framework_params(find_files_by_name, find_files_by_name.DEFINITION),
     _inject_framework_params(line_reader, line_reader.DEFINITION),
     _inject_framework_params(get_environment_info, get_environment_info.DEFINITION),
-    _inject_framework_params(
-        get_global_workspace_dir, get_global_workspace_dir.DEFINITION
-    ),
     _inject_framework_params(get_pwd, get_pwd.DEFINITION),
     _inject_framework_params(host_check_command, host_check_command.DEFINITION),
     _inject_framework_params(host_shell, host_shell.DEFINITION),
@@ -215,7 +211,6 @@ _TOOL_MAP: dict[str, object] = {
     "find_files_by_name": find_files_by_name,
     "line_reader": line_reader,
     "get_environment_info": get_environment_info,
-    "get_global_workspace_dir": get_global_workspace_dir,
     "get_pwd": get_pwd,
     "host_check_command": host_check_command,
     "host_shell": host_shell,

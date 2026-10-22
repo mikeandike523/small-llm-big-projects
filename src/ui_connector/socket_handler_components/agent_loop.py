@@ -34,6 +34,9 @@ from src.ui_connector.socket_handler_components.watchdogs import (
     _select_skills_for_turn,
 )
 from src.ui_connector.socket_handler_components.tool_execution import _execute_tools
+from src.ui_connector.socket_handler_components.session_setup import (
+    _build_prompt_placeholders,
+)
 from src.ui_connector.app import socketio
 from src.logic.system_prompt import (
     build_injected_skills_section,
@@ -137,7 +140,11 @@ async def _async_agent_loop(
                 },
             )
         active_skills_section = (
-            build_injected_skills_section(turn_only_skills) if turn_only_skills else ""
+            build_injected_skills_section(
+                turn_only_skills, _build_prompt_placeholders(session, session_id)
+            )
+            if turn_only_skills
+            else ""
         )
 
         while True:

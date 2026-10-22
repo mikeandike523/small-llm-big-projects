@@ -21,6 +21,7 @@ class ApprovalContext:
 
     session_init_working_dir: str | None = None
     session_current_working_dir: str | None = None
+    session_scratchpad_dir: str | None = None
 
     @classmethod
     def from_special_resources(
@@ -30,6 +31,7 @@ class ApprovalContext:
         return cls(
             session_init_working_dir=sr.get("session_init_working_dir"),
             session_current_working_dir=sr.get("session_current_working_dir"),
+            session_scratchpad_dir=sr.get("session_scratchpad_dir"),
         )
 
 
@@ -69,6 +71,12 @@ def _get_session_current_cwd(ctx: ApprovalContext) -> str | None:
     if cwd:
         return str(Path(cwd).resolve())
     return _get_session_init_cwd(ctx)
+
+
+def _get_session_scratchpad(ctx: ApprovalContext) -> str | None:
+    """The session's scratchpad folder — approved exactly like the session CWD."""
+    path = ctx.session_scratchpad_dir
+    return str(Path(path).resolve()) if path else None
 
 
 def _get_effective_cwd(ctx: ApprovalContext) -> str:
@@ -112,16 +120,21 @@ def _is_under(resolved: str, root: str) -> bool:
 
 
 def _is_under_any_approved_root(resolved: str, *, ctx: ApprovalContext) -> bool:
-    """True if resolved is under the session's current CWD or initial CWD.
+    """True if resolved is under the session's current CWD, initial CWD, or
+    scratchpad folder.
 
-    Both roots are always approved so the agent is not locked out after
-    change_pwd, while still scoping free access to the project.
+    Both CWD roots are always approved so the agent is not locked out after
+    change_pwd, while still scoping free access to the project. The scratchpad
+    is approved the same way so it behaves like the CWD in every approval mode.
     """
     current = _get_session_current_cwd(ctx)
     if current and _is_under(resolved, current):
         return True
     init = _get_session_init_cwd(ctx)
     if init and init != current and _is_under(resolved, init):
+        return True
+    scratchpad = _get_session_scratchpad(ctx)
+    if scratchpad and _is_under(resolved, scratchpad):
         return True
     return False
 
@@ -252,11 +265,11 @@ def needs_path_approval(raw_path: str | None, *, ctx: ApprovalContext) -> bool:
     """Core approval check for a path argument.
 
     Returns False (auto-approved) when the resolved path is within the
-    session's current CWD or initial CWD, and either is not inside any git
-    repository or is not git-ignored by its (nearest) repository.
+    session's current CWD, initial CWD, or scratchpad folder, and either is not
+    inside any git repository or is not git-ignored by its (nearest) repository.
 
     Returns True (approval required) for:
-    - Paths outside both approved roots
+    - Paths outside all approved roots
     - Git-ignored files/directories within an approved root
     - .git metadata, and paths git cannot give a clear answer for
 
@@ -279,9 +292,12 @@ def needs_path_approval(raw_path: str | None, *, ctx: ApprovalContext) -> bool:
 
     # Within an approved root — still block git-ignored paths.
     # The root directories themselves are always approved.
-    current_cwd = _get_session_current_cwd(ctx)
-    init_cwd = _get_session_init_cwd(ctx)
-    if (current_cwd and resolved == current_cwd) or (init_cwd and resolved == init_cwd):
+    roots = (
+        _get_session_current_cwd(ctx),
+        _get_session_init_cwd(ctx),
+        _get_session_scratchpad(ctx),
+    )
+    if resolved in roots:
         return False
 
     if _is_git_metadata_path(resolved):
