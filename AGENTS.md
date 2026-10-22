@@ -2,7 +2,13 @@
 
 ## Worktrees and Collaboration
 
-You may be working inside of a worktree so that multiple agents can collaborate. A setup script called "pnpm run setup-worktree" was called to give you the basic .venv, and isntall pnpm packages in ui and desktop/*. .env and other gitignored dotfiles have not been copied, as they are not necessary. The true running process will live inthe main worktree, and you should NOT call "slbp" to run any servers or attempt to debug/test any UI code on your own. Humans are responsible for integration testing because the system is incredibly complex and visual. Nevertheless, you should be able to run the basic tests outlined in the "Testing" section since those run with the python and node environments that are available int he worktree.
+You may be working inside of a worktree so that multiple agents can collaborate. A setup script called "pnpm run setup-worktree" was called to give you the basic .venv, and isntall pnpm packages in ui and desktop/*. .env and other gitignored dotfiles have not been copied, as they are not necessary. The true running process will live inthe main worktree, and you should NOT call "slbp" to run any servers or attempt to debug/test any UI code on your own. Humans are responsible for integration testing because the system is incredibly complex and visual. Nevertheless, you should be able to run the basic tests outlined in the "Testing" section since those run with the python and node environments that are available in the worktree.
+
+**Before you start working, check if you are inside a worktree**. If so, DO NOT use the "release-manager" script to bump release versions. DO NOT even suggest.
+
+If you are not in a worktree (you are on the "development" or "main" branch), suggest to user to bump versions but DO NOT do so yourself.
+
+Run the "release-manager" script IF AND ONLY IF the user explictly asks you to do so or responds "yes" to your request to do so. See technical details in the "Release Manager" section.
 
 ## Project Overview
 
@@ -59,10 +65,12 @@ finding and cleaning up orphaned server-stack processes.
 
 ## Release Manager
 
+IF AND ONLY IF the user explictly asks or responds 'yes' to your request to run release manager:
+
 Run the release manager from the repository root through pnpm:
 
 ```bash
-pnpm run release-manager bump <ui|backend|desktop> <major|minor|patch> <message...>
+pnpm run release-manager pbump <ui|backend|desktop> <major|minor|patch> <message...>
 pnpm run release-manager set <ui|backend|desktop> <X.Y.Z> <message...>
 ```
 
