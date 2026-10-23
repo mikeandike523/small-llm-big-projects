@@ -1,19 +1,13 @@
 /** @jsxImportSource @emotion/react */
-import { useEffect, useRef, useState } from "react";
-import type { ReactNode } from "react";
-import * as ContextMenu from "@radix-ui/react-context-menu";
-import { FileIcon, defaultStyles } from "react-file-icon";
-import type { DefaultExtensionType } from "react-file-icon";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { FiChevronDown, FiChevronRight } from "react-icons/fi";
 import { VscFolder, VscFolderOpened } from "react-icons/vsc";
 import { listExplorerDirectory } from "../../api/fileExplorer";
 import {
   chevronCss,
-  fileIconCss,
   folderIconCss,
   nodeRowCss,
-  contextMenuContentCss,
-  contextMenuItemCss,
+  pendingDeleteCss,
   rootHomeCss,
   rootPathCss,
   statusRowCss,
@@ -23,8 +17,14 @@ import type {
   FileExplorerListing,
   EditorOpenRequest,
   ExplorerDownloadRequest,
+  ExplorerEntryActions,
   ExplorerRevealRequest,
 } from "../../types/FileExplorer";
+import EntryContextMenu from "./EntryContextMenu";
+import EntryRenameInput, { EntryStatusIcon } from "./EntryRenameInput";
+import ExplorerFile from "./ExplorerFile";
+import useEntryMutations from "./useEntryMutations";
+import type { ReloadParent } from "./useEntryMutations";
 
 interface Props {
   active: boolean;
@@ -36,105 +36,16 @@ interface Props {
   homePath: string;
   onRootLoaded?: (listing: FileExplorerListing) => void;
   onOpenFile: (request: EditorOpenRequest) => void;
-  onDownload: (request: ExplorerDownloadRequest) => void;
+  actions: ExplorerEntryActions;
+  /** Re-lists the directory containing this one (absent for the root). */
+  reloadParent?: ReloadParent;
+  /** Bumped by the parent to make loaded descendants re-list themselves. */
+  refreshSignal?: number;
   focusedPath: string | null;
   revealRequest: ExplorerRevealRequest | null;
 }
 
-function extensionFor(name: string): string {
-  const dot = name.lastIndexOf(".");
-  return dot > 0 && dot < name.length - 1
-    ? name.slice(dot + 1).toLowerCase()
-    : "";
-}
-
-function ExplorerFile({
-  entry,
-  indent,
-  onOpenFile,
-  focused,
-  active,
-  revealRequest,
-  onDownload,
-}: {
-  entry: FileExplorerEntry;
-  indent: number;
-  onOpenFile: (request: EditorOpenRequest) => void;
-  focused: boolean;
-  active: boolean;
-  revealRequest: ExplorerRevealRequest | null;
-  onDownload: (request: ExplorerDownloadRequest) => void;
-}) {
-  const rowRef = useRef<HTMLButtonElement | null>(null);
-  useEffect(() => {
-    if (!active || revealRequest?.path !== entry.path) return;
-    const animationFrame = window.requestAnimationFrame(() => {
-      rowRef.current?.scrollIntoView({
-        behavior: "smooth",
-        block: "center",
-        inline: "center",
-      });
-    });
-    return () => window.cancelAnimationFrame(animationFrame);
-  }, [active, entry.path, revealRequest]);
-
-  const extension = extensionFor(entry.name);
-  const iconStyle = defaultStyles[extension as DefaultExtensionType] ?? {
-    color: "#41566d",
-    foldColor: "#607890",
-    glyphColor: "#c9def2",
-  };
-  return (
-    <EntryContextMenu entry={entry} onDownload={onDownload}>
-      <button
-        type="button"
-        ref={rowRef}
-        css={nodeRowCss(indent, true, focused)}
-        role="treeitem"
-        aria-current={focused ? "true" : undefined}
-        title={entry.path}
-        onClick={() =>
-          onOpenFile({ path: entry.path, pinned: false, requestId: Date.now() })
-        }
-        onDoubleClick={() =>
-          onOpenFile({ path: entry.path, pinned: true, requestId: Date.now() })
-        }
-      >
-        <span css={chevronCss} />
-        <span css={fileIconCss}>
-          <FileIcon extension={extension || undefined} {...iconStyle} />
-        </span>
-        <span>{entry.name}</span>
-      </button>
-    </EntryContextMenu>
-  );
-}
-
-function EntryContextMenu({
-  entry,
-  onDownload,
-  children,
-}: {
-  entry: ExplorerDownloadRequest;
-  onDownload: (request: ExplorerDownloadRequest) => void;
-  children: ReactNode;
-}) {
-  return (
-    <ContextMenu.Root>
-      <ContextMenu.Trigger asChild>{children}</ContextMenu.Trigger>
-      <ContextMenu.Portal>
-        <ContextMenu.Content css={contextMenuContentCss}>
-          <ContextMenu.Item
-            css={contextMenuItemCss}
-            onSelect={() => onDownload(entry)}
-          >
-            Download
-          </ContextMenu.Item>
-        </ContextMenu.Content>
-      </ContextMenu.Portal>
-    </ContextMenu.Root>
-  );
-}
+const noParent: ReloadParent = async () => null;
 
 function splitHomePrefix(path: string, homePath: string): [string, string] {
   const windowsPath = /^[A-Za-z]:\//.test(path);
@@ -158,13 +69,16 @@ export default function ExplorerNode({
   homePath,
   onRootLoaded,
   onOpenFile,
-  onDownload,
+  actions,
+  reloadParent = noParent,
+  refreshSignal = 0,
   focusedPath,
   revealRequest,
 }: Props) {
   const [expanded, setExpanded] = useState(root);
   const [entries, setEntries] = useState<FileExplorerEntry[] | null>(null);
   const [error, setError] = useState("");
+  const [childRefreshSignal, setChildRefreshSignal] = useState(0);
 
   useEffect(() => {
     if (!active || !expanded || entries !== null) return;
@@ -185,60 +99,134 @@ export default function ExplorerNode({
     return () => controller.abort();
   }, [active, entries, expanded, onRootLoaded, path, root, sessionId]);
 
+  // Re-list after a child rename/delete. `cascade` also refreshes loaded
+  // subfolders, for a folder delete that may have partially succeeded.
+  const reloadEntries = useCallback(
+    async (cascade = false) => {
+      try {
+        const listing = await listExplorerDirectory(
+          sessionId,
+          root ? undefined : path,
+        );
+        setEntries(listing.entries);
+        setError("");
+        if (cascade) setChildRefreshSignal((value) => value + 1);
+        return listing.entries;
+      } catch (reason) {
+        setError(
+          reason instanceof Error ? reason.message : "Could not list directory",
+        );
+        return null;
+      }
+    },
+    [path, root, sessionId],
+  );
+
+  const seenRefreshSignal = useRef(refreshSignal);
+  useEffect(() => {
+    if (refreshSignal === seenRefreshSignal.current) return;
+    seenRefreshSignal.current = refreshSignal;
+    if (entries !== null) void reloadEntries(true);
+  }, [entries, refreshSignal, reloadEntries]);
+
+  const reloadOwnEntries = useCallback(() => reloadEntries(), [reloadEntries]);
+  const reloadOwnTree = useCallback(() => {
+    if (entries !== null) void reloadEntries(true);
+  }, [entries, reloadEntries]);
+
+  const directoryParts = name.split(/[\\/]/).filter(Boolean);
+  const directoryName = directoryParts[directoryParts.length - 1] || name;
+  const directoryEntry: ExplorerDownloadRequest = {
+    name: directoryName,
+    path: path ?? "",
+    kind: "directory",
+  };
+  const mutation = useEntryMutations(
+    directoryEntry,
+    actions,
+    reloadParent,
+    reloadOwnTree,
+  );
+
   const [homePrefix, pathRemainder] = splitHomePrefix(name, homePath);
   const FolderIcon = expanded ? VscFolderOpened : VscFolder;
-  const row = (
+  const icons = (
     <>
       <span css={chevronCss}>
         {expanded ? <FiChevronDown size={13} /> : <FiChevronRight size={13} />}
       </span>
-      <span css={folderIconCss}>
+      <span css={[folderIconCss, mutation.deleting && pendingDeleteCss]}>
         <FolderIcon size={16} />
       </span>
+    </>
+  );
+  const row = (
+    <>
+      {icons}
       {root ? (
         <span>
           <span css={rootHomeCss}>{homePrefix}</span>
           <span css={rootPathCss}>{pathRemainder}</span>
         </span>
       ) : (
-        <span>{name}</span>
+        <span css={mutation.deleting && pendingDeleteCss}>{name}</span>
       )}
+      <EntryStatusIcon status={mutation.status} />
     </>
   );
-  const directoryParts = name.split(/[\\/]/).filter(Boolean);
-  const directoryName = directoryParts[directoryParts.length - 1] || name;
-  const directoryEntry: ExplorerDownloadRequest | null = path
-    ? { name: directoryName, path, kind: "directory" }
-    : null;
+
+  let header = null;
+  if (root) {
+    header = path ? (
+      <EntryContextMenu entry={directoryEntry} onDownload={actions.download}>
+        <div css={nodeRowCss(indent, false)} title={name}>
+          {row}
+        </div>
+      </EntryContextMenu>
+    ) : (
+      <div css={nodeRowCss(indent, false)} title={name}>
+        {row}
+      </div>
+    );
+  } else if (path && mutation.renaming) {
+    header = (
+      <div css={nodeRowCss(indent, false)}>
+        {icons}
+        <EntryRenameInput
+          value={mutation.draft}
+          kind="directory"
+          status={mutation.status}
+          onChange={mutation.setDraft}
+          onCommit={() => void mutation.commitRename()}
+          onCancel={mutation.cancelRename}
+        />
+      </div>
+    );
+  } else if (path) {
+    header = (
+      <EntryContextMenu
+        entry={directoryEntry}
+        disabled={mutation.deleting}
+        onDownload={actions.download}
+        onRename={mutation.startRename}
+        onDelete={() => void mutation.requestDelete()}
+      >
+        <button
+          type="button"
+          css={nodeRowCss(indent, true)}
+          disabled={mutation.deleting}
+          onClick={() => setExpanded((value) => !value)}
+          title={path}
+        >
+          {row}
+        </button>
+      </EntryContextMenu>
+    );
+  }
 
   return (
     <div role="treeitem" aria-expanded={expanded}>
-      {root ? (
-        directoryEntry ? (
-          <EntryContextMenu entry={directoryEntry} onDownload={onDownload}>
-            <div css={nodeRowCss(indent, false)} title={name}>
-              {row}
-            </div>
-          </EntryContextMenu>
-        ) : (
-          <div css={nodeRowCss(indent, false)} title={name}>
-            {row}
-          </div>
-        )
-      ) : (
-        directoryEntry && (
-          <EntryContextMenu entry={directoryEntry} onDownload={onDownload}>
-            <button
-              type="button"
-              css={nodeRowCss(indent, true)}
-              onClick={() => setExpanded((value) => !value)}
-              title={path}
-            >
-              {row}
-            </button>
-          </EntryContextMenu>
-        )
-      )}
+      {header}
       {expanded && entries === null && !error && (
         <div css={statusRowCss(indent)}>Loading…</div>
       )}
@@ -258,7 +246,9 @@ export default function ExplorerNode({
                 onOpenFile={onOpenFile}
                 focusedPath={focusedPath}
                 revealRequest={revealRequest}
-                onDownload={onDownload}
+                actions={actions}
+                reloadParent={reloadOwnEntries}
+                refreshSignal={childRefreshSignal}
               />
             ) : (
               <ExplorerFile
@@ -269,7 +259,8 @@ export default function ExplorerNode({
                 focused={entry.path === focusedPath}
                 active={active}
                 revealRequest={revealRequest}
-                onDownload={onDownload}
+                actions={actions}
+                reloadParent={reloadOwnEntries}
               />
             ),
           )}

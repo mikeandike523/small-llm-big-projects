@@ -1,5 +1,6 @@
 import type {
   ExplorerDownloadJob,
+  ExplorerRenameResult,
   FileExplorerListing,
 } from "../types/FileExplorer";
 
@@ -71,11 +72,12 @@ export async function writeExplorerFile(
   });
 }
 
-async function downloadJobRequest(
+async function explorerApiRequest<T>(
   url: string,
-  init?: RequestInit,
-  backendErrorsLogged = false,
-): Promise<ExplorerDownloadJob> {
+  init: RequestInit | undefined,
+  backendErrorsLogged: boolean,
+  failureLabel: string,
+): Promise<T> {
   let response: Response;
   try {
     response = await fetch(url, init);
@@ -88,11 +90,59 @@ async function downloadJobRequest(
   const data = await response.json().catch(() => null);
   if (!response.ok) {
     throw new FileExplorerApiError(
-      data?.error || `Download request failed (${response.status})`,
+      data?.error || `${failureLabel} failed (${response.status})`,
       backendErrorsLogged,
     );
   }
-  return data as ExplorerDownloadJob;
+  return data as T;
+}
+
+function downloadJobRequest(
+  url: string,
+  init?: RequestInit,
+  backendErrorsLogged = false,
+): Promise<ExplorerDownloadJob> {
+  return explorerApiRequest(url, init, backendErrorsLogged, "Download request");
+}
+
+function postLoggedExplorerMutation<T>(
+  route: string,
+  body: object,
+  failureLabel: string,
+): Promise<T> {
+  return explorerApiRequest(
+    `${window.location.origin}${route}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    },
+    true,
+    failureLabel,
+  );
+}
+
+export function renameExplorerEntry(
+  sessionId: string,
+  path: string,
+  newName: string,
+): Promise<ExplorerRenameResult> {
+  return postLoggedExplorerMutation(
+    "/api/file-explorer/rename",
+    { session_id: sessionId, path, new_name: newName },
+    "Rename",
+  );
+}
+
+export async function deleteExplorerEntry(
+  sessionId: string,
+  path: string,
+): Promise<void> {
+  await postLoggedExplorerMutation(
+    "/api/file-explorer/delete",
+    { session_id: sessionId, path },
+    "Delete",
+  );
 }
 
 export function createExplorerDownload(

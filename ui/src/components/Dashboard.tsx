@@ -4,6 +4,7 @@ import React, { useEffect, useRef, useState, useCallback } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { FaHeartbeat } from "react-icons/fa";
 import NewSessionDialog, { type SessionDefaults } from "./NewSessionDialog";
+import ConfirmDialog from "./ConfirmDialog";
 import VersionWidget from "./VersionWidget";
 
 // ---------------------------------------------------------------------------
@@ -516,83 +517,6 @@ function FolderPlusIcon() {
   );
 }
 
-const modalOverlayCss = css`
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.7);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-`;
-
-const modalBoxCss = css`
-  background: #181818;
-  border: 1px solid #3a1a1a;
-  border-radius: 10px;
-  padding: 28px 32px;
-  max-width: 420px;
-  width: 90%;
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
-  font-family: "Fira Code", "Consolas", monospace;
-`;
-
-const modalTitleCss = css`
-  font-size: 15px;
-  font-weight: 700;
-  color: #cc4444;
-  letter-spacing: 1px;
-`;
-
-const modalBodyCss = css`
-  font-size: 12px;
-  color: #eef3ff;
-  line-height: 1.6;
-`;
-
-const modalActionsCss = css`
-  display: flex;
-  justify-content: flex-end;
-  gap: 10px;
-`;
-
-const modalCancelBtnCss = css`
-  background: none;
-  border: 1px solid #30405f;
-  border-radius: 5px;
-  color: #eef3ff;
-  padding: 7px 18px;
-  font-size: 12px;
-  font-family: inherit;
-  cursor: pointer;
-  &:hover {
-    border-color: #8aa4d8;
-    color: #fff;
-  }
-`;
-
-const modalDeleteBtnCss = css`
-  background: #2a0a0a;
-  border: 1px solid #cc2222;
-  border-radius: 5px;
-  color: #ee4444;
-  padding: 7px 18px;
-  font-size: 12px;
-  font-family: inherit;
-  cursor: pointer;
-  font-weight: 600;
-  &:hover {
-    background: #3a0a0a;
-    border-color: #ff4444;
-  }
-  &:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-`;
-
 const emptyStateCss = css`
   display: flex;
   flex-direction: column;
@@ -994,71 +918,37 @@ export default function Dashboard() {
       )}
 
       {deleteTarget && (
-        <div
-          css={modalOverlayCss}
-          onClick={() => !deleting && setDeleteTarget(null)}
+        <ConfirmDialog
+          title="Delete Session?"
+          confirmLabel="Delete"
+          busyLabel="Deleting..."
+          busy={deleting}
+          onConfirm={confirmDelete}
+          onCancel={() => setDeleteTarget(null)}
         >
-          <div css={modalBoxCss} onClick={(e) => e.stopPropagation()}>
-            <div css={modalTitleCss}>Delete Session?</div>
-            <div css={modalBodyCss}>
-              This will permanently delete all data for session{" "}
-              <strong style={{ color: "#ccc" }}>
-                {deleteTarget.session_id.slice(0, 8)}
-              </strong>{" "}
-              ({cwdBasename(deleteTarget.initial_cwd)}), including all turns,
-              memory, and cached state. This cannot be undone.
-            </div>
-            <div css={modalActionsCss}>
-              <button
-                css={modalCancelBtnCss}
-                onClick={() => setDeleteTarget(null)}
-                disabled={deleting}
-              >
-                Cancel
-              </button>
-              <button
-                css={modalDeleteBtnCss}
-                onClick={confirmDelete}
-                disabled={deleting}
-              >
-                {deleting ? "Deleting..." : "Delete"}
-              </button>
-            </div>
-          </div>
-        </div>
+          This will permanently delete all data for session{" "}
+          <strong style={{ color: "#ccc" }}>
+            {deleteTarget.session_id.slice(0, 8)}
+          </strong>{" "}
+          ({cwdBasename(deleteTarget.initial_cwd)}), including all turns,
+          memory, and cached state. This cannot be undone.
+        </ConfirmDialog>
       )}
 
       {showBulkDelete && (
-        <div
-          css={modalOverlayCss}
-          onClick={() => !bulkDeleting && setShowBulkDelete(false)}
+        <ConfirmDialog
+          title="Delete Selected Sessions?"
+          confirmLabel="Delete"
+          busyLabel="Deleting..."
+          busy={bulkDeleting}
+          onConfirm={confirmBulkDelete}
+          onCancel={() => setShowBulkDelete(false)}
         >
-          <div css={modalBoxCss} onClick={(e) => e.stopPropagation()}>
-            <div css={modalTitleCss}>Delete Selected Sessions?</div>
-            <div css={modalBodyCss}>
-              This will permanently delete all data for{" "}
-              <strong style={{ color: "#ccc" }}>{selectedIds.size}</strong>{" "}
-              selected session(s), including all turns, memory, and cached
-              state. This cannot be undone.
-            </div>
-            <div css={modalActionsCss}>
-              <button
-                css={modalCancelBtnCss}
-                onClick={() => setShowBulkDelete(false)}
-                disabled={bulkDeleting}
-              >
-                Cancel
-              </button>
-              <button
-                css={modalDeleteBtnCss}
-                onClick={confirmBulkDelete}
-                disabled={bulkDeleting}
-              >
-                {bulkDeleting ? "Deleting..." : "Delete"}
-              </button>
-            </div>
-          </div>
-        </div>
+          This will permanently delete all data for{" "}
+          <strong style={{ color: "#ccc" }}>{selectedIds.size}</strong> selected
+          session(s), including all turns, memory, and cached state. This cannot
+          be undone.
+        </ConfirmDialog>
       )}
     </div>
   );

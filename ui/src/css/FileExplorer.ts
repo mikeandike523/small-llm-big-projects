@@ -11,6 +11,7 @@ import {
   spTextTitle,
 } from "./SidePanelTheme";
 import scrollbarCss from "./scrollBarCss";
+import _spin from "./_spin";
 
 export const explorerPanelCss = css`
   display: flex;
@@ -171,4 +172,58 @@ export const contextMenuItemCss = css`
     background: rgba(77, 134, 191, 0.3);
     color: #fff;
   }
+`;
+
+export const pendingDeleteCss = css`
+  opacity: 0.5;
+  text-decoration: line-through;
+`;
+
+export const renameInputCss = css`
+  min-width: 140px;
+  height: 18px;
+  padding: 0 4px;
+  border: 1px solid ${spAccentBright};
+  border-radius: 2px;
+  outline: none;
+  background: #0f151d;
+  color: ${spTextMain};
+  font: inherit;
+
+  &:read-only {
+    opacity: 0.7;
+  }
+`;
+
+export const rowStatusIconCss = (failed: boolean) => css`
+  width: 14px;
+  min-width: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: ${failed ? "#e06c60" : spTextMuted};
+  text-decoration: none;
+
+  ${!failed &&
+  css`
+    & > svg {
+      animation: ${_spin} 0.7s linear infinite;
+    }
+  `}
+`;
+
+export const contextMenuDangerItemCss = css`
+  ${contextMenuItemCss}
+  color: #e06c60;
+
+  &[data-highlighted] {
+    background: rgba(204, 68, 68, 0.28);
+    color: #ffb3aa;
+  }
+`;
+
+export const contextMenuSeparatorCss = css`
+  height: 1px;
+  margin: 4px 2px;
+  background: #34465d;
 `;

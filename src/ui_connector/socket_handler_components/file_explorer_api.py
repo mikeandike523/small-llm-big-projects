@@ -163,13 +163,19 @@ def _file_error_response(exc: Exception):
         return jsonify({"error": str(exc)}), 404
     if isinstance(exc, PermissionError):
         return jsonify({"error": str(exc)}), 403
+    if isinstance(exc, FileExistsError):
+        return jsonify({"error": str(exc)}), 409
     if isinstance(exc, (DownloadJobError, ExplorerPathError, IsADirectoryError)):
         return jsonify({"error": str(exc)}), 400
     return jsonify({"error": f"Could not access file: {exc}"}), 500
 
 
-def _emit_download_request_error(
-    session_id: object, path_value: object, exc: Exception
+def _emit_file_request_error(
+    session_id: object,
+    path_value: object,
+    exc: Exception,
+    source: str = "file-download",
+    **extra: object,
 ) -> None:
     if not isinstance(session_id, str) or not session_id.strip():
         return
@@ -177,13 +183,14 @@ def _emit_download_request_error(
         _emit_backend_log(
             session_id.strip(),
             {
-                "source": "file-download",
+                "source": source,
                 "path": path_value,
+                **extra,
                 "error": f"{type(exc).__name__}: {exc}",
             },
         )
     except Exception:
-        logger.exception("Could not emit Debug Panel log for download request")
+        logger.exception("Could not emit Debug Panel log for %s request", source)
 
 
 @app.route("/api/file-explorer/read", methods=["POST"])
@@ -263,11 +270,11 @@ def api_file_explorer_create_download():
         PermissionError,
         OSError,
     ) as exc:
-        _emit_download_request_error(session_id, path_value, exc)
+        _emit_file_request_error(session_id, path_value, exc)
         return _file_error_response(exc)
     except Exception as exc:
         logger.exception("Unexpected error while creating file download")
-        _emit_download_request_error(session_id, path_value, exc)
+        _emit_file_request_error(session_id, path_value, exc)
         return _file_error_response(exc)
 
 
@@ -297,11 +304,11 @@ def api_file_explorer_download_content(job_id: str):
             conditional=True,
         )
     except (FileNotFoundError, PermissionError, OSError) as exc:
-        _emit_download_request_error(job.session_id, str(job.source), exc)
+        _emit_file_request_error(job.session_id, str(job.source), exc)
         return _file_error_response(exc)
     except Exception as exc:
         logger.exception("Unexpected error while starting download %s", job.id)
-        _emit_download_request_error(job.session_id, str(job.source), exc)
+        _emit_file_request_error(job.session_id, str(job.source), exc)
         return _file_error_response(exc)
     if job.temporary:
         response.call_on_close(lambda: mark_download_complete(job))

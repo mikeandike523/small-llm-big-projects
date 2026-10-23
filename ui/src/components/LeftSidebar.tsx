@@ -15,6 +15,8 @@ import type { Props as DebugPanelProps } from "../types/DebugPanel";
 import type {
   EditorOpenRequest,
   ExplorerDownloadRequest,
+  ExplorerPathChange,
+  ExplorerRenameResult,
   ExplorerRevealRequest,
 } from "../types/FileExplorer";
 import { readSessionValue, writeSessionValue } from "../utils/sessionStorage";
@@ -25,6 +27,11 @@ import FileEditorPanel from "./FileEditorPanel";
 type SidebarView = "explorer" | "debug";
 type Props = Omit<DebugPanelProps, "open"> & {
   onDownloadExplorerEntry: (request: ExplorerDownloadRequest) => void;
+  onRenameExplorerEntry: (
+    entry: ExplorerDownloadRequest,
+    newName: string,
+  ) => Promise<ExplorerRenameResult>;
+  onDeleteExplorerEntry: (entry: ExplorerDownloadRequest) => Promise<void>;
 };
 const WIDTH_STORAGE_KEY = "slbp:left-sidebar-width";
 const VIEW_STORAGE_KEY = "slbp:left-sidebar-view";
@@ -99,6 +106,9 @@ export default function LeftSidebar(props: Props) {
   const [explorerRevealRequest, setExplorerRevealRequest] =
     useState<ExplorerRevealRequest | null>(null);
   const explorerRevealSequence = useRef(0);
+  const [explorerPathChange, setExplorerPathChange] =
+    useState<ExplorerPathChange | null>(null);
+  const explorerPathChangeSequence = useRef(0);
   const persistWidth = useMemo(() => createWidthStorageThrottle(120), []);
 
   useEffect(
@@ -171,6 +181,25 @@ export default function LeftSidebar(props: Props) {
               editorOpen={editorOpen}
               revealRequest={explorerRevealRequest}
               onDownload={props.onDownloadExplorerEntry}
+              onRename={props.onRenameExplorerEntry}
+              onDelete={props.onDeleteExplorerEntry}
+              onEntryRenamed={(oldPath, newPath) => {
+                explorerPathChangeSequence.current += 1;
+                setExplorerPathChange({
+                  kind: "renamed",
+                  oldPath,
+                  newPath,
+                  requestId: explorerPathChangeSequence.current,
+                });
+              }}
+              onEntryDeleting={(path) => {
+                explorerPathChangeSequence.current += 1;
+                setExplorerPathChange({
+                  kind: "deleted",
+                  path,
+                  requestId: explorerPathChangeSequence.current,
+                });
+              }}
               onToggleEditor={() => setEditorOpen((value) => !value)}
               onOpenFile={(request) => {
                 setEditorRequest(request);
@@ -189,6 +218,7 @@ export default function LeftSidebar(props: Props) {
             sessionId={props.sessionId}
             rootPath={props.envInfo?.initialCwd ?? ""}
             request={editorRequest}
+            pathChange={explorerPathChange}
             onClose={() => setEditorOpen(false)}
             onRevealFile={(path) => {
               explorerRevealSequence.current += 1;

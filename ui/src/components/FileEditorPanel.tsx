@@ -24,82 +24,32 @@ import {
   statusPathCss,
   tabCloseCss,
 } from "../css/FileEditorPanel";
-import type { EditorOpenRequest } from "../types/FileExplorer";
-import { readSessionValue, writeSessionValue } from "../utils/sessionStorage";
+import type {
+  EditorOpenRequest,
+  ExplorerPathChange,
+} from "../types/FileExplorer";
+import { writeSessionValue } from "../utils/sessionStorage";
 import {
   configureFileEditorLanguages,
   languageFor,
 } from "./fileEditorLanguage";
-
-interface EditorTab {
-  path: string;
-  name: string;
-  parentDir: string;
-  content: string;
-  savedContent: string;
-  preview: boolean;
-  loading: boolean;
-  saving: boolean;
-  error: string;
-}
+import { isPathWithin, retargetPath } from "../utils/explorerPaths";
+import {
+  blankTab,
+  parentDirName,
+  restoredWorkspace,
+  retargetTabs,
+} from "./fileEditorTabs";
+import type { EditorTab, StoredWorkspace } from "./fileEditorTabs";
 
 interface Props {
   open: boolean;
   sessionId: string;
   rootPath: string;
   request: EditorOpenRequest | null;
+  pathChange: ExplorerPathChange | null;
   onClose: () => void;
   onRevealFile: (path: string) => void;
-}
-
-interface StoredWorkspace {
-  tabs: Array<{ path: string; preview: boolean }>;
-  activePath: string | null;
-}
-
-const fileName = (path: string) => path.split(/[\\/]/).pop() || path;
-
-function parentDirName(path: string, rootPath: string): string {
-  if (!rootPath) return "";
-  const normPath = path.replace(/\\/g, "/");
-  const normRoot = rootPath.replace(/\\/g, "/");
-  const prefix = normRoot.endsWith("/") ? normRoot : `${normRoot}/`;
-  if (!normPath.startsWith(prefix)) return "";
-  const rel = normPath.slice(prefix.length);
-  const slash = rel.lastIndexOf("/");
-  return slash >= 0 ? rel.slice(0, slash) : "";
-}
-
-function blankTab(path: string, preview: boolean, parentDir: string): EditorTab {
-  return {
-    path,
-    name: fileName(path),
-    parentDir,
-    content: "",
-    savedContent: "",
-    preview,
-    loading: true,
-    saving: false,
-    error: "",
-  };
-}
-
-function restoredWorkspace(storageKey: string): StoredWorkspace {
-  try {
-    const value = readSessionValue(storageKey);
-    if (!value) return { tabs: [], activePath: null };
-    const parsed = JSON.parse(value) as StoredWorkspace;
-    if (!Array.isArray(parsed.tabs)) throw new Error("Invalid tabs");
-    return {
-      tabs: parsed.tabs.filter(
-        (tab) => typeof tab.path === "string" && tab.path.length > 0,
-      ),
-      activePath:
-        typeof parsed.activePath === "string" ? parsed.activePath : null,
-    };
-  } catch {
-    return { tabs: [], activePath: null };
-  }
 }
 
 export default function FileEditorPanel({
@@ -107,6 +57,7 @@ export default function FileEditorPanel({
   sessionId,
   rootPath,
   request,
+  pathChange,
   onClose,
   onRevealFile,
 }: Props) {
@@ -200,6 +151,41 @@ export default function FileEditorPanel({
     setActivePath(request.path);
     void loadFile(request.path);
   }, [loadFile, request]);
+
+  // Explorer rename/delete. Deletes close tabs like closeTab, but without the
+  // unsaved-changes prompt and without scrolling the explorer.
+  const handledPathChange = useRef<number | null>(null);
+  useEffect(() => {
+    if (!pathChange || handledPathChange.current === pathChange.requestId)
+      return;
+    handledPathChange.current = pathChange.requestId;
+    if (pathChange.kind === "renamed") {
+      const { oldPath, newPath } = pathChange;
+      tabs
+        .filter((tab) => tab.loading && isPathWithin(tab.path, oldPath))
+        .forEach((tab) => {
+          const path = retargetPath(tab.path, oldPath, newPath);
+          if (path) void loadFile(path);
+        });
+      setTabs(retargetTabs(tabs, oldPath, newPath, rootPath));
+      setActivePath((current) =>
+        current ? (retargetPath(current, oldPath, newPath) ?? current) : null,
+      );
+      return;
+    }
+    const removed = (tab: EditorTab) => isPathWithin(tab.path, pathChange.path);
+    if (!tabs.some(removed)) return;
+    const remaining = tabs.filter((tab) => !removed(tab));
+    setTabs(remaining);
+    if (remaining.length === 0 && CLOSE_EDITOR_WHEN_LAST_TAB_CLOSES) onClose();
+    if (activePath && isPathWithin(activePath, pathChange.path)) {
+      const index = tabs.findIndex((tab) => tab.path === activePath);
+      const survivor =
+        tabs.slice(index + 1).find((tab) => !removed(tab)) ??
+        [...tabs.slice(0, index)].reverse().find((tab) => !removed(tab));
+      setActivePath(survivor?.path ?? null);
+    }
+  }, [activePath, loadFile, onClose, pathChange, rootPath, tabs]);
 
   useEffect(() => {
     const workspace: StoredWorkspace = {
@@ -376,7 +362,9 @@ export default function FileEditorPanel({
               >
                 <span css={editorTabNameCss}>
                   {ambiguous && tab.parentDir && (
-                    <span css={editorTabParentPathCss}>{`${tab.parentDir}/`}</span>
+                    <span
+                      css={editorTabParentPathCss}
+                    >{`${tab.parentDir}/`}</span>
                   )}
                   {tab.name}
                 </span>

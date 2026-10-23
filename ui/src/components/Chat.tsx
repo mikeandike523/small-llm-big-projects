@@ -26,6 +26,7 @@ import {
   threadCss,
 } from "../css/Chat";
 import useSocketWiring from "../hooks/useSocketWiring";
+import useExplorerMutations from "../hooks/useExplorerMutations";
 import useSessionDownloads from "../hooks/useSessionDownloads";
 import { fetchToolPreviewConfig } from "../api/toolPreviewConfig";
 import { createSocket } from "../socket";
@@ -121,6 +122,10 @@ export default function Chat() {
     setTerminalOpen,
   } = useSocketWiring(socket);
   const { folderCards, startDownload } = useSessionDownloads(
+    sessionId,
+    appendClientDebugLog,
+  );
+  const { renameEntry, deleteEntry } = useExplorerMutations(
     sessionId,
     appendClientDebugLog,
   );
@@ -318,6 +323,8 @@ export default function Chat() {
         systemPrompt={systemPrompt}
         backendLogs={backendLogs}
         onDownloadExplorerEntry={startDownload}
+        onRenameExplorerEntry={renameEntry}
+        onDeleteExplorerEntry={deleteEntry}
         socket={socket}
       />
 
