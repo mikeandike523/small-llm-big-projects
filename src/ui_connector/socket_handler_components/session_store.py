@@ -263,6 +263,7 @@ def _load_session(session_id: str) -> Session:
     mem_hash_key = f"session:{session_id}:memory"
 
     def _on_memory_change(key: str, event_type: str) -> None:
+        _state.mark_session_memory_dirty(session_id)
         try:
             keys = r.hkeys(mem_hash_key)
             socketio.emit("session_memory_keys_update", {"keys": keys}, room=session_id)
@@ -341,7 +342,13 @@ def _save_session_locked(
     # propagate: a save that silently did not happen is a hard error. The
     # cursor is saved only after the commit, so the next save re-emits anything
     # unsaved, and the bookmark below only moves once everything is durable.
-    memory_snapshot = r.hgetall(f"session:{session_id}:memory") or {}
+    # The session memory hash is copied to session_meta only when it changed
+    # since the last copy (RedisDict.on_change marks it). The flag is taken
+    # before the read, so a write landing after the read marks it again.
+    memory_changed = _state.take_session_memory_dirty(session_id)
+    memory_snapshot = (
+        (r.hgetall(f"session:{session_id}:memory") or {}) if memory_changed else None
+    )
     cursor = load_cursor(r, session_id)
     events = compute_events(session, cursor)
     turn_rows, subturn_rows = (
@@ -350,6 +357,37 @@ def _save_session_locked(
         else ([], [])
     )
     meta = derive_meta(session)
+    try:
+        _persist(
+            session_id, session, events, turn_rows, subturn_rows, meta, memory_snapshot
+        )
+    except Exception:
+        if memory_changed:
+            _state.mark_session_memory_dirty(session_id)
+        raise
+    save_cursor(r, session_id, cursor, _state._SESSION_TTL)
+
+    if stream_mark is not None:
+        # The logged events up to the mark are now in MySQL, so drop them
+        # from the Redis log.
+        set_watermark(r, session_id, stream_mark, _state._SESSION_TTL)
+        trim_stream_upto(r, session_id, stream_mark)
+
+    r.expire(f"session:{session_id}:memory", _state._SESSION_TTL)
+    r.expire(f"session:{session_id}:events", _state._SESSION_TTL)
+    r.setex(_live_marker_key(session_id), _state._SESSION_TTL, "1")
+
+
+def _persist(
+    session_id: str,
+    session: Session,
+    events: list,
+    turn_rows: list,
+    subturn_rows: list,
+    meta: dict,
+    memory_snapshot: dict | None,
+) -> None:
+    """One persist_save transaction for _save_session_locked."""
     persist_save(
         session_id,
         events,
@@ -368,23 +406,12 @@ def _save_session_locked(
             "task_title_count": meta["task_title_count"],
             "interim_response_as_thinking": session.interim_response_as_thinking,
             "load_custom_skills_tools": session.load_custom_skills_tools,
-            "memory": memory_snapshot,
+            "memory": memory_snapshot,  # None = unchanged
             "heartbeat_enabled": bool(
                 (session.session_data.get("heartbeat_settings") or {}).get("enabled")
             ),
         },
     )
-    save_cursor(r, session_id, cursor, _state._SESSION_TTL)
-
-    if stream_mark is not None:
-        # The logged events up to the mark are now in MySQL, so drop them
-        # from the Redis log.
-        set_watermark(r, session_id, stream_mark, _state._SESSION_TTL)
-        trim_stream_upto(r, session_id, stream_mark)
-
-    r.expire(f"session:{session_id}:memory", _state._SESSION_TTL)
-    r.expire(f"session:{session_id}:events", _state._SESSION_TTL)
-    r.setex(_live_marker_key(session_id), _state._SESSION_TTL, "1")
 
 
 def _delete_sessions(session_ids: list[str]) -> None:
@@ -422,6 +449,7 @@ def _delete_sessions(session_ids: list[str]) -> None:
         _state._session_current_cwd.pop(session_id, None)
         _state._session_costs.pop(session_id, None)
         _state._session_last_context_usage.pop(session_id, None)
+        _state.take_session_memory_dirty(session_id)
         delete_session_scratchpad(session_id)
 
 

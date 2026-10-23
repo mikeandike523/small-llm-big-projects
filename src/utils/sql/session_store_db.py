@@ -305,7 +305,7 @@ def execute_upsert_session_meta(
     task_title_count: int,
     interim_response_as_thinking: bool,
     load_custom_skills_tools: bool,
-    memory: dict,
+    memory: dict | None,
     heartbeat_enabled: bool = False,
     last_context_usage: dict | None = None,
 ) -> None:
@@ -314,7 +314,7 @@ def execute_upsert_session_meta(
     `created_at` is set only on insert (it's the authoritative session
     wall-clock); subsequent upserts leave it untouched. So is
     `history_cache_compatible`: a new row takes the column default (1), and an
-    existing row keeps its value.
+    existing row keeps its value. `memory=None` keeps the stored memory_json.
     """
     cur.execute(
         """
@@ -339,7 +339,7 @@ def execute_upsert_session_meta(
             interim_response_as_thinking = incoming.interim_response_as_thinking,
             load_custom_skills_tools     = incoming.load_custom_skills_tools,
             corrupt                      = 0,
-            memory_json                  = incoming.memory_json,
+            memory_json = COALESCE(incoming.memory_json, session_meta.memory_json),
             last_context_usage           = incoming.last_context_usage,
             heartbeat_enabled            = incoming.heartbeat_enabled
         """,
@@ -356,7 +356,7 @@ def execute_upsert_session_meta(
             int(task_title_count),
             1 if interim_response_as_thinking else 0,
             1 if load_custom_skills_tools else 0,
-            json.dumps(memory, ensure_ascii=False),
+            json.dumps(memory, ensure_ascii=False) if memory is not None else None,
             (
                 json.dumps(last_context_usage)
                 if last_context_usage is not None
