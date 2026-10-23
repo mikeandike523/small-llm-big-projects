@@ -32,6 +32,7 @@ from src.utils.context_errors import (
 )
 from src.utils.exceptions import ContextReductionExhaustedError
 from src.utils.llm.streaming import StreamingLLM
+from src.utils.session_cache_projection import subturn_final_response
 from src.utils.session_model import Session, Turn, Subturn
 
 logger = logging.getLogger(__name__)
@@ -63,12 +64,8 @@ def sanitize_messages_for_llm(messages: list[dict]) -> list[dict]:
 
 def _subturn_final_response(subturn: Subturn) -> str:
     """Extract the final response text from a subturn's exchanges."""
-    for ex in reversed(subturn.exchanges):
-        if ex.is_final:
-            return ex.assistant_content
-    if subturn.exchanges:
-        return subturn.exchanges[-1].assistant_content
-    return ""
+    # The chat history cache stores this same value (session_cache_projection).
+    return subturn_final_response(subturn)
 
 
 def _subturn_assistant_context(subturn: Subturn) -> str:

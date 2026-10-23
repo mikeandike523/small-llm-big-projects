@@ -96,7 +96,7 @@ def test_delete_missing(tmp_path):
 def _client(tmp_path, monkeypatch, logs):
     monkeypatch.setattr(
         explorer_api,
-        "_load_session",
+        "_load_session_info",
         lambda session_id: Session(session_id=session_id, initial_cwd=str(tmp_path)),
     )
     monkeypatch.setattr(

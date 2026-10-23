@@ -16,6 +16,8 @@ from src.ui_connector.socket_handler_components.emit import (
 )
 from src.ui_connector.socket_handler_components.session_store import (
     _load_session,
+    _load_session_info,
+    _repair_orphaned_latest_turn,
     _save_session,
     _get_session_skill_registry,
 )
@@ -80,10 +82,16 @@ def handle_resume_session(data: dict | None = None):
     if not session_id:
         return
 
-    # Loading (and repairing an orphaned turn) here, before the client asks for
-    # history, guarantees the history loader reads the repaired event log.
+    # Only settings and flags are needed here, not the conversation. An
+    # orphaned turn is repaired here, before the client asks for history, so
+    # the history loader reads the repaired event log.
     try:
-        session = _load_session(session_id)
+        session = _load_session_info(session_id)
+        if session is None:
+            # No such session yet: the full load creates it.
+            session = _load_session(session_id)
+        else:
+            _repair_orphaned_latest_turn(session_id, session)
     except Exception as exc:
         logger.exception("Could not load session %s", session_id)
         emit("session_load_error", {"message": failure_message(exc)})
@@ -139,7 +147,7 @@ def handle_resume_session(data: dict | None = None):
 
     last_context_usage = _state._session_last_context_usage.get(session_id)
     # Defensive profile-match check: the snapshot is stamped with the profile
-    # that produced it. (_session_from_db already filters on cold load and the
+    # that produced it. (restore_cold_state already filters on cold load and the
     # profile PATCH handler clears live changes, but this guards any path that
     # leaves a mismatched snapshot in state.) A null known_max_context is a
     # clear signal — never re-emit it as data.
@@ -329,16 +337,22 @@ def handle_run_startup_tool_calls():
         emit("startup_tool_calls_done", {"count": 0})
         return
 
-    session = _load_session(session_id)
-
-    if not session.startup_tool_calls:
+    # Decide from settings alone; the turns are only loaded (for the save at
+    # the end) when the tools actually run.
+    info = _load_session_info(session_id)
+    if info is not None and not info.startup_tool_calls:
         socketio.emit("startup_tool_calls_done", {"count": 0}, room=session_id)
         return
 
-    if session.startup_done:
+    if info is not None and info.startup_done:
         socketio.emit(
             "startup_tool_calls_done", {"count": 0, "skipped": True}, room=session_id
         )
+        return
+
+    session = _load_session(session_id)
+    if not session.startup_tool_calls:
+        socketio.emit("startup_tool_calls_done", {"count": 0}, room=session_id)
         return
 
     _startup_cwd = _state._session_current_cwd.get(session_id) or session.initial_cwd

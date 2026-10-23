@@ -4,8 +4,9 @@
  * The session page shows one turn per page, so turns are fetched one at a
  * time with an acknowledged `load_turn` socket call (history_loader.py):
  *
- *   load_turn {latest: true} -> {turnIds, turn, running, events, liveTodoItems}
- *   load_turn {turnId}       -> {turnId, turn}
+ *   load_turn {latest: true} -> {turnCount, latestTurnId, turn, running,
+ *                                events, liveTodoItems}
+ *   load_turn {page}         -> {page, turnId, turn}   (1-based page)
  *   (either may instead return {error})
  *
  * `events` are the running turn's not-yet-saved socket events, replayed on top
@@ -117,14 +118,19 @@ export type ReplayEvent = {
 };
 
 export type LatestTurnResult = {
-  turnIds: string[];
+  turnCount: number;
+  latestTurnId: string | null;
   turn: BackendTurn | null;
   running: boolean;
   events: ReplayEvent[];
   liveTodoItems: TodoItem[] | null;
 };
 
-export type TurnResult = { turnId: string; turn: BackendTurn | null };
+export type TurnResult = {
+  page: number;
+  turnId: string;
+  turn: BackendTurn | null;
+};
 
 const LOAD_TIMEOUT_MS = 30_000;
 
@@ -135,11 +141,11 @@ export function requestTurn(
 ): Promise<LatestTurnResult>;
 export function requestTurn(
   socket: Socket,
-  request: { turnId: string },
+  request: { page: number },
 ): Promise<TurnResult>;
 export function requestTurn(
   socket: Socket,
-  request: { latest: true } | { turnId: string },
+  request: { latest: true } | { page: number },
 ): Promise<LatestTurnResult | TurnResult> {
   return new Promise((resolve, reject) => {
     socket

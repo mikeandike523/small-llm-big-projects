@@ -582,7 +582,7 @@ export default function useSocketWiring(socket: Socket) {
       requestTurn(socket, { latest: true })
         .then((res) => {
           if (generation !== latestLoadRef.current) return;
-          pages.setInitialTurnIds(res.turnIds);
+          pages.setInitialTurns(res.turnCount, res.latestTurnId);
           if (res.turn) {
             let turn = backendTurnToFrontendTurn(res.turn);
             if (res.running && !turn.completed) {
@@ -1223,7 +1223,9 @@ export default function useSocketWiring(socket: Socket) {
     appendClientDebugLog,
     historyLoading,
     historyError,
-    turnIds: pages.turnIds,
+    turnCount: pages.turnCount,
+    latestTurnId: pages.latestTurnId,
+    pageTurnIds: pages.pageTurnIds,
     page: pages.page,
     unseenLatest: pages.unseenLatest,
     turnErrors: pages.turnErrors,

@@ -28,26 +28,19 @@ from src.utils.event_log import (
 )
 from src.utils.redis_dict import RedisDict
 from src.utils.session_dirs import delete_session_scratchpad
-from src.utils.session_model import (
-    Session,
-    repair_incomplete_turn,
-    CURRENT_SCHEMA_VERSION,
-)
-from src.utils.session_events import derive_meta, replay_events
-from src.utils.session_schema_repair import repair_event_log
-from src.utils.sql.session_store_db import (
-    append_events,
-    delete_sessions,
-    load_session_events,
-    load_session_meta,
-    mark_session_corrupt,
-    upsert_session_meta,
-)
+from src.utils.session_model import Session, repair_incomplete_turn
+from src.utils.session_events import derive_meta
+from src.utils.sql.chat_history_cache_db import load_last_turn_rows, persist_save
+from src.utils.sql.session_store_db import delete_sessions
 from src.ui_connector.socket_handler_components._session_event_emit import (
-    build_cursor,
+    cache_rows_for_save,
     compute_events,
     load_cursor,
     save_cursor,
+)
+from src.ui_connector.socket_handler_components.session_db_load import (
+    load_session_from_db,
+    load_session_info_from_db,
 )
 from src.ui_connector.socket_handler_components.session_customizations import (
     manifest_from_custom_tools,
@@ -226,95 +219,45 @@ def _live_marker_key(session_id: str) -> str:
     return f"session:{session_id}:live"
 
 
-def _session_from_db(session_id: str, *, cold: bool) -> Session | None:
-    """Load a session from the durable MySQL store by replaying its event log.
+def _load_session_info(session_id: str) -> Session | None:
+    """Load a session's settings and flags without its turns (cheap).
 
-    Every load goes through here: MySQL is the only source of the session model
-    (there is no whole-session Redis copy). Each call returns an independent
-    Session object.
-
-    `cold` means this process's live Redis state for the session is gone (boot
-    flush or TTL expiry). Only then is the memory hash rehydrated from the
-    metadata row, the Python-memory state (current cwd, accumulated cost,
-    context usage) restored, and the persist cursor rebuilt. A warm load must
-    not touch those: they may hold live, not-yet-saved state. Returns None if
-    there is no durable session (caller then creates a fresh Session).
+    For callers that need the cwd, custom skills/tools flag or settings but
+    not the conversation. The result can never be saved. Returns None if the
+    session does not exist.
     """
-    # Database errors propagate: a failed read is a hard error, never a blank
-    # session (saving that blank session would overwrite the real one).
-    meta = load_session_meta(session_id)
-    if meta is None:
-        return None
-    rows = load_session_events(session_id)
-    if meta.get("schema_version", 0) != CURRENT_SCHEMA_VERSION:
-        # See session_schema_repair.py: a registered chain can rewrite
-        # meta/rows forward to the current shape; if none is registered for
-        # this version gap (the common case today), fall back to a blank
-        # session rather than replaying a shape replay_events() was not
-        # written to understand.
-        repaired = repair_event_log(meta, rows, CURRENT_SCHEMA_VERSION)
-        if repaired is None:
-            return Session(session_id=session_id)
-        meta, rows = repaired
-    try:
-        session = replay_events(session_id, rows)
-    except Exception as exc:
-        # The stored data itself is unreadable: flag it, never crash.
-        logger.warning("Could not replay DB session %s: %s", session_id, exc)
-        mark_session_corrupt(session_id)
-        return Session(session_id=session_id)
-
     r = _state._get_redis()
-    # Resync the cursor with the durable log (prevents duplicate re-emits).
-    if cold or not load_cursor(r, session_id):
-        save_cursor(r, session_id, build_cursor(session), _state._SESSION_TTL)
-
-    if not cold:
-        return session
-
-    # Rehydrate the session_memory hash into Redis so the RedisDict sees it.
-    mem_hash_key = f"session:{session_id}:memory"
-    memory = meta.get("memory") or {}
-    r.delete(mem_hash_key)
-    if memory:
-        r.hset(mem_hash_key, mapping=memory)
-
-    # Restore Python-memory-only state.
-    if meta.get("current_cwd"):
-        _state._session_current_cwd[session_id] = meta["current_cwd"]
-    if meta.get("total_cost_usd"):
-        _state._session_costs[session_id] = float(meta["total_cost_usd"])
-    if meta.get("last_context_usage"):
-        last_context_usage = meta["last_context_usage"]
-        # The snapshot is stamped with the profile that produced it. If the
-        # profile changed between runs (e.g. switched after a restart), the
-        # stored token counts and known_max_context no longer describe the
-        # current profile — drop the stale snapshot instead of restoring it
-        # (the next _save_session then writes NULL to session_meta, and the
-        # next main-agent exchange with a max-context profile re-emits fresh).
-        if last_context_usage.get("profile") == session.profile_name:
-            # Runtime revisions intentionally restart with the server. No old
-            # request can still be in flight after a cold load, so rebase the
-            # durable snapshot onto the new runtime generation.
-            last_context_usage["profile_revision"] = 0
-            _state._session_last_context_usage[session_id] = last_context_usage
-        else:
-            _state._session_last_context_usage.pop(session_id, None)
-            logger.info(
-                "Dropping stale last_context_usage for session %s "
-                "(snapshot profile %r != current profile %r)",
-                session_id,
-                last_context_usage.get("profile"),
-                session.profile_name,
-            )
-
+    cold = not r.exists(_live_marker_key(session_id))
+    session = load_session_info_from_db(session_id, cold=cold)
+    if session is None:
+        return None
+    r.setex(_live_marker_key(session_id), _state._SESSION_TTL, "1")
+    _init_session_caches(session, session_id)
     return session
 
 
+def _repair_orphaned_latest_turn(session_id: str, info: Session) -> None:
+    """Repair the latest turn if a restart/crash left it open (see _load_session).
+
+    For a cached session the index row says whether the latest turn is still
+    open, so the full load only runs when there is something to repair.
+    """
+    if _state.has_active_turn_task(session_id):
+        return
+    if info.history_cache_compatible:
+        last = load_last_turn_rows(session_id, 1)
+        if not last or last[0]["completed"]:
+            return
+    _load_session(session_id)
+
+
 def _load_session(session_id: str) -> Session:
+    """Load a session with its turns, for the agent (see session_db_load.py)."""
     r = _state._get_redis()
     cold = not r.exists(_live_marker_key(session_id))
-    session = _session_from_db(session_id, cold=cold) or Session(session_id=session_id)
+    session = load_session_from_db(session_id, cold=cold) or Session(
+        session_id=session_id
+    )
     r.setex(_live_marker_key(session_id), _state._SESSION_TTL, "1")
 
     mem_hash_key = f"session:{session_id}:memory"
@@ -384,41 +327,54 @@ def _save_session_locked(
     """
     from src.ui_connector.socket_handler_components import runtime_settings
 
+    if not session.turns_loaded:
+        raise RuntimeError(
+            f"Session {session_id} was loaded without its turns and cannot be saved."
+        )
     runtime_settings.merge_into_session(session_id, session)
     r = _state._get_redis()
     # Read before the diff: every event logged up to here is covered by it.
     stream_mark = latest_stream_id(r, session_id) if advance_stream_watermark else None
 
-    # Durable write to MySQL (source of truth). Failures propagate: a save
-    # that silently did not happen is a hard error. The cursor is saved only
-    # after the append succeeds, so the next save re-emits anything unsaved,
-    # and the bookmark below only moves once everything is durable.
+    # Durable write to MySQL (source of truth): the events, the chat history
+    # cache rows they change and the metadata row commit together. Failures
+    # propagate: a save that silently did not happen is a hard error. The
+    # cursor is saved only after the commit, so the next save re-emits anything
+    # unsaved, and the bookmark below only moves once everything is durable.
     memory_snapshot = r.hgetall(f"session:{session_id}:memory") or {}
     cursor = load_cursor(r, session_id)
     events = compute_events(session, cursor)
-    if events:
-        append_events(session_id, events)
-    save_cursor(r, session_id, cursor, _state._SESSION_TTL)
-
-    meta = derive_meta(session)
-    upsert_session_meta(
-        session_id,
-        created_at=session.created_at,
-        schema_version=session.schema_version,
-        profile_name=session.profile_name,
-        initial_cwd=session.initial_cwd or "",
-        current_cwd=_state._session_current_cwd.get(session_id),
-        total_cost_usd=float(_state._session_costs.get(session_id) or 0.0),
-        last_context_usage=_state._session_last_context_usage.get(session_id),
-        turn_count=meta["turn_count"],
-        task_titles=meta["task_titles"],
-        interim_response_as_thinking=session.interim_response_as_thinking,
-        load_custom_skills_tools=session.load_custom_skills_tools,
-        memory=memory_snapshot,
-        heartbeat_enabled=bool(
-            (session.session_data.get("heartbeat_settings") or {}).get("enabled")
-        ),
+    turn_rows, subturn_rows = (
+        cache_rows_for_save(session, events)
+        if session.history_cache_compatible
+        else ([], [])
     )
+    meta = derive_meta(session)
+    persist_save(
+        session_id,
+        events,
+        turn_rows,
+        subturn_rows,
+        {
+            "created_at": session.created_at,
+            "schema_version": session.schema_version,
+            "profile_name": session.profile_name,
+            "initial_cwd": session.initial_cwd or "",
+            "current_cwd": _state._session_current_cwd.get(session_id),
+            "total_cost_usd": float(_state._session_costs.get(session_id) or 0.0),
+            "last_context_usage": _state._session_last_context_usage.get(session_id),
+            "turn_count": meta["turn_count"],
+            "recent_task_titles": meta["recent_task_titles"],
+            "task_title_count": meta["task_title_count"],
+            "interim_response_as_thinking": session.interim_response_as_thinking,
+            "load_custom_skills_tools": session.load_custom_skills_tools,
+            "memory": memory_snapshot,
+            "heartbeat_enabled": bool(
+                (session.session_data.get("heartbeat_settings") or {}).get("enabled")
+            ),
+        },
+    )
+    save_cursor(r, session_id, cursor, _state._SESSION_TTL)
 
     if stream_mark is not None:
         # The logged events up to the mark are now in MySQL, so drop them

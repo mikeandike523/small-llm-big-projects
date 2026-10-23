@@ -32,7 +32,7 @@ each row `{"event_type": str, "payload": dict}` in replay order, exactly as
 load_session_events() returns them and replay_events() consumes them. A
 repairer rewrites `meta` and/or individual event payloads (e.g. renaming a key
 inside an `exchange_recorded` payload) so that replay_events() reads the
-current shape. Both `_session_from_db` and the streaming history loader run
+current shape. Both the full-replay session loader and the history loader run
 rows through repair_event_log() before replaying them.
 
 Repair functions should be pure and defensive: a single step only needs to

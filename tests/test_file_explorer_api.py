@@ -63,7 +63,7 @@ def test_file_explorer_route_lists_session_root(tmp_path: Path, monkeypatch) -> 
     (tmp_path / "src").mkdir()
     monkeypatch.setattr(
         explorer_api,
-        "_load_session",
+        "_load_session_info",
         lambda session_id: Session(session_id=session_id, initial_cwd=str(tmp_path)),
     )
 
@@ -82,7 +82,7 @@ def test_file_explorer_route_rejects_path_outside_root(
     root.mkdir()
     monkeypatch.setattr(
         explorer_api,
-        "_load_session",
+        "_load_session_info",
         lambda session_id: Session(session_id=session_id, initial_cwd=str(root)),
     )
 
@@ -124,7 +124,7 @@ def test_file_editor_routes_read_and_write(tmp_path: Path, monkeypatch) -> None:
     file_path.write_text("const value = 1;", encoding="utf-8")
     monkeypatch.setattr(
         explorer_api,
-        "_load_session",
+        "_load_session_info",
         lambda session_id: Session(session_id=session_id, initial_cwd=str(tmp_path)),
     )
     client = app.test_client()
@@ -151,7 +151,7 @@ def test_file_editor_routes_read_and_write(tmp_path: Path, monkeypatch) -> None:
 def _download_client(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(
         explorer_api,
-        "_load_session",
+        "_load_session_info",
         lambda session_id: Session(session_id=session_id, initial_cwd=str(tmp_path)),
     )
     return app.test_client()

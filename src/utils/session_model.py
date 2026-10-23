@@ -119,6 +119,9 @@ class Turn:
     selected_skill_ids: list[str] = field(
         default_factory=list
     )  # Skills selected for first subturn; borrowed by continuations
+    # Built from chat_history_cache rows (closed-subturn fields only), not from
+    # events. Such a turn is sealed and must never be persisted again.
+    from_cache: bool = False
 
     def to_messages(self) -> list[dict]:
         """Rebuild OpenAI-format messages list from all subturns in order."""
@@ -152,6 +155,12 @@ class Session:
     created_at: float = field(default_factory=time.time)
     profile_name: str | None = None
     approval_mode: str = APPROVAL_MODE_DEFAULT
+    # session_meta.history_cache_compatible: chat_turn_index/chat_history_cache
+    # are complete for this session, so saves keep them up to date.
+    history_cache_compatible: bool = True
+    # False for a settings-only Session (session_info.load_session_info): it
+    # has no turns, so it must never be saved.
+    turns_loaded: bool = True
 
 
 # ---------------------------------------------------------------------------

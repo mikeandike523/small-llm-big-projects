@@ -13,6 +13,9 @@ results / final content fill in after first append), so exchanges use a content
 hash with last-writer-wins re-emission. A follow-up reopening a completed turn
 emits `turn_reopened`, so its next completion emits `turn_completed` again.
 
+Only the last two turns (:func:`persist_window`) are diffed: older turns are
+sealed, so the cursor keeps entries for those two turns only.
+
 IMPORTANT: after a cold load (Redis fully evicted) the cursor is gone. Callers
 must rebuild it from the replayed Session via :func:`build_cursor` before the
 next save, or every event would be re-emitted as a duplicate.
@@ -49,7 +52,8 @@ from src.utils.session_events import (
     todo_list_hash,
     turn_completed_payload,
 )
-from src.utils.session_model import Session
+from src.utils.session_cache_projection import project_subturn_row, project_turn_row
+from src.utils.session_model import Session, Turn
 
 
 def _persist_state_key(session_id: str) -> str:
@@ -110,14 +114,25 @@ def compute_events(session: Session, cursor: dict) -> list[tuple[str, dict]]:
         )
         cursor["heartbeat_settings"] = heartbeat_settings
 
-    turns_cursor: dict = cursor.setdefault("turns", {})
-
-    all_turns = list(session.completed_turns)
-    if session.current_turn is not None:
-        all_turns.append(session.current_turn)
+    window = persist_window(session)
+    # Older turns are sealed, so the cursor forgets them (it would otherwise
+    # grow with every turn and be re-read on every save).
+    old_turns_cursor: dict = cursor.get("turns") or {}
+    turns_cursor: dict = {
+        turn.id: old_turns_cursor[turn.id]
+        for _, turn in window
+        if turn.id in old_turns_cursor
+    }
+    cursor["turns"] = turns_cursor
     last_completed = session.completed_turns[-1] if session.completed_turns else None
 
-    for turn in all_turns:
+    for _, turn in window:
+        if turn.from_cache:
+            # The loaders always load the last two turns from their events.
+            raise RuntimeError(
+                f"Turn {turn.id} was loaded from the chat history cache and "
+                "cannot be persisted."
+            )
         tc = turns_cursor.get(turn.id)
         # A persisted, completed turn can only change again by being reopened
         # (a follow-up flips turn.completed back to False), so skip re-hashing
@@ -235,3 +250,45 @@ def build_cursor(session: Session) -> dict:
     cursor: dict = {}
     compute_events(session, cursor)  # discard events; keep the populated cursor
     return cursor
+
+
+def persist_window(session: Session) -> list[tuple[int, Turn]]:
+    """The turns a save can still change, as `(turn_seq, turn)`: the last two.
+
+    Only the most recent completed turn can be reopened by a follow-up, and a
+    new turn is always appended, so every older turn is sealed: its events are
+    in MySQL and it never changes again.
+    """
+    all_turns = list(session.completed_turns)
+    if session.current_turn is not None:
+        all_turns.append(session.current_turn)
+    first_seq = max(0, len(all_turns) - 2)
+    return [(first_seq + i + 1, t) for i, t in enumerate(all_turns[first_seq:])]
+
+
+def cache_rows_for_save(
+    session: Session, events: list[tuple[str, dict]]
+) -> tuple[list[dict], list[dict]]:
+    """chat_turn_index / chat_history_cache rows changed by `events`.
+
+    Only turns in the persist window can have events, and only the turns and
+    subturns those events name are re-projected.
+    """
+    turn_ids: set[str] = set()
+    subturn_ids: set[str] = set()
+    for _, payload in events:
+        if payload.get("turn_id"):
+            turn_ids.add(payload["turn_id"])
+        if payload.get("subturn_id"):
+            subturn_ids.add(payload["subturn_id"])
+    turn_rows: list[dict] = []
+    subturn_rows: list[dict] = []
+    for turn_seq, turn in persist_window(session):
+        if turn.id in turn_ids:
+            turn_rows.append(project_turn_row(turn, turn_seq, None))
+        subturn_rows.extend(
+            project_subturn_row(turn_seq, i, st)
+            for i, st in enumerate(turn.subturns, 1)
+            if st.id in subturn_ids
+        )
+    return turn_rows, subturn_rows

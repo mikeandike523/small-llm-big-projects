@@ -19,7 +19,9 @@ interface SessionSummary {
   turn_count: number;
   active_turn: boolean;
   interim_response_as_thinking: boolean;
+  /** The latest few task titles (oldest first); task_title_count is the total. */
   task_titles: string[];
+  task_title_count: number;
   load_custom_skills_tools: boolean;
   heartbeat_enabled: boolean;
 }
@@ -981,6 +983,7 @@ function SessionCard({
   const cwdChanged = currentPath && currentPath !== fullPath;
 
   const titles = session.task_titles ?? [];
+  const titleCount = session.task_title_count ?? titles.length;
   const MAX_TITLES = 4;
 
   function handleToggleSelect() {
@@ -1063,9 +1066,9 @@ function SessionCard({
               • {t}
             </div>
           ))}
-          {titles.length > MAX_TITLES && (
+          {titleCount > MAX_TITLES && (
             <div css={taskTitleItemCss} style={{ color: "#dbe5ff" }}>
-              + {titles.length - MAX_TITLES} more
+              + {titleCount - MAX_TITLES} more
             </div>
           )}
         </div>

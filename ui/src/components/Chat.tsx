@@ -103,7 +103,9 @@ export default function Chat() {
     appendClientDebugLog,
     historyLoading,
     historyError,
-    turnIds,
+    turnCount,
+    latestTurnId,
+    pageTurnIds,
     page,
     unseenLatest,
     turnErrors,
@@ -131,12 +133,11 @@ export default function Chat() {
   );
 
   // `thread` is the cache of loaded turns; the page shows one of them.
-  const latestTurnId = turnIds[turnIds.length - 1];
-  const currentTurnId = page > 0 ? turnIds[page - 1] : undefined;
+  const currentTurnId = page > 0 ? pageTurnIds[page] : undefined;
   const currentTurn = thread.find((t) => t.id === currentTurnId);
   // Point the reader at the latest turn when it waits for approval elsewhere.
   const latestNeedsApproval =
-    page !== turnIds.length &&
+    page !== turnCount &&
     (thread.find((t) => t.id === latestTurnId)?.approvalItems.length ?? 0) > 0;
 
   // Electron's tab strip has no browser chrome to read a title from, so it
@@ -490,10 +491,10 @@ export default function Chat() {
             )}{" "}
           </div>
         </div>
-        {turnIds.length > 0 && page > 0 && (
+        {turnCount > 0 && page > 0 && (
           <TurnPagination
             page={page}
-            total={turnIds.length}
+            total={turnCount}
             unseenLatest={unseenLatest || latestNeedsApproval}
             onGo={goToPage}
           />
@@ -513,13 +514,13 @@ export default function Chat() {
             <TurnPlaceholder state="error" message={historyError} />
           ) : historyLoading ? (
             <TurnPlaceholder state="loading" message="Loading session…" />
-          ) : currentTurnId && turnErrors[currentTurnId] ? (
+          ) : turnErrors[page] ? (
             <TurnPlaceholder
               state="error"
-              message={turnErrors[currentTurnId]}
-              onRetry={() => retryTurn(currentTurnId)}
+              message={turnErrors[page]}
+              onRetry={() => retryTurn(page)}
             />
-          ) : currentTurnId ? (
+          ) : page > 0 ? (
             <TurnPlaceholder
               state="loading"
               message={`Loading turn ${page}…`}

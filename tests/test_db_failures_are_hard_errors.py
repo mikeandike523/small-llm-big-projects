@@ -6,7 +6,7 @@ import mysql.connector
 import pytest
 
 import src.ui_connector.app  # noqa: F401 - server import order (avoids cycles)
-from src.ui_connector.socket_handler_components import session_store
+from src.ui_connector.socket_handler_components import session_db_load, session_store
 from src.utils.request_error_formatting import (
     classify_llm_request_error,
     failure_message,
@@ -39,7 +39,7 @@ def test_failed_save_raises_and_leaves_the_bookmark(monkeypatch) -> None:
     r = _FakeRedis()
     marks: list = []
     monkeypatch.setattr(session_store._state, "_get_redis", lambda: r)
-    monkeypatch.setattr(session_store, "append_events", _db_down)
+    monkeypatch.setattr(session_store, "persist_save", _db_down)
     monkeypatch.setattr(session_store, "latest_stream_id", lambda r, sid: "9-0")
     monkeypatch.setattr(
         session_store, "set_watermark", lambda *args: marks.append(args)
@@ -57,20 +57,21 @@ def test_failed_save_raises_and_leaves_the_bookmark(monkeypatch) -> None:
 def test_failed_load_raises_instead_of_returning_a_blank_session(
     monkeypatch,
 ) -> None:
-    monkeypatch.setattr(session_store, "load_session_meta", _db_down)
+    monkeypatch.setattr(session_db_load, "load_session_meta", _db_down)
     with pytest.raises(mysql.connector.Error):
-        session_store._session_from_db("s1", cold=True)
+        session_db_load.load_session_from_db("s1", cold=True)
 
 
 def test_failed_event_read_does_not_mark_the_session_corrupt(monkeypatch) -> None:
     corrupt: list = []
     monkeypatch.setattr(
-        session_store, "load_session_meta", lambda sid: {"schema_version": 6}
+        session_db_load, "load_session_meta", lambda sid: {"schema_version": 6}
     )
-    monkeypatch.setattr(session_store, "load_session_events", _db_down)
-    monkeypatch.setattr(session_store, "mark_session_corrupt", corrupt.append)
+    monkeypatch.setattr(session_db_load, "_warn_uncached", lambda sid: None)
+    monkeypatch.setattr(session_db_load, "load_session_events", _db_down)
+    monkeypatch.setattr(session_db_load, "mark_session_corrupt", corrupt.append)
     with pytest.raises(mysql.connector.Error):
-        session_store._session_from_db("s1", cold=True)
+        session_db_load.load_session_from_db("s1", cold=True)
     assert corrupt == []
 
 

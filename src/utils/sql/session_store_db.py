@@ -40,23 +40,46 @@ def _normalize_json(value: object) -> Any:
 # ---------------------------------------------------------------------------
 
 
+_INSERT_EVENT_SQL = (
+    "INSERT INTO session_events (session_id, event_type, payload) VALUES (%s, %s, %s)"
+)
+
+
 def append_events(session_id: str, events: Sequence[tuple[str, dict]]) -> None:
     """Append (event_type, payload) tuples to the session's event log."""
     if not events:
         return
-    rows = [
-        (session_id, event_type, json.dumps(payload, ensure_ascii=False))
-        for event_type, payload in events
-    ]
     pool = get_pool()
     with pool.get_connection() as conn:
         with conn.cursor() as cur:
-            cur.executemany(
-                "INSERT INTO session_events (session_id, event_type, payload) "
-                "VALUES (%s, %s, %s)",
-                rows,
-            )
+            execute_insert_events(cur, session_id, events)
         conn.commit()
+
+
+def execute_insert_events(
+    cur, session_id: str, events: Sequence[tuple[str, dict]]
+) -> dict[str, int]:
+    """Insert events in order on an open cursor (caller commits).
+
+    Returns `{turn_id: event id}` for each `turn_started` event. Those rows are
+    inserted on their own so `lastrowid` is exactly their id (a batched insert
+    does not guarantee consecutive ids).
+    """
+    starts: dict[str, int] = {}
+    batch: list[tuple] = []
+    for event_type, payload in events:
+        row = (session_id, event_type, json.dumps(payload, ensure_ascii=False))
+        if event_type == "turn_started":
+            if batch:
+                cur.executemany(_INSERT_EVENT_SQL, batch)
+                batch = []
+            cur.execute(_INSERT_EVENT_SQL, row)
+            starts[payload["turn_id"]] = int(cur.lastrowid)
+        else:
+            batch.append(row)
+    if batch:
+        cur.executemany(_INSERT_EVENT_SQL, batch)
+    return starts
 
 
 def load_session_events(session_id: str) -> list[dict]:
@@ -78,6 +101,9 @@ def load_session_events(session_id: str) -> list[dict]:
 
 def list_turn_starts(session_id: str) -> list[tuple[int, str]]:
     """Return `(event id, turn_id)` for each turn, in turn order.
+
+    Reads every `turn_started` payload: only for sessions without a built chat
+    history cache (cached sessions read `chat_turn_index`).
 
     Every turn has exactly one `turn_started` event, so these ids also bound
     each turn's events: turn N's events lie in [start_N, start_N+1). Served by
@@ -158,6 +184,44 @@ def load_latest_event_payload(
     return _normalize_json(row["payload"]) if row else None
 
 
+def load_latest_event_rows(
+    session_id: str, event_types: Sequence[str], *, upto_id: int | None = None
+) -> list[dict]:
+    """Return the newest event row of each type, in id order, ready for replay.
+
+    One keyed lookup per type on idx_events_type (session_id, event_type, +id),
+    unioned into one round trip. Absent types are skipped.
+    """
+    if not event_types:
+        return []
+    bound = " AND id <= %s" if upto_id is not None else ""
+    part = (
+        "(SELECT id, event_type, payload FROM session_events "
+        f"WHERE session_id = %s AND event_type = %s{bound} ORDER BY id DESC LIMIT 1)"
+    )
+    params: list = []
+    for event_type in event_types:
+        params.extend([session_id, event_type])
+        if upto_id is not None:
+            params.append(upto_id)
+    pool = get_pool()
+    with pool.get_connection() as conn:
+        with conn.cursor(dictionary=True) as cur:
+            cur.execute(" UNION ALL ".join([part] * len(event_types)), params)
+            rows = cur.fetchall()
+    return sorted(
+        (
+            {
+                "id": int(r["id"]),
+                "event_type": r["event_type"],
+                "payload": _normalize_json(r["payload"]),
+            }
+            for r in rows
+        ),
+        key=lambda r: r["id"],
+    )
+
+
 # ---------------------------------------------------------------------------
 # subturn_thinking_chars (display metadata, migration v17)
 # ---------------------------------------------------------------------------
@@ -214,7 +278,20 @@ def load_thinking_char_counts(
 # ---------------------------------------------------------------------------
 
 
-def upsert_session_meta(
+def upsert_session_meta(session_id: str, **fields: Any) -> None:
+    """Insert or update the slim metadata row for a session.
+
+    Takes the keyword arguments of :func:`execute_upsert_session_meta`.
+    """
+    pool = get_pool()
+    with pool.get_connection() as conn:
+        with conn.cursor() as cur:
+            execute_upsert_session_meta(cur, session_id, **fields)
+        conn.commit()
+
+
+def execute_upsert_session_meta(
+    cur,
     session_id: str,
     *,
     created_at: float,
@@ -224,78 +301,79 @@ def upsert_session_meta(
     current_cwd: str | None,
     total_cost_usd: float,
     turn_count: int,
-    task_titles: list,
+    recent_task_titles: list,
+    task_title_count: int,
     interim_response_as_thinking: bool,
     load_custom_skills_tools: bool,
     memory: dict,
     heartbeat_enabled: bool = False,
     last_context_usage: dict | None = None,
 ) -> None:
-    """Insert or update the slim metadata row for a session.
+    """Run the session_meta upsert on an open cursor (caller commits).
 
     `created_at` is set only on insert (it's the authoritative session
-    wall-clock); subsequent upserts leave it untouched.
+    wall-clock); subsequent upserts leave it untouched. So is
+    `history_cache_compatible`: a new row takes the column default (1), and an
+    existing row keeps its value.
     """
-    pool = get_pool()
-    with pool.get_connection() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                INSERT INTO session_meta (
-                    session_id, created_at, schema_version, profile_name,
-                    initial_cwd, current_cwd, total_cost_usd, turn_count,
-                    task_titles, interim_response_as_thinking,
-                    load_custom_skills_tools, corrupt, memory_json, last_context_usage,
-                    heartbeat_enabled
-                )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 0, %s, %s, %s)
-                AS incoming
-                ON DUPLICATE KEY UPDATE
-                    schema_version               = incoming.schema_version,
-                    profile_name                 = incoming.profile_name,
-                    initial_cwd                  = incoming.initial_cwd,
-                    current_cwd                  = incoming.current_cwd,
-                    total_cost_usd               = incoming.total_cost_usd,
-                    turn_count                   = incoming.turn_count,
-                    task_titles                  = incoming.task_titles,
-                    interim_response_as_thinking = incoming.interim_response_as_thinking,
-                    load_custom_skills_tools     = incoming.load_custom_skills_tools,
-                    corrupt                      = 0,
-                    memory_json                  = incoming.memory_json,
-                    last_context_usage           = incoming.last_context_usage,
-                    heartbeat_enabled            = incoming.heartbeat_enabled
-                """,
-                (
-                    session_id,
-                    float(created_at or 0.0),
-                    schema_version,
-                    profile_name,
-                    initial_cwd,
-                    current_cwd,
-                    float(total_cost_usd or 0.0),
-                    turn_count,
-                    json.dumps(task_titles, ensure_ascii=False),
-                    1 if interim_response_as_thinking else 0,
-                    1 if load_custom_skills_tools else 0,
-                    json.dumps(memory, ensure_ascii=False),
-                    (
-                        json.dumps(last_context_usage)
-                        if last_context_usage is not None
-                        else None
-                    ),
-                    1 if heartbeat_enabled else 0,
-                ),
-            )
-        conn.commit()
+    cur.execute(
+        """
+        INSERT INTO session_meta (
+            session_id, created_at, schema_version, profile_name,
+            initial_cwd, current_cwd, total_cost_usd, turn_count,
+            recent_task_titles, task_title_count, interim_response_as_thinking,
+            load_custom_skills_tools, corrupt, memory_json, last_context_usage,
+            heartbeat_enabled
+        )
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 0, %s, %s, %s)
+        AS incoming
+        ON DUPLICATE KEY UPDATE
+            schema_version               = incoming.schema_version,
+            profile_name                 = incoming.profile_name,
+            initial_cwd                  = incoming.initial_cwd,
+            current_cwd                  = incoming.current_cwd,
+            total_cost_usd               = incoming.total_cost_usd,
+            turn_count                   = incoming.turn_count,
+            recent_task_titles           = incoming.recent_task_titles,
+            task_title_count             = incoming.task_title_count,
+            interim_response_as_thinking = incoming.interim_response_as_thinking,
+            load_custom_skills_tools     = incoming.load_custom_skills_tools,
+            corrupt                      = 0,
+            memory_json                  = incoming.memory_json,
+            last_context_usage           = incoming.last_context_usage,
+            heartbeat_enabled            = incoming.heartbeat_enabled
+        """,
+        (
+            session_id,
+            float(created_at or 0.0),
+            schema_version,
+            profile_name,
+            initial_cwd,
+            current_cwd,
+            float(total_cost_usd or 0.0),
+            turn_count,
+            json.dumps(recent_task_titles, ensure_ascii=False),
+            int(task_title_count),
+            1 if interim_response_as_thinking else 0,
+            1 if load_custom_skills_tools else 0,
+            json.dumps(memory, ensure_ascii=False),
+            (
+                json.dumps(last_context_usage)
+                if last_context_usage is not None
+                else None
+            ),
+            1 if heartbeat_enabled else 0,
+        ),
+    )
 
 
 # Columns selected for the dashboard list — deliberately excludes memory_json so
 # the list query stays light and never filesorts over large blobs.
 _META_LIST_COLS = (
     "session_id, created_at, schema_version, profile_name, initial_cwd, "
-    "current_cwd, total_cost_usd, turn_count, task_titles, "
-    "interim_response_as_thinking, load_custom_skills_tools, corrupt, "
-    "heartbeat_enabled"
+    "current_cwd, total_cost_usd, turn_count, recent_task_titles, "
+    "task_title_count, interim_response_as_thinking, load_custom_skills_tools, "
+    "corrupt, heartbeat_enabled, history_cache_compatible"
 )
 
 
@@ -309,12 +387,14 @@ def _row_to_meta(row: dict, *, include_memory: bool) -> dict:
         "current_cwd": row.get("current_cwd"),
         "total_cost_usd": float(row.get("total_cost_usd") or 0.0),
         "turn_count": row.get("turn_count", 0),
-        "task_titles": _normalize_json(row.get("task_titles")) or [],
+        "recent_task_titles": _normalize_json(row.get("recent_task_titles")) or [],
+        "task_title_count": int(row.get("task_title_count") or 0),
         "interim_response_as_thinking": bool(row.get("interim_response_as_thinking")),
         "load_custom_skills_tools": bool(row.get("load_custom_skills_tools")),
         "corrupt": bool(row.get("corrupt")),
         "last_context_usage": _normalize_json(row.get("last_context_usage")),
         "heartbeat_enabled": bool(row.get("heartbeat_enabled")),
+        "history_cache_compatible": bool(row.get("history_cache_compatible")),
     }
     if include_memory:
         meta["memory"] = _normalize_json(row.get("memory_json")) or {}
