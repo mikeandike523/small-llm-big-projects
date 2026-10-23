@@ -77,11 +77,13 @@ pnpm run release-manager set <ui|backend|desktop> <X.Y.Z> <message...>
 Examples:
 
 ```bash
+pnpm run release-manager current
 pnpm run release-manager bump ui patch "Fix terminal reconnect handling"
 pnpm run release-manager bump desktop minor "Add the Process Doctor dialog"
 pnpm run release-manager set backend 2.0.0 "New server protocol" --dry-run
 ```
 
+Use `current` to list the configured UI, backend, and desktop versions.
 Use `--dry-run` to preview either operation. `set` normally requires a version
 greater than the current version; its `--force` flag permits an equal or lower
 version, but it still refuses to overwrite an existing release-note file.

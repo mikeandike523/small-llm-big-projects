@@ -2,6 +2,7 @@
 """Release manager: bump/set versions and record release notes.
 
 Usage:
+    release_manager.py current
     release_manager.py bump <ui|backend|desktop> <major|minor|patch> <message...>
     release_manager.py set <ui|backend|desktop> <version> <message...> [--force]
 
@@ -146,9 +147,17 @@ def cmd_bump(target: str, component: str, message: str, dry_run: bool) -> None:
     cmd_set(target, new_str, message, dry_run)
 
 
+def cmd_current() -> None:
+    for target, config in TARGETS.items():
+        version = ".".join(map(str, read_version(config["package"])))
+        print(f"{target}: {version}")
+
+
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__.strip().splitlines()[0])
     sub = p.add_subparsers(dest="cmd", required=True)
+
+    sub.add_parser("current", help="show current versions for all targets")
 
     b = sub.add_parser("bump")
     b.add_argument("target", choices=["ui", "backend", "desktop"], type=str.lower)
@@ -168,10 +177,13 @@ def main() -> None:
     )
 
     args = p.parse_args()
-    message = " ".join(args.message)
-    if args.cmd == "bump":
+    if args.cmd == "current":
+        cmd_current()
+    elif args.cmd == "bump":
+        message = " ".join(args.message)
         cmd_bump(args.target, args.component, message, args.dry_run)
     else:
+        message = " ".join(args.message)
         cmd_set(args.target, args.version, message, args.dry_run, args.force)
 
 
