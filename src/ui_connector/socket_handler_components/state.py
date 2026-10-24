@@ -69,12 +69,31 @@ _session_costs: dict[str, float] = {}
 # loop ({"prompt_tokens", "completion_tokens", "total_tokens", "known_max_context"}).
 # Telemetry (like cost, NOT event-sourced); flushed to session_meta on save.
 _session_last_context_usage: dict[str, dict] = {}
+# Sessions whose session_memory Redis hash changed since it was last copied to
+# session_meta.memory_json; saves only rewrite that column for these.
+_session_memory_dirty: set[str] = set()
+_session_memory_dirty_lock = threading.Lock()
 # Atomic admission state for user-message turns. This reservation begins before
 # preprocessing and outlives the asyncio cancellation handles below. The value
 # is the origin (owner) of the subturn being run: SUBTURN_ORIGIN_USER or
 # SUBTURN_ORIGIN_HEARTBEAT.
 _turn_reservations: dict[str, str] = {}
 _turn_reservations_lock = threading.Lock()
+
+
+def mark_session_memory_dirty(session_id: str) -> None:
+    """Record that the session's memory hash changed (it must be re-saved)."""
+    with _session_memory_dirty_lock:
+        _session_memory_dirty.add(session_id)
+
+
+def take_session_memory_dirty(session_id: str) -> bool:
+    """Return whether the memory changed since the last take, and reset it."""
+    with _session_memory_dirty_lock:
+        if session_id not in _session_memory_dirty:
+            return False
+        _session_memory_dirty.discard(session_id)
+        return True
 
 
 def try_reserve_turn(session_id: str, origin: str = SUBTURN_ORIGIN_USER) -> bool:

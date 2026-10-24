@@ -16,7 +16,7 @@ from src.ui_connector.app import app, socketio
 from src.ui_connector import release_notes
 from src.ui_connector.heartbeat_daemon import notify_heartbeat_settings_changed
 from src.ui_connector.socket_handler_components.session_store import (
-    _load_session,
+    _load_session_info,
     _save_session,
     _delete_session,
     _delete_sessions,
@@ -31,6 +31,11 @@ from src.ui_connector.socket_handler_components.session_customizations import (
     reload_session_customizations,
 )
 from src.ui_connector.socket_handler_components.emit import _emit_backend_log
+from src.ui_connector.socket_handler_components.setting_events import (
+    persist_approval_mode,
+    persist_heartbeat_settings,
+    persist_profile,
+)
 from src.ui_connector.socket_handler_components.terminal import (
     _build_starting_environment_info,
 )
@@ -286,7 +291,7 @@ def api_list_sessions():
         return jsonify({"error": f"Failed to list sessions: {exc}"}), 500
 
     # session_meta rows already carry the denormalized list metadata (turn_count,
-    # task_titles, created_at, ...) and arrive ordered by created_at DESC, so no
+    # recent task titles, created_at, ...) and arrive ordered by created_at DESC, so no
     # blob parsing or re-sort is needed here.
     results = []
     for row in rows:
@@ -301,7 +306,8 @@ def api_list_sessions():
                 "created_at": row.get("created_at", 0.0),
                 "turn_count": row.get("turn_count", 0),
                 "active_turn": _state.is_turn_reserved(session_id),
-                "task_titles": row.get("task_titles", []),
+                "task_titles": row.get("recent_task_titles", []),
+                "task_title_count": row.get("task_title_count", 0),
                 "interim_response_as_thinking": row.get(
                     "interim_response_as_thinking", False
                 ),
@@ -338,7 +344,11 @@ def api_reload_custom_skills_tools(session_id: str):
         )
         return jsonify({"error": "Cannot reload during an active turn."}), 409
 
-    session = _load_session(session_id)
+    # The reload only rebuilds in-memory caches from the session's cwd and
+    # flags, so the conversation is not needed and nothing is saved.
+    session = _load_session_info(session_id)
+    if session is None:
+        return jsonify({"error": "Session not found"}), 404
     if not session.load_custom_skills_tools:
         _emit_backend_log(
             session_id,
@@ -362,7 +372,6 @@ def api_reload_custom_skills_tools(session_id: str):
         status = 409 if _state.is_turn_reserved(session_id) else 400
         return jsonify({"error": "Reload failed. See Debug Panel logs."}), status
 
-    _save_session(session_id, session)
     skills_info = _get_skills_info_payload(session, session_id)
     tools_info = _get_tools_info_payload(session_id)
     system_prompt = {"text": _get_session_system_prompt(session_id)}
@@ -453,11 +462,12 @@ def api_session_set_profile(session_id: str):
         except Exception as exc:
             return jsonify({"error": f"DB error: {exc}"}), 500
 
-    session = _load_session(session_id)
+    session = _load_session_info(session_id)
+    if session is None:
+        return jsonify({"error": "Session not found"}), 404
     from src.ui_connector.socket_handler_components import runtime_settings
 
     settings = runtime_settings.set_profile(session_id, session, profile_name)
-    session.profile_name = settings.profile_name
 
     # Every old snapshot describes a request made with the prior profile, even
     # when both profiles happen to advertise the same maximum context size.
@@ -465,7 +475,7 @@ def api_session_set_profile(session_id: str):
 
     clear_context_usage(session_id, profile_name, settings.profile_revision)
 
-    _save_session(session_id, session)
+    persist_profile(session_id, settings.profile_name)
     response = {"ok": True, **runtime_settings.payload(settings)}
     socketio.emit("session_settings_update", response, room=session_id)
     return jsonify(response)
@@ -493,12 +503,13 @@ def api_session_set_approval_mode(session_id: str):
             400,
         )
 
-    session = _load_session(session_id)
+    session = _load_session_info(session_id)
+    if session is None:
+        return jsonify({"error": "Session not found"}), 404
     from src.ui_connector.socket_handler_components import runtime_settings
 
     settings = runtime_settings.set_approval_mode(session_id, session, approval_mode)
-    session.approval_mode = settings.approval_mode
-    _save_session(session_id, session)
+    persist_approval_mode(session_id, settings.approval_mode)
     response = {"ok": True, **runtime_settings.payload(settings)}
     socketio.emit("session_settings_update", response, room=session_id)
     return jsonify(response)
@@ -526,14 +537,15 @@ def api_session_set_heartbeat_settings(session_id: str):
     if not ok:
         return jsonify({"error": error}), 400
 
-    session = _load_session(session_id)
+    session = _load_session_info(session_id)
+    if session is None:
+        return jsonify({"error": "Session not found"}), 404
     from src.ui_connector.socket_handler_components import runtime_settings
 
     settings = runtime_settings.set_heartbeat_settings(
         session_id, session, heartbeat_settings
     )
-    session.session_data["heartbeat_settings"] = settings.heartbeat_settings
-    _save_session(session_id, session)
+    persist_heartbeat_settings(session_id, settings.heartbeat_settings)
     notify_heartbeat_settings_changed(session_id)
     response = {"ok": True, **runtime_settings.payload(settings)}
     socketio.emit("session_settings_update", response, room=session_id)

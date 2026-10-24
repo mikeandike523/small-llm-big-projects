@@ -7,7 +7,9 @@ from pathlib import Path
 from flask import jsonify, request, send_file
 
 from src.ui_connector.app import app
-from src.ui_connector.socket_handler_components.session_store import _load_session
+from src.ui_connector.socket_handler_components.session_store import (
+    _load_session_info,
+)
 from src.ui_connector.socket_handler_components.emit import _emit_backend_log
 from src.ui_connector.socket_handler_components.file_download_jobs import (
     DownloadJobError,
@@ -152,8 +154,9 @@ def _file_request_data():
         raise ExplorerPathError("session_id is required")
     if not isinstance(path_value, str) or not path_value.strip():
         raise ExplorerPathError("path is required")
-    session = _load_session(session_id.strip())
-    if not session.initial_cwd:
+    # Only the session's root folder is needed, not its conversation.
+    session = _load_session_info(session_id.strip())
+    if session is None or not session.initial_cwd:
         raise FileNotFoundError("Session not found")
     return data, session, path_value
 
@@ -236,8 +239,8 @@ def api_file_explorer_list():
     if path_value is not None and not isinstance(path_value, str):
         return jsonify({"error": "path must be a string"}), 400
 
-    session = _load_session(session_id.strip())
-    if not session.initial_cwd:
+    session = _load_session_info(session_id.strip())
+    if session is None or not session.initial_cwd:
         return jsonify({"error": "Session not found"}), 404
 
     try:

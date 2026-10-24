@@ -1,5 +1,9 @@
 /**
- * One turn per page: the turn list, the current page and the turn cache.
+ * One turn per page: the turn count, the current page and the turn cache.
+ *
+ * The client never holds the full list of turn ids. It knows the number of
+ * turns, the latest turn's id, and a page -> turn id map filled in as pages
+ * load (`load_turn {page}` answers with the page's turn id).
  *
  * `thread` (owned by useSocketWiring) is the cache of loaded turns, in no
  * particular order; live socket handlers update turns in it by id. This hook
@@ -7,11 +11,10 @@
  *
  *   - the latest turn, always (live events keep updating it);
  *   - the current page's turn and its previous/next neighbors (prefetched);
- *   - the last RECENT_TURNS_KEPT visited turns.
+ *   - the turns of the last RECENT_PAGES_KEPT visited pages.
  *
- * Everything else is evicted when the page changes. Missing turns are fetched
- * with `load_turn {turnId}`. The current page is mirrored to `?turn=N` so a
- * reload keeps the reader's place.
+ * Everything else is evicted when the page changes. The current page is
+ * mirrored to `?turn=N` so a reload keeps the reader's place.
  */
 import {
   useCallback,
@@ -25,7 +28,9 @@ import type { Socket } from "socket.io-client";
 import type { Turn } from "../types";
 import { backendTurnToFrontendTurn, requestTurn } from "./turnLoad";
 
-const RECENT_TURNS_KEPT = 5;
+const RECENT_PAGES_KEPT = 5;
+
+type PageTurnIds = Record<number, string>;
 
 function readTurnParam(): number | null {
   const raw = new URLSearchParams(window.location.search).get("turn");
@@ -44,41 +49,49 @@ export default function useTurnPages(
   thread: Turn[],
   setThread: Dispatch<SetStateAction<Turn[]>>,
 ) {
-  const [turnIds, setTurnIdsState] = useState<string[]>([]);
+  const [turnCount, setTurnCountState] = useState(0);
+  // Known turn id per 1-based page (the latest page is always known).
+  const [pageTurnIds, setPageTurnIdsState] = useState<PageTurnIds>({});
   // 1-based page number; 0 while there is no turn to show.
   const [page, setPageState] = useState(0);
   const [ready, setReady] = useState(false);
   // A turn started (or the latest was followed up) while another page showed.
   const [unseenLatest, setUnseenLatest] = useState(false);
-  const [turnErrors, setTurnErrors] = useState<Record<string, string>>({});
+  // Load errors by page.
+  const [turnErrors, setTurnErrors] = useState<Record<number, string>>({});
 
   // Refs mirror the state so socket handlers read current values.
-  const turnIdsRef = useRef<string[]>([]);
+  const turnCountRef = useRef(0);
+  const pageTurnIdsRef = useRef<PageTurnIds>({});
   const pageRef = useRef(0);
   const readyRef = useRef(false);
-  const recentRef = useRef<string[]>([]);
-  const inFlightRef = useRef(new Set<string>());
+  const recentPagesRef = useRef<number[]>([]);
+  const inFlightRef = useRef(new Set<number>());
   // Bumped on reset so responses to an earlier connection are ignored.
   const generationRef = useRef(0);
   // Set when the user sends a message: show the turn it starts.
   const followNextTurnRef = useRef(false);
 
-  const setTurnIds = useCallback((ids: string[]) => {
-    turnIdsRef.current = ids;
-    setTurnIdsState(ids);
+  const setTurnCount = useCallback((n: number) => {
+    turnCountRef.current = n;
+    setTurnCountState(n);
+  }, []);
+
+  const setPageTurnId = useCallback((n: number, turnId: string) => {
+    if (pageTurnIdsRef.current[n] === turnId) return;
+    pageTurnIdsRef.current = { ...pageTurnIdsRef.current, [n]: turnId };
+    setPageTurnIdsState(pageTurnIdsRef.current);
   }, []);
 
   const goToPage = useCallback((n: number) => {
-    const ids = turnIdsRef.current;
-    if (!Number.isInteger(n) || n < 1 || n > ids.length) return;
+    if (!Number.isInteger(n) || n < 1 || n > turnCountRef.current) return;
     pageRef.current = n;
     setPageState(n);
-    const id = ids[n - 1];
-    recentRef.current = [
-      ...recentRef.current.filter((x) => x !== id),
-      id,
-    ].slice(-RECENT_TURNS_KEPT);
-    if (n === ids.length) setUnseenLatest(false);
+    recentPagesRef.current = [
+      ...recentPagesRef.current.filter((x) => x !== n),
+      n,
+    ].slice(-RECENT_PAGES_KEPT);
+    if (n === turnCountRef.current) setUnseenLatest(false);
     writeTurnParam(n);
   }, []);
 
@@ -90,8 +103,19 @@ export default function useTurnPages(
     inFlightRef.current = new Set();
     followNextTurnRef.current = false;
     setTurnErrors({});
-    setTurnIds([]);
-  }, [setTurnIds]);
+    setTurnCount(0);
+    pageTurnIdsRef.current = {};
+    setPageTurnIdsState({});
+  }, [setTurnCount]);
+
+  /** The latest-turn load answered with the turn count and the latest id. */
+  const setInitialTurns = useCallback(
+    (count: number, latestTurnId: string | null) => {
+      setTurnCount(count);
+      if (count > 0 && latestTurnId) setPageTurnId(count, latestTurnId);
+    },
+    [setTurnCount, setPageTurnId],
+  );
 
   /**
    * The latest-turn load finished: show the page we were on (reconnect), else
@@ -100,7 +124,7 @@ export default function useTurnPages(
   const markReady = useCallback(() => {
     readyRef.current = true;
     setReady(true);
-    const n = turnIdsRef.current.length;
+    const n = turnCountRef.current;
     if (n === 0) {
       pageRef.current = 0;
       setPageState(0);
@@ -113,10 +137,19 @@ export default function useTurnPages(
   /** A turn_start arrived (live or replayed). */
   const noteTurnStarted = useCallback(
     (turnId: string) => {
-      const isNew = !turnIdsRef.current.includes(turnId);
-      if (isNew) setTurnIds([...turnIdsRef.current, turnId]);
+      const known = Object.entries(pageTurnIdsRef.current).find(
+        ([, id]) => id === turnId,
+      );
+      let index: number;
+      if (known) {
+        // A follow-up reopened the latest turn.
+        index = Number(known[0]);
+      } else {
+        index = turnCountRef.current + 1;
+        setTurnCount(index);
+        setPageTurnId(index, turnId);
+      }
       if (!readyRef.current) return;
-      const index = turnIdsRef.current.indexOf(turnId) + 1;
       if (followNextTurnRef.current || pageRef.current === 0) {
         followNextTurnRef.current = false;
         goToPage(index);
@@ -125,61 +158,62 @@ export default function useTurnPages(
         setUnseenLatest(true);
       }
     },
-    [goToPage, setTurnIds],
+    [goToPage, setTurnCount, setPageTurnId],
   );
 
   /** The user sent a message: show the latest turn now, and the turn it starts. */
   const followNextTurn = useCallback(() => {
     followNextTurnRef.current = true;
-    const n = turnIdsRef.current.length;
+    const n = turnCountRef.current;
     if (n > 0) goToPage(n);
   }, [goToPage]);
 
-  const retryTurn = useCallback((turnId: string) => {
+  const retryTurn = useCallback((n: number) => {
     setTurnErrors((prev) => {
       const next = { ...prev };
-      delete next[turnId];
+      delete next[n];
       return next;
     });
   }, []);
 
-  const fetchTurn = useCallback(
-    (turnId: string) => {
+  const fetchPage = useCallback(
+    (n: number) => {
       const generation = generationRef.current;
-      inFlightRef.current.add(turnId);
-      requestTurn(socket, { turnId })
+      inFlightRef.current.add(n);
+      requestTurn(socket, { page: n })
         .then((res) => {
           if (generation !== generationRef.current) return;
+          setPageTurnId(n, res.turnId);
           if (!res.turn) throw new Error("This turn has no saved events yet.");
           const turn = backendTurnToFrontendTurn(res.turn);
           setThread((prev) =>
-            prev.some((t) => t.id === turnId) ? prev : [...prev, turn],
+            prev.some((t) => t.id === turn.id) ? prev : [...prev, turn],
           );
         })
         .catch((err: Error) => {
           if (generation !== generationRef.current) return;
-          setTurnErrors((prev) => ({ ...prev, [turnId]: err.message }));
+          setTurnErrors((prev) => ({ ...prev, [n]: err.message }));
         })
         .finally(() => {
           if (generation === generationRef.current) {
-            inFlightRef.current.delete(turnId);
+            inFlightRef.current.delete(n);
           }
         });
     },
-    [socket, setThread],
+    [socket, setThread, setPageTurnId],
   );
 
   // Keep the cache to the wanted turns and fetch the missing ones.
   useEffect(() => {
     if (!ready || page < 1) return;
-    const visible = [page, page - 1, page + 1]
-      .filter((n) => n >= 1 && n <= turnIds.length)
-      .map((n) => turnIds[n - 1]);
-    const keep = new Set([
-      ...visible,
-      ...recentRef.current,
-      turnIds[turnIds.length - 1],
-    ]);
+    const visible = [page, page - 1, page + 1].filter(
+      (n) => n >= 1 && n <= turnCount,
+    );
+    const keep = new Set(
+      [...visible, ...recentPagesRef.current, turnCount]
+        .map((n) => pageTurnIds[n])
+        .filter((id): id is string => Boolean(id)),
+    );
     setThread((prev) => {
       // Never drop a turn that is still running.
       const next = prev.filter(
@@ -188,15 +222,31 @@ export default function useTurnPages(
       return next.length === prev.length ? prev : next;
     });
     const loaded = new Set(thread.map((t) => t.id));
-    for (const id of visible) {
-      if (!loaded.has(id) && !inFlightRef.current.has(id) && !turnErrors[id]) {
-        fetchTurn(id);
+    for (const n of visible) {
+      const id = pageTurnIds[n];
+      if (
+        !(id && loaded.has(id)) &&
+        !inFlightRef.current.has(n) &&
+        !turnErrors[n]
+      ) {
+        fetchPage(n);
       }
     }
-  }, [ready, page, turnIds, thread, turnErrors, fetchTurn, setThread]);
+  }, [
+    ready,
+    page,
+    turnCount,
+    pageTurnIds,
+    thread,
+    turnErrors,
+    fetchPage,
+    setThread,
+  ]);
 
   return {
-    turnIds,
+    turnCount,
+    latestTurnId: turnCount > 0 ? pageTurnIds[turnCount] : undefined,
+    pageTurnIds,
     page,
     ready,
     unseenLatest,
@@ -205,7 +255,7 @@ export default function useTurnPages(
     retryTurn,
     followNextTurn,
     reset,
-    setInitialTurnIds: setTurnIds,
+    setInitialTurns,
     markReady,
     noteTurnStarted,
   };

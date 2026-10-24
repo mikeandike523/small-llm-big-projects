@@ -100,11 +100,14 @@ class RedisDict(dict):
                 return args[0]
             raise KeyError(key)
         self._redis.hdel(self._hash_key, key)
+        if self._on_change:
+            self._on_change(key, "deleted")
         return val
 
     def setdefault(self, key: str, default: str = "") -> str:  # type: ignore[override]
         # HSETNX is atomic: sets only if the key does not already exist.
-        self._redis.hsetnx(self._hash_key, key, default)
+        if self._redis.hsetnx(self._hash_key, key, default) and self._on_change:
+            self._on_change(key, "modified")
         return self._redis.hget(self._hash_key, key)  # type: ignore[return-value]
 
     def update(self, other: Any = None, **kwargs: str) -> None:  # type: ignore[override]
@@ -116,7 +119,11 @@ class RedisDict(dict):
             self[k] = v
 
     def clear(self) -> None:
+        keys = self._redis.hkeys(self._hash_key)
         self._redis.delete(self._hash_key)
+        if self._on_change:
+            for key in keys:
+                self._on_change(key, "deleted")
 
     def copy(self) -> dict[str, str]:  # type: ignore[override]
         """Return a plain dict snapshot.  The result is NOT a RedisDict."""

@@ -165,6 +165,14 @@ class ReplayState:
             self._turn_order.append(turn_id)
         return turn
 
+    def add_sealed_turn(self, turn: Turn) -> None:
+        """Append an already-built sealed turn (from the chat history cache).
+
+        Its subturns are not registered: events never address a sealed turn.
+        """
+        self._turns[turn.id] = turn
+        self._turn_order.append(turn.id)
+
     def pop_turn(self, turn_id: str) -> Turn | None:
         """Remove a finished turn (and its subturns) from the state, returning it.
 
@@ -333,6 +341,21 @@ def normalize_payload(payload: object) -> dict:
     return payload if isinstance(payload, dict) else {}
 
 
+# The dashboard card lists this many of the latest task titles (+ a count).
+RECENT_TASK_TITLES = 4
+
+# Events that describe the session rather than one turn. The latest of each
+# type (read by key) is enough to restore session-level state.
+SESSION_LEVEL_EVENT_TYPES = (
+    EVT_SESSION_CREATED,
+    EVT_STARTUP_DONE_SET,
+    EVT_TODO_LIST_SET,
+    EVT_APPROVAL_MODE_SET,
+    EVT_PROFILE_SET,
+    EVT_HEARTBEAT_SETTINGS_SET,
+)
+
+
 def derive_meta(session: Session) -> dict[str, Any]:
     """Lightweight list-view metadata derived from a reconstructed Session."""
     completed = session.completed_turns
@@ -342,5 +365,6 @@ def derive_meta(session: Session) -> dict[str, Any]:
         titles.append(current.task_title)
     return {
         "turn_count": len(completed) + (1 if current else 0),
-        "task_titles": titles,
+        "recent_task_titles": titles[-RECENT_TASK_TITLES:],
+        "task_title_count": len(titles),
     }

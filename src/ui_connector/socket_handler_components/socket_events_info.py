@@ -8,6 +8,7 @@ import src.ui_connector.socket_handler_components.state as _state
 from src.ui_connector.app import socketio
 from src.ui_connector.socket_handler_components.session_store import (
     _load_session,
+    _load_session_info,
     _get_session_system_prompt,
     _get_skills_info_payload,
     _get_tools_info_payload,
@@ -31,7 +32,7 @@ def handle_get_pwd():
 def handle_get_skills_info():
     sid = request.sid
     session_id = _state._sid_to_session_id.get(sid, sid)
-    session = _load_session(session_id)
+    session = _load_session_info(session_id) or _load_session(session_id)
     socketio.emit(
         "skills_info",
         _get_skills_info_payload(session, session_id),

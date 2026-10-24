@@ -7,7 +7,7 @@ import json
 import pytest
 
 import src.ui_connector.app  # noqa: F401 - server import order (avoids cycles)
-from src.ui_connector.socket_handler_components import history_loader
+from src.ui_connector.socket_handler_components import history_loader, session_db_load
 from src.ui_connector.socket_handler_components._session_event_emit import (
     compute_events,
 )
@@ -199,7 +199,24 @@ class _FakeLock:
         return False
 
 
-def _wire_loader(monkeypatch, log, *, page_size=500, running=True, unsaved=()):
+def _turn_index(log: _EventLog, session: Session) -> list[dict]:
+    """chat_turn_index rows matching the log (what saves would have written)."""
+    turns = {t["id"]: t for t in _turns(session)}
+    return [
+        {
+            "turn_seq": seq,
+            "turn_id": tid,
+            "start_event_id": eid,
+            "title": turns[tid]["task_title"],
+            "completed": turns[tid]["completed"],
+        }
+        for seq, (eid, tid) in enumerate(log.turn_starts(), 1)
+    ]
+
+
+def _wire_loader(
+    monkeypatch, log, session, *, cached, page_size=500, running=True, unsaved=()
+):
     """Point history_loader at the in-memory event log."""
 
     def fake_page(session_id, after_id, upto_id, limit):
@@ -214,13 +231,36 @@ def _wire_loader(monkeypatch, log, *, page_size=500, running=True, unsaved=()):
         ]
         return rows[-1]["payload"] if rows else None
 
+    index = _turn_index(log, session)
+
+    def fake_latest_turn_upto(session_id, cutoff):
+        rows = [r for r in index if r["start_event_id"] <= cutoff]
+        return rows[-1] if rows else None
+
+    def fake_turn_rows(session_id, first, last):
+        return [r for r in index if first <= r["turn_seq"] <= last]
+
+    def fake_seq_for_id(session_id, turn_id):
+        return next((r["turn_seq"] for r in index if r["turn_id"] == turn_id), None)
+
     hl = history_loader
-    monkeypatch.setattr(hl, "_PAGE_SIZE", page_size)
+    monkeypatch.setattr(session_db_load, "_PAGE_SIZE", page_size)
+    monkeypatch.setattr(session_db_load, "load_event_page", fake_page)
     monkeypatch.setattr(hl, "max_event_id", lambda sid: log.rows[-1]["id"])
-    monkeypatch.setattr(hl, "list_turn_starts", lambda sid: log.turn_starts())
-    monkeypatch.setattr(hl, "load_event_page", fake_page)
+    monkeypatch.setattr(
+        hl,
+        "load_history_flags",
+        lambda sid: {"schema_version": 6, "history_cache_compatible": cached},
+    )
+    if cached:
+        # The cached path must never fall back to the turn_started scan.
+        monkeypatch.setattr(hl, "list_turn_starts", None)
+    else:
+        monkeypatch.setattr(hl, "list_turn_starts", lambda sid: log.turn_starts())
+    monkeypatch.setattr(hl, "latest_turn_upto", fake_latest_turn_upto)
+    monkeypatch.setattr(hl, "load_turn_rows", fake_turn_rows)
+    monkeypatch.setattr(hl, "turn_seq_for_turn_id", fake_seq_for_id)
     monkeypatch.setattr(hl, "load_latest_event_payload", fake_latest)
-    monkeypatch.setattr(hl, "load_session_meta", lambda sid: {"schema_version": 6})
     monkeypatch.setattr(
         hl,
         "load_thinking_char_counts",
@@ -244,32 +284,43 @@ def _with_thinking(turn: dict) -> dict:
     return turn
 
 
+@pytest.mark.parametrize("cached", [True, False])
 @pytest.mark.parametrize("page_size", [1, 3, 500])
 def test_load_turn_returns_each_turn_exactly_as_full_replay(
-    monkeypatch, page_size
+    monkeypatch, page_size, cached
 ) -> None:
     session, log = _build_session()
-    hl = _wire_loader(monkeypatch, log, page_size=page_size)
+    hl = _wire_loader(monkeypatch, log, session, cached=cached, page_size=page_size)
 
-    for expected in _turns(session):
-        result = hl.load_turn("s1", expected["id"])
-        assert result == {"turnId": expected["id"], "turn": _with_thinking(expected)}
+    for page, expected in enumerate(_turns(session), 1):
+        want = {
+            "page": page,
+            "turnId": expected["id"],
+            "turn": _with_thinking(expected),
+        }
+        assert hl.load_turn_page("s1", page) == want
+        assert hl.load_turn_by_id("s1", expected["id"]) == want
 
 
-def test_load_turn_unknown_id_is_an_error(monkeypatch) -> None:
-    _, log = _build_session()
-    hl = _wire_loader(monkeypatch, log)
-    assert "error" in hl.load_turn("s1", "nope")
+@pytest.mark.parametrize("cached", [True, False])
+def test_load_turn_unknown_page_or_id_is_an_error(monkeypatch, cached) -> None:
+    session, log = _build_session()
+    hl = _wire_loader(monkeypatch, log, session, cached=cached)
+    assert "error" in hl.load_turn_by_id("s1", "nope")
+    assert "error" in hl.load_turn_page("s1", 0)
+    assert "error" in hl.load_turn_page("s1", 99)
 
 
-def test_load_latest_turn_includes_running_state(monkeypatch) -> None:
+@pytest.mark.parametrize("cached", [True, False])
+def test_load_latest_turn_includes_running_state(monkeypatch, cached) -> None:
     session, log = _build_session()
     unsaved = [{"id": "5-0", "type": "tool_call", "data": {"id": "c3"}}]
-    hl = _wire_loader(monkeypatch, log, unsaved=unsaved)
+    hl = _wire_loader(monkeypatch, log, session, cached=cached, unsaved=unsaved)
 
     result = hl.load_latest_turn("s1")
 
-    assert result["turnIds"] == ["t1", "t2", "t3", "t4"]
+    assert result["turnCount"] == 4
+    assert result["latestTurnId"] == "t4"
     assert result["turn"] == _with_thinking(_turns(session)[-1])
     assert result["running"] is True
     assert result["events"] == unsaved
@@ -277,8 +328,8 @@ def test_load_latest_turn_includes_running_state(monkeypatch) -> None:
 
 
 def test_load_latest_turn_when_idle_has_no_live_state(monkeypatch) -> None:
-    _, log = _build_session()
-    hl = _wire_loader(monkeypatch, log, running=False)
+    session, log = _build_session()
+    hl = _wire_loader(monkeypatch, log, session, cached=True, running=False)
 
     result = hl.load_latest_turn("s1")
 
@@ -287,12 +338,15 @@ def test_load_latest_turn_when_idle_has_no_live_state(monkeypatch) -> None:
     assert result["liveTodoItems"] is None
 
 
-def test_load_latest_turn_of_an_empty_session(monkeypatch) -> None:
+@pytest.mark.parametrize("cached", [True, False])
+def test_load_latest_turn_of_an_empty_session(monkeypatch, cached) -> None:
+    session = Session(session_id="s1")
     log = _EventLog()
-    log.save(Session(session_id="s1"))
-    hl = _wire_loader(monkeypatch, log, running=False)
+    log.save(session)
+    hl = _wire_loader(monkeypatch, log, session, cached=cached, running=False)
 
     result = hl.load_latest_turn("s1")
 
-    assert result["turnIds"] == []
+    assert result["turnCount"] == 0
+    assert result["latestTurnId"] is None
     assert result["turn"] is None
