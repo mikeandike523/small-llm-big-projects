@@ -101,19 +101,22 @@ def load_turn_page(session_id: str, page: int) -> dict:
         if not rows or rows[0]["turn_seq"] != page:
             return {"error": f"Page {page} was not found in this session."}
         start = (rows[0]["start_event_id"], rows[0]["turn_id"])
+        is_latest = len(rows) == 1
         end = (
-            rows[1]["start_event_id"] - 1 if len(rows) > 1 else max_event_id(session_id)
+            rows[1]["start_event_id"] - 1 if not is_latest else max_event_id(session_id)
         )
     else:
         starts = list_turn_starts(session_id)
         if not 1 <= page <= len(starts):
             return {"error": f"Page {page} was not found in this session."}
         start = starts[page - 1]
-        end = starts[page][0] - 1 if page < len(starts) else max_event_id(session_id)
+        is_latest = page == len(starts)
+        end = starts[page][0] - 1 if not is_latest else max_event_id(session_id)
+    running = is_latest and _state.is_turn_reserved(session_id)
     return {
         "page": page,
         "turnId": start[1],
-        "turn": _assemble_turn(session_id, start, end, schema),
+        "turn": _assemble_turn(session_id, start, end, schema, running=running),
     }
 
 
@@ -149,7 +152,11 @@ def load_latest_turn(session_id: str) -> dict:
         starts = [s for s in list_turn_starts(session_id) if s[0] <= cutoff]
         count = len(starts)
         latest = starts[-1] if starts else None
-    turn = _assemble_turn(session_id, latest, cutoff, schema) if latest else None
+    turn = (
+        _assemble_turn(session_id, latest, cutoff, schema, running=running)
+        if latest
+        else None
+    )
     live_todo_items = None
     if running:
         # The session-level todo list as of the cutoff; newer
@@ -187,9 +194,19 @@ def _unsaved_events(r, session_id: str) -> list[dict]:
 
 
 def _assemble_turn(
-    session_id: str, start: tuple[int, str], end: int, schema_version: int
+    session_id: str,
+    start: tuple[int, str],
+    end: int,
+    schema_version: int,
+    *,
+    running: bool,
 ) -> dict | None:
-    """Fold the events in [start id, end] into that turn's dict."""
+    """Fold the events in [start id, end] into that turn's dict.
+
+    Each subturn gets `interrupted`: it has no final exchange and is not the
+    live subturn of a running turn (`running` = this is the latest turn and a
+    turn is running). Nothing stored says so; see conversation_history.py.
+    """
     assembler = TurnBundleAssembler(session_id, [start])
     for row in _iter_rows(session_id, start[0] - 1, end, schema_version):
         assembler.feed(row)
@@ -204,6 +221,12 @@ def _assemble_turn(
         native, irat = counts.get(st.get("id"), (0, 0))
         st["native_thinking_chars"] = native
         st["irat_thinking_chars"] = irat
+    subturns = turn.get("subturns", [])
+    for i, st in enumerate(subturns):
+        live = running and not turn.get("completed") and i == len(subturns) - 1
+        st["interrupted"] = not live and not any(
+            ex.get("is_final") for ex in st.get("exchanges", [])
+        )
     return turn
 
 

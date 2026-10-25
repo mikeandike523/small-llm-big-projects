@@ -29,7 +29,6 @@ from src.ui_connector.socket_handler_components import runtime_settings
 from src.ui_connector.socket_handler_components._session_event_emit import (
     Event,
     cache_rows_for_save,
-    exchange_event,
     persist_window,
     session_created_events,
     skills_events,
@@ -46,10 +45,9 @@ from src.utils.session_events import (
     EVT_EXCHANGE_RECORDED,
     EVT_TODO_LIST_SET,
     derive_meta,
-    exchange_hash,
     todo_list_hash,
 )
-from src.utils.session_model import Session, Subturn, Turn, repair_incomplete_turn
+from src.utils.session_model import Session, Subturn, Turn
 from src.utils.sql.chat_history_cache_db import persist_save
 
 
@@ -179,36 +177,3 @@ def write_turn_end(
         + todo_events(session),
         advance_stream_watermark=True,
     )
-
-
-def write_repaired_turn(session_id: str, session: Session) -> bool:
-    """Repair an open turn left by a restart/crash and write the repair.
-
-    `repair_incomplete_turn` fills interrupted tool results into exchanges
-    that are already written, so those are found by hash and written again
-    (replay keeps the last copy). Returns True if a repair was made.
-    """
-    turn = session.current_turn
-    if turn is None:
-        return False
-    before = {
-        (st.id, i): exchange_hash(ex)
-        for st in turn.subturns
-        for i, ex in enumerate(st.exchanges[: st.saved_exchanges])
-    }
-    if not repair_incomplete_turn(session):
-        return False
-
-    def build_events() -> list[Event]:
-        events: list[Event] = []
-        for st in turn.subturns:
-            events.extend(
-                exchange_event(st, i)
-                for i in range(st.saved_exchanges)
-                if exchange_hash(st.exchanges[i]) != before[(st.id, i)]
-            )
-            events.extend(unsaved_exchange_events(st))
-        return events + turn_completed_events(turn)
-
-    _commit(session_id, session, build_events)
-    return True

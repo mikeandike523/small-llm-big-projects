@@ -114,6 +114,7 @@ when adding JavaScript dependencies; do not hand-edit dependency entries.
 ./slbp process-doctor --force-kill-all    # non-interactive cleanup
 ./slbp intense-migration status           # pending heavy data migrations
 ./slbp intense-migration run fill-session-cache  # build chat history cache (server stopped; manual, never update-prod)
+./slbp intense-migration run rebuild-session-cache  # optional: rebuild every session's cache (same rules)
 pnpm run release-manager ...              # version + release-note management
 pnpm run ui:type-check                    # TypeScript-check the React UI
 pnpm run src:syntax-and-import-check      # parse Python and validate imports

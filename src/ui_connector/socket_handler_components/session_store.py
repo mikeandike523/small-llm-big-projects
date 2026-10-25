@@ -24,7 +24,6 @@ from src.utils.event_log import watermark_key
 from src.utils.session_dirs import delete_session_scratchpad
 from src.utils.session_memory import SessionMemory
 from src.utils.session_model import Session
-from src.utils.sql.chat_history_cache_db import load_last_turn_rows
 from src.utils.sql.session_memory_db import list_memory_keys
 from src.utils.sql.session_store_db import delete_sessions
 from src.ui_connector.socket_handler_components.session_db_load import (
@@ -33,7 +32,6 @@ from src.ui_connector.socket_handler_components.session_db_load import (
     load_session_info_from_db,
 )
 from src.ui_connector.socket_handler_components.session_writes import (
-    write_repaired_turn,
     write_session_created,
 )
 from src.ui_connector.socket_handler_components.session_customizations import (
@@ -223,21 +221,6 @@ def _load_session_info(session_id: str) -> Session | None:
     return session
 
 
-def _repair_orphaned_latest_turn(session_id: str, info: Session) -> None:
-    """Repair the latest turn if a restart/crash left it open (see _load_session).
-
-    For a cached session the index row says whether the latest turn is still
-    open, so the full load only runs when there is something to repair.
-    """
-    if _state.has_active_turn_task(session_id):
-        return
-    if info.history_cache_compatible:
-        last = load_last_turn_rows(session_id, 1)
-        if not last or last[0]["completed"]:
-            return
-    _load_session(session_id)
-
-
 def _memory_change_notifier(session_id: str):
     def _on_memory_change(key: str, event_type: str) -> None:
         try:
@@ -274,12 +257,6 @@ def _load_session(session_id: str) -> Session:
         session_id, on_change=_memory_change_notifier(session_id)
     )
     _init_session_caches(session, session_id)
-
-    # Repair a turn orphaned by a previous restart/crash — but only when no live
-    # asyncio task owns this session (an active turn must be left untouched).
-    if session.current_turn is not None and not _state.has_active_turn_task(session_id):
-        write_repaired_turn(session_id, session)
-
     return session
 
 

@@ -140,6 +140,12 @@ def list_uncached_session_ids() -> list[str]:
     return [r["session_id"] for r in rows]
 
 
+def list_all_session_ids() -> list[str]:
+    """Every session, oldest first."""
+    rows = _fetch("SELECT session_id FROM session_meta ORDER BY created_at", ())
+    return [r["session_id"] for r in rows]
+
+
 # ---------------------------------------------------------------------------
 # Writes
 # ---------------------------------------------------------------------------

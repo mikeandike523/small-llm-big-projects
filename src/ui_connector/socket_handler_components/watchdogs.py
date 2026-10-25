@@ -14,10 +14,12 @@ from src.ui_connector.socket_handler_components.emit import (
     _emit_and_log,
     _make_sampler_usage_tracker,
 )
-from src.ui_connector.socket_handler_components.llm import (
-    _subturn_final_response,
-)
 from src.logic.system_prompt import get_selector_candidate_entries
+from src.utils.conversation_history import (
+    NO_RESPONSE,
+    closed_history,
+    closed_subturn,
+)
 from src.utils.llm.factory import _call_sampler
 from src.utils.llm.streaming import StreamingLLM
 from src.utils.session_model import Session, Turn, Subturn
@@ -356,10 +358,8 @@ async def _is_continuation(
     on_response=None,
 ) -> bool:
     """Decide whether a new user message is a follow-up continuation of the previous turn."""
-    last_turn = session.completed_turns[-1]
-    last_response = (
-        _subturn_final_response(last_turn.subturns[-1]) if last_turn.subturns else ""
-    )
+    history = closed_history(session)
+    last_response = history[-1].answer if history else NO_RESPONSE
 
     messages = [
         {
@@ -431,11 +431,12 @@ def _build_skill_selector_transcript(
     for i, (turn, subturns) in enumerate(turns, start=1):
         multi = len(turn.subturns) > 1
         for j, st in enumerate(subturns, start=1):
+            cs = closed_subturn(turn, st)
+            if cs is None:
+                continue
             lines.append(f"[Turn {i}, Subturn {j}]" if multi else f"[Turn {i}]")
-            lines.append(f"User: {_clip(st.user_text)}")
-            final_resp = _clip(_subturn_final_response(st))
-            if final_resp:
-                lines.append(f"Assistant: {final_resp}")
+            lines.append(f"User: {_clip(cs.user_text)}")
+            lines.append(f"Assistant: {_clip(cs.answer)}")
             lines.append("")
     return "\n".join(lines).strip()
 

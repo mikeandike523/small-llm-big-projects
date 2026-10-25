@@ -17,7 +17,6 @@ from src.ui_connector.socket_handler_components.emit import (
 from src.ui_connector.socket_handler_components.session_store import (
     _load_session,
     _load_session_info,
-    _repair_orphaned_latest_turn,
     _get_session_skill_registry,
 )
 from src.ui_connector.socket_handler_components.session_writes import (
@@ -84,16 +83,12 @@ def handle_resume_session(data: dict | None = None):
     if not session_id:
         return
 
-    # Only settings and flags are needed here, not the conversation. An
-    # orphaned turn is repaired here, before the client asks for history, so
-    # the history loader reads the repaired event log.
+    # Only settings and flags are needed here, not the conversation.
     try:
         session = _load_session_info(session_id)
         if session is None:
             # No such session yet: the full load creates it.
             session = _load_session(session_id)
-        else:
-            _repair_orphaned_latest_turn(session_id, session)
     except Exception as exc:
         logger.exception("Could not load session %s", session_id)
         emit("session_load_error", {"message": failure_message(exc)})

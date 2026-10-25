@@ -89,6 +89,8 @@ export interface Subturn {
   // Streamed thinking characters (display metadata; saved periodically, may lag).
   nativeThinkingChars?: number;
   iratThinkingChars?: number;
+  // Ended without an answer (set by the backend when history is loaded).
+  interrupted?: boolean;
 }
 
 export interface Turn {

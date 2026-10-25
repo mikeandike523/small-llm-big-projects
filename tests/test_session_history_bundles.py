@@ -135,24 +135,6 @@ def test_a_failed_write_is_repeated_by_the_next_one(monkeypatch) -> None:
     assert _turns(restored) == _turns(session)
 
 
-def test_an_orphaned_turn_repair_rewrites_the_changed_exchanges(monkeypatch) -> None:
-    _, log = _build_session(monkeypatch)
-    # After a restart: t4 is still open, its written tool call has no result.
-    loaded = replay_events("s1", log.rows)
-    loaded.current_turn.subturns[0].exchanges[0].tool_calls[0].result = None
-
-    assert session_writes.write_repaired_turn("s1", loaded) is True
-
-    assert log.commits[-1] == [
-        "exchange_recorded",
-        "exchange_recorded",
-        "turn_completed",
-    ]
-    restored = replay_events("s1", log.rows)
-    assert restored.current_turn is None
-    assert _turns(restored) == _turns(loaded)
-
-
 def test_assembler_yields_each_turn_exactly_as_full_replay(monkeypatch) -> None:
     session, log = _build_session(monkeypatch)
     assembler = TurnBundleAssembler("s1", _turn_starts(log))
@@ -273,10 +255,16 @@ def _wire_loader(
     return hl
 
 
-def _with_thinking(turn: dict) -> dict:
-    for st in turn["subturns"]:
+def _with_thinking(turn: dict, *, running: bool = True) -> dict:
+    """What the loader adds: thinking counts and `interrupted` per subturn."""
+    subturns = turn["subturns"]
+    for i, st in enumerate(subturns):
         st["native_thinking_chars"], st["irat_thinking_chars"] = (
             (12, 3) if st["id"] == "st1" else (0, 0)
+        )
+        live = running and not turn["completed"] and i == len(subturns) - 1
+        st["interrupted"] = not live and not any(
+            ex["is_final"] for ex in st["exchanges"]
         )
     return turn
 
@@ -372,3 +360,15 @@ def test_every_step_write_moves_the_bookmark(monkeypatch) -> None:
         if commit[:1] in (["turn_started"], ["turn_reopened"], ["exchange_recorded"])
         or commit[-1:] == ["turn_completed"]
     )
+
+
+def test_an_open_turn_is_interrupted_when_nothing_runs(monkeypatch) -> None:
+    session, log = _build_session(monkeypatch)
+    hl = _wire_loader(monkeypatch, log, session, cached=True, running=False)
+
+    result = hl.load_latest_turn("s1")
+
+    assert result["turn"]["completed"] is False
+    assert [st["interrupted"] for st in result["turn"]["subturns"]] == [True]
+    assert hl.load_turn_page("s1", 4)["turn"]["subturns"][0]["interrupted"] is True
+    assert hl.load_turn_page("s1", 3)["turn"]["subturns"][0]["interrupted"] is False

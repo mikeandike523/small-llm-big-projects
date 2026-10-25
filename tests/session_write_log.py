@@ -12,8 +12,10 @@ from __future__ import annotations
 
 import json
 
+import src.ui_connector.app  # noqa: F401 - server import order (avoids cycles)
 from src.ui_connector.socket_handler_components import (
     runtime_settings,
+    session_db_load,
     session_writes,
     setting_events,
 )
@@ -94,6 +96,50 @@ def install(monkeypatch, session_id: str = "s1") -> EventLog:
     return log
 
 
+def wire_cache_db(monkeypatch, log: EventLog) -> None:
+    """Point session_db_load's cache path at the in-memory log and cache."""
+    index = [log.index[k] for k in sorted(log.index)]
+
+    def last_turn_rows(session_id, count):
+        return index[-count:]
+
+    def cached_history(session_id, below):
+        return [
+            (
+                row,
+                [log.cache[k] for k in sorted(log.cache) if k[0] == row["turn_seq"]],
+            )
+            for row in index
+            if row["turn_seq"] < below
+        ]
+
+    def latest_rows(session_id, types, *, upto_id=None):
+        found = {}
+        for row in log.rows:
+            if row["event_type"] in types and (upto_id is None or row["id"] <= upto_id):
+                found[row["event_type"]] = row
+        return sorted(found.values(), key=lambda r: r["id"])
+
+    def page(session_id, after, upto, limit):
+        return [r for r in log.rows if after < r["id"] <= upto][:limit]
+
+    monkeypatch.setattr(session_db_load, "load_last_turn_rows", last_turn_rows)
+    monkeypatch.setattr(session_db_load, "load_cached_history", cached_history)
+    monkeypatch.setattr(session_db_load, "load_latest_event_rows", latest_rows)
+    monkeypatch.setattr(session_db_load, "load_event_page", page)
+    monkeypatch.setattr(session_db_load, "max_event_id", lambda sid: log.rows[-1]["id"])
+
+
+def wire_session_load(monkeypatch, log: EventLog, *, cached: bool) -> None:
+    """Point load_session_from_db at the log (cache path, or full replay)."""
+    wire_cache_db(monkeypatch, log)
+    meta = {"schema_version": 6, "history_cache_compatible": cached}
+    monkeypatch.setattr(session_db_load, "load_session_meta", lambda sid: dict(meta))
+    monkeypatch.setattr(session_db_load, "load_session_events", lambda sid: log.rows)
+    monkeypatch.setattr(session_db_load, "_warn_uncached", lambda sid: None)
+    monkeypatch.setattr(session_db_load, "_restore_once", lambda *args: None)
+
+
 # ---------------------------------------------------------------------------
 # The server's model changes + write calls
 # ---------------------------------------------------------------------------
@@ -101,7 +147,10 @@ def install(monkeypatch, session_id: str = "s1") -> EventLog:
 
 def subturn(sid: str, text: str, **kwargs) -> Subturn:
     return Subturn(
-        id=sid, user_text=text, user_text_with_context=f"[ctx] {text}", **kwargs
+        id=sid,
+        user_text=text,
+        user_text_with_context=f"[ctx] {text}" if text else "",
+        **kwargs,
     )
 
 

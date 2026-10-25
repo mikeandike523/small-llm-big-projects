@@ -122,6 +122,13 @@ def load_session_from_db(session_id: str) -> Session | None:
         session = _session_from_full_replay(session_id, meta)
         if session is None:
             return Session(session_id=session_id)
+    if session.current_turn is not None and not _state.has_active_turn_task(session_id):
+        # The server stopped in the middle of this turn. It stays exactly as
+        # written (not completed); in memory it is just the latest closed turn,
+        # which readers show as interrupted (conversation_history.py) and a
+        # follow-up can reopen.
+        session.completed_turns.append(session.current_turn)
+        session.current_turn = None
     _restore_once(session_id, meta, session.profile_name)
     return session
 

@@ -32,7 +32,7 @@ from src.utils.context_errors import (
 )
 from src.utils.exceptions import ContextReductionExhaustedError
 from src.utils.llm.streaming import StreamingLLM
-from src.utils.session_cache_projection import subturn_final_response
+from src.utils.conversation_history import assistant_context, closed_subturn
 from src.utils.session_model import Session, Turn, Subturn
 
 logger = logging.getLogger(__name__)
@@ -62,34 +62,17 @@ def sanitize_messages_for_llm(messages: list[dict]) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 
-def _subturn_final_response(subturn: Subturn) -> str:
-    """Extract the final response text from a subturn's exchanges."""
-    # The chat history cache stores this same value (session_cache_projection).
-    return subturn_final_response(subturn)
+def _append_closed_subturn(messages: list[dict], turn: Turn, subturn: Subturn) -> None:
+    """A closed subturn: its user message, then its answer plus Context Notes.
 
-
-def _subturn_assistant_context(subturn: Subturn) -> str:
-    """Return the context string for a completed subturn injected into future LLM payloads.
-
-    When a context annotation exists (tool calls were made), reconstructs:
-      {final response}
-
-      Context Notes:
-      {annotation}
-
-    Otherwise returns just the final response.
+    Interrupted or empty subturns are filled in by conversation_history (a
+    subturn with nothing recorded adds no messages).
     """
-    final_response = _subturn_final_response(subturn)
-    if subturn.detailed_summary:
-        return f"{final_response}\n\nContext Notes:\n{subturn.detailed_summary}"
-    return final_response
-
-
-def _append_closed_subturn(messages: list[dict], subturn: Subturn) -> None:
-    messages.append({"role": "user", "content": subturn.user_text_with_context})
-    messages.append(
-        {"role": "assistant", "content": _subturn_assistant_context(subturn)}
-    )
+    cs = closed_subturn(turn, subturn)
+    if cs is None:
+        return
+    messages.append({"role": "user", "content": cs.user_context})
+    messages.append({"role": "assistant", "content": assistant_context(cs)})
 
 
 def _append_live_subturn(messages: list[dict], subturn: Subturn) -> None:
@@ -118,7 +101,7 @@ def _build_llm_payload(
 
     for turn in session.completed_turns:
         for subturn in turn.subturns:
-            _append_closed_subturn(messages, subturn)
+            _append_closed_subturn(messages, turn, subturn)
 
     prior_subturns = current_turn.subturns[:-1]
     live_subturn = current_turn.subturns[-1] if current_turn.subturns else None
@@ -130,7 +113,7 @@ def _build_llm_payload(
 
     for idx, subturn in enumerate(prior_subturns):
         if idx < closed_current_turn_prior_subturns:
-            _append_closed_subturn(messages, subturn)
+            _append_closed_subturn(messages, current_turn, subturn)
         else:
             _append_live_subturn(messages, subturn)
 

@@ -13,6 +13,7 @@ import pytest
 from click.testing import CliRunner
 from session_write_log import (
     EventLog,
+    wire_cache_db,
     create,
     end_turn,
     install,
@@ -44,8 +45,8 @@ from src.utils import session_cache_backfill
 from src.utils.session_cache_projection import (
     project_turn,
     stub_turn_from_cache,
-    subturn_final_response,
 )
+from src.utils.conversation_history import final_answer
 from src.utils.session_events import (
     SESSION_LEVEL_EVENT_TYPES,
     derive_meta,
@@ -127,40 +128,6 @@ def _build_session(monkeypatch, *, running: bool = False):
     return s, log
 
 
-def _wire_cache_db(monkeypatch, log: EventLog) -> None:
-    """Point session_db_load's cache path at the in-memory log and cache."""
-    index = [log.index[k] for k in sorted(log.index)]
-
-    def last_turn_rows(session_id, count):
-        return index[-count:]
-
-    def cached_history(session_id, below):
-        return [
-            (
-                row,
-                [log.cache[k] for k in sorted(log.cache) if k[0] == row["turn_seq"]],
-            )
-            for row in index
-            if row["turn_seq"] < below
-        ]
-
-    def latest_rows(session_id, types, *, upto_id=None):
-        found = {}
-        for row in log.rows:
-            if row["event_type"] in types and (upto_id is None or row["id"] <= upto_id):
-                found[row["event_type"]] = row
-        return sorted(found.values(), key=lambda r: r["id"])
-
-    def page(session_id, after, upto, limit):
-        return [r for r in log.rows if after < r["id"] <= upto][:limit]
-
-    monkeypatch.setattr(session_db_load, "load_last_turn_rows", last_turn_rows)
-    monkeypatch.setattr(session_db_load, "load_cached_history", cached_history)
-    monkeypatch.setattr(session_db_load, "load_latest_event_rows", latest_rows)
-    monkeypatch.setattr(session_db_load, "load_event_page", page)
-    monkeypatch.setattr(session_db_load, "max_event_id", lambda sid: log.rows[-1]["id"])
-
-
 def _all_turns(session: Session) -> list[Turn]:
     turns = list(session.completed_turns)
     if session.current_turn is not None:
@@ -176,7 +143,7 @@ def _readers(session: Session) -> dict:
         "skills": _build_skill_selector_transcript(session, new_turn),
         "title": _build_title_context(session, new_turn),
         "meta": derive_meta(session),
-        "last_final": subturn_final_response(session.completed_turns[-1].subturns[-1]),
+        "last_final": final_answer(session.completed_turns[-1].subturns[-1]),
     }
 
 
@@ -185,7 +152,7 @@ def test_cache_built_session_reads_exactly_like_full_replay(
     monkeypatch, running
 ) -> None:
     session, log = _build_session(monkeypatch, running=running)
-    _wire_cache_db(monkeypatch, log)
+    wire_cache_db(monkeypatch, log)
     full = replay_events("s1", log.rows)
     cached = session_db_load._session_from_cache("s1")
 
@@ -206,7 +173,7 @@ def test_cache_gap_falls_back_to_full_replay(monkeypatch) -> None:
     _, log = _build_session(monkeypatch)
     del log.cache[(1, 1)]
     del log.index[1]
-    _wire_cache_db(monkeypatch, log)
+    wire_cache_db(monkeypatch, log)
     assert session_db_load._session_from_cache("s1") is None
 
 
@@ -240,7 +207,7 @@ def _record_writes(monkeypatch) -> list:
 
 def test_writes_on_a_cache_built_session_match_a_full_replay(monkeypatch) -> None:
     session, log = _build_session(monkeypatch)
-    _wire_cache_db(monkeypatch, log)
+    wire_cache_db(monkeypatch, log)
     written = []
     for loaded in (
         session_db_load._session_from_cache("s1"),
@@ -288,7 +255,7 @@ def test_writing_a_stub_turn_is_refused() -> None:
 def test_replay_ignores_repeated_copies_of_sealed_turns(monkeypatch) -> None:
     """The pre-fix save path could re-write every turn (see list_turn_starts)."""
     session, log = _build_session(monkeypatch)
-    _wire_cache_db(monkeypatch, log)
+    wire_cache_db(monkeypatch, log)
     expected = session_db_load._session_from_cache("s1")
     copy = [dict(r, id=len(log.rows) + i + 1) for i, r in enumerate(list(log.rows))]
     log.rows.extend(copy)
@@ -313,7 +280,7 @@ def test_stub_keeps_the_closed_subturn_fields() -> None:
 
     assert subturn_rows[0]["final_response"] == "answer"
     assert stub.from_cache and stub.completed and stub.task_title == "T"
-    assert subturn_final_response(stub.subturns[0]) == "answer"
+    assert final_answer(stub.subturns[0]) == "answer"
     assert stub.subturns[0].detailed_summary == "notes"
     assert stub.subturns[0].user_text_with_context == "[ctx] q1"
 

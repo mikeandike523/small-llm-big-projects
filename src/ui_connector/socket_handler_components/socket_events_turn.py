@@ -21,6 +21,7 @@ from src.ui_connector.socket_handler_components.emit import (
 from src.ui_connector.socket_handler_components.session_store import (
     _load_session,
 )
+from src.utils.conversation_history import closed_subturn
 from src.ui_connector.socket_handler_components.session_writes import (
     write_title,
     write_turn_start,
@@ -68,7 +69,10 @@ def _build_title_context(session: Session, current_turn: Turn) -> str | None:
         if t.task_title:
             parts.append(f"Previous task: {t.task_title}")
     for st in current_turn.subturns[:-1]:
-        user_text = (st.user_text or "").strip()
+        cs = closed_subturn(current_turn, st)
+        if cs is None:
+            continue
+        user_text = cs.user_text.strip()
         if len(user_text) > 200:
             user_text = user_text[:200] + "..."
         parts.append(f"Previous subturn request: {user_text}")
