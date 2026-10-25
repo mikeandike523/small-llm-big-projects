@@ -16,7 +16,9 @@ Three ways to load, from cheapest to most expensive:
       replayed, as before v18, and a yellow warning asks the user to run
       `slbp intense-migration run fill-session-cache`.
 
-Every load returns an independent Session object.
+Every load returns an independent Session object. The first load of a
+session in this process also restores its per-process state (cwd, cost,
+context usage) from session_meta (restore_cold_state).
 """
 
 from __future__ import annotations
@@ -28,11 +30,6 @@ from typing import Iterator
 from termcolor import colored
 
 import src.ui_connector.socket_handler_components.state as _state
-from src.ui_connector.socket_handler_components._session_event_emit import (
-    build_cursor,
-    load_cursor,
-    save_cursor,
-)
 from src.ui_connector.socket_handler_components.emit import _emit_backend_log
 from src.utils.session_cache_projection import stub_turn_from_cache
 from src.utils.session_events import (
@@ -64,6 +61,10 @@ FILL_SESSION_CACHE_COMMAND = "slbp intense-migration run fill-session-cache"
 _warned_uncached: set[str] = set()
 _warned_uncached_lock = threading.Lock()
 
+# Sessions whose per-process state was restored by this process.
+_restored: set[str] = set()
+_restored_lock = threading.Lock()
+
 
 def iter_event_rows(session_id: str, after: int, upto: int) -> Iterator[dict]:
     """Yield event rows with after < id <= upto, in id order, page by page."""
@@ -85,7 +86,7 @@ def _replay_rows(state: ReplayState, rows) -> None:
 # ---------------------------------------------------------------------------
 
 
-def load_session_info_from_db(session_id: str, *, cold: bool) -> Session | None:
+def load_session_info_from_db(session_id: str) -> Session | None:
     """Session-level state without turns, or None if there is no such session."""
     meta = load_session_meta(session_id)
     if meta is None:
@@ -95,8 +96,7 @@ def load_session_info_from_db(session_id: str, *, cold: bool) -> Session | None:
     session = state.to_session()
     session.turns_loaded = False
     session.history_cache_compatible = bool(meta.get("history_cache_compatible"))
-    if cold:
-        restore_cold_state(session_id, meta, session.profile_name)
+    _restore_once(session_id, meta, session.profile_name)
     return session
 
 
@@ -105,16 +105,8 @@ def load_session_info_from_db(session_id: str, *, cold: bool) -> Session | None:
 # ---------------------------------------------------------------------------
 
 
-def load_session_from_db(session_id: str, *, cold: bool) -> Session | None:
-    """Load a session for the agent (turns included), or None if absent.
-
-    `cold` means this process's live Redis state for the session is gone (boot
-    flush or TTL expiry). Only then is the memory hash rehydrated from the
-    metadata row and the Python-memory state (current cwd, accumulated cost,
-    context usage) restored. A warm load must not touch those: they may hold
-    live, not-yet-saved state. The persist cursor is rebuilt whenever it is
-    missing.
-    """
+def load_session_from_db(session_id: str) -> Session | None:
+    """Load a session for the agent (turns included), or None if absent."""
     # Database errors propagate: a failed read is a hard error, never a blank
     # session (saving that blank session would overwrite the real one).
     meta = load_session_meta(session_id)
@@ -130,13 +122,7 @@ def load_session_from_db(session_id: str, *, cold: bool) -> Session | None:
         session = _session_from_full_replay(session_id, meta)
         if session is None:
             return Session(session_id=session_id)
-
-    r = _state._get_redis()
-    # Resync the cursor with the durable log (prevents duplicate re-emits).
-    if cold or not load_cursor(r, session_id):
-        save_cursor(r, session_id, build_cursor(session), _state._SESSION_TTL)
-    if cold:
-        restore_cold_state(session_id, meta, session.profile_name)
+    _restore_once(session_id, meta, session.profile_name)
     return session
 
 
@@ -230,17 +216,26 @@ def _warn_uncached(session_id: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-def restore_cold_state(session_id: str, meta: dict, profile_name: str | None) -> None:
-    """Restore per-process state from session_meta after a cold load."""
-    r = _state._get_redis()
-    # Rehydrate the session_memory hash into Redis so the RedisDict sees it.
-    mem_hash_key = f"session:{session_id}:memory"
-    memory = meta.get("memory") or {}
-    r.delete(mem_hash_key)
-    if memory:
-        r.hset(mem_hash_key, mapping=memory)
+def _restore_once(session_id: str, meta: dict, profile_name: str | None) -> None:
+    with _restored_lock:
+        if session_id in _restored:
+            return
+        _restored.add(session_id)
+    restore_cold_state(session_id, meta, profile_name)
 
-    # Restore Python-memory-only state.
+
+def forget_restored_session(session_id: str) -> None:
+    """A deleted session's per-process state is gone; restore it again if reused."""
+    with _restored_lock:
+        _restored.discard(session_id)
+
+
+def restore_cold_state(session_id: str, meta: dict, profile_name: str | None) -> None:
+    """Restore per-process state from session_meta on a session's first load.
+
+    Later loads must not touch it: the in-process values are newer than
+    session_meta between writes.
+    """
     if meta.get("current_cwd"):
         _state._session_current_cwd[session_id] = meta["current_cwd"]
     if meta.get("total_cost_usd"):
@@ -251,11 +246,12 @@ def restore_cold_state(session_id: str, meta: dict, profile_name: str | None) ->
         # profile changed between runs (e.g. switched after a restart), the
         # stored token counts and known_max_context no longer describe the
         # current profile — drop the stale snapshot instead of restoring it
-        # (the next _save_session then writes NULL to session_meta, and the
+        # (the next session write then stores NULL in session_meta, and the
         # next main-agent exchange with a max-context profile re-emits fresh).
         if last_context_usage.get("profile") == profile_name:
             # Runtime revisions intentionally restart with the server. No old
-            # request can still be in flight after a cold load, so rebase the
+            # request can still be in flight on a session's first load in this
+            # process, so rebase the
             # durable snapshot onto the new runtime generation.
             last_context_usage["profile_revision"] = 0
             _state._session_last_context_usage[session_id] = last_context_usage

@@ -2,56 +2,36 @@
 
 from __future__ import annotations
 
-import json
-
 import pytest
+from session_write_log import (
+    EventLog,
+    create,
+    end_turn,
+    install,
+    set_title,
+    start_turn,
+    step,
+    subturn,
+)
 
 import src.ui_connector.app  # noqa: F401 - server import order (avoids cycles)
-from src.ui_connector.socket_handler_components import history_loader, session_db_load
-from src.ui_connector.socket_handler_components._session_event_emit import (
-    compute_events,
+from src.ui_connector.socket_handler_components import (
+    history_loader,
+    session_db_load,
+    session_writes,
 )
 from src.utils.session_events import replay_events
 from src.utils.session_history_bundles import TurnBundleAssembler
 from src.utils.session_model import (
     LLMExchange,
     Session,
-    Subturn,
     ToolCallRecord,
-    Turn,
     turn_to_dict,
 )
 
 
-class _EventLog:
-    """Accumulates compute_events output across saves, like session_events."""
-
-    def __init__(self) -> None:
-        self.rows: list[dict] = []
-        self.cursor: dict = {}
-
-    def save(self, session: Session) -> list[str]:
-        events = compute_events(session, self.cursor)
-        for event_type, payload in events:
-            self.rows.append(
-                {
-                    "id": len(self.rows) + 1,
-                    "event_type": event_type,
-                    "payload": json.loads(json.dumps(payload)),
-                }
-            )
-        return [event_type for event_type, _ in events]
-
-    def turn_starts(self) -> list[tuple[int, str]]:
-        return [
-            (row["id"], row["payload"]["turn_id"])
-            for row in self.rows
-            if row["event_type"] == "turn_started"
-        ]
-
-
-def _st(sid: str, text: str) -> Subturn:
-    return Subturn(id=sid, user_text=text, user_text_with_context=text)
+def _turn_starts(log: EventLog) -> list[tuple[int, str]]:
+    return [(eid, tid) for tid, eid in log.starts().items()]
 
 
 def _final(text: str) -> LLMExchange:
@@ -64,68 +44,47 @@ def _tool_step(call_id: str) -> LLMExchange:
     )
 
 
-def _complete(session: Session, turn: Turn, todo: list) -> None:
-    turn.completed = True
-    turn.todo_snapshot = todo
-    session.completed_turns.append(turn)
-    session.current_turn = None
-
-
-def _reopen(session: Session, subturn: Subturn) -> Turn:
-    turn = session.completed_turns.pop()
-    turn.completed = False
-    turn.subturns.append(subturn)
-    session.current_turn = turn
-    return turn
-
-
-def _build_session() -> tuple[Session, _EventLog]:
+def _build_session(monkeypatch) -> tuple[Session, EventLog]:
+    log = install(monkeypatch)
     s = Session(session_id="s1", startup_tool_calls=[{"name": "x"}])
-    log = _EventLog()
-    log.save(s)
+    create(s)
 
     # t1: tool step, then answer.
-    t1 = Turn(id="t1", subturns=[_st("st1", "q1")])
-    s.current_turn = t1
-    log.save(s)
-    t1.subturns[0].exchanges.append(_tool_step("c1"))
+    st1 = subturn("st1", "q1")
+    t1 = start_turn(s, "t1", st1)
+    step(s, st1, _tool_step("c1"))
+    t1.todo_snapshot = [{"text": "a", "status": "closed"}]
+    end_turn(s, t1, st1, _final("a1"))
+
+    # t2, then a follow-up with a new title.
+    st2 = subturn("st2", "q2")
+    t2 = start_turn(s, "t2", st2)
+    set_title(s, t2, "T2")
+    end_turn(s, t2, st2, _final("a2"))
+    st3 = subturn("st3", "follow-up")
+    start_turn(s, "t2", st3, follow_up=True)
+    assert log.commits[-1][0] == "turn_reopened"
+    set_title(s, t2, "T2 revised")
+    t2.todo_snapshot = [{"text": "b", "status": "closed"}]
+    end_turn(s, t2, st3, _final("a3"))
+
+    # t3, then a follow-up.
+    st4 = subturn("st4", "q3")
+    t3 = start_turn(s, "t3", st4)
+    end_turn(s, t3, st4, _final("a4"))
+    st5 = subturn("st5", "follow-up 2")
+    start_turn(s, "t3", st5, follow_up=True)
+    t3.todo_snapshot = [{"text": "c", "status": "closed"}]
+    end_turn(s, t3, st5, _final("a5"))
+    assert log.commits[-1][-1] == "turn_completed"
+
+    # t4 still running, with an open todo item.
+    st6 = subturn("st6", "q4")
+    start_turn(s, "t4", st6)
     s.session_data["todo_list"] = [{"text": "a", "status": "open"}]
-    log.save(s)
-    t1.subturns[0].exchanges.append(_final("a1"))
-    _complete(s, t1, [{"text": "a", "status": "closed"}])
-    log.save(s)
-
-    # t2, then a follow-up that is saved while reopened, with a new title.
-    t2 = Turn(id="t2", subturns=[_st("st2", "q2")], task_title="T2")
-    s.current_turn = t2
-    log.save(s)
-    t2.subturns[0].exchanges.append(_final("a2"))
-    _complete(s, t2, [])
-    log.save(s)
-    t2 = _reopen(s, _st("st3", "follow-up"))
-    assert "turn_reopened" in log.save(s)
-    t2.subturns[1].exchanges.append(_final("a3"))
-    t2.task_title = "T2 revised"
-    _complete(s, t2, [{"text": "b", "status": "closed"}])
-    log.save(s)
-
-    # t3, then a follow-up that completes with no save in between.
-    t3 = Turn(id="t3", subturns=[_st("st4", "q3")])
-    s.current_turn = t3
-    t3.subturns[0].exchanges.append(_final("a4"))
-    _complete(s, t3, [])
-    log.save(s)
-    t3 = _reopen(s, _st("st5", "follow-up 2"))
-    t3.subturns[1].exchanges.append(_final("a5"))
-    _complete(s, t3, [{"text": "c", "status": "closed"}])
-    assert "turn_completed" in log.save(s)
-
-    # t4 still running.
-    t4 = Turn(id="t4", subturns=[_st("st6", "q4")])
-    s.current_turn = t4
-    t4.subturns[0].exchanges.append(_tool_step("c2"))
+    step(s, st6, _tool_step("c2"))
     s.startup_done = True
-    log.save(s)
+    session_writes.write_startup_done("s1", s)
     return s, log
 
 
@@ -136,8 +95,8 @@ def _turns(session: Session) -> list[dict]:
     return [turn_to_dict(t) for t in turns]
 
 
-def test_event_log_replays_to_the_in_memory_session() -> None:
-    session, log = _build_session()
+def test_event_log_replays_to_the_in_memory_session(monkeypatch) -> None:
+    session, log = _build_session(monkeypatch)
     restored = replay_events("s1", log.rows)
 
     assert _turns(restored) == _turns(session)
@@ -151,14 +110,52 @@ def test_event_log_replays_to_the_in_memory_session() -> None:
     ]
 
 
-def test_saves_after_completion_emit_nothing() -> None:
-    session, log = _build_session()
-    assert log.save(session) == []
+def test_a_repeated_write_writes_nothing_new(monkeypatch) -> None:
+    session, log = _build_session(monkeypatch)
+    before = len(log.rows)
+    session_writes.write_step("s1", session, session.current_turn.subturns[0])
+    assert len(log.rows) == before
 
 
-def test_assembler_yields_each_turn_exactly_as_full_replay() -> None:
-    session, log = _build_session()
-    assembler = TurnBundleAssembler("s1", log.turn_starts())
+def test_a_failed_write_is_repeated_by_the_next_one(monkeypatch) -> None:
+    session, log = _build_session(monkeypatch)
+    st = session.current_turn.subturns[0]
+
+    def db_down(*args):
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr(session_writes, "persist_save", db_down)
+    with pytest.raises(RuntimeError):
+        step(session, st, _tool_step("c3"))
+    monkeypatch.setattr(session_writes, "persist_save", log.persist_save)
+    step(session, st, _tool_step("c4"))
+
+    assert log.commits[-1] == ["exchange_recorded", "exchange_recorded"]
+    restored = replay_events("s1", log.rows)
+    assert _turns(restored) == _turns(session)
+
+
+def test_an_orphaned_turn_repair_rewrites_the_changed_exchanges(monkeypatch) -> None:
+    _, log = _build_session(monkeypatch)
+    # After a restart: t4 is still open, its written tool call has no result.
+    loaded = replay_events("s1", log.rows)
+    loaded.current_turn.subturns[0].exchanges[0].tool_calls[0].result = None
+
+    assert session_writes.write_repaired_turn("s1", loaded) is True
+
+    assert log.commits[-1] == [
+        "exchange_recorded",
+        "exchange_recorded",
+        "turn_completed",
+    ]
+    restored = replay_events("s1", log.rows)
+    assert restored.current_turn is None
+    assert _turns(restored) == _turns(loaded)
+
+
+def test_assembler_yields_each_turn_exactly_as_full_replay(monkeypatch) -> None:
+    session, log = _build_session(monkeypatch)
+    assembler = TurnBundleAssembler("s1", _turn_starts(log))
     bundles = []
     for row in log.rows:
         bundles.extend(assembler.feed(row))
@@ -169,10 +166,10 @@ def test_assembler_yields_each_turn_exactly_as_full_replay() -> None:
     assert assembler.todo_list == [{"text": "a", "status": "open"}]
 
 
-def test_assembler_flags_an_event_outside_its_turn_range() -> None:
-    _, log = _build_session()
+def test_assembler_flags_an_event_outside_its_turn_range(monkeypatch) -> None:
+    _, log = _build_session(monkeypatch)
     # A late title for t1, written after t3 started (inside t3's id range).
-    t3_start = dict((tid, eid) for eid, tid in log.turn_starts())["t3"]
+    t3_start = dict((tid, eid) for eid, tid in _turn_starts(log))["t3"]
     straggler = {
         "id": t3_start,
         "event_type": "title_set",
@@ -180,7 +177,7 @@ def test_assembler_flags_an_event_outside_its_turn_range() -> None:
     }
     rows = list(log.rows)
     rows.insert(t3_start, straggler)  # right after t3's turn_started row
-    assembler = TurnBundleAssembler("s1", log.turn_starts())
+    assembler = TurnBundleAssembler("s1", _turn_starts(log))
     bundles = []
     for row in rows:
         bundles.extend(assembler.feed(row))
@@ -199,7 +196,7 @@ class _FakeLock:
         return False
 
 
-def _turn_index(log: _EventLog, session: Session) -> list[dict]:
+def _turn_index(log: EventLog, session: Session) -> list[dict]:
     """chat_turn_index rows matching the log (what saves would have written)."""
     turns = {t["id"]: t for t in _turns(session)}
     return [
@@ -210,7 +207,7 @@ def _turn_index(log: _EventLog, session: Session) -> list[dict]:
             "title": turns[tid]["task_title"],
             "completed": turns[tid]["completed"],
         }
-        for seq, (eid, tid) in enumerate(log.turn_starts(), 1)
+        for seq, (eid, tid) in enumerate(_turn_starts(log), 1)
     ]
 
 
@@ -256,7 +253,7 @@ def _wire_loader(
         # The cached path must never fall back to the turn_started scan.
         monkeypatch.setattr(hl, "list_turn_starts", None)
     else:
-        monkeypatch.setattr(hl, "list_turn_starts", lambda sid: log.turn_starts())
+        monkeypatch.setattr(hl, "list_turn_starts", lambda sid: _turn_starts(log))
     monkeypatch.setattr(hl, "latest_turn_upto", fake_latest_turn_upto)
     monkeypatch.setattr(hl, "load_turn_rows", fake_turn_rows)
     monkeypatch.setattr(hl, "turn_seq_for_turn_id", fake_seq_for_id)
@@ -289,7 +286,7 @@ def _with_thinking(turn: dict) -> dict:
 def test_load_turn_returns_each_turn_exactly_as_full_replay(
     monkeypatch, page_size, cached
 ) -> None:
-    session, log = _build_session()
+    session, log = _build_session(monkeypatch)
     hl = _wire_loader(monkeypatch, log, session, cached=cached, page_size=page_size)
 
     for page, expected in enumerate(_turns(session), 1):
@@ -304,7 +301,7 @@ def test_load_turn_returns_each_turn_exactly_as_full_replay(
 
 @pytest.mark.parametrize("cached", [True, False])
 def test_load_turn_unknown_page_or_id_is_an_error(monkeypatch, cached) -> None:
-    session, log = _build_session()
+    session, log = _build_session(monkeypatch)
     hl = _wire_loader(monkeypatch, log, session, cached=cached)
     assert "error" in hl.load_turn_by_id("s1", "nope")
     assert "error" in hl.load_turn_page("s1", 0)
@@ -313,7 +310,7 @@ def test_load_turn_unknown_page_or_id_is_an_error(monkeypatch, cached) -> None:
 
 @pytest.mark.parametrize("cached", [True, False])
 def test_load_latest_turn_includes_running_state(monkeypatch, cached) -> None:
-    session, log = _build_session()
+    session, log = _build_session(monkeypatch)
     unsaved = [{"id": "5-0", "type": "tool_call", "data": {"id": "c3"}}]
     hl = _wire_loader(monkeypatch, log, session, cached=cached, unsaved=unsaved)
 
@@ -328,7 +325,7 @@ def test_load_latest_turn_includes_running_state(monkeypatch, cached) -> None:
 
 
 def test_load_latest_turn_when_idle_has_no_live_state(monkeypatch) -> None:
-    session, log = _build_session()
+    session, log = _build_session(monkeypatch)
     hl = _wire_loader(monkeypatch, log, session, cached=True, running=False)
 
     result = hl.load_latest_turn("s1")
@@ -341,8 +338,8 @@ def test_load_latest_turn_when_idle_has_no_live_state(monkeypatch) -> None:
 @pytest.mark.parametrize("cached", [True, False])
 def test_load_latest_turn_of_an_empty_session(monkeypatch, cached) -> None:
     session = Session(session_id="s1")
-    log = _EventLog()
-    log.save(session)
+    log = install(monkeypatch)
+    create(session)
     hl = _wire_loader(monkeypatch, log, session, cached=cached, running=False)
 
     result = hl.load_latest_turn("s1")
@@ -350,3 +347,28 @@ def test_load_latest_turn_of_an_empty_session(monkeypatch, cached) -> None:
     assert result["turnCount"] == 0
     assert result["latestTurnId"] is None
     assert result["turn"] is None
+
+
+def test_events_are_not_replayed_without_a_bookmark(monkeypatch) -> None:
+    session, log = _build_session(monkeypatch)
+    unsaved = [{"id": "5-0", "type": "tool_call", "data": {"id": "c3"}}]
+    hl = _wire_loader(monkeypatch, log, session, cached=True, unsaved=unsaved)
+    monkeypatch.setattr(hl, "get_watermark", lambda r, sid: None)
+    monkeypatch.setattr(hl, "latest_stream_id", lambda r, sid: "5-0")
+
+    result = hl.load_latest_turn("s1")
+
+    assert result["running"] is True
+    assert result["events"] == []
+    assert result["turn"] == _with_thinking(_turns(session)[-1])
+
+
+def test_every_step_write_moves_the_bookmark(monkeypatch) -> None:
+    _, log = _build_session(monkeypatch)
+    # One per turn start, step and turn end; none for title/skills/startup.
+    assert len(log.watermarks) == sum(
+        1
+        for commit in log.commits
+        if commit[:1] in (["turn_started"], ["turn_reopened"], ["exchange_recorded"])
+        or commit[-1:] == ["turn_completed"]
+    )

@@ -1,6 +1,8 @@
-from src.ui_connector.socket_handler_components import runtime_settings
-from src.ui_connector.socket_handler_components._session_event_emit import (
-    compute_events,
+from session_write_log import create, install
+
+from src.ui_connector.socket_handler_components import (
+    runtime_settings,
+    setting_events,
 )
 from src.utils import session_events
 from src.utils.session_model import Session
@@ -32,20 +34,17 @@ def test_runtime_settings_are_revisioned_and_merge_into_stale_session() -> None:
         runtime_settings.discard(session_id)
 
 
-def test_profile_change_is_emitted_and_replayed() -> None:
-    session = Session(session_id="s1", profile_name="profile-a")
-    cursor: dict = {}
-    initial = compute_events(session, cursor)
-    session.profile_name = "profile-b"
+def test_profile_change_is_written_and_replayed(monkeypatch) -> None:
+    log = install(monkeypatch)
+    create(Session(session_id="s1", profile_name="profile-a"))
+    before = len(log.rows)
 
-    changed = compute_events(session, cursor)
+    setting_events.persist_profile("s1", "profile-b")
 
-    assert changed == [(session_events.EVT_PROFILE_SET, {"profile_name": "profile-b"})]
-    rows = [
-        {"event_type": event_type, "payload": payload}
-        for event_type, payload in initial + changed
+    assert [(r["event_type"], r["payload"]) for r in log.rows[before:]] == [
+        (session_events.EVT_PROFILE_SET, {"profile_name": "profile-b"})
     ]
-    restored = session_events.replay_events("s1", rows)
+    restored = session_events.replay_events("s1", log.rows)
     assert restored.profile_name == "profile-b"
 
 
@@ -74,10 +73,10 @@ def test_heartbeat_settings_are_revisioned_and_merge_into_stale_session() -> Non
         runtime_settings.discard(session_id)
 
 
-def test_heartbeat_settings_change_is_emitted_and_replayed() -> None:
-    session = Session(session_id="s1")
-    cursor: dict = {}
-    initial = compute_events(session, cursor)
+def test_heartbeat_settings_change_is_written_and_replayed(monkeypatch) -> None:
+    log = install(monkeypatch)
+    create(Session(session_id="s1"))
+    before = len(log.rows)
     new_settings = {
         "enabled": True,
         "interval_minutes": 45,
@@ -85,18 +84,13 @@ def test_heartbeat_settings_change_is_emitted_and_replayed() -> None:
         "heartbeat_approval_policy": "wait-for-human",
         "followup_behavior": "follow-up",
     }
-    session.session_data["heartbeat_settings"] = new_settings
 
-    changed = compute_events(session, cursor)
+    setting_events.persist_heartbeat_settings("s1", new_settings)
 
-    assert changed == [
+    assert [(r["event_type"], r["payload"]) for r in log.rows[before:]] == [
         (session_events.EVT_HEARTBEAT_SETTINGS_SET, {"settings": new_settings})
     ]
-    rows = [
-        {"event_type": event_type, "payload": payload}
-        for event_type, payload in initial + changed
-    ]
-    restored = session_events.replay_events("s1", rows)
+    restored = session_events.replay_events("s1", log.rows)
     assert restored.session_data["heartbeat_settings"] == new_settings
 
 

@@ -18,8 +18,10 @@ from src.ui_connector.socket_handler_components.session_store import (
     _load_session,
     _load_session_info,
     _repair_orphaned_latest_turn,
-    _save_session,
     _get_session_skill_registry,
+)
+from src.ui_connector.socket_handler_components.session_writes import (
+    write_startup_done,
 )
 from src.ui_connector.socket_handler_components.terminal import _format_cmd_display
 from src.tools import execute_tool
@@ -147,7 +149,7 @@ def handle_resume_session(data: dict | None = None):
 
     last_context_usage = _state._session_last_context_usage.get(session_id)
     # Defensive profile-match check: the snapshot is stamped with the profile
-    # that produced it. (restore_cold_state already filters on cold load and the
+    # that produced it. (restore_cold_state already filters on first load and the
     # profile PATCH handler clears live changes, but this guards any path that
     # leaves a mismatched snapshot in state.) A null known_max_context is a
     # clear signal — never re-emit it as data.
@@ -337,7 +339,7 @@ def handle_run_startup_tool_calls():
         emit("startup_tool_calls_done", {"count": 0})
         return
 
-    # Decide from settings alone; the turns are only loaded (for the save at
+    # Decide from settings alone; the turns are only loaded (for the write at
     # the end) when the tools actually run.
     info = _load_session_info(session_id)
     if info is not None and not info.startup_tool_calls:
@@ -415,7 +417,7 @@ def handle_run_startup_tool_calls():
         )
 
     session.startup_done = True
-    _save_session(session_id, session)
+    write_startup_done(session_id, session)
     socketio.emit(
         "startup_tool_calls_done",
         {"count": len(session.startup_tool_calls)},

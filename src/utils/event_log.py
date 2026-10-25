@@ -26,8 +26,12 @@ def log_event(r: redis.Redis, session_id: str, event_type: str, data: dict) -> s
     Returns the Redis Streams auto-generated ID (e.g. "1234567890123-0").
     """
     key = _stream_key(session_id)
-    stream_id = r.xadd(key, {"type": event_type, "data": json.dumps(data)})
-    r.expire(key, _SESSION_EVENTS_TTL)
+    pipe = r.pipeline()
+    pipe.xadd(key, {"type": event_type, "data": json.dumps(data)})
+    # The log and its bookmark always expire together (see below).
+    pipe.expire(key, _SESSION_EVENTS_TTL)
+    pipe.expire(watermark_key(session_id), _SESSION_EVENTS_TTL)
+    stream_id = pipe.execute()[0]
     return stream_id  # type: ignore[return-value]
 
 
@@ -71,9 +75,16 @@ def get_events_since(r: redis.Redis, session_id: str, last_id: str) -> list[dict
 # Bookmark ("watermark") linking this log to the durable MySQL event log
 # ---------------------------------------------------------------------------
 #
-# The agent loop's step-boundary saves record the id of the latest logged event
-# at save time: everything up to it is described by state now in MySQL. A page
-# load rebuilds history from MySQL and replays only the events after it.
+# The agent's step-boundary writes (session_writes.py) record the id of the
+# latest logged event at write time: everything up to it is described by state
+# now in MySQL. A page load rebuilds history from MySQL and replays only the
+# events after it.
+#
+# The bookmark is set at the start of every turn ("0-0" when the log is still
+# empty, meaning every logged event is newer than MySQL), and the log and the
+# bookmark are only ever written and expired together. So a log without a
+# bookmark is never normal: the reader refuses to replay it (get_watermark
+# returns None), rather than replaying events MySQL may already contain.
 
 
 def watermark_key(session_id: str) -> str:
@@ -89,21 +100,25 @@ def latest_stream_id(r: redis.Redis, session_id: str) -> str | None:
     return entries[0][0] if entries else None
 
 
-def get_watermark(r: redis.Redis, session_id: str) -> str:
-    """Return the bookmark, or "0-0" (replay the whole log) when unset."""
-    return r.get(watermark_key(session_id)) or "0-0"
+def get_watermark(r: redis.Redis, session_id: str) -> str | None:
+    """Return the bookmark, or None if it is missing (do not replay)."""
+    return r.get(watermark_key(session_id))
 
 
-def set_watermark(r: redis.Redis, session_id: str, stream_id: str, ttl: int) -> None:
-    r.setex(watermark_key(session_id), ttl, stream_id)
-
-
-def trim_stream_upto(r: redis.Redis, session_id: str, stream_id: str) -> None:
-    """Drop logged events older than `stream_id` (they are durable in MySQL).
+def advance_watermark(
+    r: redis.Redis, session_id: str, stream_id: str, ttl: int
+) -> None:
+    """Move the bookmark to `stream_id` and drop the log entries before it.
 
     XTRIM MINID keeps `stream_id` itself; get_events_since() excludes it.
     """
+    key = _stream_key(session_id)
+    pipe = r.pipeline()
+    pipe.setex(watermark_key(session_id), ttl, stream_id)
+    pipe.expire(key, ttl)
+    if stream_id != "0-0":
+        pipe.xtrim(key, minid=stream_id)
     try:
-        r.xtrim(_stream_key(session_id), minid=stream_id)
+        pipe.execute()
     except redis.ResponseError:
         pass

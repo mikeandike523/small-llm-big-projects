@@ -101,6 +101,9 @@ class Subturn:
     approval_mode: str | None = None
     # Who started this subturn: SUBTURN_ORIGIN_USER or SUBTURN_ORIGIN_HEARTBEAT.
     origin: str = SUBTURN_ORIGIN_USER
+    # How many of `exchanges` are already in session_events. In memory only:
+    # replay sets it, and session_writes advances it after each commit.
+    saved_exchanges: int = field(default=0, compare=False, repr=False)
 
     def count_tool_calls(self) -> int:
         return sum(len(ex.tool_calls) for ex in self.exchanges)
@@ -161,6 +164,9 @@ class Session:
     # False for a settings-only Session (session_info.load_session_info): it
     # has no turns, so it must never be saved.
     turns_loaded: bool = True
+    # todo_list_hash of the todo list last written to session_events (None =
+    # the empty list). In memory only, like Subturn.saved_exchanges.
+    saved_todo_hash: str | None = field(default=None, compare=False, repr=False)
 
 
 # ---------------------------------------------------------------------------

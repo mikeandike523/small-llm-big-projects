@@ -20,27 +20,21 @@ from src.logic.system_prompt import (
     build_system_prompt,
     get_autoload_skill_entries,
 )
-from src.utils.event_log import (
-    latest_stream_id,
-    set_watermark,
-    trim_stream_upto,
-    watermark_key,
-)
-from src.utils.redis_dict import RedisDict
+from src.utils.event_log import watermark_key
 from src.utils.session_dirs import delete_session_scratchpad
-from src.utils.session_model import Session, repair_incomplete_turn
-from src.utils.session_events import derive_meta
-from src.utils.sql.chat_history_cache_db import load_last_turn_rows, persist_save
+from src.utils.session_memory import SessionMemory
+from src.utils.session_model import Session
+from src.utils.sql.chat_history_cache_db import load_last_turn_rows
+from src.utils.sql.session_memory_db import list_memory_keys
 from src.utils.sql.session_store_db import delete_sessions
-from src.ui_connector.socket_handler_components._session_event_emit import (
-    cache_rows_for_save,
-    compute_events,
-    load_cursor,
-    save_cursor,
-)
 from src.ui_connector.socket_handler_components.session_db_load import (
+    forget_restored_session,
     load_session_from_db,
     load_session_info_from_db,
+)
+from src.ui_connector.socket_handler_components.session_writes import (
+    write_repaired_turn,
+    write_session_created,
 )
 from src.ui_connector.socket_handler_components.session_customizations import (
     manifest_from_custom_tools,
@@ -211,12 +205,8 @@ def _init_session_caches(session: Session, session_id: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Redis helpers
+# Loading
 # ---------------------------------------------------------------------------
-
-
-def _live_marker_key(session_id: str) -> str:
-    return f"session:{session_id}:live"
 
 
 def _load_session_info(session_id: str) -> Session | None:
@@ -226,12 +216,9 @@ def _load_session_info(session_id: str) -> Session | None:
     not the conversation. The result can never be saved. Returns None if the
     session does not exist.
     """
-    r = _state._get_redis()
-    cold = not r.exists(_live_marker_key(session_id))
-    session = load_session_info_from_db(session_id, cold=cold)
+    session = load_session_info_from_db(session_id)
     if session is None:
         return None
-    r.setex(_live_marker_key(session_id), _state._SESSION_TTL, "1")
     _init_session_caches(session, session_id)
     return session
 
@@ -251,21 +238,10 @@ def _repair_orphaned_latest_turn(session_id: str, info: Session) -> None:
     _load_session(session_id)
 
 
-def _load_session(session_id: str) -> Session:
-    """Load a session with its turns, for the agent (see session_db_load.py)."""
-    r = _state._get_redis()
-    cold = not r.exists(_live_marker_key(session_id))
-    session = load_session_from_db(session_id, cold=cold) or Session(
-        session_id=session_id
-    )
-    r.setex(_live_marker_key(session_id), _state._SESSION_TTL, "1")
-
-    mem_hash_key = f"session:{session_id}:memory"
-
+def _memory_change_notifier(session_id: str):
     def _on_memory_change(key: str, event_type: str) -> None:
-        _state.mark_session_memory_dirty(session_id)
         try:
-            keys = r.hkeys(mem_hash_key)
+            keys = list_memory_keys(session_id)
             socketio.emit("session_memory_keys_update", {"keys": keys}, room=session_id)
             socketio.emit(
                 "session_memory_key_event",
@@ -280,138 +256,31 @@ def _load_session(session_id: str) -> Session:
                 exc,
             )
 
-    session.session_data["memory"] = RedisDict(
-        r, mem_hash_key, on_change=_on_memory_change
+    return _on_memory_change
+
+
+def _load_session(session_id: str) -> Session:
+    """Load a session with its turns, for the agent (see session_db_load.py).
+
+    Changes to the result are written with the session_writes functions, at
+    the place each change is made.
+    """
+    session = load_session_from_db(session_id)
+    if session is None:
+        # No such session yet: create it.
+        session = Session(session_id=session_id)
+        write_session_created(session_id, session)
+    session.session_data["memory"] = SessionMemory(
+        session_id, on_change=_memory_change_notifier(session_id)
     )
     _init_session_caches(session, session_id)
 
     # Repair a turn orphaned by a previous restart/crash — but only when no live
     # asyncio task owns this session (an active turn must be left untouched).
-    needs_persist = False
     if session.current_turn is not None and not _state.has_active_turn_task(session_id):
-        needs_persist = repair_incomplete_turn(session)
-
-    # A cold load refreshes the metadata row (and creates it for a brand-new
-    # session); a repair must be persisted.
-    if cold or needs_persist:
-        _save_session(session_id, session)
+        write_repaired_turn(session_id, session)
 
     return session
-
-
-def _save_session(
-    session_id: str, session: Session, *, advance_stream_watermark: bool = False
-) -> None:
-    """Serialize cursor/event/meta writes for one session.
-
-    `advance_stream_watermark` is passed ONLY by the agent loop's step-boundary
-    saves (each follows a whole-exchange append, or the turn's end). There every
-    socket event logged so far describes state that this save makes durable, so
-    the Redis event log's bookmark can move past them. Any other save (title,
-    settings endpoints, repair) may run mid-step on a different Session copy
-    and must leave the bookmark alone.
-    """
-    from src.ui_connector.socket_handler_components import runtime_settings
-
-    with runtime_settings.persistence_lock(session_id):
-        _save_session_locked(session_id, session, advance_stream_watermark)
-
-
-def _save_session_locked(
-    session_id: str, session: Session, advance_stream_watermark: bool = False
-) -> None:
-    """Persist a session: append new events + upsert metadata (MySQL, durable).
-
-    Events are derived by diffing the in-memory Session against the persist
-    cursor, so only new/changed state is appended. MySQL is the only store of
-    the session model; nothing serializes the whole session.
-    """
-    from src.ui_connector.socket_handler_components import runtime_settings
-
-    if not session.turns_loaded:
-        raise RuntimeError(
-            f"Session {session_id} was loaded without its turns and cannot be saved."
-        )
-    runtime_settings.merge_into_session(session_id, session)
-    r = _state._get_redis()
-    # Read before the diff: every event logged up to here is covered by it.
-    stream_mark = latest_stream_id(r, session_id) if advance_stream_watermark else None
-
-    # Durable write to MySQL (source of truth): the events, the chat history
-    # cache rows they change and the metadata row commit together. Failures
-    # propagate: a save that silently did not happen is a hard error. The
-    # cursor is saved only after the commit, so the next save re-emits anything
-    # unsaved, and the bookmark below only moves once everything is durable.
-    # The session memory hash is copied to session_meta only when it changed
-    # since the last copy (RedisDict.on_change marks it). The flag is taken
-    # before the read, so a write landing after the read marks it again.
-    memory_changed = _state.take_session_memory_dirty(session_id)
-    memory_snapshot = (
-        (r.hgetall(f"session:{session_id}:memory") or {}) if memory_changed else None
-    )
-    cursor = load_cursor(r, session_id)
-    events = compute_events(session, cursor)
-    turn_rows, subturn_rows = (
-        cache_rows_for_save(session, events)
-        if session.history_cache_compatible
-        else ([], [])
-    )
-    meta = derive_meta(session)
-    try:
-        _persist(
-            session_id, session, events, turn_rows, subturn_rows, meta, memory_snapshot
-        )
-    except Exception:
-        if memory_changed:
-            _state.mark_session_memory_dirty(session_id)
-        raise
-    save_cursor(r, session_id, cursor, _state._SESSION_TTL)
-
-    if stream_mark is not None:
-        # The logged events up to the mark are now in MySQL, so drop them
-        # from the Redis log.
-        set_watermark(r, session_id, stream_mark, _state._SESSION_TTL)
-        trim_stream_upto(r, session_id, stream_mark)
-
-    r.expire(f"session:{session_id}:memory", _state._SESSION_TTL)
-    r.expire(f"session:{session_id}:events", _state._SESSION_TTL)
-    r.setex(_live_marker_key(session_id), _state._SESSION_TTL, "1")
-
-
-def _persist(
-    session_id: str,
-    session: Session,
-    events: list,
-    turn_rows: list,
-    subturn_rows: list,
-    meta: dict,
-    memory_snapshot: dict | None,
-) -> None:
-    """One persist_save transaction for _save_session_locked."""
-    persist_save(
-        session_id,
-        events,
-        turn_rows,
-        subturn_rows,
-        {
-            "created_at": session.created_at,
-            "schema_version": session.schema_version,
-            "profile_name": session.profile_name,
-            "initial_cwd": session.initial_cwd or "",
-            "current_cwd": _state._session_current_cwd.get(session_id),
-            "total_cost_usd": float(_state._session_costs.get(session_id) or 0.0),
-            "last_context_usage": _state._session_last_context_usage.get(session_id),
-            "turn_count": meta["turn_count"],
-            "recent_task_titles": meta["recent_task_titles"],
-            "task_title_count": meta["task_title_count"],
-            "interim_response_as_thinking": session.interim_response_as_thinking,
-            "load_custom_skills_tools": session.load_custom_skills_tools,
-            "memory": memory_snapshot,  # None = unchanged
-            "heartbeat_enabled": bool(
-                (session.session_data.get("heartbeat_settings") or {}).get("enabled")
-            ),
-        },
-    )
 
 
 def _delete_sessions(session_ids: list[str]) -> None:
@@ -429,15 +298,7 @@ def _delete_sessions(session_ids: list[str]) -> None:
 
         runtime_settings.discard(session_id)
         forget_heartbeat_session(session_id)
-        keys.extend(
-            [
-                _live_marker_key(session_id),
-                f"session:{session_id}:memory",
-                f"session:{session_id}:events",
-                watermark_key(session_id),
-                f"session:{session_id}:persist_state",
-            ]
-        )
+        keys.extend([f"session:{session_id}:events", watermark_key(session_id)])
     if keys:
         r.delete(*keys)
 
@@ -449,7 +310,7 @@ def _delete_sessions(session_ids: list[str]) -> None:
         _state._session_current_cwd.pop(session_id, None)
         _state._session_costs.pop(session_id, None)
         _state._session_last_context_usage.pop(session_id, None)
-        _state.take_session_memory_dirty(session_id)
+        forget_restored_session(session_id)
         delete_session_scratchpad(session_id)
 
 
@@ -459,13 +320,12 @@ def _delete_session(session_id: str) -> None:
 
 
 def invalidate_redis_session_cache_on_startup() -> None:
-    """Flush per-session Redis state at boot so it rehydrates from MySQL.
+    """Flush per-session Redis state at boot.
 
-    Sessions are durable in MySQL (`session_meta` + `session_events`); Redis
-    only holds live per-process state: the memory hash, the persist cursor, the
-    live marker, and the unsaved-event log with its bookmark. None of it is
-    valid across a restart (no turn survives one), so it is cleared and the
-    first load of each session is cold. Durable session data is NOT deleted.
+    Sessions are durable in MySQL; Redis only holds each session's catch-up
+    log of socket events and its bookmark (event_log.py). Neither is valid
+    across a restart (no turn survives one), so both are cleared. Durable
+    session data is NOT deleted.
     """
     try:
         r = _state._get_redis()

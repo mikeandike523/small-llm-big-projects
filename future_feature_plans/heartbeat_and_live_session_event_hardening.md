@@ -23,7 +23,7 @@ itself (`_state._pending_approvals`, process memory only).
 **Save granularity.** A step (one assistant reply plus all its tool calls
 and results) is persisted as one `exchange_recorded` only after
 `_execute_tools` returns (`agent_loop.py`, `current_subturn.exchanges.append`
-then `_save_session`). Nothing about an in-progress step is durable.
+then `write_step`). Nothing about an in-progress step is durable.
 
 **What is already safe.** Because a step is saved atomically, the durable
 history never contains a tool call without a result. Cancel/crash mid-step

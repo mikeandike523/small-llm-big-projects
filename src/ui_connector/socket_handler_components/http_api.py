@@ -17,11 +17,8 @@ from src.ui_connector import release_notes
 from src.ui_connector.heartbeat_daemon import notify_heartbeat_settings_changed
 from src.ui_connector.socket_handler_components.session_store import (
     _load_session_info,
-    _save_session,
     _delete_session,
     _delete_sessions,
-    _init_session_caches,
-    _get_session_skill_registry,
     _get_session_tool_map,
     _get_skills_info_payload,
     _get_tools_info_payload,
@@ -31,6 +28,9 @@ from src.ui_connector.socket_handler_components.session_customizations import (
     reload_session_customizations,
 )
 from src.ui_connector.socket_handler_components.emit import _emit_backend_log
+from src.ui_connector.socket_handler_components.session_writes import (
+    write_session_created,
+)
 from src.ui_connector.socket_handler_components.setting_events import (
     persist_approval_mode,
     persist_heartbeat_settings,
@@ -272,7 +272,7 @@ def api_create_session():
                 400,
             )
 
-    _save_session(session_id, session)
+    write_session_created(session_id, session)
 
     logger.info("Session created: %s cwd=%r", session_id, initial_cwd)
     return jsonify({"session_id": session_id})

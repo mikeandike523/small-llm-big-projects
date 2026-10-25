@@ -18,7 +18,6 @@ from src.ui_connector.socket_handler_components.emit import (
     _emit_context_usage_if_configured,
 )
 from src.ui_connector.socket_handler_components.session_store import (
-    _save_session,
     _get_active_session_tool_defs_and_map,
     _get_session_skill_registry,
     _get_autoloaded_session_skills,
@@ -26,9 +25,13 @@ from src.ui_connector.socket_handler_components.session_store import (
 from src.ui_connector.socket_handler_components.llm import (
     _async_run_llm_call_with_context_retries,
 )
+from src.ui_connector.socket_handler_components.session_writes import (
+    write_skills,
+    write_step,
+    write_turn_end,
+)
 from src.ui_connector.socket_handler_components.watchdogs import (
     _get_open_items,
-    _get_closed_items,
     _select_best_final_answer,
     _generate_and_store_compaction,
     _select_skills_for_turn,
@@ -109,6 +112,7 @@ async def _async_agent_loop(
             current_turn=current_turn,
         )
         current_turn.selected_skill_ids = [e["id"] for e in selected_skills]
+        write_skills(session_id, session, current_turn)
 
         turn_resolved_skills = resolve_skill_dependency_closure(
             skill_registry,
@@ -302,7 +306,7 @@ async def _async_agent_loop(
                 had_tool_calls = True
                 blank_nudge_sent = False
                 current_subturn.exchanges.append(exchange)
-                _save_session(session_id, session, advance_stream_watermark=True)
+                write_step(session_id, session, current_subturn)
 
                 if cancel_event.is_set():
                     was_cancelled = True
@@ -389,9 +393,7 @@ async def _async_agent_loop(
                             ),
                         )
                         current_subturn.exchanges.append(nudge_exchange)
-                        _save_session(
-                            session_id, session, advance_stream_watermark=True
-                        )
+                        write_step(session_id, session, current_subturn)
                         continue
                 else:
                     _emit_backend_log(
@@ -443,7 +445,7 @@ async def _async_agent_loop(
                     user_continuation=continuation,
                 )
                 current_subturn.exchanges.append(interim_exchange)
-                _save_session(session_id, session, advance_stream_watermark=True)
+                write_step(session_id, session, current_subturn)
                 _emit_backend_log(
                     session_id,
                     colored("[TODO REPROMPT]", "yellow", force_color=True)
@@ -509,9 +511,7 @@ async def _async_agent_loop(
                                 + " Final answer selector rejected all candidates — forcing summary",
                                 {"turn_id": turn_id},
                             )
-                            _save_session(
-                                session_id, session, advance_stream_watermark=True
-                            )
+                            write_step(session_id, session, current_subturn)
                             continue
                         winner = final_answer_candidates[-1]
                     else:
@@ -592,7 +592,7 @@ async def _async_agent_loop(
                     + " Todos closed with no answer candidates — forcing summary",
                     {"turn_id": turn_id},
                 )
-                _save_session(session_id, session, advance_stream_watermark=True)
+                write_step(session_id, session, current_subturn)
                 continue
 
             # Final response: no tool calls, or response after explicit reprompt.
@@ -734,5 +734,5 @@ async def _async_agent_loop(
                 {"message": err_msg, "turn_id": turn_id},
             )
 
-        _save_session(session_id, session, advance_stream_watermark=True)
+        write_turn_end(session_id, session, current_turn, current_subturn)
         return had_tool_calls

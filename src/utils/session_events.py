@@ -8,8 +8,8 @@ This module owns three concerns:
   * the event-type vocabulary (the ``EVT_*`` constants),
   * the *reducer* that folds events into a `Session` (:class:`ReplayState`,
     :func:`apply_event`, :func:`replay_events`),
-  * the small payload/hash builders used by the diff-on-save emitter
-    (`_session_event_emit.py`) so payload shapes live next to the reducer that
+  * the small payload/hash builders used by the event builders in
+    `_session_event_emit.py`, so payload shapes live next to the reducer that
     reads them.
 
 Persisted exchange payloads deliberately omit ``reasoning`` (`<think>` / IRAT
@@ -60,7 +60,7 @@ EVT_HEARTBEAT_SETTINGS_SET = "heartbeat_settings_set"
 
 
 # ---------------------------------------------------------------------------
-# Payload / hash builders (shared with the diff-on-save emitter)
+# Payload / hash builders (shared with _session_event_emit.py)
 # ---------------------------------------------------------------------------
 
 
@@ -77,13 +77,13 @@ def exchange_payload(ex: LLMExchange) -> dict:
 
 
 def exchange_hash(ex: LLMExchange) -> str:
-    """Stable hash of an exchange's persisted form (drives the save cursor)."""
+    """Stable hash of an exchange's persisted form (finds repaired exchanges)."""
     blob = json.dumps(exchange_payload(ex), ensure_ascii=False, sort_keys=True)
     return hashlib.sha1(blob.encode("utf-8")).hexdigest()
 
 
 def todo_list_hash(items: list) -> str:
-    """Stable hash of the live todo list (drives the save cursor)."""
+    """Stable hash of the live todo list (Session.saved_todo_hash)."""
     blob = json.dumps(items or [], ensure_ascii=False, sort_keys=True)
     return hashlib.sha1(blob.encode("utf-8")).hexdigest()
 
@@ -150,11 +150,20 @@ class ReplayState:
         self._turns: dict[str, Turn] = {}
         self._turn_order: list[str] = []
         self._subturns: dict[str, Subturn] = {}
+        self._sealed_turns: set[str] = set()
+        self._sealed_subturns: set[str] = set()
 
     def apply(self, event_type: str, payload: dict) -> None:
         handler = _HANDLERS.get(event_type)
         if handler is None:
             return  # forward-compat: ignore unknown event types
+        if (
+            payload.get("turn_id") in self._sealed_turns
+            or payload.get("subturn_id") in self._sealed_subturns
+        ):
+            # A repeated copy of a sealed turn's events (see list_turn_starts):
+            # the cached stub already describes that turn.
+            return
         handler(self, payload)
 
     def _ensure_turn(self, turn_id: str) -> Turn:
@@ -168,10 +177,12 @@ class ReplayState:
     def add_sealed_turn(self, turn: Turn) -> None:
         """Append an already-built sealed turn (from the chat history cache).
 
-        Its subturns are not registered: events never address a sealed turn.
+        Later events that name the turn or one of its subturns are ignored.
         """
         self._turns[turn.id] = turn
         self._turn_order.append(turn.id)
+        self._sealed_turns.add(turn.id)
+        self._sealed_subturns.update(st.id for st in turn.subturns)
 
     def pop_turn(self, turn_id: str) -> Turn | None:
         """Remove a finished turn (and its subturns) from the state, returning it.
@@ -188,6 +199,9 @@ class ReplayState:
         return turn
 
     def to_session(self) -> Session:
+        self.session.saved_todo_hash = todo_list_hash(
+            self.session.session_data.get("todo_list") or []
+        )
         ordered = [self._turns[t] for t in self._turn_order]
         if ordered and not ordered[-1].completed:
             self.session.current_turn = ordered[-1]
@@ -250,6 +264,7 @@ def _on_exchange_recorded(state: ReplayState, p: dict) -> None:
     while len(st.exchanges) <= idx:
         st.exchanges.append(LLMExchange())
     st.exchanges[idx] = ex  # last-writer-wins
+    st.saved_exchanges = len(st.exchanges)
 
 
 def _on_subturn_summary_set(state: ReplayState, p: dict) -> None:

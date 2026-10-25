@@ -1,259 +1,132 @@
-"""Diff-on-save event emission for event-sourced sessions.
+"""The events each session write appends, built from the in-memory Session.
 
-The agent loop mutates the in-memory `Session` and calls `_save_session`; rather
-than instrument the loop, we diff the Session against a small *persist cursor*
-and append only the new/changed events. This keeps all persistence logic in one
-place.
+Every place that changes a session's durable state writes its own events
+directly (see session_writes.py): a new turn writes `turn_started` +
+`subturn_started`, an agent step writes the `exchange_recorded` it just
+appended, and so on. The builders here are pure: they turn the model objects
+into `(event_type, payload)` pairs and decide nothing about when to write.
 
-The cursor lives in Redis (`session:{id}:persist_state`) and records what has
-already been emitted: whether `session_created` fired, and per turn/subturn the
-title, flags + per-exchange hashes needed to detect deltas. Turns/subturns/
-exchanges are append-only in the model, and exchanges are mutated in place (tool
-results / final content fill in after first append), so exchanges use a content
-hash with last-writer-wins re-emission. A follow-up reopening a completed turn
-emits `turn_reopened`, so its next completion emits `turn_completed` again.
+Two in-memory counters (never stored) say what is already written, so a write
+that failed is picked up by the next one: `Subturn.saved_exchanges` and
+`Session.saved_todo_hash`. Replay sets both, because everything replayed is in
+MySQL by definition.
 
-Only the last two turns (:func:`persist_window`) are diffed: older turns are
-sealed, so the cursor keeps entries for those two turns only.
-
-IMPORTANT: after a cold load (Redis fully evicted) the cursor is gone. Callers
-must rebuild it from the replayed Session via :func:`build_cursor` before the
-next save, or every event would be re-emitted as a duplicate.
+Only the last two turns (:func:`persist_window`) can still change: older turns
+are sealed.
 """
 
 from __future__ import annotations
 
-import json
-
-import redis
-
 from src.utils.session_events import (
     EVT_EXCHANGE_RECORDED,
+    EVT_HEARTBEAT_SETTINGS_SET,
     EVT_SESSION_CREATED,
     EVT_SKILLS_SELECTED,
+    EVT_STARTUP_DONE_SET,
     EVT_SUBTURN_STARTED,
     EVT_SUBTURN_SUMMARY_SET,
     EVT_TITLE_SET,
     EVT_TODO_LIST_SET,
     EVT_TURN_COMPLETED,
-    EVT_APPROVAL_MODE_SET,
-    approval_mode_payload,
-    EVT_PROFILE_SET,
-    profile_payload,
-    EVT_HEARTBEAT_SETTINGS_SET,
-    heartbeat_settings_payload,
-    EVT_TURN_STARTED,
     EVT_TURN_REOPENED,
-    EVT_STARTUP_DONE_SET,
-    exchange_hash,
+    EVT_TURN_STARTED,
     exchange_payload,
+    heartbeat_settings_payload,
     session_created_payload,
     subturn_started_payload,
     todo_list_hash,
     turn_completed_payload,
 )
 from src.utils.session_cache_projection import project_subturn_row, project_turn_row
-from src.utils.session_model import Session, Turn
+from src.utils.session_model import Session, Subturn, Turn
+
+Event = tuple[str, dict]
 
 
-def _persist_state_key(session_id: str) -> str:
-    return f"session:{session_id}:persist_state"
-
-
-def load_cursor(r: redis.Redis, session_id: str) -> dict:
-    raw = r.get(_persist_state_key(session_id))
-    if not raw:
-        return {}
-    try:
-        cur = json.loads(raw)
-        return cur if isinstance(cur, dict) else {}
-    except (json.JSONDecodeError, ValueError):
-        return {}
-
-
-def save_cursor(r: redis.Redis, session_id: str, cursor: dict, ttl: int) -> None:
-    r.setex(_persist_state_key(session_id), ttl, json.dumps(cursor, ensure_ascii=False))
-
-
-def compute_events(session: Session, cursor: dict) -> list[tuple[str, dict]]:
-    """Return new events since `cursor`, mutating `cursor` to reflect them.
-
-    Pass a fresh `{}` to emit the session from scratch; pass the stored cursor to
-    emit only the delta.
-    """
-    events: list[tuple[str, dict]] = []
-
-    if not cursor.get("created"):
-        events.append((EVT_SESSION_CREATED, session_created_payload(session)))
-        cursor["created"] = True
-        cursor["approval_mode"] = session.approval_mode
-        cursor["profile_name"] = session.profile_name
-        cursor["startup_done"] = session.startup_done
-
-    if session.startup_done and not cursor.get("startup_done"):
-        events.append((EVT_STARTUP_DONE_SET, {}))
-        cursor["startup_done"] = True
-
-    if cursor.get("profile_name") != session.profile_name:
-        events.append((EVT_PROFILE_SET, profile_payload(session.profile_name)))
-        cursor["profile_name"] = session.profile_name
-
-    if cursor.get("approval_mode") != session.approval_mode:
-        events.append(
-            (EVT_APPROVAL_MODE_SET, approval_mode_payload(session.approval_mode))
-        )
-        cursor["approval_mode"] = session.approval_mode
-
+def session_created_events(session: Session) -> list[Event]:
+    events: list[Event] = [(EVT_SESSION_CREATED, session_created_payload(session))]
     heartbeat_settings = session.session_data.get("heartbeat_settings")
-    if (
-        heartbeat_settings is not None
-        and cursor.get("heartbeat_settings") != heartbeat_settings
-    ):
+    if heartbeat_settings is not None:
         events.append(
             (EVT_HEARTBEAT_SETTINGS_SET, heartbeat_settings_payload(heartbeat_settings))
         )
-        cursor["heartbeat_settings"] = heartbeat_settings
-
-    window = persist_window(session)
-    # Older turns are sealed, so the cursor forgets them (it would otherwise
-    # grow with every turn and be re-read on every save).
-    old_turns_cursor: dict = cursor.get("turns") or {}
-    turns_cursor: dict = {
-        turn.id: old_turns_cursor[turn.id]
-        for _, turn in window
-        if turn.id in old_turns_cursor
-    }
-    cursor["turns"] = turns_cursor
-    last_completed = session.completed_turns[-1] if session.completed_turns else None
-
-    for _, turn in window:
-        if turn.from_cache:
-            # The loaders always load the last two turns from their events.
-            raise RuntimeError(
-                f"Turn {turn.id} was loaded from the chat history cache and "
-                "cannot be persisted."
-            )
-        tc = turns_cursor.get(turn.id)
-        # A persisted, completed turn can only change again by being reopened
-        # (a follow-up flips turn.completed back to False), so skip re-hashing
-        # its exchanges. The most recent completed turn is still checked to
-        # catch any trailing write that lands right after completion.
-        if (
-            tc is not None
-            and tc["completed"]
-            and turn.completed
-            and turn is not last_completed
-        ):
-            continue
-        if tc is None:
-            events.append((EVT_TURN_STARTED, {"turn_id": turn.id}))
-            tc = {
-                "title": None,
-                "skills": None,
-                "completed": False,
-                "subturns": {},
-            }
-            turns_cursor[turn.id] = tc
-
-        if tc["completed"] and not turn.completed:
-            events.append((EVT_TURN_REOPENED, {"turn_id": turn.id}))
-            tc["completed"] = False
-
-        if turn.task_title and tc.get("title") != turn.task_title:
-            events.append(
-                (EVT_TITLE_SET, {"turn_id": turn.id, "title": turn.task_title})
-            )
-            tc["title"] = turn.task_title
-
-        if turn.selected_skill_ids and tc["skills"] != turn.selected_skill_ids:
-            events.append(
-                (
-                    EVT_SKILLS_SELECTED,
-                    {"turn_id": turn.id, "skill_ids": turn.selected_skill_ids},
-                )
-            )
-            tc["skills"] = list(turn.selected_skill_ids)
-
-        sub_cursor: dict = tc["subturns"]
-        for st in turn.subturns:
-            sc = sub_cursor.get(st.id)
-            if sc is None:
-                events.append(
-                    (EVT_SUBTURN_STARTED, subturn_started_payload(turn.id, st))
-                )
-                sc = {"summary": None, "exchange_hashes": []}
-                sub_cursor[st.id] = sc
-
-            hashes: list = sc["exchange_hashes"]
-            for idx, ex in enumerate(st.exchanges):
-                h = exchange_hash(ex)
-                if idx >= len(hashes):
-                    events.append(
-                        (
-                            EVT_EXCHANGE_RECORDED,
-                            {
-                                "subturn_id": st.id,
-                                "index": idx,
-                                "exchange": exchange_payload(ex),
-                            },
-                        )
-                    )
-                    hashes.append(h)
-                elif hashes[idx] != h:
-                    events.append(
-                        (
-                            EVT_EXCHANGE_RECORDED,
-                            {
-                                "subturn_id": st.id,
-                                "index": idx,
-                                "exchange": exchange_payload(ex),
-                            },
-                        )
-                    )
-                    hashes[idx] = h
-
-            if st.detailed_summary is not None and sc["summary"] != st.detailed_summary:
-                events.append(
-                    (
-                        EVT_SUBTURN_SUMMARY_SET,
-                        {"subturn_id": st.id, "detailed_summary": st.detailed_summary},
-                    )
-                )
-                sc["summary"] = st.detailed_summary
-
-        # Re-emit when a follow-up subturn completed the turn again, even if no
-        # save ever observed the reopened (completed=False) state in between.
-        if turn.completed and (
-            not tc["completed"] or tc.get("completed_subturns") != len(turn.subturns)
-        ):
-            events.append((EVT_TURN_COMPLETED, turn_completed_payload(turn)))
-            tc["completed"] = True
-            tc["completed_subturns"] = len(turn.subturns)
-
-    # Session-global live todo list (last-writer-wins). Only emit once it has
-    # ever been non-empty, so sessions that never use todos stay event-free.
-    todo_items = session.session_data.get("todo_list") or []
-    todo_h = todo_list_hash(todo_items)
-    if cursor.get("todo_hash") != todo_h and (todo_items or cursor.get("todo_hash")):
-        events.append((EVT_TODO_LIST_SET, {"items": todo_items}))
-        cursor["todo_hash"] = todo_h
-
     return events
 
 
-def build_cursor(session: Session) -> dict:
-    """Build a cursor that marks the entire Session as already-persisted.
+def startup_done_events() -> list[Event]:
+    return [(EVT_STARTUP_DONE_SET, {})]
 
-    Used after a cold reload to resync the cursor with the durable event log so
-    the next save emits only genuine deltas.
-    """
-    cursor: dict = {}
-    compute_events(session, cursor)  # discard events; keep the populated cursor
-    return cursor
+
+def turn_start_events(turn: Turn, subturn: Subturn, *, reopened: bool) -> list[Event]:
+    """A new turn, or a follow-up subturn reopening the last completed turn."""
+    return [
+        (EVT_TURN_REOPENED if reopened else EVT_TURN_STARTED, {"turn_id": turn.id}),
+        (EVT_SUBTURN_STARTED, subturn_started_payload(turn.id, subturn)),
+    ]
+
+
+def title_events(turn: Turn) -> list[Event]:
+    if not turn.task_title:
+        return []
+    return [(EVT_TITLE_SET, {"turn_id": turn.id, "title": turn.task_title})]
+
+
+def skills_events(turn: Turn) -> list[Event]:
+    if not turn.selected_skill_ids:
+        return []
+    return [
+        (
+            EVT_SKILLS_SELECTED,
+            {"turn_id": turn.id, "skill_ids": list(turn.selected_skill_ids)},
+        )
+    ]
+
+
+def exchange_event(subturn: Subturn, index: int) -> Event:
+    return (
+        EVT_EXCHANGE_RECORDED,
+        {
+            "subturn_id": subturn.id,
+            "index": index,
+            "exchange": exchange_payload(subturn.exchanges[index]),
+        },
+    )
+
+
+def unsaved_exchange_events(subturn: Subturn) -> list[Event]:
+    """Exchanges appended since the last successful write of this subturn."""
+    return [
+        exchange_event(subturn, i)
+        for i in range(subturn.saved_exchanges, len(subturn.exchanges))
+    ]
+
+
+def summary_events(subturn: Subturn) -> list[Event]:
+    if subturn.detailed_summary is None:
+        return []
+    return [
+        (
+            EVT_SUBTURN_SUMMARY_SET,
+            {"subturn_id": subturn.id, "detailed_summary": subturn.detailed_summary},
+        )
+    ]
+
+
+def turn_completed_events(turn: Turn) -> list[Event]:
+    return [(EVT_TURN_COMPLETED, turn_completed_payload(turn))]
+
+
+def todo_events(session: Session) -> list[Event]:
+    """The session-global todo list, if it changed since it was last written."""
+    items = session.session_data.get("todo_list") or []
+    saved = session.saved_todo_hash or todo_list_hash([])
+    if todo_list_hash(items) == saved:
+        return []
+    return [(EVT_TODO_LIST_SET, {"items": items})]
 
 
 def persist_window(session: Session) -> list[tuple[int, Turn]]:
-    """The turns a save can still change, as `(turn_seq, turn)`: the last two.
+    """The turns a write can still change, as `(turn_seq, turn)`: the last two.
 
     Only the most recent completed turn can be reopened by a follow-up, and a
     new turn is always appended, so every older turn is sealed: its events are
@@ -267,12 +140,13 @@ def persist_window(session: Session) -> list[tuple[int, Turn]]:
 
 
 def cache_rows_for_save(
-    session: Session, events: list[tuple[str, dict]]
+    session: Session, events: list[Event]
 ) -> tuple[list[dict], list[dict]]:
     """chat_turn_index / chat_history_cache rows changed by `events`.
 
     Only turns in the persist window can have events, and only the turns and
-    subturns those events name are re-projected.
+    subturns those events name are re-projected. Raises if an event names a
+    turn loaded from the cache (a stub must never be written back).
     """
     turn_ids: set[str] = set()
     subturn_ids: set[str] = set()
@@ -284,6 +158,12 @@ def cache_rows_for_save(
     turn_rows: list[dict] = []
     subturn_rows: list[dict] = []
     for turn_seq, turn in persist_window(session):
+        named = turn.id in turn_ids or any(st.id in subturn_ids for st in turn.subturns)
+        if named and turn.from_cache:
+            raise RuntimeError(
+                f"Turn {turn.id} was loaded from the chat history cache and "
+                "cannot be persisted."
+            )
         if turn.id in turn_ids:
             turn_rows.append(project_turn_row(turn, turn_seq, None))
         subturn_rows.extend(

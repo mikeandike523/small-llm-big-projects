@@ -51,7 +51,7 @@ S="'$SID'"
 run "1. session_meta row" "
 SELECT session_id, schema_version, turn_count, task_title_count,
        history_cache_compatible, corrupt, FROM_UNIXTIME(created_at) AS created,
-       updated_at, LENGTH(memory_json) AS memory_bytes
+       updated_at
 FROM session_meta WHERE session_id = $S;"
 
 run "2. Events by type (count, id range, time range, payload MB)" "

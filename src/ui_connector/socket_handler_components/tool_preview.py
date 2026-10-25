@@ -6,12 +6,7 @@ import src.ui_connector.socket_handler_components.state as _state
 from src.ui_connector.app import app
 from src.tools._text_editor_actions import _WRITE_ACTIONS
 from src.tools._path_utils import _resolve_path
-
-
-def _read_redis_memory(session_id: str, key: str) -> str | None:
-    """Return the session memory value for key, or None if absent."""
-    r = _state._get_redis()
-    return r.hget(f"session:{session_id}:memory", key)
+from src.utils.sql.session_memory_db import get_memory_value
 
 
 def _session_cwd_for(session_id: str | None) -> str | None:
@@ -115,7 +110,7 @@ def api_text_editor_preview():
     else:
         if not session_id:
             return jsonify({"error": "session_id is required when using key"}), 400
-        before = _read_redis_memory(session_id, key)
+        before = get_memory_value(session_id, key)
         if before is None:
             return jsonify({"exists": False})
 
@@ -173,7 +168,7 @@ def api_write_text_file_preview():
                 ),
                 400,
             )
-        after = _read_redis_memory(session_id, session_memory_key)
+        after = get_memory_value(session_id, session_memory_key)
         if after is None:
             return (
                 jsonify(
@@ -208,7 +203,7 @@ def api_session_memory_preview():
     if value is None:
         return jsonify({"error": "value is required"}), 400
 
-    before = _read_redis_memory(session_id, key)
+    before = get_memory_value(session_id, key)
     if before is None:
         return jsonify({"exists": False})
 
