@@ -40,6 +40,7 @@ type BackendSubturn = {
   detailed_summary?: string;
   native_thinking_chars?: number;
   irat_thinking_chars?: number;
+  interrupted?: boolean;
 };
 
 function mapExchange(ex: BackendExchange) {
@@ -84,6 +85,7 @@ export function backendTurnToFrontendTurn(d: BackendTurn): Turn {
           detailedSummary: st.detailed_summary ?? undefined,
           nativeThinkingChars: st.native_thinking_chars ?? 0,
           iratThinkingChars: st.irat_thinking_chars ?? 0,
+          interrupted: st.interrupted ?? false,
         }))
       : [
           {

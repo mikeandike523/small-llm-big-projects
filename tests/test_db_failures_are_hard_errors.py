@@ -1,4 +1,4 @@
-"""MySQL failures on session load/save propagate (no silent fallbacks)."""
+"""MySQL failures on session load/write propagate (no silent fallbacks)."""
 
 from __future__ import annotations
 
@@ -6,52 +6,39 @@ import mysql.connector
 import pytest
 
 import src.ui_connector.app  # noqa: F401 - server import order (avoids cycles)
-from src.ui_connector.socket_handler_components import session_db_load, session_store
+from src.ui_connector.socket_handler_components import (
+    session_db_load,
+    session_writes,
+)
 from src.utils.request_error_formatting import (
     classify_llm_request_error,
     failure_message,
 )
-from src.utils.session_model import Session
-
-
-class _FakeRedis:
-    def __init__(self) -> None:
-        self.values: dict[str, str] = {}
-
-    def get(self, key):
-        return self.values.get(key)
-
-    def setex(self, key, ttl, value):
-        self.values[key] = value
-
-    def hgetall(self, key):
-        return {}
-
-    def expire(self, key, ttl):
-        pass
+from src.utils.session_model import LLMExchange, Session, Subturn, Turn
 
 
 def _db_down(*args, **kwargs):
     raise mysql.connector.errors.OperationalError("db down")
 
 
-def test_failed_save_raises_and_leaves_the_bookmark(monkeypatch) -> None:
-    r = _FakeRedis()
+def test_failed_write_raises_and_leaves_the_bookmark(monkeypatch) -> None:
     marks: list = []
-    monkeypatch.setattr(session_store._state, "_get_redis", lambda: r)
-    monkeypatch.setattr(session_store, "persist_save", _db_down)
-    monkeypatch.setattr(session_store, "latest_stream_id", lambda r, sid: "9-0")
+    monkeypatch.setattr(session_writes._state, "_get_redis", lambda: object())
+    monkeypatch.setattr(session_writes, "persist_save", _db_down)
+    monkeypatch.setattr(session_writes, "latest_stream_id", lambda r, sid: "9-0")
     monkeypatch.setattr(
-        session_store, "set_watermark", lambda *args: marks.append(args)
+        session_writes, "advance_watermark", lambda *args: marks.append(args)
     )
+    session = Session(session_id="s1")
+    st = Subturn(id="st1", user_text="q", user_text_with_context="q")
+    session.current_turn = Turn(id="t1", subturns=[st])
+    st.exchanges.append(LLMExchange(assistant_content="a"))
 
     with pytest.raises(mysql.connector.Error):
-        session_store._save_session(
-            "s1", Session(session_id="s1"), advance_stream_watermark=True
-        )
+        session_writes.write_step("s1", session, st)
     assert marks == []
-    # The cursor was not saved, so the next save re-emits the unsaved events.
-    assert "session:s1:persist_state" not in r.values
+    # Not marked written, so the next write repeats the exchange.
+    assert st.saved_exchanges == 0
 
 
 def test_failed_load_raises_instead_of_returning_a_blank_session(
@@ -59,7 +46,7 @@ def test_failed_load_raises_instead_of_returning_a_blank_session(
 ) -> None:
     monkeypatch.setattr(session_db_load, "load_session_meta", _db_down)
     with pytest.raises(mysql.connector.Error):
-        session_db_load.load_session_from_db("s1", cold=True)
+        session_db_load.load_session_from_db("s1")
 
 
 def test_failed_event_read_does_not_mark_the_session_corrupt(monkeypatch) -> None:
@@ -71,7 +58,7 @@ def test_failed_event_read_does_not_mark_the_session_corrupt(monkeypatch) -> Non
     monkeypatch.setattr(session_db_load, "load_session_events", _db_down)
     monkeypatch.setattr(session_db_load, "mark_session_corrupt", corrupt.append)
     with pytest.raises(mysql.connector.Error):
-        session_db_load.load_session_from_db("s1", cold=True)
+        session_db_load.load_session_from_db("s1")
     assert corrupt == []
 
 

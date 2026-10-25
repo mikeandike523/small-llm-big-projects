@@ -11,19 +11,18 @@ needs them with a single acknowledged socket call:
       -> {page, turnId, turn}
   (any may instead return {error})
 
-A turn is assembled from MySQL `session_events` by its own id range: every turn
-has exactly one `turn_started` event, so turn N's events lie in
-[start_N, start_N+1). The range comes from `chat_turn_index` by key. Sessions
-whose chat history cache is not built yet find it with the old `turn_started`
-scan instead (see session_db_load.py). No code serializes the whole
-conversation.
+A turn is assembled from MySQL `session_events` by its own id range: turn N's
+events lie in [start_N, start_N+1), where start_N is its first `turn_started`
+event. The range comes from `chat_turn_index` by key. Sessions whose chat
+history cache is not built yet find it with the old `turn_started` scan instead
+(see list_turn_starts). No code serializes the whole conversation.
 
 The latest-turn load also takes a consistent snapshot under the session's
 persistence lock: the MySQL cutoff (`MAX(id)`), plus the Redis log's
-not-yet-saved events after the agent loop's bookmark. MySQL up to the cutoff
+not-yet-saved events after the agent's bookmark. MySQL up to the cutoff
 + those events = everything that happened before the snapshot; anything later
 reaches the client as live socket events, which it holds until this load
-returns.
+returns. A log without a bookmark is not replayed (see event_log.py).
 """
 
 from __future__ import annotations
@@ -39,7 +38,7 @@ from src.ui_connector.socket_handler_components.session_db_load import (
     iter_event_rows,
 )
 from src.tools.todo_list import format_items_for_ui
-from src.utils.event_log import get_events_since, get_watermark
+from src.utils.event_log import get_events_since, get_watermark, latest_stream_id
 from src.utils.session_events import EVT_TODO_LIST_SET
 from src.utils.session_history_bundles import TurnBundleAssembler
 from src.utils.session_model import CURRENT_SCHEMA_VERSION
@@ -102,19 +101,22 @@ def load_turn_page(session_id: str, page: int) -> dict:
         if not rows or rows[0]["turn_seq"] != page:
             return {"error": f"Page {page} was not found in this session."}
         start = (rows[0]["start_event_id"], rows[0]["turn_id"])
+        is_latest = len(rows) == 1
         end = (
-            rows[1]["start_event_id"] - 1 if len(rows) > 1 else max_event_id(session_id)
+            rows[1]["start_event_id"] - 1 if not is_latest else max_event_id(session_id)
         )
     else:
         starts = list_turn_starts(session_id)
         if not 1 <= page <= len(starts):
             return {"error": f"Page {page} was not found in this session."}
         start = starts[page - 1]
-        end = starts[page][0] - 1 if page < len(starts) else max_event_id(session_id)
+        is_latest = page == len(starts)
+        end = starts[page][0] - 1 if not is_latest else max_event_id(session_id)
+    running = is_latest and _state.is_turn_reserved(session_id)
     return {
         "page": page,
         "turnId": start[1],
-        "turn": _assemble_turn(session_id, start, end, schema),
+        "turn": _assemble_turn(session_id, start, end, schema, running=running),
     }
 
 
@@ -139,11 +141,7 @@ def load_latest_turn(session_id: str) -> dict:
     with runtime_settings.persistence_lock(session_id):
         cutoff = max_event_id(session_id)
         running = _state.is_turn_reserved(session_id)
-        unsaved = (
-            get_events_since(r, session_id, get_watermark(r, session_id))
-            if running
-            else []
-        )
+        unsaved = _unsaved_events(r, session_id) if running else []
 
     cached, schema = _cached(session_id)
     if cached:
@@ -154,7 +152,11 @@ def load_latest_turn(session_id: str) -> dict:
         starts = [s for s in list_turn_starts(session_id) if s[0] <= cutoff]
         count = len(starts)
         latest = starts[-1] if starts else None
-    turn = _assemble_turn(session_id, latest, cutoff, schema) if latest else None
+    turn = (
+        _assemble_turn(session_id, latest, cutoff, schema, running=running)
+        if latest
+        else None
+    )
     live_todo_items = None
     if running:
         # The session-level todo list as of the cutoff; newer
@@ -173,10 +175,38 @@ def load_latest_turn(session_id: str) -> dict:
     }
 
 
+def _unsaved_events(r, session_id: str) -> list[dict]:
+    """The logged events after the bookmark, or [] if the bookmark is missing.
+
+    Without the bookmark there is no telling which logged events MySQL already
+    contains, so replaying them could show them twice. The page still shows
+    everything up to the last step write, and new events arrive live.
+    """
+    watermark = get_watermark(r, session_id)
+    if watermark is not None:
+        return get_events_since(r, session_id, watermark)
+    if latest_stream_id(r, session_id) is not None:
+        logger.warning(
+            "Session %s: the event log has no bookmark; not replaying it.",
+            session_id,
+        )
+    return []
+
+
 def _assemble_turn(
-    session_id: str, start: tuple[int, str], end: int, schema_version: int
+    session_id: str,
+    start: tuple[int, str],
+    end: int,
+    schema_version: int,
+    *,
+    running: bool,
 ) -> dict | None:
-    """Fold the events in [start id, end] into that turn's dict."""
+    """Fold the events in [start id, end] into that turn's dict.
+
+    Each subturn gets `interrupted`: it has no final exchange and is not the
+    live subturn of a running turn (`running` = this is the latest turn and a
+    turn is running). Nothing stored says so; see conversation_history.py.
+    """
     assembler = TurnBundleAssembler(session_id, [start])
     for row in _iter_rows(session_id, start[0] - 1, end, schema_version):
         assembler.feed(row)
@@ -191,6 +221,12 @@ def _assemble_turn(
         native, irat = counts.get(st.get("id"), (0, 0))
         st["native_thinking_chars"] = native
         st["irat_thinking_chars"] = irat
+    subturns = turn.get("subturns", [])
+    for i, st in enumerate(subturns):
+        live = running and not turn.get("completed") and i == len(subturns) - 1
+        st["interrupted"] = not live and not any(
+            ex.get("is_final") for ex in st.get("exchanges", [])
+        )
     return turn
 
 

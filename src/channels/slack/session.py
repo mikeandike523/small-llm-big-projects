@@ -14,11 +14,8 @@ from __future__ import annotations
 import logging
 import uuid as _uuid_module
 
-from src.utils.sql.session_store_db import (
-    append_events,
-    load_session_meta,
-    upsert_session_meta,
-)
+from src.utils.sql.chat_history_cache_db import persist_save
+from src.utils.sql.session_store_db import load_session_meta
 from src.utils.session_model import Session
 from src.utils.session_events import session_created_payload, derive_meta
 from src.utils.session_dirs import ensure_session_dirs, get_session_workspace_dir
@@ -179,25 +176,25 @@ def _create_slack_session() -> str:
     )
 
     try:
-        append_events(
+        meta = derive_meta(session)
+        persist_save(
             session_id,
             [("session_created", session_created_payload(session))],
-        )
-        meta = derive_meta(session)
-        upsert_session_meta(
-            session_id,
-            created_at=session.created_at,
-            schema_version=session.schema_version,
-            profile_name=session.profile_name,
-            initial_cwd=session.initial_cwd or "",
-            current_cwd=None,
-            total_cost_usd=0.0,
-            turn_count=meta["turn_count"],
-            recent_task_titles=meta["recent_task_titles"],
-            task_title_count=meta["task_title_count"],
-            interim_response_as_thinking=session.interim_response_as_thinking,
-            load_custom_skills_tools=session.load_custom_skills_tools,
-            memory={},
+            [],
+            [],
+            dict(
+                created_at=session.created_at,
+                schema_version=session.schema_version,
+                profile_name=session.profile_name,
+                initial_cwd=session.initial_cwd or "",
+                current_cwd=None,
+                total_cost_usd=0.0,
+                turn_count=meta["turn_count"],
+                recent_task_titles=meta["recent_task_titles"],
+                task_title_count=meta["task_title_count"],
+                interim_response_as_thinking=session.interim_response_as_thinking,
+                load_custom_skills_tools=session.load_custom_skills_tools,
+            ),
         )
     except Exception as exc:
         logger.error(

@@ -8,29 +8,20 @@ the `fill-session-cache` backfill always produce identical rows.
 
 A turn rebuilt from cache rows is a *stub*: each subturn keeps its user text,
 summary and flags, and its exchanges are reduced to one final exchange holding
-the final answer. That is exactly what every reader of sealed turns uses
-(`_build_llm_payload`, the continuation detector, skill selector and title
-context), so they need no changes.
+the final answer, or none if the subturn never got one (`final_response` is
+NULL). Readers of sealed turns only look at those fields, through
+conversation_history.py, so a stub and a full replay read the same.
 """
 
 from __future__ import annotations
 
+from src.utils.conversation_history import final_answer
 from src.utils.session_model import (
     SUBTURN_ORIGIN_USER,
     LLMExchange,
     Subturn,
     Turn,
 )
-
-
-def subturn_final_response(subturn: Subturn) -> str:
-    """The subturn's final answer: its last final exchange, else its last one."""
-    for ex in reversed(subturn.exchanges):
-        if ex.is_final:
-            return ex.assistant_content
-    if subturn.exchanges:
-        return subturn.exchanges[-1].assistant_content
-    return ""
 
 
 def project_turn_row(turn: Turn, turn_seq: int, start_event_id: int | None) -> dict:
@@ -52,7 +43,7 @@ def project_subturn_row(turn_seq: int, subturn_seq: int, subturn: Subturn) -> di
         "subturn_id": subturn.id,
         "user_text": subturn.user_text,
         "user_text_with_context": subturn.user_text_with_context,
-        "final_response": subturn_final_response(subturn),
+        "final_response": final_answer(subturn),  # None = never answered
         "detailed_summary": subturn.detailed_summary,
         "is_continuation": bool(subturn.is_continuation),
         "approval_mode": subturn.approval_mode,
@@ -76,12 +67,11 @@ def stub_turn_from_cache(turn_row: dict, subturn_rows: list[dict]) -> Turn:
             id=row["subturn_id"],
             user_text=row.get("user_text") or "",
             user_text_with_context=row.get("user_text_with_context") or "",
-            exchanges=[
-                LLMExchange(
-                    assistant_content=row.get("final_response") or "",
-                    is_final=True,
-                )
-            ],
+            exchanges=(
+                [LLMExchange(assistant_content=row["final_response"], is_final=True)]
+                if row.get("final_response") is not None
+                else []
+            ),
             is_continuation=bool(row.get("is_continuation")),
             detailed_summary=row.get("detailed_summary"),
             approval_mode=row.get("approval_mode"),

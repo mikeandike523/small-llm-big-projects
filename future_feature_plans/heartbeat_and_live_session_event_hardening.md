@@ -23,12 +23,14 @@ itself (`_state._pending_approvals`, process memory only).
 **Save granularity.** A step (one assistant reply plus all its tool calls
 and results) is persisted as one `exchange_recorded` only after
 `_execute_tools` returns (`agent_loop.py`, `current_subturn.exchanges.append`
-then `_save_session`). Nothing about an in-progress step is durable.
+then `write_step`). Nothing about an in-progress step is durable.
 
 **What is already safe.** Because a step is saved atomically, the durable
 history never contains a tool call without a result. Cancel/crash mid-step
-drops the whole step and appends a marker exchange; on a cold load after a
-crash, `repair_incomplete_turn` pairs any dangling calls and closes the turn.
+drops the whole step and appends a marker exchange. After a crash nothing is
+repaired: the cut-off turn stays as written, and `conversation_history.py`
+pairs any dangling call with an interrupted result and shows the missing
+answer as interrupted whenever history is built.
 A lost `approval_request` event therefore never corrupts history — approvals
 only appear in history through the tool result they produce.
 
@@ -79,7 +81,7 @@ This matters more with heartbeats, because the runner *itself* sends cancels
   exchange to the subturn at step start, fill results in place, save after
   each result — `exchange_hash` already supports re-emitting a mutated
   exchange). On cancel, fill remaining calls with an interrupted/cancelled
-  result, as `repair_incomplete_turn` does after a crash.
+  result (`INTERRUPTED_TOOL_RESULT` is what readers show after a crash).
 - Or route running-tool cancellation through `cancel_event` (cooperative, like
   the approval path) instead of `task.cancel()`, so `_execute_tools` returns
   the partial exchange with cancelled results for the unfinished calls.

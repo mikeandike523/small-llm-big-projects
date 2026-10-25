@@ -11,6 +11,7 @@ import ToolApprovalBubble from "./ToolApprovalBubble";
 import PanelDivider from "./PanelDivider";
 import TurnDetails from "./TurnDetails";
 import SubturnStatsPills from "../subcomponents/TurnContainer/SubturnStatsPills";
+import InterruptedNotice from "../subcomponents/TurnContainer/InterruptedNotice";
 import ContextNotesModal from "../subcomponents/TurnContainer/ContextNotesModal";
 
 // A turn fills its page: banner on top, body takes the remaining height.
@@ -441,9 +442,11 @@ export default function TurnContainer({
                       </div>
                     ) : isLast && showPlaceholder ? (
                       <div css={streamingPlaceholderCss}>…</div>
-                    ) : (isLast ? !streaming : stFinal !== undefined) ? (
+                    ) : !st.interrupted &&
+                      (isLast ? !streaming : stFinal !== undefined) ? (
                       <div css={emptyResponseCss}>(no response)</div>
                     ) : null}
+                    {st.interrupted && <InterruptedNotice />}
                     {(() => {
                       if (!st.detailedSummary) return null;
                       if (isLast && streaming) return null;

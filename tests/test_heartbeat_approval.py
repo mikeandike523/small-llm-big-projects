@@ -5,7 +5,7 @@ import pytest
 import src.ui_connector.socket_handler_components.heartbeat_approval as hb_approval
 from src.ui_connector.socket_handler_components import runtime_settings
 from src.ui_connector.socket_handler_components._session_event_emit import (
-    compute_events,
+    turn_start_events,
 )
 from src.utils import session_events
 from src.utils.heartbeat_settings import DEFAULT_HEARTBEAT_SETTINGS
@@ -93,13 +93,11 @@ def test_forced_decision_is_logged_to_debug_panel(_quiet_backend_log) -> None:
 
 
 def test_subturn_origin_defaults_to_user_for_legacy_events() -> None:
-    session = Session(session_id="s1")
-    session.current_turn = Turn(
-        id="t1", subturns=[Subturn("st1", "hi", "hi", origin=SUBTURN_ORIGIN_HEARTBEAT)]
-    )
+    st = Subturn("st1", "hi", "hi", origin=SUBTURN_ORIGIN_HEARTBEAT)
+    turn = Turn(id="t1", subturns=[st])
     rows = [
         {"event_type": event_type, "payload": dict(payload)}
-        for event_type, payload in compute_events(session, {})
+        for event_type, payload in turn_start_events(turn, st, reopened=False)
     ]
     for row in rows:
         if row["event_type"] == "subturn_started":
@@ -109,13 +107,11 @@ def test_subturn_origin_defaults_to_user_for_legacy_events() -> None:
 
 
 def test_subturn_origin_survives_event_replay() -> None:
-    session = Session(session_id="s1")
-    session.current_turn = Turn(
-        id="t1", subturns=[Subturn("st1", "hi", "hi", origin=SUBTURN_ORIGIN_HEARTBEAT)]
-    )
+    st = Subturn("st1", "hi", "hi", origin=SUBTURN_ORIGIN_HEARTBEAT)
+    turn = Turn(id="t1", subturns=[st])
     rows = [
         {"event_type": event_type, "payload": payload}
-        for event_type, payload in compute_events(session, {})
+        for event_type, payload in turn_start_events(turn, st, reopened=False)
     ]
     restored = session_events.replay_events("s1", rows)
     assert restored.current_turn.subturns[0].origin == SUBTURN_ORIGIN_HEARTBEAT

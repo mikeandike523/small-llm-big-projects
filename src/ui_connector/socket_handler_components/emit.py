@@ -114,7 +114,7 @@ def clear_context_usage(
     Called when the session's profile changes: the previously displayed bar was
     parameterized by the OLD profile's known_max_context, so it is stale the
     moment the profile changes. Popping the in-memory snapshot also makes the
-    next ``_save_session`` write NULL to ``session_meta.last_context_usage``,
+    next session write store NULL to ``session_meta.last_context_usage``,
     so stale data cannot survive across restarts (unless the new profile also
     has a known max, in which case the next exchange overwrites it anyway).
 
@@ -146,7 +146,7 @@ def _emit_context_usage_if_configured(
     This allows the frontend to display a visual indicator of context limit proximity.
 
     The emitted snapshot is also recorded in ``_state._session_last_context_usage``
-    and flushed to ``session_meta`` on the next ``_save_session`` (same telemetry
+    and flushed to ``session_meta`` on the next session write (same telemetry
     semantics as cost). Main-agent-only: sampler callbacks must NOT call this.
     """
     known_max_context = _get_known_max_context(session_profile)
@@ -171,7 +171,7 @@ def _emit_context_usage_if_configured(
                 "profile": session_profile,
                 "profile_revision": profile_revision,
             }
-            # Record for persistence (flushed to session_meta by _save_session).
+            # Record for persistence (written to session_meta by the next session write).
             _state._session_last_context_usage[session_id] = snapshot
             socketio.emit("context_usage_event", snapshot, room=session_id)
     except Exception as e:

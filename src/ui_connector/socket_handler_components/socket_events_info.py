@@ -14,6 +14,7 @@ from src.ui_connector.socket_handler_components.session_store import (
     _get_tools_info_payload,
 )
 from src.tools import _dirty_cache
+from src.utils.sql.session_memory_db import get_memory_value, list_memory_keys
 
 # ---------------------------------------------------------------------------
 # Read-only session info getters ("get_*" socket events)
@@ -71,7 +72,7 @@ def handle_get_env_info():
 def handle_get_session_memory_keys():
     sid = request.sid
     session_id = _state._sid_to_session_id.get(sid, sid)
-    keys = _state._get_redis().hkeys(f"session:{session_id}:memory")
+    keys = list_memory_keys(session_id)
     socketio.emit("session_memory_keys_update", {"keys": keys}, room=session_id)
 
 
@@ -80,7 +81,7 @@ def handle_get_session_memory_value(data: dict):
     sid = request.sid
     session_id = _state._sid_to_session_id.get(sid, sid)
     key = data.get("key", "")
-    value = _state._get_redis().hget(f"session:{session_id}:memory", key)
+    value = get_memory_value(session_id, key)
     if value is not None:
         socketio.emit(
             "session_memory_value",

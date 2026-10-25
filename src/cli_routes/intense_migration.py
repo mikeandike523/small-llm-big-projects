@@ -45,16 +45,28 @@ def _refuse_if_server_running() -> None:
 
 
 def _fill_session_cache(dry_run: bool, session_id: str | None) -> None:
-    from src.utils.session_cache_backfill import (
-        fill_session_cache,
-        list_sessions_to_fill,
-    )
+    from src.utils.session_cache_backfill import list_sessions_to_fill
 
     session_ids = [session_id] if session_id else list_sessions_to_fill()
     if not session_ids:
         click.echo(colored("Every session's chat history cache is built.", "green"))
         return
-    verb = "Would fill" if dry_run else "Filling"
+    _build_caches(session_ids, dry_run, "Would fill" if dry_run else "Filling")
+
+
+def _rebuild_session_cache(dry_run: bool, session_id: str | None) -> None:
+    from src.utils.sql.chat_history_cache_db import list_all_session_ids
+
+    session_ids = [session_id] if session_id else list_all_session_ids()
+    if not session_ids:
+        click.echo(colored("There are no sessions.", "green"))
+        return
+    _build_caches(session_ids, dry_run, "Would rebuild" if dry_run else "Rebuilding")
+
+
+def _build_caches(session_ids: list[str], dry_run: bool, verb: str) -> None:
+    from src.utils.session_cache_backfill import fill_session_cache
+
     click.echo(f"{verb} the chat history cache for {len(session_ids)} session(s).")
     failed = 0
     started = time.monotonic()
@@ -88,6 +100,11 @@ _MIGRATIONS = {
         _fill_session_cache,
         "Build chat_turn_index / chat_history_cache for sessions created "
         "before migration v18.",
+    ),
+    "rebuild-session-cache": (
+        _rebuild_session_cache,
+        "Rebuild the chat history cache of every session (optional; e.g. so "
+        "subturns that were never answered are stored as such).",
     ),
 }
 

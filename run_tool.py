@@ -24,7 +24,6 @@ Session memory uses Redis if available, falls back to a plain dict.
 from __future__ import annotations
 
 import json
-import os
 import sys
 from collections import defaultdict
 from pathlib import Path
@@ -51,34 +50,12 @@ def _make_session_data() -> dict:
     """Build a minimal session_data dict that mirrors the real agentic loop."""
     cwd = str(_repo_root)
 
-    # Try Redis-backed memory (same as tool_tests) so stateful tools work fully.
-    try:
-        import uuid
-
-        import redis
-
-        from src.utils.redis_dict import RedisDict
-
-        from src.utils.docker_compose import get_service_port as _gsp
-
-        _default_port = int(os.environ.get("REDIS_PORT", 0)) or _gsp("redis", 6379)
-        r = redis.Redis(
-            host=os.environ.get("REDIS_HOST", "localhost"),
-            port=_default_port,
-            decode_responses=True,
-        )
-        r.ping()  # fail fast if Redis is not running
-        hash_key = f"run_tool:session:{uuid.uuid4().hex[:8]}"
-        memory = RedisDict(r, hash_key)
-        _cleanup_redis = lambda: r.delete(hash_key)  # noqa: E731
-    except Exception:
-        memory = {}
-        _cleanup_redis = lambda: None  # noqa: E731
-
+    # Session memory is a dict to the tools (in the server it is a
+    # SessionMemory over MySQL rows), so a plain dict stands in for it here.
     return {
-        "memory": memory,
+        "memory": {},
         "initial_cwd": cwd,
-        "_cleanup": _cleanup_redis,
+        "_cleanup": lambda: None,
     }
 
 

@@ -45,17 +45,6 @@ _INSERT_EVENT_SQL = (
 )
 
 
-def append_events(session_id: str, events: Sequence[tuple[str, dict]]) -> None:
-    """Append (event_type, payload) tuples to the session's event log."""
-    if not events:
-        return
-    pool = get_pool()
-    with pool.get_connection() as conn:
-        with conn.cursor() as cur:
-            execute_insert_events(cur, session_id, events)
-        conn.commit()
-
-
 def execute_insert_events(
     cur, session_id: str, events: Sequence[tuple[str, dict]]
 ) -> dict[str, int]:
@@ -103,12 +92,14 @@ def list_turn_starts(session_id: str) -> list[tuple[int, str]]:
     """Return `(event id, turn_id)` for each turn, in turn order.
 
     Reads every `turn_started` payload: only for sessions without a built chat
-    history cache (cached sessions read `chat_turn_index`).
-
-    Every turn has exactly one `turn_started` event, so these ids also bound
-    each turn's events: turn N's events lie in [start_N, start_N+1). Served by
+    history cache (cached sessions read `chat_turn_index`). Served by
     idx_events_type (session_id, event_type), which InnoDB extends with the
     primary key, so the ORDER BY needs no sort.
+
+    A turn id is listed once, at its first `turn_started`: the pre-2026-10-25
+    save path could re-write a whole session (cursor lost), repeating every
+    turn's events. Turn N's own events still lie in [start_N, start_N+1); the
+    page assembler skips the repeated events of other turns in that range.
     """
     pool = get_pool()
     with pool.get_connection() as conn:
@@ -120,7 +111,13 @@ def list_turn_starts(session_id: str) -> list[tuple[int, str]]:
                 (session_id,),
             )
             rows = cur.fetchall()
-    return [(int(r["id"]), r["turn_id"]) for r in rows]
+    seen: set[str] = set()
+    starts = []
+    for r in rows:
+        if r["turn_id"] not in seen:
+            seen.add(r["turn_id"])
+            starts.append((int(r["id"]), r["turn_id"]))
+    return starts
 
 
 def max_event_id(session_id: str) -> int:
@@ -278,18 +275,6 @@ def load_thinking_char_counts(
 # ---------------------------------------------------------------------------
 
 
-def upsert_session_meta(session_id: str, **fields: Any) -> None:
-    """Insert or update the slim metadata row for a session.
-
-    Takes the keyword arguments of :func:`execute_upsert_session_meta`.
-    """
-    pool = get_pool()
-    with pool.get_connection() as conn:
-        with conn.cursor() as cur:
-            execute_upsert_session_meta(cur, session_id, **fields)
-        conn.commit()
-
-
 def execute_upsert_session_meta(
     cur,
     session_id: str,
@@ -305,7 +290,6 @@ def execute_upsert_session_meta(
     task_title_count: int,
     interim_response_as_thinking: bool,
     load_custom_skills_tools: bool,
-    memory: dict | None,
     heartbeat_enabled: bool = False,
     last_context_usage: dict | None = None,
 ) -> None:
@@ -314,7 +298,7 @@ def execute_upsert_session_meta(
     `created_at` is set only on insert (it's the authoritative session
     wall-clock); subsequent upserts leave it untouched. So is
     `history_cache_compatible`: a new row takes the column default (1), and an
-    existing row keeps its value. `memory=None` keeps the stored memory_json.
+    existing row keeps its value.
     """
     cur.execute(
         """
@@ -322,10 +306,10 @@ def execute_upsert_session_meta(
             session_id, created_at, schema_version, profile_name,
             initial_cwd, current_cwd, total_cost_usd, turn_count,
             recent_task_titles, task_title_count, interim_response_as_thinking,
-            load_custom_skills_tools, corrupt, memory_json, last_context_usage,
+            load_custom_skills_tools, corrupt, last_context_usage,
             heartbeat_enabled
         )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 0, %s, %s, %s)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 0, %s, %s)
         AS incoming
         ON DUPLICATE KEY UPDATE
             schema_version               = incoming.schema_version,
@@ -339,7 +323,6 @@ def execute_upsert_session_meta(
             interim_response_as_thinking = incoming.interim_response_as_thinking,
             load_custom_skills_tools     = incoming.load_custom_skills_tools,
             corrupt                      = 0,
-            memory_json = COALESCE(incoming.memory_json, session_meta.memory_json),
             last_context_usage           = incoming.last_context_usage,
             heartbeat_enabled            = incoming.heartbeat_enabled
         """,
@@ -356,7 +339,6 @@ def execute_upsert_session_meta(
             int(task_title_count),
             1 if interim_response_as_thinking else 0,
             1 if load_custom_skills_tools else 0,
-            json.dumps(memory, ensure_ascii=False) if memory is not None else None,
             (
                 json.dumps(last_context_usage)
                 if last_context_usage is not None
@@ -367,8 +349,7 @@ def execute_upsert_session_meta(
     )
 
 
-# Columns selected for the dashboard list — deliberately excludes memory_json so
-# the list query stays light and never filesorts over large blobs.
+# Columns selected for the dashboard list (light: no large blobs).
 _META_LIST_COLS = (
     "session_id, created_at, schema_version, profile_name, initial_cwd, "
     "current_cwd, total_cost_usd, turn_count, recent_task_titles, "
@@ -377,8 +358,8 @@ _META_LIST_COLS = (
 )
 
 
-def _row_to_meta(row: dict, *, include_memory: bool) -> dict:
-    meta = {
+def _row_to_meta(row: dict) -> dict:
+    return {
         "session_id": row["session_id"],
         "created_at": float(row.get("created_at") or 0.0),
         "schema_version": row.get("schema_version", 0),
@@ -396,9 +377,6 @@ def _row_to_meta(row: dict, *, include_memory: bool) -> dict:
         "heartbeat_enabled": bool(row.get("heartbeat_enabled")),
         "history_cache_compatible": bool(row.get("history_cache_compatible")),
     }
-    if include_memory:
-        meta["memory"] = _normalize_json(row.get("memory_json")) or {}
-    return meta
 
 
 def list_session_meta() -> list[dict]:
@@ -410,23 +388,23 @@ def list_session_meta() -> list[dict]:
                 f"SELECT {_META_LIST_COLS} FROM session_meta ORDER BY created_at DESC"
             )
             rows = cur.fetchall()
-    return [_row_to_meta(r, include_memory=False) for r in rows]
+    return [_row_to_meta(r) for r in rows]
 
 
 def load_session_meta(session_id: str) -> dict | None:
-    """Return the metadata row for one session (including the memory snapshot)."""
+    """Return the metadata row for one session."""
     pool = get_pool()
     with pool.get_connection() as conn:
         with conn.cursor(dictionary=True) as cur:
             cur.execute(
-                f"SELECT {_META_LIST_COLS}, memory_json, last_context_usage "
+                f"SELECT {_META_LIST_COLS}, last_context_usage "
                 "FROM session_meta WHERE session_id = %s",
                 (session_id,),
             )
             row = cur.fetchone()
     if not row:
         return None
-    return _row_to_meta(row, include_memory=True)
+    return _row_to_meta(row)
 
 
 # ---------------------------------------------------------------------------

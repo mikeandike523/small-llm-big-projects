@@ -20,7 +20,11 @@ from src.ui_connector.socket_handler_components.emit import (
 )
 from src.ui_connector.socket_handler_components.session_store import (
     _load_session,
-    _save_session,
+)
+from src.utils.conversation_history import closed_subturn
+from src.ui_connector.socket_handler_components.session_writes import (
+    write_title,
+    write_turn_start,
 )
 from src.ui_connector.socket_handler_components.watchdogs import (
     _is_continuation,
@@ -65,7 +69,10 @@ def _build_title_context(session: Session, current_turn: Turn) -> str | None:
         if t.task_title:
             parts.append(f"Previous task: {t.task_title}")
     for st in current_turn.subturns[:-1]:
-        user_text = (st.user_text or "").strip()
+        cs = closed_subturn(current_turn, st)
+        if cs is None:
+            continue
+        user_text = cs.user_text.strip()
         if len(user_text) > 200:
             user_text = user_text[:200] + "..."
         parts.append(f"Previous subturn request: {user_text}")
@@ -103,7 +110,7 @@ async def _maybe_fetch_task_title(
     if title:
         current_turn.task_title = title
         _emit_and_log(session_id, "task_title", {"turn_id": turn_id, "title": title})
-        _save_session(session_id, session)
+        write_title(session_id, session, current_turn)
 
 
 # Turn-starting socket event handlers
@@ -331,6 +338,9 @@ def _handle_admitted_user_message(
         current_turn.subturns.append(current_subturn)
         turn_id = current_turn.id
     else:
+        if any(t.id == turn_id for t in session.completed_turns):
+            # Replay would merge the two turns into one.
+            raise RuntimeError(f"Turn id {turn_id} is already used in this session.")
         current_subturn = Subturn(
             id=subturn_id,
             user_text=text,
@@ -373,6 +383,12 @@ def _handle_admitted_user_message(
                 "turn_id": turn_id,
             },
         )
+
+    # The turn is durable before the agent starts (a crash from here on
+    # leaves an open turn that the next load repairs).
+    write_turn_start(
+        session_id, session, current_turn, current_subturn, reopened=_is_cont
+    )
 
     cancel_event = threading.Event()
 
