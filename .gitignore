@@ -32,3 +32,7 @@ node_modules
 
 # command config for demo server automation
 demo-server-config.jsonc
+
+credentials
+
+opkvs.json
