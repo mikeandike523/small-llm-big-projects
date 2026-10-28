@@ -4,8 +4,6 @@ import json
 import logging
 import os
 import pathlib
-import subprocess
-import sys
 import uuid as _uuid_module
 
 from flask import request, jsonify
@@ -60,6 +58,7 @@ from src.logic.system_prompt import (
 from src.utils.sql.kv_manager import KVManager
 from src.utils.param_helper import get_param_value
 from src.utils.profile_utils import get_active_profile, _kv_prefix
+from src.utils.cwd_policy import check_initial_cwd
 from src.utils.session_dirs import ensure_session_dirs, is_valid_session_id
 from src.utils.session_model import Session
 from src.utils.approval_modes import (
@@ -83,9 +82,14 @@ def api_create_session():
     Body (JSON):
       session_id                    str?  — id issued by GET /api/sessions/new-id
                                             (a fresh one is generated if omitted)
-      initial_cwd                   str   — working directory for this session
+      initial_cwd                   str   — working directory for this session; validated
+                                            by check_initial_cwd and stored resolved
+      allow_privileged_cwd          bool  — accept a cwd classified as a warning
+                                            (otherwise 409 with code "privileged_cwd")
       load_custom_skills_tools      bool  — load cwd/skills and cwd/tools
       startup_tool_calls_path       str?  — path to startup_tool_calls.json (or null)
+      load_startup_tool_calls       bool  — when no explicit path is given, use
+                                            <resolved cwd>/startup_tool_calls.json
       interim_response_as_thinking  bool  — emit interim content tokens as reasoning (default false)
     Returns:
       {"session_id": "<uuid>"}
@@ -101,20 +105,22 @@ def api_create_session():
         return jsonify({"error": f"Session {raw_session_id} already exists."}), 409
     else:
         session_id = raw_session_id
-    initial_cwd = data.get("initial_cwd", "")
-    if not initial_cwd or not initial_cwd.strip():
+    cwd_check = check_initial_cwd(data.get("initial_cwd"), session_id)
+    if cwd_check.status == "error":
+        return jsonify({"error": cwd_check.message, "code": "invalid_cwd"}), 400
+    if cwd_check.status == "warning" and not data.get("allow_privileged_cwd"):
         return (
             jsonify(
                 {
-                    "error": (
-                        "initial_cwd is required. If no specific project is "
-                        "needed, pass the session workspace path from "
-                        "GET /api/sessions/new-id."
-                    )
+                    "error": cwd_check.message,
+                    "code": "privileged_cwd",
+                    "resolved_path": cwd_check.resolved_path,
+                    "reason": cwd_check.reason,
                 }
             ),
-            400,
+            409,
         )
+    initial_cwd = cwd_check.resolved_path
     load_custom_skills_tools = bool(data.get("load_custom_skills_tools", False))
     skills_path = (
         os.path.join(initial_cwd, "skills") if load_custom_skills_tools else None
@@ -123,6 +129,8 @@ def api_create_session():
         os.path.join(initial_cwd, "tools") if load_custom_skills_tools else None
     )
     startup_tool_calls_path = data.get("startup_tool_calls_path") or None
+    if startup_tool_calls_path is None and data.get("load_startup_tool_calls"):
+        startup_tool_calls_path = os.path.join(initial_cwd, "startup_tool_calls.json")
     interim_response_as_thinking = bool(data.get("interim_response_as_thinking", False))
     raw_approval_mode = data.get("approval_mode")
     approval_mode = (
@@ -639,38 +647,3 @@ def api_changelog_note(version: str):
     if message is None:
         return jsonify({"error": f"No release notes for version {version}"}), 404
     return jsonify({"version": version, "message": message.strip()})
-
-
-@app.route("/api/folder-pick", methods=["POST"])
-def api_folder_pick():
-    """
-    Open a native OS folder-picker dialog (tkinter) in a subprocess and return
-    the chosen path.  Returns {"path": "<chosen>"} or {"path": null} if cancelled.
-    """
-    data = request.get_json(force=True, silent=True) or {}
-    initial_dir = data.get("initial_dir") or ""
-    if not os.path.isdir(initial_dir):  # e.g. a not-yet-created session workspace
-        initial_dir = str(pathlib.Path.home())
-
-    script = (
-        "import tkinter, tkinter.filedialog, sys; "
-        "root = tkinter.Tk(); root.withdraw(); root.wm_attributes('-topmost', 1); "
-        f"result = tkinter.filedialog.askdirectory(initialdir={initial_dir!r}, title='Select working directory'); "
-        "print(result or '', end='')"
-    )
-    try:
-        proc = subprocess.run(
-            [sys.executable, "-c", script],
-            capture_output=True,
-            text=True,
-            timeout=120,
-        )
-        chosen = proc.stdout.strip() or None
-    except subprocess.TimeoutExpired:
-        chosen = None
-    except Exception as exc:
-        return jsonify({"error": str(exc), "path": None}), 500
-
-    if chosen:
-        chosen = chosen.replace("\\", "/")
-    return jsonify({"path": chosen})

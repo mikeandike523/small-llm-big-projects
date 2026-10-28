@@ -92,6 +92,8 @@ export class TabManager {
       onChildViewAdded?: () => void;
       onOverlayChanged?: (overlay: OverlayId | null) => void;
     } = {},
+    // Preload for session/dashboard tabs (src/tabPreload.ts).
+    private readonly tabPreloadPath?: string,
   ) {
     this.win = win;
     this.persistFile = path.join(app.getPath('userData'), 'tabs.json');
@@ -100,6 +102,14 @@ export class TabManager {
 
   get currentOverlay(): OverlayId | null {
     return this.overlay;
+  }
+
+  /** True if `webContentsId` belongs to one of our session/dashboard tabs. */
+  ownsTabWebContents(webContentsId: number): boolean {
+    for (const record of this.tabs.values()) {
+      if (record.view.webContents.id === webContentsId) return true;
+    }
+    return false;
   }
 
   // Public entry points, called from ipcMain handlers registered once in main.ts.
@@ -173,6 +183,7 @@ export class TabManager {
     const id = `tab-${this.nextId++}`;
     const view = new WebContentsView({
       webPreferences: {
+        preload: this.tabPreloadPath,
         contextIsolation: true,
         sandbox: true,
       },

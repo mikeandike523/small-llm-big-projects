@@ -1,6 +1,31 @@
 /** @jsxImportSource @emotion/react */
-import { css } from "@emotion/react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import FolderBrowserDialog from "./FolderBrowserDialog";
+import { checkFolder, type FolderCheck } from "../api/folderBrowser";
+import { FOLDER_PICKER_MODE } from "../utils/folderPickerMode";
+import {
+  backdropCss,
+  dialogCss,
+  dialogTitleCss,
+  fieldLabelCss,
+  cwdRowCss,
+  cwdInputCss,
+  cwdErrorCss,
+  browseBtnCss,
+  checkboxSectionCss,
+  checkboxRowCss,
+  checkboxInputCss,
+  checkboxTextCss,
+  checkboxLabelCss,
+  checkboxDescCss,
+  footerCss,
+  cancelBtnCss,
+  createBtnCss,
+  errorMsgCss,
+  selectCss,
+  warningMsgCss,
+  proceedBtnCss,
+} from "../css/NewSessionDialog";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -27,201 +52,27 @@ interface Props {
   initialCwd?: string;
 }
 
-// ---------------------------------------------------------------------------
-// Styles
-// ---------------------------------------------------------------------------
+// A problem with the chosen working directory, from POST /api/sessions or
+// /api/folder-check. Cleared whenever the path is edited or re-picked.
+// - error:   red text under the field; Create stays disabled.
+// - warning: privileged / not-recommended folder; the footer offers
+//            Cancel + "Proceed with caution" for exactly `path`.
+type CwdIssue =
+  | { kind: "error"; message: string }
+  | { kind: "warning"; message: string; reason: string | null; path: string };
 
-const backdropCss = css`
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.75);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-`;
-
-const dialogCss = css`
-  background: #141414;
-  border: 1px solid #2a2a2a;
-  border-radius: 10px;
-  padding: 28px 32px;
-  width: 480px;
-  max-width: 95vw;
-  max-height: 90vh;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-  font-family: "Fira Code", "Consolas", monospace;
-  color: #d0d0d0;
-  &::-webkit-scrollbar {
-    width: 5px;
-  }
-  &::-webkit-scrollbar-track {
-    background: #0a0a0a;
-  }
-  &::-webkit-scrollbar-thumb {
-    background: #3a3a3a;
-    border-radius: 3px;
-  }
-`;
-
-const dialogTitleCss = css`
-  font-size: 15px;
-  font-weight: 600;
-  color: #c8c8c8;
-  letter-spacing: 1px;
-`;
-
-const fieldLabelCss = css`
-  font-size: 11px;
-  color: #666;
-  margin-bottom: 6px;
-  letter-spacing: 0.5px;
-  text-transform: uppercase;
-`;
-
-const cwdRowCss = css`
-  display: flex;
-  gap: 8px;
-  align-items: stretch;
-`;
-
-const cwdInputCss = (hasError: boolean) => css`
-  flex: 1;
-  background: #0f0f0f;
-  border: 1px solid ${hasError ? "#7a2a2a" : "#2a2a2a"};
-  border-radius: 5px;
-  color: #d0d0d0;
-  font-family: inherit;
-  font-size: 12px;
-  padding: 8px 10px;
-  outline: none;
-  &:focus {
-    border-color: ${hasError ? "#aa3a3a" : "#3a3a5a"};
-  }
-`;
-
-const cwdErrorCss = css`
-  font-size: 10px;
-  color: #cc6666;
-  margin-top: 5px;
-`;
-
-const browseBtnCss = (loading: boolean) => css`
-  background: #1a1a1a;
-  border: 1px solid #2a2a2a;
-  border-radius: 5px;
-  color: ${loading ? "#444" : "#888"};
-  font-family: inherit;
-  font-size: 12px;
-  padding: 8px 12px;
-  cursor: ${loading ? "not-allowed" : "pointer"};
-  white-space: nowrap;
-  transition: border-color 0.12s;
-  &:hover {
-    border-color: ${loading ? "#2a2a2a" : "#444"};
-  }
-`;
-
-const checkboxSectionCss = css`
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-`;
-
-const checkboxRowCss = css`
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  cursor: pointer;
-`;
-
-const checkboxInputCss = css`
-  margin-top: 2px;
-  accent-color: #5577ee;
-  cursor: pointer;
-  flex-shrink: 0;
-`;
-
-const checkboxTextCss = css`
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-`;
-
-const checkboxLabelCss = css`
-  font-size: 12px;
-  color: #c0c0c0;
-`;
-
-const checkboxDescCss = css`
-  font-size: 10px;
-  color: #444;
-`;
-
-const footerCss = css`
-  display: flex;
-  justify-content: flex-end;
-  gap: 10px;
-  padding-top: 4px;
-`;
-
-const cancelBtnCss = css`
-  background: none;
-  border: 1px solid #2a2a2a;
-  border-radius: 5px;
-  color: #666;
-  font-family: inherit;
-  font-size: 12px;
-  padding: 8px 16px;
-  cursor: pointer;
-  &:hover {
-    border-color: #444;
-    color: #888;
-  }
-`;
-
-const createBtnCss = (loading: boolean) => css`
-  background: ${loading ? "#1a1a2e" : "#1e2650"};
-  border: 1px solid ${loading ? "#2a3a6e" : "#3a5aee"};
-  border-radius: 5px;
-  color: ${loading ? "#5566aa" : "#8aacff"};
-  font-family: inherit;
-  font-size: 12px;
-  padding: 8px 20px;
-  cursor: ${loading ? "not-allowed" : "pointer"};
-  transition: background 0.12s;
-  &:hover {
-    background: ${loading ? "#1a1a2e" : "#222a5e"};
-  }
-`;
-
-const errorMsgCss = css`
-  font-size: 11px;
-  color: #cc6666;
-  background: #1a0a0a;
-  border: 1px solid #3a1a1a;
-  border-radius: 4px;
-  padding: 8px 12px;
-`;
-
-const selectCss = css`
-  width: 100%;
-  background: #0f0f0f;
-  border: 1px solid #2a2a2a;
-  border-radius: 5px;
-  color: #d0d0d0;
-  font-family: inherit;
-  font-size: 12px;
-  padding: 8px 10px;
-  cursor: pointer;
-  outline: none;
-  &:focus {
-    border-color: #3a3a5a;
-  }
-`;
+function issueFromCheck(check: FolderCheck, path: string): CwdIssue | null {
+  if (check.status === "error")
+    return { kind: "error", message: check.message ?? "Invalid folder." };
+  if (check.status === "warning")
+    return {
+      kind: "warning",
+      message: check.message ?? "",
+      reason: check.reason,
+      path,
+    };
+  return null;
+}
 
 // ---------------------------------------------------------------------------
 // Checkbox option config
@@ -277,8 +128,12 @@ export default function NewSessionDialog({
     sessionDefaults.approval_mode ?? "default",
   );
   const [browsing, setBrowsing] = useState(false);
+  const [browserOpen, setBrowserOpen] = useState(false);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [cwdIssue, setCwdIssue] = useState<CwdIssue | null>(null);
+  // Bumped on every cwd change so a late picker check can't apply to a newer path.
+  const cwdVersionRef = useRef(0);
 
   const cwdEmpty = cwd.trim() === "";
 
@@ -297,33 +152,55 @@ export default function NewSessionDialog({
       .catch(() => {});
   }, []);
 
-  // Close on Escape
+  // Close on Escape (the folder browser handles its own Escape while open).
   useEffect(() => {
+    if (browserOpen) return;
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") onClose();
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  }, [onClose, browserOpen]);
+
+  function changeCwd(value: string) {
+    cwdVersionRef.current += 1;
+    setCwd(value);
+    setCwdIssue(null);
+  }
+
+  // A picked folder is checked right away, so a privileged or unusable pick
+  // shows its warning/error before Create is even clicked.
+  async function applyPickedFolder(path: string) {
+    changeCwd(path);
+    const version = cwdVersionRef.current;
+    try {
+      const check = await checkFolder(path, sessionId);
+      if (cwdVersionRef.current === version)
+        setCwdIssue(issueFromCheck(check, path));
+    } catch {
+      // Create re-validates on the server anyway.
+    }
+  }
 
   async function handleBrowse() {
+    const desktop = window.slbpDesktop;
+    if (FOLDER_PICKER_MODE === "remote" || !desktop) {
+      setError(null);
+      setBrowserOpen(true);
+      return;
+    }
     setBrowsing(true);
     try {
-      const res = await fetch("/api/folder-pick", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ initial_dir: cwd }),
-      });
-      const data = await res.json();
-      if (data.path) setCwd(data.path);
-    } catch {
-      // silently ignore — user can type path manually
+      const picked = await desktop.pickFolder(cwd);
+      if (picked) await applyPickedFolder(picked);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not open folder picker");
     } finally {
       setBrowsing(false);
     }
   }
 
-  async function handleCreate() {
+  async function handleCreate(allowPrivilegedCwd = false) {
     if (creating) return;
     setCreating(true);
     setError(null);
@@ -336,9 +213,10 @@ export default function NewSessionDialog({
       profile_name: selectedProfile || null,
       approval_mode: selectedApprovalMode,
       load_custom_skills_tools: flags.load_custom_skills_tools,
+      // The server resolves the cwd and looks for startup_tool_calls.json in it.
+      load_startup_tool_calls: flags.load_startup_tool_calls,
+      allow_privileged_cwd: allowPrivilegedCwd,
     };
-    if (flags.load_startup_tool_calls)
-      payload.startup_tool_calls_path = `${cwd}/startup_tool_calls.json`;
 
     try {
       const res = await fetch("/api/sessions", {
@@ -348,6 +226,20 @@ export default function NewSessionDialog({
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
+        if (body.code === "invalid_cwd" || body.code === "privileged_cwd") {
+          setCwdIssue(
+            body.code === "invalid_cwd"
+              ? { kind: "error", message: body.error }
+              : {
+                  kind: "warning",
+                  message: body.error,
+                  reason: body.reason ?? null,
+                  path: cwd,
+                },
+          );
+          setCreating(false);
+          return;
+        }
         throw new Error(body.error ?? `Server returned ${res.status}`);
       }
       const data = await res.json();
@@ -378,10 +270,10 @@ export default function NewSessionDialog({
           <div css={fieldLabelCss}>Working Directory</div>
           <div css={cwdRowCss}>
             <input
-              css={cwdInputCss(cwdEmpty)}
+              css={cwdInputCss(cwdEmpty || cwdIssue?.kind === "error")}
               type="text"
               value={cwd}
-              onChange={(e) => setCwd(e.target.value)}
+              onChange={(e) => changeCwd(e.target.value)}
               placeholder={workspaceDir || "/path/to/project"}
               spellCheck={false}
             />
@@ -389,7 +281,11 @@ export default function NewSessionDialog({
               css={browseBtnCss(browsing)}
               onClick={handleBrowse}
               disabled={browsing}
-              title="Open folder picker"
+              title={
+                FOLDER_PICKER_MODE === "native"
+                  ? "Open folder picker"
+                  : "Browse folders on the server"
+              }
             >
               {browsing ? "..." : "Browse"}
             </button>
@@ -402,7 +298,7 @@ export default function NewSessionDialog({
                   No specific project?{" "}
                   <span
                     style={{ cursor: "pointer", textDecoration: "underline" }}
-                    onClick={() => setCwd(workspaceDir)}
+                    onClick={() => changeCwd(workspaceDir)}
                   >
                     Use new session workspace
                   </span>
@@ -411,6 +307,9 @@ export default function NewSessionDialog({
                 "Enter a directory path to continue."
               )}
             </div>
+          )}
+          {cwdIssue?.kind === "error" && (
+            <div css={cwdErrorCss}>{cwdIssue.message}</div>
           )}
         </div>
 
@@ -480,19 +379,59 @@ export default function NewSessionDialog({
 
         {error && <div css={errorMsgCss}>{error}</div>}
 
-        <div css={footerCss}>
-          <button css={cancelBtnCss} onClick={onClose} disabled={creating}>
-            Cancel
-          </button>
-          <button
-            css={createBtnCss(creating)}
-            onClick={handleCreate}
-            disabled={creating || cwdEmpty}
-          >
-            {creating ? "Creating..." : "Create Session"}
-          </button>
-        </div>
+        {cwdIssue?.kind === "warning" ? (
+          <>
+            <div css={warningMsgCss}>
+              {cwdIssue.message}
+              {cwdIssue.reason && <div>Matched: {cwdIssue.reason}</div>}
+            </div>
+            <div css={footerCss}>
+              {/* Dismisses only the warning; the dialog stays open. */}
+              <button
+                css={cancelBtnCss}
+                onClick={() => setCwdIssue(null)}
+                disabled={creating}
+              >
+                Cancel
+              </button>
+              <button
+                css={proceedBtnCss(creating)}
+                onClick={() => handleCreate(true)}
+                disabled={creating}
+              >
+                {creating ? "Creating..." : "Proceed with caution"}
+              </button>
+            </div>
+          </>
+        ) : (
+          <div css={footerCss}>
+            <button css={cancelBtnCss} onClick={onClose} disabled={creating}>
+              Cancel
+            </button>
+            <button
+              css={createBtnCss(creating || cwdIssue !== null)}
+              onClick={() => handleCreate()}
+              disabled={creating || cwdEmpty || cwdIssue !== null}
+            >
+              {creating ? "Creating..." : "Create Session"}
+            </button>
+          </div>
+        )}
       </div>
+
+      {browserOpen && (
+        <FolderBrowserDialog
+          onSelect={(path) => {
+            setBrowserOpen(false);
+            void applyPickedFolder(path);
+          }}
+          onCancel={() => setBrowserOpen(false)}
+          onFatal={(message) => {
+            setBrowserOpen(false);
+            setError(message);
+          }}
+        />
+      )}
     </div>
   );
 }
