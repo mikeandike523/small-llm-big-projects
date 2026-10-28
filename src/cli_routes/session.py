@@ -19,6 +19,29 @@ from src.utils.profile_utils import (
 from src.utils.approval_modes import APPROVAL_MODE_DEFAULT, APPROVAL_MODES
 
 
+def _post_new_session(flask_port: int, payload: dict) -> httpx.Response:
+    try:
+        return httpx.post(
+            f"http://localhost:{flask_port}/api/sessions",
+            json=payload,
+            timeout=10,
+        )
+    except httpx.ConnectError:
+        raise click.ClickException(
+            f"Could not connect to the server at localhost:{flask_port}. "
+            "Is `slbp server run` still running?"
+        )
+
+
+def _is_privileged_cwd_response(response: httpx.Response) -> bool:
+    if response.status_code != 409:
+        return False
+    try:
+        return response.json().get("code") == "privileged_cwd"
+    except ValueError:
+        return False
+
+
 @cli.group()
 def session():
     """Commands for managing agentic sessions."""
@@ -63,6 +86,14 @@ def session():
     is_flag=True,
     help="Open the session in the default web browser instead of the desktop app.",
 )
+@click.option(
+    "--allow-privileged-cwd",
+    is_flag=True,
+    help=(
+        "Accept a working directory the server flags as privileged or not "
+        "recommended (e.g. your home folder itself, /etc) without asking."
+    ),
+)
 def session_new(
     load_custom_skills_tools,
     load_startup_tool_calls,
@@ -70,6 +101,7 @@ def session_new(
     starting_profile,
     approval_mode,
     browser,
+    allow_privileged_cwd,
 ):
     """
     Create a new agentic session and open it in the SLBP desktop app.
@@ -137,21 +169,26 @@ def session_new(
             session_cwd, "startup_tool_calls.json"
         )
 
-    try:
-        response = httpx.post(
-            f"http://localhost:{flask_port}/api/sessions",
-            json=payload,
-            timeout=10,
+    if allow_privileged_cwd:
+        payload["allow_privileged_cwd"] = True
+    response = _post_new_session(flask_port, payload)
+    if _is_privileged_cwd_response(response):
+        body = response.json()
+        click.echo(
+            click.style(
+                f"Warning: {body.get('error')} ({body.get('reason')})", fg="yellow"
+            )
         )
-        response.raise_for_status()
-    except httpx.ConnectError:
+        if not click.confirm("Proceed with caution?", default=False):
+            raise click.ClickException(
+                "Session not created. Choose another folder with --cwd, or pass "
+                "--allow-privileged-cwd."
+            )
+        payload["allow_privileged_cwd"] = True
+        response = _post_new_session(flask_port, payload)
+    if response.is_error:
         raise click.ClickException(
-            f"Could not connect to the server at localhost:{flask_port}. "
-            "Is `slbp server run` still running?"
-        )
-    except httpx.HTTPStatusError as exc:
-        raise click.ClickException(
-            f"Server returned an error: {exc.response.status_code} — {exc.response.text}"
+            f"Server returned an error: {response.status_code} — {response.text}"
         )
 
     session_id = response.json().get("session_id")

@@ -19,6 +19,10 @@ class _Pool:
 
 
 class _Response:
+    status_code = 200
+    is_error = False
+    text = ""
+
     def raise_for_status(self):
         return None
 

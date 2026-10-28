@@ -1,4 +1,5 @@
 import { app, BrowserWindow, dialog, ipcMain, session } from 'electron';
+import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import started from 'electron-squirrel-startup';
@@ -166,6 +167,23 @@ function isBaseRenderer(senderId: number): boolean {
   return currentWindow?.webContents.id === senderId;
 }
 
+// Session/dashboard tabs only (tabPreload.ts): the New Session dialog's native
+// folder picker. The desktop app always runs its own local server, so a folder
+// chosen here is valid on the server too.
+ipcMain.handle('tab:pick-folder', async (event, initialDir: unknown) => {
+  if (!currentWindow || !tabManager?.ownsTabWebContents(event.sender.id)) {
+    throw new Error('Folder picker is unavailable.');
+  }
+  const start = typeof initialDir === 'string' && initialDir.trim() ? initialDir : app.getPath('home');
+  const result = await dialog.showOpenDialog(currentWindow, {
+    title: 'Select working directory',
+    defaultPath: fs.existsSync(start) ? start : app.getPath('home'),
+    properties: ['openDirectory', 'createDirectory'],
+  });
+  if (result.canceled || !result.filePaths[0]) return null;
+  return result.filePaths[0].replace(/\\/g, '/');
+});
+
 ipcMain.handle('settings:get-downloads', (event) => {
   if (!isBaseRenderer(event.sender.id)) throw new Error('Settings are unavailable.');
   return downloadSettings?.getSnapshot();
@@ -211,13 +229,17 @@ const createWindow = () => {
     );
   }
 
-  tabManager = new TabManager(mainWindow, {
-    onChildViewAdded: () => downloadManager?.dropdown.bringToFront(),
-    // The Downloads page already lists new downloads; the dropdown would be redundant.
-    onOverlayChanged: (overlay) => {
-      if (overlay === 'downloads') downloadManager?.dropdown.close();
+  tabManager = new TabManager(
+    mainWindow,
+    {
+      onChildViewAdded: () => downloadManager?.dropdown.bringToFront(),
+      // The Downloads page already lists new downloads; the dropdown would be redundant.
+      onOverlayChanged: (overlay) => {
+        if (overlay === 'downloads') downloadManager?.dropdown.close();
+      },
     },
-  });
+    path.join(__dirname, 'tabPreload.js'),
+  );
   downloadSettings = new DownloadSettingsStore();
   const dropdownUrl = MAIN_WINDOW_VITE_DEV_SERVER_URL
     ? new URL('/download-dropdown.html', MAIN_WINDOW_VITE_DEV_SERVER_URL).toString()
