@@ -5,16 +5,24 @@ Configuration lives in demo-server-config.jsonc at the repo root:
 
     {
       "user": "deploy",
-      "hostname": "demo.example.com",
+      "hostname": {
+        "default": "demo.example.com",
+        "on_dns_error": "demo-alt.local"
+      },
       "command": "cd /path && git pull && docker compose up -d --build"
     }
 
-SSH identity (key) is resolved from ~/.ssh/config for the given hostname,
-exactly the same way ``ssh demo.example.com`` does it — nothing secret
-needs to live in the config file.
+Each hostname is an ~/.ssh/config Host alias, not necessarily a public DNS
+name: the real HostName, port and identity (key) are resolved from
+~/.ssh/config exactly the same way ``ssh demo.example.com`` does it — nothing
+secret needs to live in the config file. If the default alias's HostName
+fails DNS resolution, the ``on_dns_error`` alias is tried instead (e.g. one
+whose HostName is an mDNS ``.local`` address). The old shape,
+``"hostname": "<alias>"``, is still accepted.
 """
 
 from pathlib import Path
+import socket
 import sys
 
 import json5
@@ -49,24 +57,56 @@ if not SSH_CONFIG_PATH.exists():
 
 ssh_cfg = SSHConfig()
 ssh_cfg.parse(SSH_CONFIG_PATH.open("r"))
-host_entry = ssh_cfg.lookup(CONFIG["hostname"])
 
-if not host_entry.get("hostname"):
-    sys.exit(f"Host '{CONFIG['hostname']}' not found in {SSH_CONFIG_PATH}")
+
+def host_aliases(hostname_cfg):
+    """Ordered ssh-config aliases to try: default first, then the DNS fallback.
+
+    Accepts the old shape (``"hostname": "<alias>"``) or the new one
+    (``"hostname": {"default": "<alias>", "on_dns_error": "<alias>"}``).
+    """
+    if isinstance(hostname_cfg, str):
+        return [hostname_cfg]
+    if not isinstance(hostname_cfg, dict) or "default" not in hostname_cfg:
+        sys.exit("'hostname' must be a string or an object with a 'default' key")
+    aliases = [hostname_cfg["default"]]
+    if hostname_cfg.get("on_dns_error"):
+        aliases.append(hostname_cfg["on_dns_error"])
+    return aliases
+
+
+def connection_for(alias):
+    host_entry = ssh_cfg.lookup(alias)
+    if not host_entry.get("hostname"):
+        sys.exit(f"Host '{alias}' not found in {SSH_CONFIG_PATH}")
+    return Connection(
+        host=host_entry["hostname"],
+        user=CONFIG["user"],
+        port=int(host_entry.get("port", 22)),
+        connect_kwargs={
+            "key_filename": host_entry.get("identityfile", []),
+        },
+    )
+
 
 # ---------------------------------------------------------------------------
-# 3. Connect and run the command
+# 3. Connect (falling back to the alternate alias on DNS failure) and run
 # ---------------------------------------------------------------------------
-conn = Connection(
-    host=host_entry["hostname"],
-    user=CONFIG["user"],
-    port=int(host_entry.get("port", 22)),
-    connect_kwargs={
-        "key_filename": host_entry.get("identityfile", []),
-    },
-)
+aliases = host_aliases(CONFIG["hostname"])
+conn = None
+for i, alias in enumerate(aliases):
+    candidate = connection_for(alias)
+    print(f"Connecting to {CONFIG['user']}@{candidate.host} (ssh alias '{alias}') ...")
+    try:
+        candidate.open()
+    except socket.gaierror as e:
+        if i == len(aliases) - 1:
+            sys.exit(f"DNS lookup failed for '{candidate.host}': {e}")
+        print(f"DNS lookup failed for '{candidate.host}' ({e}); trying fallback ...")
+        continue
+    conn = candidate
+    break
 
-print(f"Connecting to {CONFIG['user']}@{host_entry['hostname']} ...")
 # Remote output is UTF-8; invoke otherwise decodes with the Windows locale codepage.
 for stream in (sys.stdout, sys.stderr):
     stream.reconfigure(encoding="utf-8", errors="replace")
