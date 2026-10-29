@@ -33,13 +33,46 @@ def _post_new_session(flask_port: int, payload: dict) -> httpx.Response:
         )
 
 
-def _is_privileged_cwd_response(response: httpx.Response) -> bool:
+def _cwd_confirmation_body(response: httpx.Response) -> dict | None:
+    """The 409 body when the server wants the cwd confirmed, else None."""
     if response.status_code != 409:
-        return False
+        return None
     try:
-        return response.json().get("code") == "privileged_cwd"
+        body = response.json()
     except ValueError:
-        return False
+        return None
+    return body if body.get("code") == "cwd_needs_confirmation" else None
+
+
+def _confirm_cwd(body: dict) -> None:
+    """Show why the cwd needs confirmation and ask; raise if declined."""
+    missing, privileged = bool(body.get("missing")), bool(body.get("privileged"))
+    if missing:
+        click.echo(
+            click.style(
+                f"Folder does not exist: {body.get('resolved_path')} "
+                "(it will be created).",
+                fg="yellow",
+            )
+        )
+    if privileged:
+        click.echo(
+            click.style(
+                f"Warning: {body.get('message')} (Matched: {body.get('reason')})",
+                fg="yellow",
+            )
+        )
+    if missing and privileged:
+        question = "Create folder & proceed with caution?"
+    elif missing:
+        question = "Create folder?"
+    else:
+        question = "Proceed with caution?"
+    if not click.confirm(question, default=False):
+        raise click.ClickException(
+            "Session not created. Choose another folder with --cwd, or pass "
+            "--create-cwd / --allow-privileged-cwd."
+        )
 
 
 @cli.group()
@@ -94,6 +127,14 @@ def session():
         "recommended (e.g. your home folder itself, /etc) without asking."
     ),
 )
+@click.option(
+    "--create-cwd",
+    is_flag=True,
+    help=(
+        "Create the working directory without asking if it does not exist "
+        "(only the last folder may be missing)."
+    ),
+)
 def session_new(
     load_custom_skills_tools,
     load_startup_tool_calls,
@@ -102,6 +143,7 @@ def session_new(
     approval_mode,
     browser,
     allow_privileged_cwd,
+    create_cwd,
 ):
     """
     Create a new agentic session and open it in the SLBP desktop app.
@@ -169,22 +211,15 @@ def session_new(
             session_cwd, "startup_tool_calls.json"
         )
 
-    if allow_privileged_cwd:
-        payload["allow_privileged_cwd"] = True
+    payload["allow_privileged_cwd"] = allow_privileged_cwd
+    payload["create_cwd"] = create_cwd
     response = _post_new_session(flask_port, payload)
-    if _is_privileged_cwd_response(response):
-        body = response.json()
-        click.echo(
-            click.style(
-                f"Warning: {body.get('error')} ({body.get('reason')})", fg="yellow"
-            )
-        )
-        if not click.confirm("Proceed with caution?", default=False):
-            raise click.ClickException(
-                "Session not created. Choose another folder with --cwd, or pass "
-                "--allow-privileged-cwd."
-            )
-        payload["allow_privileged_cwd"] = True
+    confirmation = _cwd_confirmation_body(response)
+    if confirmation is not None:
+        _confirm_cwd(confirmation)
+        # Confirm exactly what was shown, nothing more.
+        payload["allow_privileged_cwd"] |= bool(confirmation.get("privileged"))
+        payload["create_cwd"] |= bool(confirmation.get("missing"))
         response = _post_new_session(flask_port, payload)
     if response.is_error:
         raise click.ClickException(

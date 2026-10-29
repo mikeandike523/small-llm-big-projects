@@ -5,8 +5,12 @@ approval auto-approves everything beneath it. So a cwd is classified as:
 
 - ``ok``      -- usable as is.
 - ``error``   -- never allowed (missing, not a folder, filesystem root, ...).
-- ``warning`` -- privileged or not recommended; allowed only after the user
-                 explicitly chooses "Proceed with caution".
+- ``warning`` -- needs explicit confirmation before use, for one or both of:
+                 ``privileged`` (privileged / not recommended; "Proceed with
+                 caution") and ``missing`` (the folder does not exist yet but
+                 its parent does; "Create folder"). Only ONE missing level is
+                 ever offered -- a missing parent is a hard error, which
+                 guards against typos creating whole directory chains.
 
 The per-OS directory lists below are the single source of truth for which
 folders are hard errors and which are warnings. Each entry is
@@ -129,6 +133,10 @@ class CwdCheck:
     message: str | None = None
     # Which rule triggered a warning/error, e.g. "/etc (and everything inside)".
     reason: str | None = None
+    # ``warning`` only: the folder must be created (its parent exists).
+    missing: bool = False
+    # ``warning`` only: the folder matched a WARNING_DIRS_* rule.
+    privileged: bool = False
 
     def to_json(self) -> dict:
         return {
@@ -136,6 +144,8 @@ class CwdCheck:
             "resolved_path": self.resolved_path,
             "message": self.message,
             "reason": self.reason,
+            "missing": self.missing,
+            "privileged": self.privileged,
         }
 
 
@@ -263,16 +273,21 @@ def check_initial_cwd(
                 return CwdCheck("error", message="Path is not a directory.")
             return CwdCheck("ok", resolved_path=workspace)
 
+    missing = False
     try:
         resolved = Path(normalized).resolve(strict=True)
     except FileNotFoundError:
-        return CwdCheck("error", message="Directory does not exist.")
+        parent_check = _check_missing_parent(Path(normalized))
+        if isinstance(parent_check, CwdCheck):
+            return parent_check
+        resolved, missing = parent_check, True
     except (OSError, RuntimeError):
         return CwdCheck("error", message="Path could not be resolved.")
-    if not resolved.is_dir():
-        return CwdCheck("error", message="Path is not a directory.")
-    if not os.access(resolved, os.R_OK | os.X_OK):
-        return CwdCheck("error", message="Directory is not readable by the server.")
+    if not missing:
+        if not resolved.is_dir():
+            return CwdCheck("error", message="Path is not a directory.")
+        if not os.access(resolved, os.R_OK | os.X_OK):
+            return CwdCheck("error", message="Directory is not readable by the server.")
 
     resolved_text = _portable(str(resolved))
     candidates = (
@@ -289,11 +304,46 @@ def check_initial_cwd(
             reason=hard,
         )
     warning = _match_rule(candidates, warning_rules, family, rule_home)
-    if warning:
+    if warning or missing:
         return CwdCheck(
             "warning",
             resolved_path=resolved_text,
-            message=PRIVILEGED_CWD_WARNING,
+            message=PRIVILEGED_CWD_WARNING if warning else None,
             reason=warning,
+            missing=missing,
+            privileged=bool(warning),
         )
     return CwdCheck("ok", resolved_path=resolved_text)
+
+
+def _check_missing_parent(path: Path) -> Path | CwdCheck:
+    """For a cwd that does not exist: its would-be resolved path when exactly
+    one folder is missing and the server can create it, else a hard error."""
+    parent = path.parent
+    try:
+        resolved_parent = parent.resolve(strict=True)
+    except FileNotFoundError:
+        return CwdCheck(
+            "error",
+            message=(
+                f"Folder does not exist, and neither does its parent "
+                f"({_portable(str(parent))}). Only one new folder can be created "
+                "-- check the path for typos."
+            ),
+        )
+    except (OSError, RuntimeError):
+        return CwdCheck("error", message="Path could not be resolved.")
+    if not resolved_parent.is_dir():
+        return CwdCheck(
+            "error",
+            message=f"Parent path is not a folder: {_portable(str(parent))}.",
+        )
+    if not os.access(resolved_parent, os.W_OK | os.X_OK):
+        return CwdCheck(
+            "error",
+            message=(
+                "Folder does not exist, and the server cannot create it in "
+                f"{_portable(str(resolved_parent))} (no write permission)."
+            ),
+        )
+    return resolved_parent / path.name

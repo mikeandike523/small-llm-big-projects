@@ -25,6 +25,7 @@ import {
   selectCss,
   warningMsgCss,
   proceedBtnCss,
+  workspaceLinkCss,
 } from "../css/NewSessionDialog";
 
 // ---------------------------------------------------------------------------
@@ -55,23 +56,41 @@ interface Props {
 // A problem with the chosen working directory, from POST /api/sessions or
 // /api/folder-check. Cleared whenever the path is edited or re-picked.
 // - error:   red text under the field; Create stays disabled.
-// - warning: privileged / not-recommended folder; the footer offers
-//            Cancel + "Proceed with caution" for exactly `path`.
+// - confirm: the folder is missing (parent exists) and/or privileged. The
+//            footer swaps to Cancel + one button confirming exactly what is
+//            listed, for exactly `path`.
 type CwdIssue =
   | { kind: "error"; message: string }
-  | { kind: "warning"; message: string; reason: string | null; path: string };
+  | {
+      kind: "confirm";
+      path: string;
+      resolvedPath: string | null;
+      missing: boolean;
+      privileged: boolean;
+      message: string | null;
+      reason: string | null;
+    };
 
 function issueFromCheck(check: FolderCheck, path: string): CwdIssue | null {
   if (check.status === "error")
     return { kind: "error", message: check.message ?? "Invalid folder." };
   if (check.status === "warning")
     return {
-      kind: "warning",
-      message: check.message ?? "",
-      reason: check.reason,
+      kind: "confirm",
       path,
+      resolvedPath: check.resolved_path,
+      missing: check.missing,
+      privileged: check.privileged,
+      message: check.message,
+      reason: check.reason,
     };
   return null;
+}
+
+function confirmLabel(issue: { missing: boolean; privileged: boolean }) {
+  if (issue.missing && issue.privileged)
+    return "Create folder & proceed with caution";
+  return issue.missing ? "Create folder" : "Proceed with caution";
 }
 
 // ---------------------------------------------------------------------------
@@ -200,7 +219,11 @@ export default function NewSessionDialog({
     }
   }
 
-  async function handleCreate(allowPrivilegedCwd = false) {
+  // `confirmed` is the confirm-state issue the user just accepted, if any.
+  async function handleCreate(confirmed?: {
+    missing: boolean;
+    privileged: boolean;
+  }) {
     if (creating) return;
     setCreating(true);
     setError(null);
@@ -215,7 +238,8 @@ export default function NewSessionDialog({
       load_custom_skills_tools: flags.load_custom_skills_tools,
       // The server resolves the cwd and looks for startup_tool_calls.json in it.
       load_startup_tool_calls: flags.load_startup_tool_calls,
-      allow_privileged_cwd: allowPrivilegedCwd,
+      allow_privileged_cwd: confirmed?.privileged ?? false,
+      create_cwd: confirmed?.missing ?? false,
     };
 
     try {
@@ -226,17 +250,13 @@ export default function NewSessionDialog({
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        if (body.code === "invalid_cwd" || body.code === "privileged_cwd") {
-          setCwdIssue(
-            body.code === "invalid_cwd"
-              ? { kind: "error", message: body.error }
-              : {
-                  kind: "warning",
-                  message: body.error,
-                  reason: body.reason ?? null,
-                  path: cwd,
-                },
-          );
+        if (body.code === "invalid_cwd") {
+          setCwdIssue({ kind: "error", message: body.error });
+          setCreating(false);
+          return;
+        }
+        if (body.code === "cwd_needs_confirmation") {
+          setCwdIssue(issueFromCheck(body, cwd));
           setCreating(false);
           return;
         }
@@ -311,6 +331,15 @@ export default function NewSessionDialog({
           {cwdIssue?.kind === "error" && (
             <div css={cwdErrorCss}>{cwdIssue.message}</div>
           )}
+          {workspaceDir && !cwdEmpty && cwd !== workspaceDir && (
+            <button
+              css={workspaceLinkCss}
+              onClick={() => changeCwd(workspaceDir)}
+              title={workspaceDir}
+            >
+              Use new session workspace instead
+            </button>
+          )}
         </div>
 
         <div>
@@ -379,11 +408,25 @@ export default function NewSessionDialog({
 
         {error && <div css={errorMsgCss}>{error}</div>}
 
-        {cwdIssue?.kind === "warning" ? (
+        {cwdIssue?.kind === "confirm" ? (
           <>
             <div css={warningMsgCss}>
-              {cwdIssue.message}
-              {cwdIssue.reason && <div>Matched: {cwdIssue.reason}</div>}
+              {cwdIssue.missing && (
+                <section>
+                  <strong>Folder does not exist</strong>
+                  <span>
+                    {cwdIssue.resolvedPath ?? cwdIssue.path} will be created
+                    when you continue.
+                  </span>
+                </section>
+              )}
+              {cwdIssue.privileged && (
+                <section>
+                  <strong>Privileged path</strong>
+                  <span>{cwdIssue.message}</span>
+                  {cwdIssue.reason && <div>Matched: {cwdIssue.reason}</div>}
+                </section>
+              )}
             </div>
             <div css={footerCss}>
               {/* Dismisses only the warning; the dialog stays open. */}
@@ -395,11 +438,15 @@ export default function NewSessionDialog({
                 Cancel
               </button>
               <button
-                css={proceedBtnCss(creating)}
-                onClick={() => handleCreate(true)}
+                css={
+                  cwdIssue.privileged
+                    ? proceedBtnCss(creating)
+                    : createBtnCss(creating)
+                }
+                onClick={() => handleCreate(cwdIssue)}
                 disabled={creating}
               >
-                {creating ? "Creating..." : "Proceed with caution"}
+                {creating ? "Creating..." : confirmLabel(cwdIssue)}
               </button>
             </div>
           </>
