@@ -1,0 +1,1 @@
+Changed how file picker is implemented over IPC in desktop.
