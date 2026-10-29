@@ -84,8 +84,10 @@ def api_create_session():
                                             (a fresh one is generated if omitted)
       initial_cwd                   str   — working directory for this session; validated
                                             by check_initial_cwd and stored resolved
-      allow_privileged_cwd          bool  — accept a cwd classified as a warning
-                                            (otherwise 409 with code "privileged_cwd")
+      allow_privileged_cwd          bool  — accept a privileged / not-recommended cwd
+      create_cwd                    bool  — create a missing cwd (one level only)
+                                            Unconfirmed → 409 code "cwd_needs_confirmation"
+                                            with the check's missing/privileged flags.
       load_custom_skills_tools      bool  — load cwd/skills and cwd/tools
       startup_tool_calls_path       str?  — path to startup_tool_calls.json (or null)
       load_startup_tool_calls       bool  — when no explicit path is given, use
@@ -108,14 +110,17 @@ def api_create_session():
     cwd_check = check_initial_cwd(data.get("initial_cwd"), session_id)
     if cwd_check.status == "error":
         return jsonify({"error": cwd_check.message, "code": "invalid_cwd"}), 400
-    if cwd_check.status == "warning" and not data.get("allow_privileged_cwd"):
+    if cwd_check.status == "warning" and (
+        (cwd_check.privileged and not data.get("allow_privileged_cwd"))
+        or (cwd_check.missing and not data.get("create_cwd"))
+    ):
         return (
             jsonify(
                 {
-                    "error": cwd_check.message,
-                    "code": "privileged_cwd",
-                    "resolved_path": cwd_check.resolved_path,
-                    "reason": cwd_check.reason,
+                    "error": cwd_check.message
+                    or "Working directory needs confirmation.",
+                    "code": "cwd_needs_confirmation",
+                    **cwd_check.to_json(),
                 }
             ),
             409,
@@ -206,6 +211,10 @@ def api_create_session():
     )
 
     try:
+        if cwd_check.missing:
+            # Confirmed via create_cwd. No parents=True: only the last folder
+            # may be missing (check_initial_cwd guarantees the parent exists).
+            pathlib.Path(initial_cwd).mkdir(exist_ok=True)
         ensure_session_dirs(session_id, initial_cwd)
     except OSError as exc:
         return jsonify({"error": f"Could not create session folders: {exc}"}), 500

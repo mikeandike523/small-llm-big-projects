@@ -21,6 +21,10 @@ export interface FolderCheck {
   resolved_path: string | null;
   message: string | null;
   reason: string | null;
+  /** warning only: the folder does not exist yet (its parent does). */
+  missing: boolean;
+  /** warning only: the folder is privileged / not recommended. */
+  privileged: boolean;
 }
 
 export class FolderBrowseError extends Error {

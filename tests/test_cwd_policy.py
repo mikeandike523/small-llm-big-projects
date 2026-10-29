@@ -42,10 +42,43 @@ def test_relative_path_is_error():
     assert "absolute" in check.message
 
 
-def test_missing_directory_is_error(tmp_path):
-    check = check_initial_cwd(str(tmp_path / "nope"))
+def _without_warning_rules(monkeypatch):
+    # On Windows tmp_path lives under ~/AppData, itself a warning folder.
+    hard, _warnings = cwd_policy.rules_for(cwd_policy.current_os_family())
+    monkeypatch.setattr(cwd_policy, "rules_for", lambda family: (hard, ()))
+
+
+def test_one_missing_folder_needs_create_confirmation(tmp_path, monkeypatch):
+    _without_warning_rules(monkeypatch)
+    check = check_initial_cwd(str(tmp_path / "new"))
+    assert check.status == "warning"
+    assert check.missing and not check.privileged
+    assert check.message is None
+    assert check.resolved_path == _portable(tmp_path.resolve() / "new")
+    assert not (tmp_path / "new").exists()  # checking never creates
+
+
+def test_two_missing_folders_is_hard_error(tmp_path):
+    check = check_initial_cwd(str(tmp_path / "typo" / "new"))
     assert check.status == "error"
-    assert "does not exist" in check.message
+    assert "neither does its parent" in check.message
+
+
+def test_missing_folder_under_a_file_is_error(tmp_path):
+    (tmp_path / "file.txt").write_text("x")
+    check = check_initial_cwd(str(tmp_path / "file.txt" / "new"))
+    assert check.status == "error"
+
+
+def test_missing_and_privileged_are_both_reported(tmp_path, monkeypatch):
+    hard, _warnings = cwd_policy.rules_for(cwd_policy.current_os_family())
+    rule = (_portable(tmp_path.resolve()), cwd_policy.MATCH_SUBTREE)
+    monkeypatch.setattr(cwd_policy, "rules_for", lambda family: (hard, (rule,)))
+    check = check_initial_cwd(str(tmp_path / "new"))
+    assert check.status == "warning"
+    assert check.missing and check.privileged
+    assert check.message == cwd_policy.PRIVILEGED_CWD_WARNING
+    assert check.reason
 
 
 def test_file_is_error(tmp_path):
@@ -55,9 +88,7 @@ def test_file_is_error(tmp_path):
 
 
 def test_plain_directory_is_ok_and_resolved(tmp_path, monkeypatch):
-    # On Windows tmp_path lives under ~/AppData, itself a warning folder.
-    hard, _warnings = cwd_policy.rules_for(cwd_policy.current_os_family())
-    monkeypatch.setattr(cwd_policy, "rules_for", lambda family: (hard, ()))
+    _without_warning_rules(monkeypatch)
     sub = tmp_path / "proj"
     sub.mkdir()
     check = check_initial_cwd(str(sub / ".." / "proj") + "/")

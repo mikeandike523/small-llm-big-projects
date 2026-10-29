@@ -203,10 +203,38 @@ export const warningMsgCss = css`
   padding: 8px 12px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 8px;
+  section {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+  section + section {
+    border-top: 1px solid #4a3c14;
+    padding-top: 8px;
+  }
+  strong {
+    font-weight: 600;
+    color: #f0c860;
+  }
   div {
     font-size: 10px;
     color: #8a7640;
+  }
+`;
+
+export const workspaceLinkCss = css`
+  background: none;
+  border: none;
+  padding: 0;
+  margin-top: 6px;
+  font-family: inherit;
+  font-size: 10px;
+  color: #6a7ab8;
+  text-decoration: underline;
+  cursor: pointer;
+  &:hover {
+    color: #8aacff;
   }
 `;
 
