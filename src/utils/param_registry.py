@@ -384,6 +384,18 @@ REGISTRY["system.channels.slack.enabled"] = ParamSpec(
         "When false (default for unset), Slack integration is skipped entirely regardless of token availability."
     ),
 )
+REGISTRY["system.channels.email.enabled"] = ParamSpec(
+    name="system.channels.email.enabled",
+    value_type="boolean",
+    scope="global",
+    default=False,
+    description=(
+        "Enable the email channel integration. When true, server startup validates "
+        "credentials/service-account-key.json and starts the Gmail watch-renewal "
+        "daemon. When false (default for unset), email initialization, credential "
+        "validation, and background work are skipped entirely."
+    ),
+)
 REGISTRY["desktop.slbp-process.clear-logs-on-start"] = ParamSpec(
     name="desktop.slbp-process.clear-logs-on-start",
     value_type="boolean",
