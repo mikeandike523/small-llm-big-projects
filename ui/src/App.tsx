@@ -6,6 +6,7 @@ import Chat from "./components/Chat";
 import Dashboard from "./components/Dashboard";
 import ConfigPage from "./components/ConfigPage";
 import TerminalPage from "./components/TerminalPage";
+import EmailDebugPage from "./components/EmailDebugPage";
 
 const globalCss = css`
   *,
@@ -37,6 +38,7 @@ export default function App() {
         <Route path="/session" element={<Chat />} />
         <Route path="/config" element={<ConfigPage />} />
         <Route path="/terminal" element={<TerminalPage />} />
+        <Route path="/email" element={<EmailDebugPage />} />
       </Routes>
     </>
   );

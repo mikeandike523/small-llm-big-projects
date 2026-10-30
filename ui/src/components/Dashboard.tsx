@@ -771,6 +771,9 @@ export default function Dashboard() {
           <Link css={configLinkCss} to="/terminal">
             Terminal
           </Link>
+          <Link css={configLinkCss} to="/email">
+            Email
+          </Link>
           <Link css={configLinkCss} to="/config">
             Config
           </Link>
