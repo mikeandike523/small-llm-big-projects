@@ -316,6 +316,22 @@ def server_run(
     if hotfix_gpt_oss_20b_bad_void_call or hotfix_suite_gpt_oss_20b:
         flask_env["SLBP_HOTFIX_GPT_OSS_20B_BAD_VOID_CALL"] = "1"
 
+    proxy_env = {
+        "PROXY_PORT": str(gw_port),
+        "FLASK_PORT": str(flask_port),
+        "UI_PORT": str(ui_port),
+    }
+    try:
+        # The proxy records /webhooks/** hits into Redis for the email debug page.
+        proxy_env["REDIS_PORT"] = str(get_service_port("redis", 6379))
+    except Exception as exc:
+        click.echo(
+            click.style(
+                f"Warning: Redis port unavailable, webhook hits not recorded: {exc}",
+                fg="yellow",
+            )
+        )
+
     processes = [
         ManagedProcess(
             label="ui",
@@ -327,11 +343,7 @@ def server_run(
             label="proxy",
             cmd=["node", str(PROJECT_ROOT / "proxy-server" / "index.js")],
             cwd=PROJECT_ROOT / "proxy-server",
-            env={
-                "PROXY_PORT": str(gw_port),
-                "FLASK_PORT": str(flask_port),
-                "UI_PORT": str(ui_port),
-            },
+            env=proxy_env,
         ),
         ManagedProcess(
             label="flask",

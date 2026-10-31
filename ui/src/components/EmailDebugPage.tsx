@@ -2,6 +2,7 @@
 import { css } from "@emotion/react";
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import EmailWebhookHitsPanel from "./EmailWebhookHitsPanel";
 
 type EmailState = {
   last_processed_history_id: string | null;
@@ -90,10 +91,17 @@ const buttonCss = css`
     border-color: #7290ca;
   }
 `;
+const layoutCss = css`
+  display: grid;
+  grid-template-columns: minmax(300px, 420px) minmax(0, 1fr);
+  gap: 20px;
+  padding: 24px 20px 60px;
+  @media (max-width: 900px) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+`;
 const mainCss = css`
-  width: min(1180px, calc(100% - 40px));
-  margin: 0 auto;
-  padding: 24px 0 60px;
+  min-width: 0;
 `;
 const panelCss = css`
   border: 1px solid #293450;
@@ -287,121 +295,124 @@ export default function EmailDebugPage() {
           </button>
         </div>
       </header>
-      <main css={mainCss}>
-        <section css={panelCss}>
-          <div css={statusGridCss}>
-            <Field
-              label="Channel"
-              value={status?.enabled ? "enabled" : "disabled"}
-            />
-            <Field label="Mailbox" value={status?.mailbox_email ?? "—"} />
-            <Field label="Alias" value={status?.alias_email ?? "—"} />
-            <Field
-              label="History cursor"
-              value={status?.state?.last_processed_history_id ?? "—"}
-            />
-            <Field
-              label="Pending pushes"
-              value={status?.pending_notifications ?? 0}
-            />
-            <Field
-              label="Watch renewed"
-              value={time(status?.state?.watch_last_success_unix)}
-            />
-            <Field
-              label="Watch expires"
-              value={time(status?.state?.watch_expiration_ms, true)}
-            />
-            <Field
-              label="Last sync"
-              value={time(status?.state?.sync_last_success_unix)}
-            />
-            <Field
-              label="Last cursor reset"
-              value={cursorResetSummary(status?.state)}
-            />
-            <Field
-              label="Session routing"
-              value="stubbed — no session activity"
-            />
-          </div>
-          {status?.state?.watch_last_error && (
-            <div css={errorCss}>Watch: {status.state.watch_last_error}</div>
-          )}
-          {status?.state?.sync_last_error && (
-            <div css={errorCss}>Sync: {status.state.sync_last_error}</div>
-          )}
-          {error && <div css={errorCss}>{error}</div>}
-        </section>
+      <div css={layoutCss}>
+        <EmailWebhookHitsPanel />
+        <main css={mainCss}>
+          <section css={panelCss}>
+            <div css={statusGridCss}>
+              <Field
+                label="Channel"
+                value={status?.enabled ? "enabled" : "disabled"}
+              />
+              <Field label="Mailbox" value={status?.mailbox_email ?? "—"} />
+              <Field label="Alias" value={status?.alias_email ?? "—"} />
+              <Field
+                label="History cursor"
+                value={status?.state?.last_processed_history_id ?? "—"}
+              />
+              <Field
+                label="Pending pushes"
+                value={status?.pending_notifications ?? 0}
+              />
+              <Field
+                label="Watch renewed"
+                value={time(status?.state?.watch_last_success_unix)}
+              />
+              <Field
+                label="Watch expires"
+                value={time(status?.state?.watch_expiration_ms, true)}
+              />
+              <Field
+                label="Last sync"
+                value={time(status?.state?.sync_last_success_unix)}
+              />
+              <Field
+                label="Last cursor reset"
+                value={cursorResetSummary(status?.state)}
+              />
+              <Field
+                label="Session routing"
+                value="stubbed — no session activity"
+              />
+            </div>
+            {status?.state?.watch_last_error && (
+              <div css={errorCss}>Watch: {status.state.watch_last_error}</div>
+            )}
+            {status?.state?.sync_last_error && (
+              <div css={errorCss}>Sync: {status.state.sync_last_error}</div>
+            )}
+            {error && <div css={errorCss}>{error}</div>}
+          </section>
 
-        {threads.length === 0 && (
-          <div css={panelCss}>No captured email threads yet.</div>
-        )}
-        {threads.map((thread) => {
-          const latest = thread.messages[thread.messages.length - 1];
-          return (
-            <details css={threadCss} key={thread.thread_id} open>
-              <summary css={threadSummaryCss}>
-                <div>
-                  <div css={subjectCss}>
-                    {latest?.subject_text || "(no subject)"}
+          {threads.length === 0 && (
+            <div css={panelCss}>No captured email threads yet.</div>
+          )}
+          {threads.map((thread) => {
+            const latest = thread.messages[thread.messages.length - 1];
+            return (
+              <details css={threadCss} key={thread.thread_id} open>
+                <summary css={threadSummaryCss}>
+                  <div>
+                    <div css={subjectCss}>
+                      {latest?.subject_text || "(no subject)"}
+                    </div>
+                    <div css={mutedCss}>
+                      {thread.messages.length} message(s) · thread{" "}
+                      {thread.thread_id}
+                    </div>
                   </div>
                   <div css={mutedCss}>
-                    {thread.messages.length} message(s) · thread{" "}
-                    {thread.thread_id}
+                    {time(thread.latest_internal_date_ms, true)}
                   </div>
-                </div>
-                <div css={mutedCss}>
-                  {time(thread.latest_internal_date_ms, true)}
-                </div>
-              </summary>
-              {thread.messages.map((message) => (
-                <article
-                  css={[
-                    messageCss,
-                    message.direction === "outbound" && outboundCss,
-                  ]}
-                  key={message.gmail_message_id}
-                >
-                  <div>
-                    <span css={badgeCss}>{message.direction}</span>
-                    {message.relevant_to_alias && (
-                      <span css={badgeCss}>
-                        alias: {message.alias_match_reason}
+                </summary>
+                {thread.messages.map((message) => (
+                  <article
+                    css={[
+                      messageCss,
+                      message.direction === "outbound" && outboundCss,
+                    ]}
+                    key={message.gmail_message_id}
+                  >
+                    <div>
+                      <span css={badgeCss}>{message.direction}</span>
+                      {message.relevant_to_alias && (
+                        <span css={badgeCss}>
+                          alias: {message.alias_match_reason}
+                        </span>
+                      )}
+                      <span css={mutedCss}>
+                        {time(message.internal_date_ms, true)}
                       </span>
-                    )}
-                    <span css={mutedCss}>
-                      {time(message.internal_date_ms, true)}
-                    </span>
-                  </div>
-                  <div css={headerRowsCss}>
-                    <div>From</div>
-                    <div>{message.from_header || "—"}</div>
-                    <div>To</div>
-                    <div>{message.to_header || "—"}</div>
-                    <div>Cc</div>
-                    <div>{message.cc_header || "—"}</div>
-                  </div>
-                  {message.attachments.length > 0 && (
-                    <div css={mutedCss}>
-                      Attachments:{" "}
-                      {message.attachments
-                        .map(
-                          (item) =>
-                            `${item.filename || "unnamed"} (${item.mime_type}, ${item.size} bytes)`,
-                        )
-                        .join(", ")}
                     </div>
-                  )}
-                  <pre css={bodyCss}>
-                    {message.text_body || message.snippet || "(empty body)"}
-                  </pre>
-                </article>
-              ))}
-            </details>
-          );
-        })}
-      </main>
+                    <div css={headerRowsCss}>
+                      <div>From</div>
+                      <div>{message.from_header || "—"}</div>
+                      <div>To</div>
+                      <div>{message.to_header || "—"}</div>
+                      <div>Cc</div>
+                      <div>{message.cc_header || "—"}</div>
+                    </div>
+                    {message.attachments.length > 0 && (
+                      <div css={mutedCss}>
+                        Attachments:{" "}
+                        {message.attachments
+                          .map(
+                            (item) =>
+                              `${item.filename || "unnamed"} (${item.mime_type}, ${item.size} bytes)`,
+                          )
+                          .join(", ")}
+                      </div>
+                    )}
+                    <pre css={bodyCss}>
+                      {message.text_body || message.snippet || "(empty body)"}
+                    </pre>
+                  </article>
+                ))}
+              </details>
+            );
+          })}
+        </main>
+      </div>
     </div>
   );
 }

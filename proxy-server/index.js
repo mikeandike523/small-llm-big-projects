@@ -1,6 +1,11 @@
 const express = require("express");
 const httpProxy = require("http-proxy");
 const { createProxyMiddleware } = require("http-proxy-middleware");
+const {
+  connectRedis,
+  recordWebhookHits,
+  webhookProxyEvents,
+} = require("./webhookRecorder");
 
 const PROXY_PORT = parseInt(process.env.PROXY_PORT || "0", 10);
 const FLASK_PORT = process.env.FLASK_PORT || "5000";
@@ -22,12 +27,17 @@ app.use(
 );
 
 // Public Google push endpoints bypass the UI server. Authentication is
-// performed by the Flask route using Google-signed OIDC tokens.
+// performed by the Flask route using Google-signed OIDC tokens. Every hit,
+// including ones Flask never answered, is recorded for the email debug page.
+connectRedis();
+app.use("/webhooks", recordWebhookHits);
 app.use(
   createProxyMiddleware({
     pathFilter: "/webhooks",
     target: FLASK_ORIGIN,
     changeOrigin: true,
+    proxyTimeout: 30000,
+    on: webhookProxyEvents,
   }),
 );
 

@@ -17,4 +17,8 @@ cd desktop
 pnpm install
 cd ..
 
+cd proxy-server
+pnpm install
+cd ..
+
 echo "Worktree setup complete."

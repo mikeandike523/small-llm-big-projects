@@ -149,3 +149,33 @@ def test_persistence_failure_is_retried(monkeypatch) -> None:
 
     monkeypatch.setattr(webhook, "enqueue_notification", fail)
     assert _post(_payload()).status_code == 503
+
+
+def _outcome(response) -> dict:
+    return json.loads(response.headers[webhook.OUTCOME_HEADER])
+
+
+def test_outcome_header_reports_verdict_for_recorder(monkeypatch) -> None:
+    _authenticated(monkeypatch, [])
+    accepted = _post(_payload())
+    assert _outcome(accepted) == {
+        "result": "accepted",
+        "reason": None,
+        "pubsub_message_id": "pubsub-1",
+        "history_id": "123",
+    }
+
+    payload = _payload()
+    payload["message"]["data"] = "not base64 json!!"
+    assert _outcome(_post(payload))["result"] == "dropped"
+
+
+def test_outcome_header_on_auth_failure_and_disabled(monkeypatch) -> None:
+    monkeypatch.setattr(webhook, "get_email_config", _config)
+    unauthorized = app.test_client().post("/webhooks/gmail", json=_payload())
+    assert _outcome(unauthorized)["result"] == "unauthorized"
+
+    monkeypatch.setattr(webhook, "get_email_config", lambda: None)
+    disabled = _post(_payload())
+    assert disabled.status_code == 404
+    assert _outcome(disabled)["result"] == "disabled"

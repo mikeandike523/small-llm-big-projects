@@ -4,6 +4,8 @@ set -euo pipefail
 
 bash python_in_env.sh -m pip install -r requirements.txt
 
+(cd proxy-server && pnpm install)
+
 cd ui
 
 pnpm install

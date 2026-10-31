@@ -8,7 +8,7 @@ import json
 import logging
 from typing import Any
 
-from flask import jsonify, request
+from flask import jsonify, make_response, request
 
 from src.channels.email import get_email_config, notify_email_work
 from src.channels.email.notification_store import (
@@ -19,6 +19,7 @@ from src.ui_connector.app import app
 
 logger = logging.getLogger(__name__)
 MAX_PUSH_BYTES = 256 * 1024
+OUTCOME_HEADER = "X-Slbp-Webhook-Outcome"
 GOOGLE_ISSUERS = {"accounts.google.com", "https://accounts.google.com"}
 
 
@@ -92,23 +93,42 @@ def _decode_notification(payload: dict, config) -> GmailNotification:
     )
 
 
+def _reply(body: Any, status: int, result: str, reason: str | None = None, **extra):
+    """Build a response carrying the verdict for the gateway's hit recorder.
+
+    The proxy reads and strips OUTCOME_HEADER (proxy-server/webhookRecorder.js),
+    so the caller never sees it.
+    """
+    response = make_response(body, status)
+    outcome = {"result": result, "reason": reason, **extra}
+    response.headers[OUTCOME_HEADER] = json.dumps(outcome, default=str)
+    return response
+
+
 @app.post("/webhooks/gmail")
 def gmail_webhook():
     """Verify, durably enqueue, then acknowledge a wrapped Pub/Sub push."""
     config = get_email_config()
     if config is None:
-        return jsonify(error="email channel is disabled or unavailable"), 404
+        return _reply(
+            jsonify(error="email channel is disabled or unavailable"),
+            404,
+            "disabled",
+            "email channel is disabled or failed to start",
+        )
     if request.content_length is not None and request.content_length > MAX_PUSH_BYTES:
-        return jsonify(error="request body is too large"), 413
+        return _reply(
+            jsonify(error="request body is too large"), 413, "rejected", "too large"
+        )
     try:
         claims = _authenticate(config)
     except PushAuthenticationError as exc:
         # Retried by Pub/Sub on purpose: verification can fail transiently.
         logger.warning("Rejected unauthenticated Gmail push: %s", exc)
-        return jsonify(error="unauthorized"), 401
+        return _reply(jsonify(error="unauthorized"), 401, "unauthorized", str(exc))
     except PermissionError as exc:
         logger.warning("Rejected unauthorized Gmail push: %s", exc)
-        return jsonify(error="forbidden"), 403
+        return _reply(jsonify(error="forbidden"), 403, "forbidden", str(exc))
 
     # From here the sender is the verified Google push identity. Payloads that
     # can never be processed are acknowledged (204) so Pub/Sub stops retrying
@@ -116,7 +136,9 @@ def gmail_webhook():
     try:
         raw_body = request.get_data(cache=False)
         if len(raw_body) > MAX_PUSH_BYTES:
-            return jsonify(error="request body is too large"), 413
+            return _reply(
+                jsonify(error="request body is too large"), 413, "rejected", "too large"
+            )
         try:
             payload = json.loads(raw_body)
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
@@ -127,13 +149,18 @@ def gmail_webhook():
         inserted = enqueue_notification(notification)
     except PermissionError as exc:
         logger.warning("Acknowledged and dropped Gmail push: dropped=foreign %s", exc)
-        return "", 204
+        return _reply("", 204, "dropped", f"foreign: {exc}")
     except (ValueError, TypeError) as exc:
         logger.warning("Acknowledged and dropped Gmail push: dropped=malformed %s", exc)
-        return "", 204
-    except Exception:
+        return _reply("", 204, "dropped", f"malformed: {exc}")
+    except Exception as exc:
         logger.exception("Gmail push could not be durably persisted")
-        return jsonify(error="notification persistence unavailable"), 503
+        return _reply(
+            jsonify(error="notification persistence unavailable"),
+            503,
+            "persistence_error",
+            f"{type(exc).__name__}: {exc}",
+        )
 
     logger.info(
         "Accepted Gmail push: pubsub_message_id=%s history_id=%s "
@@ -144,4 +171,10 @@ def gmail_webhook():
         inserted,
     )
     notify_email_work()
-    return "", 204
+    return _reply(
+        "",
+        204,
+        "accepted" if inserted else "duplicate",
+        pubsub_message_id=notification.pubsub_message_id,
+        history_id=notification.notified_history_id,
+    )
