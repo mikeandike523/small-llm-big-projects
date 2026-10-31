@@ -10,6 +10,16 @@ type EmailState = {
   watch_last_error: string | null;
   sync_last_success_unix: number | null;
   sync_last_error: string | null;
+  cursor_reset_last_unix: number | null;
+  cursor_reset_last_detail: string | null;
+};
+
+type CursorResetDetail = {
+  from_history_id: string;
+  to_history_id: string;
+  messages_scanned: number;
+  skipped_not_found: number;
+  capped: boolean;
 };
 
 type EmailStatus = {
@@ -203,6 +213,19 @@ function time(value?: number | null, milliseconds = false) {
   return new Date(milliseconds ? value : value * 1000).toLocaleString();
 }
 
+function cursorResetSummary(state?: EmailState) {
+  if (!state?.cursor_reset_last_unix) return "never";
+  const when = time(state.cursor_reset_last_unix);
+  if (!state.cursor_reset_last_detail) return when;
+  try {
+    const d = JSON.parse(state.cursor_reset_last_detail) as CursorResetDetail;
+    const capped = d.capped ? " — SCAN CAPPED, older mail skipped" : "";
+    return `${when}: ${d.from_history_id} → ${d.to_history_id}, scanned ${d.messages_scanned}, missing ${d.skipped_not_found}${capped}`;
+  } catch {
+    return when;
+  }
+}
+
 function Field({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div>
@@ -292,6 +315,10 @@ export default function EmailDebugPage() {
             <Field
               label="Last sync"
               value={time(status?.state?.sync_last_success_unix)}
+            />
+            <Field
+              label="Last cursor reset"
+              value={cursorResetSummary(status?.state)}
             />
             <Field
               label="Session routing"

@@ -102,6 +102,18 @@ def gmail_webhook():
         return jsonify(error="request body is too large"), 413
     try:
         claims = _authenticate(config)
+    except PushAuthenticationError as exc:
+        # Retried by Pub/Sub on purpose: verification can fail transiently.
+        logger.warning("Rejected unauthenticated Gmail push: %s", exc)
+        return jsonify(error="unauthorized"), 401
+    except PermissionError as exc:
+        logger.warning("Rejected unauthorized Gmail push: %s", exc)
+        return jsonify(error="forbidden"), 403
+
+    # From here the sender is the verified Google push identity. Payloads that
+    # can never be processed are acknowledged (204) so Pub/Sub stops retrying
+    # them for the whole retention window; only persistence failures retry.
+    try:
         raw_body = request.get_data(cache=False)
         if len(raw_body) > MAX_PUSH_BYTES:
             return jsonify(error="request body is too large"), 413
@@ -113,15 +125,12 @@ def gmail_webhook():
             raise TypeError("Pub/Sub envelope must be a JSON object")
         notification = _decode_notification(payload, config)
         inserted = enqueue_notification(notification)
-    except PushAuthenticationError as exc:
-        logger.warning("Rejected unauthenticated Gmail push: %s", exc)
-        return jsonify(error="unauthorized"), 401
     except PermissionError as exc:
-        logger.warning("Rejected unauthorized Gmail push: %s", exc)
-        return jsonify(error="forbidden"), 403
+        logger.warning("Acknowledged and dropped Gmail push: dropped=foreign %s", exc)
+        return "", 204
     except (ValueError, TypeError) as exc:
-        logger.warning("Rejected malformed Gmail push: %s", exc)
-        return jsonify(error="invalid Pub/Sub envelope"), 400
+        logger.warning("Acknowledged and dropped Gmail push: dropped=malformed %s", exc)
+        return "", 204
     except Exception:
         logger.exception("Gmail push could not be durably persisted")
         return jsonify(error="notification persistence unavailable"), 503

@@ -67,3 +67,18 @@ def log_google_error(
         json.dumps(context or {}, default=str, sort_keys=True),
         exc_info=(type(exc), exc, exc.__traceback__),
     )
+
+
+def google_error_status(exc: BaseException) -> int | None:
+    """Return the HTTP status of a googleapiclient error, if any."""
+    status = getattr(exc, "status_code", None)
+    if status is None:
+        status = getattr(getattr(exc, "resp", None), "status", None)
+    try:
+        return int(status) if status is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def is_google_not_found(exc: BaseException) -> bool:
+    return google_error_status(exc) == 404

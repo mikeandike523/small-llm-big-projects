@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import time
 from dataclasses import dataclass
 
@@ -21,6 +22,12 @@ class GmailMailboxState:
     sync_last_attempt_unix: float | None
     sync_last_success_unix: float | None
     sync_last_error: str | None
+    cursor_reset_last_unix: float | None = None
+    cursor_reset_last_detail: str | None = None
+
+
+class SyncLeaseLostError(RuntimeError):
+    """Another worker took over the mailbox sync lease mid-run."""
 
 
 def ensure_mailbox_state(mailbox_email: str) -> None:
@@ -43,7 +50,8 @@ def load_mailbox_state(mailbox_email: str) -> GmailMailboxState:
                    watch_last_success_unix, watch_expiration_ms,
                    watch_next_attempt_unix,
                    watch_last_error, sync_last_attempt_unix,
-                   sync_last_success_unix, sync_last_error
+                   sync_last_success_unix, sync_last_error,
+                   cursor_reset_last_unix, cursor_reset_last_detail
             FROM gmail_mailbox_state WHERE mailbox_email = %s
             """,
             (mailbox_email,),
@@ -74,6 +82,8 @@ def load_mailbox_state(mailbox_email: str) -> GmailMailboxState:
         sync_last_attempt_unix=optional_float("sync_last_attempt_unix"),
         sync_last_success_unix=optional_float("sync_last_success_unix"),
         sync_last_error=optional_text("sync_last_error"),
+        cursor_reset_last_unix=optional_float("cursor_reset_last_unix"),
+        cursor_reset_last_detail=optional_text("cursor_reset_last_detail"),
     )
 
 
@@ -109,6 +119,11 @@ def initialize_cursor_if_absent(mailbox_email: str, history_id: str) -> bool:
 
 
 def advance_cursor(mailbox_email: str, expected: str, next_value: str) -> None:
+    """Compare-and-set the cursor; it may only ever move forward."""
+    if int(next_value) < int(expected):
+        raise RuntimeError(
+            "Gmail history cursor would move backwards: " f"{expected} -> {next_value}"
+        )
     pool = get_pool()
     with pool.get_connection() as conn, conn.cursor() as cur:
         cur.execute(
@@ -172,6 +187,14 @@ def record_sync_failure(mailbox_email: str, now: float, error: str) -> None:
     )
 
 
+def record_cursor_reset(mailbox_email: str, now: float, detail: dict) -> None:
+    _update(
+        mailbox_email,
+        "cursor_reset_last_unix = %s, cursor_reset_last_detail = %s",
+        (now, json.dumps(detail, sort_keys=True)),
+    )
+
+
 def acquire_sync_lease(
     mailbox_email: str, owner: str, now: float, lease_seconds: float = 600
 ) -> bool:
@@ -190,6 +213,33 @@ def acquire_sync_lease(
         acquired = cur.rowcount == 1
         conn.commit()
     return acquired
+
+
+def renew_sync_lease(
+    mailbox_email: str, owner: str, now: float, lease_seconds: float = 600
+) -> bool:
+    """Extend a lease this owner still holds; false means it was lost."""
+    pool = get_pool()
+    with pool.get_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE gmail_mailbox_state SET lease_expires_unix = %s
+            WHERE mailbox_email = %s AND lease_owner = %s
+            """,
+            (now + lease_seconds, mailbox_email, owner),
+        )
+        renewed = cur.rowcount == 1
+        if not renewed:
+            # rowcount counts changed rows only (no FOUND_ROWS client flag), so
+            # an identical expiry looks like 0 rows; confirm ownership directly.
+            cur.execute(
+                "SELECT 1 FROM gmail_mailbox_state "
+                "WHERE mailbox_email = %s AND lease_owner = %s",
+                (mailbox_email, owner),
+            )
+            renewed = cur.fetchone() is not None
+        conn.commit()
+    return renewed
 
 
 def release_sync_lease(mailbox_email: str, owner: str) -> None:

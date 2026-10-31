@@ -90,3 +90,62 @@ def test_push_from_wrong_service_account_is_forbidden(monkeypatch) -> None:
         headers={"Authorization": "Bearer signed-token"},
     )
     assert response.status_code == 403
+
+
+def _authenticated(monkeypatch, persisted: list) -> None:
+    monkeypatch.setattr(webhook, "get_email_config", _config)
+    monkeypatch.setattr(
+        webhook,
+        "verify_push_identity",
+        lambda _token, _audience: {
+            "iss": "https://accounts.google.com",
+            "email_verified": True,
+            "email": "push@example-project.iam.gserviceaccount.com",
+        },
+    )
+    monkeypatch.setattr(
+        webhook, "enqueue_notification", lambda value: persisted.append(value) or True
+    )
+    monkeypatch.setattr(webhook, "notify_email_work", lambda: None)
+
+
+def _post(payload: dict):
+    return app.test_client().post(
+        "/webhooks/gmail",
+        json=payload,
+        headers={"Authorization": "Bearer signed-token"},
+    )
+
+
+def test_authenticated_malformed_push_is_acked_and_dropped(monkeypatch) -> None:
+    persisted: list = []
+    _authenticated(monkeypatch, persisted)
+    payload = _payload()
+    payload["message"]["data"] = "not base64 json!!"
+    response = _post(payload)
+    assert response.status_code == 204
+    assert persisted == []
+
+
+def test_authenticated_push_for_other_mailbox_is_acked_and_dropped(
+    monkeypatch,
+) -> None:
+    persisted: list = []
+    _authenticated(monkeypatch, persisted)
+    payload = _payload()
+    payload["message"]["data"] = base64.b64encode(
+        json.dumps({"emailAddress": "other@example.test", "historyId": "9"}).encode()
+    ).decode()
+    response = _post(payload)
+    assert response.status_code == 204
+    assert persisted == []
+
+
+def test_persistence_failure_is_retried(monkeypatch) -> None:
+    _authenticated(monkeypatch, [])
+
+    def fail(_value):
+        raise ConnectionError("mysql down")
+
+    monkeypatch.setattr(webhook, "enqueue_notification", fail)
+    assert _post(_payload()).status_code == 503

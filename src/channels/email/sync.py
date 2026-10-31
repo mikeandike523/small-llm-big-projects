@@ -8,17 +8,20 @@ from typing import Any
 from uuid import uuid4
 
 from src.channels.email.config import EmailConfig
-from src.channels.email.debug_store import is_debug_thread_known, upsert_debug_message
-from src.channels.email.filtering import classify_alias_message
-from src.channels.email.google_errors import google_error_text, log_google_error
-from src.channels.email.mime import parse_gmail_message
+from src.channels.email.google_errors import (
+    google_error_text,
+    is_google_not_found,
+    log_google_error,
+)
+from src.channels.email.message_ingest import IngestRun
 from src.channels.email.notification_store import (
     claim_pending_batch,
     mark_batch_processed,
     record_batch_error,
 )
-from src.channels.email.session_integration import handle_inbound_email_stub
+from src.channels.email.recovery import recover_expired_cursor
 from src.channels.email.state import (
+    SyncLeaseLostError,
     acquire_sync_lease,
     advance_cursor,
     load_mailbox_state,
@@ -31,6 +34,10 @@ from src.channels.email.state import (
 logger = logging.getLogger(__name__)
 
 
+class HistoryCursorExpiredError(RuntimeError):
+    """history.list rejected the stored startHistoryId with 404."""
+
+
 def _message_ids(history: list[dict]) -> list[str]:
     ordered: dict[str, None] = {}
     for entry in history:
@@ -41,38 +48,39 @@ def _message_ids(history: list[dict]) -> list[str]:
     return list(ordered)
 
 
-def _get_message(gmail: Any, message_id: str) -> dict:
-    return (
-        gmail.users()
-        .messages()
-        .get(userId="me", id=message_id, format="full")
-        .execute()
-    )
-
-
-def _store_relevant_thread(gmail: Any, config: EmailConfig, message: dict) -> None:
-    parsed = classify_alias_message(parse_gmail_message(message), config.alias_email)
-    if not parsed.relevant_to_alias and not is_debug_thread_known(
-        parsed.gmail_thread_id
-    ):
-        return
-
-    thread = (
-        gmail.users()
-        .threads()
-        .get(userId="me", id=parsed.gmail_thread_id, format="full")
-        .execute()
-    )
-    for raw_message in thread.get("messages") or []:
-        thread_message = classify_alias_message(
-            parse_gmail_message(raw_message), config.alias_email
+def _list_history_page(gmail: Any, cursor: str, page_token: str | None) -> dict:
+    try:
+        return (
+            gmail.users()
+            .history()
+            .list(
+                userId="me",
+                startHistoryId=cursor,
+                historyTypes=["messageAdded"],
+                pageToken=page_token,
+                maxResults=500,
+            )
+            .execute()
         )
-        upsert_debug_message(thread_message)
+    except Exception as exc:
+        if is_google_not_found(exc):
+            raise HistoryCursorExpiredError(google_error_text(exc)) from exc
+        raise
 
-    # Deliberately has no side effects today. This is the extension point for
-    # creating a session or forwarding mail into an existing session.
-    if parsed.relevant_to_alias:
-        handle_inbound_email_stub(parsed)
+
+def _sync_history(gmail: Any, cursor: str, run: IngestRun) -> str:
+    """Ingest every message added after ``cursor``; return the new historyId."""
+    page_token: str | None = None
+    latest_history_id = cursor
+    while True:
+        response = _list_history_page(gmail, cursor, page_token)
+        latest_history_id = str(response.get("historyId") or latest_history_id)
+        for message_id in _message_ids(response.get("history") or []):
+            run.ingest(message_id)
+        page_token = response.get("nextPageToken")
+        if not page_token:
+            return latest_history_id
+        run.renew_lease()
 
 
 def synchronize_mailbox(
@@ -98,45 +106,48 @@ def synchronize_mailbox(
 
         record_sync_attempt(config.mailbox_email, attempt_time)
         claim_pending_batch(config.mailbox_email, batch_id)
-        page_token: str | None = None
-        latest_history_id = cursor
-        processed_ids: set[str] = set()
-        while True:
-            request = (
-                gmail.users()
-                .history()
-                .list(
-                    userId="me",
-                    startHistoryId=cursor,
-                    historyTypes=["messageAdded"],
-                    pageToken=page_token,
-                    maxResults=500,
-                )
+        run = IngestRun(gmail, config, owner)
+        recovered = False
+        try:
+            latest_history_id = _sync_history(gmail, cursor, run)
+        except HistoryCursorExpiredError as exc:
+            logger.warning(
+                "Gmail history cursor expired; starting gap recovery: "
+                "mailbox=%s cursor=%s error=%s",
+                config.mailbox_email,
+                cursor,
+                exc,
             )
-            response = request.execute()
-            latest_history_id = str(response.get("historyId") or latest_history_id)
-            for message_id in _message_ids(response.get("history") or []):
-                if message_id in processed_ids:
-                    continue
-                processed_ids.add(message_id)
-                _store_relevant_thread(gmail, config, _get_message(gmail, message_id))
-            page_token = response.get("nextPageToken")
-            if not page_token:
-                break
+            detail = recover_expired_cursor(
+                gmail, config, state, cursor, run, attempt_time
+            )
+            latest_history_id = detail["to_history_id"]
+            recovered = True
+        else:
+            if latest_history_id != cursor:
+                advance_cursor(config.mailbox_email, cursor, latest_history_id)
 
-        if latest_history_id != cursor:
-            advance_cursor(config.mailbox_email, cursor, latest_history_id)
         mark_batch_processed(config.mailbox_email, batch_id)
         record_sync_success(config.mailbox_email, attempt_time)
         logger.info(
             "Gmail history sync succeeded: mailbox=%s from_history_id=%s "
-            "to_history_id=%s message_count=%d",
+            "to_history_id=%s message_count=%d skipped_not_found=%d recovered=%s",
             config.mailbox_email,
             cursor,
             latest_history_id,
-            len(processed_ids),
+            len(run.processed_ids),
+            run.skipped_not_found,
+            recovered,
         )
         return True
+    except SyncLeaseLostError:
+        # Another worker now owns this range; it will advance the cursor and
+        # mark the notifications it claimed. The cursor was not moved here.
+        logger.warning(
+            "Gmail sync abandoned after losing its lease: mailbox=%s",
+            config.mailbox_email,
+        )
+        return False
     except Exception as exc:
         error = google_error_text(exc)
         record_batch_error(config.mailbox_email, batch_id, error)

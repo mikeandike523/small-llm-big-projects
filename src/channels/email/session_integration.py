@@ -11,7 +11,11 @@ from src.channels.email.mime import ParsedGmailMessage
 
 
 def handle_inbound_email_stub(_message: ParsedGmailMessage) -> None:
-    """Future: choose an existing session or create one, then submit the mail."""
+    """Future: choose an existing session or create one, then submit the mail.
+
+    MUST de-duplicate by ``gmail_message_id``: cursor recovery (gap re-scan)
+    and sync-lease takeover can both deliver the same message more than once.
+    """
     return
 
 
