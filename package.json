@@ -17,7 +17,8 @@
     "setup-worktree": "bash scripts/setup-worktree.sh",
     "add-worktree-new-branch": "bash scripts/add-worktree-new-branch.sh",
     "add-worktree-existing-branch": "bash scripts/add-worktree-existing-branch.sh",
-    "worktree-shell": "bash scripts/worktree-shell.sh"
+    "worktree-shell": "bash scripts/worktree-shell.sh",
+    "remove-worktree": "bash scripts/remove-worktree.sh"
   },
   "keywords": [],
   "author": "",
