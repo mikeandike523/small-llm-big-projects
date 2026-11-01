@@ -4,6 +4,9 @@
 #
 # Usage: pnpm run remove-worktree <branch-name> [--force]
 #
+#   0. Refuses if git does not recognize the folder as a valid worktree (e.g.
+#      its .git file is missing), since nothing below could be checked then.
+#      --force deletes anyway, skipping steps 1 and 2.
 #   1. Refuses if the worktree has staged or unstaged changes to tracked files
 #      (--force skips this check). Untracked files only produce a warning.
 #   2. Warns (yellow, stderr) if the branch is missing on origin or has commits
@@ -94,14 +97,35 @@ done
 info "Worktree: $wt_path"
 info "Branch:   $branch_name"
 
+# The safety checks below only mean something if git recognizes the folder as
+# this worktree. Outside a repo, `git diff` silently falls into --no-index mode
+# and every check would come back empty, i.e. "looks clean".
+wt_toplevel="$(git -C "$wt_path" rev-parse --show-toplevel 2>/dev/null)" || wt_toplevel=""
+if [[ -z "$wt_toplevel" || "$(norm "$wt_toplevel")" != "$(norm "$wt_path")" ]]; then
+    if [[ $force -eq 1 ]]; then
+        warn "Git does not recognize '$wt_path' as a valid worktree (missing/broken .git file?)."
+        warn "--force given: deleting WITHOUT checking for uncommitted or unpushed work."
+        skip_checks=1
+    else
+        die "Git does not recognize '$wt_path' as a valid worktree (missing/broken .git file?), so uncommitted work cannot be checked. Inspect it manually, then re-run with --force to delete anyway."
+    fi
+else
+    skip_checks=0
+fi
+
 # ---------------------------------------------------------------------------
 # 1. Local changes check (blocking unless --force)
 # ---------------------------------------------------------------------------
+# NOTE: this function is called from an `if` condition, where bash disables
+# `set -e`. Every git call therefore needs an explicit `|| die`.
 check_local_changes() {
     local staged unstaged untracked
-    staged="$(git -C "$wt_path" diff --cached --name-only)"
-    unstaged="$(git -C "$wt_path" diff --name-only)"
-    untracked="$(git -C "$wt_path" ls-files --others --exclude-standard)"
+    staged="$(git -C "$wt_path" diff --cached --name-only)" \
+        || die "Could not list staged changes (git diff --cached failed)."
+    unstaged="$(git -C "$wt_path" diff --name-only)" \
+        || die "Could not list unstaged changes (git diff failed)."
+    untracked="$(git -C "$wt_path" ls-files --others --exclude-standard)" \
+        || die "Could not list untracked files (git ls-files failed)."
 
     if [[ -n "$untracked" ]]; then
         warn "Untracked (non-ignored) files will be deleted:"
@@ -116,7 +140,7 @@ check_local_changes() {
     return 0
 }
 
-if ! check_local_changes; then
+if [[ $skip_checks -eq 0 ]] && ! check_local_changes; then
     if [[ $force -eq 1 ]]; then
         warn "--force given: discarding the uncommitted changes listed above."
     else
@@ -156,14 +180,17 @@ check_pushed_to_origin() {
         fi
     fi
 
-    ahead="$(git -C "$wt_path" rev-list --count "$remote_sha..HEAD")"
+    if ! ahead="$(git -C "$wt_path" rev-list --count "$remote_sha..HEAD")"; then
+        warn "Could not compare HEAD with origin/$branch; push status unknown."
+        return 0
+    fi
     if [[ "$ahead" -gt 0 ]]; then
         warn "Branch '$branch' has $ahead commit(s) not pushed to origin:"
         git -C "$wt_path" log --oneline "$remote_sha..HEAD" | sed 's/^/    /' >&2
     fi
 }
 
-check_pushed_to_origin "$branch_name"
+[[ $skip_checks -eq 1 ]] || check_pushed_to_origin "$branch_name"
 
 # ---------------------------------------------------------------------------
 # 3. Delete the folder natively, then prune git's worktree metadata.
