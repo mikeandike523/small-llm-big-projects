@@ -11,7 +11,7 @@
 #      (--force skips this check). Untracked files only produce a warning.
 #   2. Warns (yellow, stderr) if the branch is missing on origin or has commits
 #      that origin does not have. This never blocks removal.
-#   3. Deletes the folder with `byenow` (multi-threaded, single-line progress;
+#   3. Deletes the folder with `byenow -s` (multi-threaded, single-line progress;
 #      https://iobureau.com/byenow) if it is on PATH, otherwise with native
 #      `rmdir /s /q`. Both are much faster than `git worktree remove` on
 #      node_modules/.venv-heavy trees. Then runs `git worktree prune`.
@@ -208,7 +208,15 @@ if command -v byenow >/dev/null 2>&1; then
     # -x: byenow refuses anything under C:\Users\ as "restricted" without it;
     #     safe here because wt_path was verified above to be a registered,
     #     non-main worktree.
-    byenow -y -x -1 -b -e "$win_path" || true
+    # -s: enumerate first, then delete. Without it byenow (0.12) silently
+    #     skips directory junctions, which is how pnpm builds node_modules, so
+    #     the folder survives. Junction targets (the pnpm store) are untouched.
+    byenow -y -x -s -1 -b -e "$win_path" || true
+    # Safety net for anything byenow still left behind.
+    if [[ -e "$wt_path" ]]; then
+        warn "byenow left some entries behind; finishing with 'rmdir /s /q'."
+        MSYS_NO_PATHCONV=1 cmd /c rmdir /s /q "$win_path" || true
+    fi
 else
     warn "byenow not found on PATH; falling back to 'rmdir /s /q' (no progress display)."
     # MSYS_NO_PATHCONV stops Git Bash from rewriting /c /s /q into paths.
