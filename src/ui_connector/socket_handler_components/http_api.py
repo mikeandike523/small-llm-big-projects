@@ -332,6 +332,7 @@ def api_list_sessions():
                 "profile_name": row.get("profile_name") or None,
                 "corrupt": row.get("corrupt", False),
                 "heartbeat_enabled": row.get("heartbeat_enabled", False),
+                "email_enabled": row.get("email_enabled", False),
             }
         )
     return jsonify(results)

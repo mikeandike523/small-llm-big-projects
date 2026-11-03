@@ -86,7 +86,8 @@ class FakeGmail:
 def _config() -> EmailConfig:
     return EmailConfig(
         mailbox_email="mailbox@example.test",
-        alias_email="assistant@example.test",
+        system_alias_address="system@example.test",
+        system_alias_name="Example System",
         project_id="p",
         processor_service_account_email="processor@p.iam.gserviceaccount.com",
         topic_resource="projects/p/topics/t",
@@ -156,7 +157,10 @@ def db(monkeypatch):
     m.setattr(ingest_module, "renew_sync_lease", lambda *a: record.lease_held)
     m.setattr(ingest_module, "is_debug_thread_known", lambda _t: False)
     m.setattr(ingest_module, "upsert_debug_message", record.upserts.append)
-    m.setattr(ingest_module, "handle_inbound_email_stub", lambda _m: None)
+    m.setattr(ingest_module, "route_inbound_message", lambda *_a, **_k: [])
+    m.setattr(
+        ingest_module, "list_all_claimed_aliases", lambda: {"assistant@example.test"}
+    )
     m.setattr(
         ingest_module,
         "parse_gmail_message",

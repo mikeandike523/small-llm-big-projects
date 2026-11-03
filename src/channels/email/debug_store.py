@@ -125,7 +125,6 @@ def list_recent_threads(limit: int = 50) -> list[dict]:
             "thread_id": thread_id,
             "latest_internal_date_ms": int(summary["latest_internal_date_ms"]),
             "messages": grouped[thread_id],
-            "session_integration": "not_implemented",
         }
         for thread_id, summary in zip(thread_ids, summaries, strict=True)
     ]

@@ -28,6 +28,7 @@ psutil
 google-api-python-client
 google-auth
 google-auth-httplib2
+markdown-it-py
 requests
 
 # Dev dependencies

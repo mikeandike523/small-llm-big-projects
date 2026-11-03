@@ -1,6 +1,6 @@
 import { useState, Fragment } from "react";
 import { css, keyframes } from "@emotion/react";
-import { FaHeartbeat, FaUser } from "react-icons/fa";
+import { FaEnvelope, FaHeartbeat, FaUser } from "react-icons/fa";
 
 import { useStickToBottom } from "use-stick-to-bottom";
 import type { SubturnOrigin, Turn } from "../types";
@@ -91,11 +91,24 @@ const ownerPillCss: Record<SubturnOrigin, ReturnType<typeof css>> = {
     background: #2a0d0d;
     border: 1px solid #5a1e1e;
   `,
+  email: css`
+    ${ownerPillBaseCss};
+    color: #7fb2e6;
+    background: #0d1a2a;
+    border: 1px solid #1e3a5a;
+  `,
 };
 
 const OWNER_PILL_LABEL: Record<SubturnOrigin, string> = {
   user: "Human",
   heartbeat: "Heartbeat",
+  email: "Email",
+};
+
+const OWNER_PILL_TITLE: Record<SubturnOrigin, string> = {
+  user: "Started by a human",
+  heartbeat: "Started by a heartbeat",
+  email: "Started by an email",
 };
 
 // The turn body: the column grid plus, on the right edge, the "Details"
@@ -377,16 +390,11 @@ export default function TurnContainer({
   return (
     <div css={turnWrapperCss}>
       <div css={turnBannerCss}>
-        <span
-          css={ownerPillCss[owner]}
-          title={
-            owner === "heartbeat"
-              ? "Started by a heartbeat"
-              : "Started by a human"
-          }
-        >
+        <span css={ownerPillCss[owner]} title={OWNER_PILL_TITLE[owner]}>
           {owner === "heartbeat" ? (
             <FaHeartbeat size={9} />
+          ) : owner === "email" ? (
+            <FaEnvelope size={9} />
           ) : (
             <FaUser size={9} />
           )}

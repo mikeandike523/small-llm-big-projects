@@ -5,7 +5,9 @@ from __future__ import annotations
 import os
 import re
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+
+from src.utils.email_addresses import InvalidEmailAddressError, parse_email_address
 
 
 class EmailConfigError(RuntimeError):
@@ -15,7 +17,8 @@ class EmailConfigError(RuntimeError):
 @dataclass(frozen=True)
 class EmailConfig:
     mailbox_email: str
-    alias_email: str
+    system_alias_address: str
+    system_alias_name: str
     project_id: str
     processor_service_account_email: str
     topic_resource: str
@@ -26,7 +29,8 @@ class EmailConfig:
 
 _ENV_FIELDS = {
     "GMAIL_MAILBOX_EMAIL": "mailbox_email",
-    "GMAIL_ALIAS_EMAIL": "alias_email",
+    "GMAIL_SYSTEM_ALIAS_ADDRESS": "system_alias_address",
+    "GMAIL_SYSTEM_ALIAS_NAME": "system_alias_name",
     "GMAIL_GOOGLE_CLOUD_PROJECT_ID": "project_id",
     "GMAIL_PROCESSOR_SERVICE_ACCOUNT_EMAIL": "processor_service_account_email",
     "GMAIL_PUBSUB_TOPIC_RESOURCE": "topic_resource",
@@ -49,7 +53,6 @@ def load_email_config(environ: Mapping[str, str] | None = None) -> EmailConfig:
     config = EmailConfig(**values)
     for label, value in (
         ("GMAIL_MAILBOX_EMAIL", config.mailbox_email),
-        ("GMAIL_ALIAS_EMAIL", config.alias_email),
         (
             "GMAIL_PROCESSOR_SERVICE_ACCOUNT_EMAIL",
             config.processor_service_account_email,
@@ -58,6 +61,15 @@ def load_email_config(environ: Mapping[str, str] | None = None) -> EmailConfig:
     ):
         if not _EMAIL_RE.match(value):
             raise EmailConfigError(f"{label} is not a valid email address")
+    try:
+        config = replace(
+            config,
+            system_alias_address=parse_email_address(config.system_alias_address),
+        )
+    except InvalidEmailAddressError as exc:
+        raise EmailConfigError(
+            f"GMAIL_SYSTEM_ALIAS_ADDRESS is not a valid email address: it {exc}"
+        ) from exc
     if not config.topic_resource.startswith(f"projects/{config.project_id}/topics/"):
         raise EmailConfigError(
             "GMAIL_PUBSUB_TOPIC_RESOURCE does not belong to the configured project"

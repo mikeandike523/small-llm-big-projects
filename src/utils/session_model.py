@@ -96,6 +96,7 @@ class LLMExchange:
 
 SUBTURN_ORIGIN_USER = "user"
 SUBTURN_ORIGIN_HEARTBEAT = "heartbeat"
+SUBTURN_ORIGIN_EMAIL = "email"
 
 
 @dataclass
@@ -109,7 +110,7 @@ class Subturn:
         None  # compaction string; None when no tool calls were made
     )
     approval_mode: str | None = None
-    # Who started this subturn: SUBTURN_ORIGIN_USER or SUBTURN_ORIGIN_HEARTBEAT.
+    # Who started this subturn: SUBTURN_ORIGIN_USER, _HEARTBEAT or _EMAIL.
     origin: str = SUBTURN_ORIGIN_USER
     # How many of `exchanges` are already in session_events. In memory only:
     # replay sets it, and session_writes advances it after each commit.

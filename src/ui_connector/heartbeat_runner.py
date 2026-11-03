@@ -24,7 +24,15 @@ import uuid
 from typing import Callable
 
 from src.ui_connector.heartbeat_daemon import HeartbeatSession
-from src.utils.session_model import SUBTURN_ORIGIN_HEARTBEAT, SUBTURN_ORIGIN_USER
+from src.utils.session_model import (
+    SUBTURN_ORIGIN_EMAIL,
+    SUBTURN_ORIGIN_HEARTBEAT,
+    SUBTURN_ORIGIN_USER,
+)
+
+# Turns a heartbeat must never cancel: a human's, or one answering an email
+# ("cancelled in session UI" must stay the only way an email turn is cancelled).
+_NEVER_CANCEL_OWNERS = (SUBTURN_ORIGIN_USER, SUBTURN_ORIGIN_EMAIL)
 
 logger = logging.getLogger(__name__)
 
@@ -154,11 +162,12 @@ class HeartbeatRunner:
                 )
                 return _LAUNCHED
             owner = self._running_turn_owner(session_id)
-            if owner == SUBTURN_ORIGIN_USER:
+            if owner in _NEVER_CANCEL_OWNERS:
                 logger.info(
-                    "Heartbeat skipped: session_id=%s has a running user turn; "
+                    "Heartbeat skipped: session_id=%s has a running %s turn; "
                     "will reconsider at the next heartbeat cycle",
                     session_id,
+                    owner,
                 )
                 return _USER_OWNED
             if owner is not None:

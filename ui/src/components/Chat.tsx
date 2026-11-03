@@ -31,6 +31,7 @@ import useSessionDownloads from "../hooks/useSessionDownloads";
 import { fetchToolPreviewConfig } from "../api/toolPreviewConfig";
 import { createSocket } from "../socket";
 import HeartbeatSettingsDialog from "./HeartbeatSettingsDialog";
+import EmailHeaderControls from "./EmailHeaderControls";
 import { formatIntervalMinutes } from "../utils/formatInterval";
 import SessionErrorBanner from "../subcomponents/Chat/SessionErrorBanner";
 import StartupToolsButton from "../subcomponents/Chat/StartupToolsButton";
@@ -118,6 +119,7 @@ export default function Chat() {
     sessionProfile,
     approvalMode,
     heartbeatSettings,
+    emailSettings,
     contextUsageData,
     setContextUsageData,
     terminalOpen,
@@ -480,6 +482,10 @@ export default function Chat() {
             >
               ⏱
             </button>
+            <EmailHeaderControls
+              sessionId={sessionId}
+              settings={emailSettings}
+            />
             {sessionCost !== null && (
               <span
                 css={sessionCostCss}

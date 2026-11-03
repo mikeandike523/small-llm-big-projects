@@ -21,8 +21,8 @@ from src.ui_connector.socket_handler_components.terminal import (
     _get_terminals_state,
 )
 from src.ui_connector.socket_handler_components.approval import _request_approval
-from src.ui_connector.socket_handler_components.heartbeat_approval import (
-    heartbeat_approval_override,
+from src.ui_connector.socket_handler_components.automation_approval import (
+    automation_approval_override,
 )
 from src.tools import (
     execute_tool,
@@ -320,10 +320,10 @@ def _execute_tools(
                 continue
 
             if _needs_approval:
-                # Heartbeat policy layer: after the approval decision, before
-                # any approval event reaches the UI. A forced denial takes the
-                # exact path of a UI Deny click below.
-                _forced = heartbeat_approval_override(
+                # Automation (heartbeat/email) policy layer: after the approval
+                # decision, before any approval event reaches the UI. A forced
+                # denial takes the exact path of a UI Deny click below.
+                _forced = automation_approval_override(
                     session_id, session, current_turn, subturn_id, tc.name
                 )
                 if _forced is not None:

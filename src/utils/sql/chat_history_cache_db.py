@@ -281,12 +281,18 @@ def append_setting_event(
     """
     pool = get_pool()
     with pool.get_connection() as conn:
-        with conn.cursor() as cur:
-            execute_insert_events(cur, session_id, [(event_type, payload)])
-            if meta_updates:
-                assignments = ", ".join(f"{col} = %s" for col in meta_updates)
-                cur.execute(
-                    f"UPDATE session_meta SET {assignments} WHERE session_id = %s",
-                    (*meta_updates.values(), session_id),
-                )
-        conn.commit()
+        try:
+            with conn.cursor() as cur:
+                execute_insert_events(cur, session_id, [(event_type, payload)])
+                if meta_updates:
+                    assignments = ", ".join(f"{col} = %s" for col in meta_updates)
+                    cur.execute(
+                        f"UPDATE session_meta SET {assignments} WHERE session_id = %s",
+                        (*meta_updates.values(), session_id),
+                    )
+            conn.commit()
+        except Exception:
+            # E.g. a duplicate email alias (UNIQUE): the event must not land
+            # without its session_meta copy.
+            conn.rollback()
+            raise

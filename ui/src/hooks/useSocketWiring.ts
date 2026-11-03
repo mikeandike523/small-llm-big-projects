@@ -11,6 +11,8 @@ import type {
   SubturnOrigin,
 } from "../types";
 import { DEFAULT_HEARTBEAT_SETTINGS, toSubturnOrigin } from "../types";
+import { useEmailSettingsState } from "./emailSettingsState";
+import type { EmailSettingsWire } from "./emailSettingsState";
 import type {
   BackendLogEntry,
   BackendLogContent,
@@ -145,6 +147,9 @@ export default function useSocketWiring(socket: Socket) {
   const [heartbeatSettings, setHeartbeatSettings] = useState<HeartbeatSettings>(
     DEFAULT_HEARTBEAT_SETTINGS,
   );
+  const email = useEmailSettingsState();
+  const applyEmailSessionState = email.applySessionState;
+  const applyEmailSettingsUpdate = email.applySettingsUpdate;
   const [contextUsageData, setContextUsageData] = useState<{
     prompt_tokens: number;
     completion_tokens: number;
@@ -701,14 +706,17 @@ export default function useSocketWiring(socket: Socket) {
         });
       }
     }
-    function onSessionSettingsUpdate(data: {
-      profileName: string | null;
-      profileRevision: number;
-      approvalMode: string;
-      approvalModeRevision: number;
-      heartbeatSettings?: HeartbeatSettings;
-      heartbeatSettingsRevision?: number;
-    }) {
+    function onSessionSettingsUpdate(
+      data: {
+        profileName: string | null;
+        profileRevision: number;
+        approvalMode: string;
+        approvalModeRevision: number;
+        heartbeatSettings?: HeartbeatSettings;
+        heartbeatSettingsRevision?: number;
+      } & EmailSettingsWire,
+    ) {
+      applyEmailSettingsUpdate(data);
       if (data.profileRevision >= profileRevisionRef.current) {
         profileRevisionRef.current = data.profileRevision;
         sessionProfileRef.current = data.profileName;
@@ -771,17 +779,19 @@ export default function useSocketWiring(socket: Socket) {
     }
 
     // Session state (response to resume_session)
-    function onSessionState(data: {
-      startupDone?: boolean;
-      schemaInvalid?: boolean;
-      profileName?: string | null;
-      approvalMode?: string;
-      profileRevision?: number;
-      approvalModeRevision?: number;
-      heartbeatSettings?: HeartbeatSettings;
-      heartbeatSettingsRevision?: number;
-      loadCustomSkillsTools?: boolean;
-    }) {
+    function onSessionState(
+      data: {
+        startupDone?: boolean;
+        schemaInvalid?: boolean;
+        profileName?: string | null;
+        approvalMode?: string;
+        profileRevision?: number;
+        approvalModeRevision?: number;
+        heartbeatSettings?: HeartbeatSettings;
+        heartbeatSettingsRevision?: number;
+        loadCustomSkillsTools?: boolean;
+      } & EmailSettingsWire,
+    ) {
       if (data.schemaInvalid) {
         // Schema mismatch — there is no history to load.
         pages.markReady();
@@ -815,6 +825,7 @@ export default function useSocketWiring(socket: Socket) {
       }
       heartbeatSettingsRevisionRef.current =
         data.heartbeatSettingsRevision ?? 0;
+      applyEmailSessionState(data);
       if (data.loadCustomSkillsTools !== undefined) {
         setLoadCustomSkillsTools(data.loadCustomSkillsTools);
       }
@@ -1202,7 +1213,14 @@ export default function useSocketWiring(socket: Socket) {
       socket.disconnect();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [socket, applyReplayEvent, updateTurn, noteTurnStarted]);
+  }, [
+    socket,
+    applyReplayEvent,
+    updateTurn,
+    noteTurnStarted,
+    applyEmailSessionState,
+    applyEmailSettingsUpdate,
+  ]);
 
   return {
     thread,
@@ -1241,6 +1259,8 @@ export default function useSocketWiring(socket: Socket) {
     setApprovalMode,
     heartbeatSettings,
     setHeartbeatSettings,
+    emailSettings: email.emailSettings,
+    setEmailSettings: email.setEmailSettings,
     contextUsageData,
     setContextUsageData,
     terminalOpen,

@@ -17,14 +17,13 @@ from src.ui_connector.app import app
 def email_status():
     config = get_email_config()
     if config is None:
-        return jsonify(enabled=False, session_integration="not_implemented")
+        return jsonify(enabled=False)
     state = asdict(load_mailbox_state(config.mailbox_email))
     return jsonify(
         enabled=True,
         mailbox_email=config.mailbox_email,
-        alias_email=config.alias_email,
+        system_alias_address=config.system_alias_address,
         pending_notifications=pending_notification_count(config.mailbox_email),
-        session_integration="not_implemented",
         state=state,
     )
 

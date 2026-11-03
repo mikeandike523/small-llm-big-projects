@@ -26,9 +26,8 @@ type CursorResetDetail = {
 type EmailStatus = {
   enabled: boolean;
   mailbox_email?: string;
-  alias_email?: string;
+  system_alias_address?: string;
   pending_notifications?: number;
-  session_integration: string;
   state?: EmailState;
 };
 
@@ -53,7 +52,6 @@ type EmailThread = {
   thread_id: string;
   latest_internal_date_ms: number;
   messages: EmailMessage[];
-  session_integration: string;
 };
 
 const pageCss = css`
@@ -305,7 +303,10 @@ export default function EmailDebugPage() {
                 value={status?.enabled ? "enabled" : "disabled"}
               />
               <Field label="Mailbox" value={status?.mailbox_email ?? "—"} />
-              <Field label="Alias" value={status?.alias_email ?? "—"} />
+              <Field
+                label="System alias"
+                value={status?.system_alias_address ?? "—"}
+              />
               <Field
                 label="History cursor"
                 value={status?.state?.last_processed_history_id ?? "—"}

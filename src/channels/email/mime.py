@@ -34,6 +34,11 @@ class ParsedGmailMessage:
     attachments: list[dict[str, Any]]
     relevant_to_alias: bool = False
     alias_match_reason: str | None = None
+    # Loop/authentication signals used by inbound routing (router.py).
+    auto_submitted_header: str = ""
+    precedence_header: str = ""
+    # Every Authentication-Results header, top (newest) first, undecoded.
+    authentication_results: tuple[str, ...] = ()
 
 
 def _decode_b64url(value: str) -> bytes:
@@ -64,6 +69,16 @@ def _header_value(headers: list[dict], name: str) -> str:
         return str(make_header(decode_header(value)))
     except (LookupError, UnicodeDecodeError):
         return value
+
+
+def _header_values(headers: list[dict], name: str) -> tuple[str, ...]:
+    """Every raw value of a header, in message order (top first)."""
+    wanted = name.casefold()
+    return tuple(
+        str(item.get("value") or "")
+        for item in headers
+        if str(item.get("name") or "").casefold() == wanted
+    )
 
 
 def _walk_parts(
@@ -134,4 +149,7 @@ def parse_gmail_message(message: dict) -> ParsedGmailMessage:
         html_body=html_body,
         labels=labels,
         attachments=attachments,
+        auto_submitted_header=_header_value(headers, "Auto-Submitted"),
+        precedence_header=_header_value(headers, "Precedence"),
+        authentication_results=_header_values(headers, "Authentication-Results"),
     )

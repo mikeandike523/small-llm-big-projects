@@ -11,7 +11,8 @@ from src.ui_connector.app import app
 def _config() -> EmailConfig:
     return EmailConfig(
         mailbox_email="mailbox@example.test",
-        alias_email="assistant@example.test",
+        system_alias_address="system@example.test",
+        system_alias_name="Example System",
         project_id="example-project",
         processor_service_account_email=(
             "processor@example-project.iam.gserviceaccount.com"

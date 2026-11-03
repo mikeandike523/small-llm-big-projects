@@ -12,8 +12,9 @@ from src.channels.email.debug_store import is_debug_thread_known, upsert_debug_m
 from src.channels.email.filtering import classify_alias_message
 from src.channels.email.google_errors import is_google_not_found
 from src.channels.email.mime import parse_gmail_message
-from src.channels.email.session_integration import handle_inbound_email_stub
+from src.channels.email.router import route_inbound_message
 from src.channels.email.state import SyncLeaseLostError, renew_sync_lease
+from src.utils.sql.email_alias_db import list_all_claimed_aliases
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +40,13 @@ class IngestRun:
         self._renew_every = max(1, renew_every)
         self.processed_ids: set[str] = set()
         self.skipped_not_found = 0
+        self._claimed_aliases: frozenset[str] | None = None
+
+    def _aliases(self) -> frozenset[str]:
+        """Claimed aliases, read once per sync run."""
+        if self._claimed_aliases is None:
+            self._claimed_aliases = frozenset(list_all_claimed_aliases())
+        return self._claimed_aliases
 
     def renew_lease(self) -> None:
         if not renew_sync_lease(
@@ -76,8 +84,8 @@ class IngestRun:
             self.renew_lease()
 
     def _store_relevant_thread(self, message: dict) -> None:
-        alias = self._config.alias_email
-        parsed = classify_alias_message(parse_gmail_message(message), alias)
+        aliases = self._aliases()
+        parsed = classify_alias_message(parse_gmail_message(message), aliases)
         if not parsed.relevant_to_alias and not is_debug_thread_known(
             parsed.gmail_thread_id
         ):
@@ -91,10 +99,16 @@ class IngestRun:
         )
         for raw_message in thread.get("messages") or []:
             upsert_debug_message(
-                classify_alias_message(parse_gmail_message(raw_message), alias)
+                classify_alias_message(parse_gmail_message(raw_message), aliases)
             )
 
-        # Deliberately has no side effects today. This is the extension point
-        # for creating a session or forwarding mail into an existing session.
+        # Queue rows are de-duplicated by (session, gmail_message_id), so the
+        # re-delivery caused by cursor recovery or lease takeover is harmless.
         if parsed.relevant_to_alias:
-            handle_inbound_email_stub(parsed)
+            route_inbound_message(parsed, on_queued=self._on_queued)
+
+    @staticmethod
+    def _on_queued(_session_id: str) -> None:
+        from src.channels.email.email_runner import notify_email_runner
+
+        notify_email_runner()

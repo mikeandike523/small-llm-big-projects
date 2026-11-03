@@ -2,7 +2,7 @@
 import { css, keyframes } from "@emotion/react";
 import React, { useEffect, useRef, useState, useCallback } from "react";
 import { useNavigate, Link } from "react-router-dom";
-import { FaHeartbeat } from "react-icons/fa";
+import { FaEnvelope, FaHeartbeat } from "react-icons/fa";
 import NewSessionDialog, { type SessionDefaults } from "./NewSessionDialog";
 import ConfirmDialog from "./ConfirmDialog";
 import VersionWidget from "./VersionWidget";
@@ -24,6 +24,7 @@ interface SessionSummary {
   task_title_count: number;
   load_custom_skills_tools: boolean;
   heartbeat_enabled: boolean;
+  email_enabled?: boolean;
 }
 
 interface BulkDeleteResponse {
@@ -1037,6 +1038,16 @@ function SessionCard({
                 aria-label="Heartbeat enabled"
               >
                 <FaHeartbeat size={13} />
+              </span>
+            </Tooltip>
+          )}
+          {session.email_enabled && (
+            <Tooltip label="Email enabled">
+              <span
+                style={{ display: "flex", color: "#7fb2e6" }}
+                aria-label="Email enabled"
+              >
+                <FaEnvelope size={13} />
               </span>
             </Tooltip>
           )}

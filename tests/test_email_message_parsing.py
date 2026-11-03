@@ -28,7 +28,9 @@ def test_parse_and_classify_inbound_alias_message() -> None:
             "body": {"data": _encoded("Full body")},
         },
     }
-    parsed = classify_alias_message(parse_gmail_message(raw), "assistant@example.test")
+    parsed = classify_alias_message(
+        parse_gmail_message(raw), {"assistant@example.test"}
+    )
     assert parsed.text_body == "Full body"
     assert parsed.relevant_to_alias is True
     assert parsed.alias_match_reason == "to"
@@ -42,6 +44,8 @@ def test_sent_message_is_not_treated_as_new_inbound_work() -> None:
         "labelIds": ["SENT"],
         "payload": {"headers": [], "body": {}},
     }
-    parsed = classify_alias_message(parse_gmail_message(raw), "assistant@example.test")
+    parsed = classify_alias_message(
+        parse_gmail_message(raw), {"assistant@example.test"}
+    )
     assert parsed.direction == "outbound"
     assert parsed.relevant_to_alias is False

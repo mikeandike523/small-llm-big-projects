@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-import src.ui_connector.socket_handler_components.heartbeat_approval as hb_approval
+import src.ui_connector.socket_handler_components.automation_approval as hb_approval
 from src.ui_connector.socket_handler_components import runtime_settings
 from src.ui_connector.socket_handler_components._session_event_emit import (
     turn_start_events,
@@ -53,7 +53,7 @@ def test_policy_applies_only_to_heartbeat_subturns(policy, origin, expected) -> 
     session, turn = _session(session_id, policy, origin)
     try:
         assert (
-            hb_approval.heartbeat_approval_override(
+            hb_approval.automation_approval_override(
                 session_id, session, turn, "st1", "host_shell"
             )
             is expected
@@ -68,7 +68,7 @@ def test_user_followup_in_heartbeat_turn_waits_for_human() -> None:
     turn.subturns.append(Subturn("st2", "more", "more", is_continuation=True))
     try:
         assert (
-            hb_approval.heartbeat_approval_override(
+            hb_approval.automation_approval_override(
                 session_id, session, turn, "st2", "host_shell"
             )
             is None
@@ -81,7 +81,7 @@ def test_forced_decision_is_logged_to_debug_panel(_quiet_backend_log) -> None:
     session_id = "hb-approval-log"
     session, turn = _session(session_id, "force-fail", SUBTURN_ORIGIN_HEARTBEAT)
     try:
-        hb_approval.heartbeat_approval_override(
+        hb_approval.automation_approval_override(
             session_id, session, turn, "st1", "read_text_file"
         )
     finally:

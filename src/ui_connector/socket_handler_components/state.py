@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import threading
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 import redis
@@ -87,10 +89,28 @@ def try_reserve_turn(session_id: str, origin: str = SUBTURN_ORIGIN_USER) -> bool
         return True
 
 
+# Called (outside the lock) after any turn reservation is released, e.g. so
+# the email runner can start the next queued email. Must be cheap and must
+# not raise; registered at startup.
+_turn_release_listeners: list[Callable[[str], None]] = []
+
+
+def add_turn_release_listener(listener: Callable[[str], None]) -> None:
+    if listener not in _turn_release_listeners:
+        _turn_release_listeners.append(listener)
+
+
 def release_turn(session_id: str) -> None:
     """Release a previously admitted user-message operation."""
     with _turn_reservations_lock:
         _turn_reservations.pop(session_id, None)
+    for listener in list(_turn_release_listeners):
+        try:
+            listener(session_id)
+        except Exception:
+            logging.getLogger(__name__).exception(
+                "Turn release listener failed: session_id=%s", session_id
+            )
 
 
 def is_turn_reserved(session_id: str) -> bool:

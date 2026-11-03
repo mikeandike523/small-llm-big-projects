@@ -8,8 +8,11 @@ triggers all @socketio.on and @app.route decorator registrations, and so that
 
 # noqa: F401 — side-effect imports register decorators
 from src.ui_connector.socket_handler_components import http_api  # noqa: F401
+from src.ui_connector.socket_handler_components import email_settings_api  # noqa: F401
 from src.ui_connector.socket_handler_components import file_explorer_api  # noqa: F401
-from src.ui_connector.socket_handler_components import file_explorer_mutations  # noqa: F401
+from src.ui_connector.socket_handler_components import (
+    file_explorer_mutations,
+)  # noqa: F401
 from src.ui_connector.socket_handler_components import folder_browser_api  # noqa: F401
 from src.ui_connector.socket_handler_components import session_setup  # noqa: F401
 from src.ui_connector.socket_handler_components import socket_events  # noqa: F401

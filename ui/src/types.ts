@@ -30,6 +30,29 @@ export const HEARTBEAT_FOLLOWUP_BEHAVIORS: {
   { value: "new-task", label: "force-new-task" },
 ];
 
+export interface EmailSettings {
+  enabled: boolean;
+  /** The alias this session answers; "" = none (replies to nobody). */
+  alias: string;
+  agent_name: string;
+  /** Normalized addresses; the dialog edits them one per line. */
+  allowed_senders: string[];
+  email_approval_policy: "wait-for-human" | "force-fail" | "force-approve";
+  followup_behavior: "auto" | "follow-up" | "new-task";
+  /** Server-set unix time of the current alias claim. */
+  alias_claimed_at: number | null;
+}
+
+export const DEFAULT_EMAIL_SETTINGS: EmailSettings = {
+  enabled: false,
+  alias: "",
+  agent_name: "",
+  allowed_senders: [],
+  email_approval_policy: "wait-for-human",
+  followup_behavior: "auto",
+  alias_claimed_at: null,
+};
+
 export interface PatchRewriteState {
   status: "in_progress" | "success" | "failed";
   originalArgs: Record<string, unknown>;
@@ -74,10 +97,10 @@ export interface LLMExchange {
 }
 
 // Who started a subturn; the turn's current owner is its last subturn's origin.
-export type SubturnOrigin = "user" | "heartbeat";
+export type SubturnOrigin = "user" | "heartbeat" | "email";
 
 export function toSubturnOrigin(value: unknown): SubturnOrigin {
-  return value === "heartbeat" ? "heartbeat" : "user";
+  return value === "heartbeat" || value === "email" ? value : "user";
 }
 
 export interface Subturn {

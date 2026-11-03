@@ -52,9 +52,9 @@ def startup_email() -> EmailWatchDaemon | None:
         raise
 
     logger.info(
-        "Email integration validated: mailbox=%s alias=%s credentials=%s",
+        "Email integration validated: mailbox=%s system_alias=%s credentials=%s",
         config.mailbox_email,
-        config.alias_email,
+        config.system_alias_address,
         credential_path,
     )
 
@@ -67,7 +67,12 @@ def startup_email() -> EmailWatchDaemon | None:
                 gmail_factory=lambda: build_gmail_client(config),
             )
         _daemon.start()
-        return _daemon
+        daemon = _daemon
+
+    from src.channels.email.email_runner import start_email_runner
+
+    start_email_runner(config, lambda: build_gmail_client(config))
+    return daemon
 
 
 def notify_email_work() -> None:
@@ -85,3 +90,6 @@ def stop_email() -> None:
         _config = None
     if daemon is not None:
         daemon.stop()
+    from src.channels.email.email_runner import stop_email_runner
+
+    stop_email_runner()

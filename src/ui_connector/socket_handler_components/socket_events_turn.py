@@ -4,6 +4,7 @@ import asyncio
 import logging
 import threading
 import uuid as _uuid_module
+from collections.abc import Callable
 
 from flask import request
 from flask_socketio import emit
@@ -21,17 +22,23 @@ from src.ui_connector.socket_handler_components.emit import (
 from src.ui_connector.socket_handler_components.session_store import (
     _load_session,
 )
-from src.utils.conversation_history import closed_subturn
 from src.ui_connector.socket_handler_components.session_writes import (
-    write_title,
     write_turn_start,
 )
 from src.ui_connector.socket_handler_components.watchdogs import (
     _is_continuation,
     _get_open_items,
-    _fetch_task_title,
 )
 from src.ui_connector.socket_handler_components.agent_loop import _async_agent_loop
+from src.ui_connector.socket_handler_components.turn_titles import (
+    _build_title_context,
+    _maybe_fetch_task_title,
+)
+from src.ui_connector.socket_handler_components.turn_outcome import (
+    TurnOutcome,
+    deliver_outcome,
+    outcome_from_turn,
+)
 from src.tools.todo_list import format_items_for_ui as _todo_format_items_for_ui
 from src.utils.llm.factory import load_llm_config, make_llm_refreshing
 from src.utils.request_error_formatting import (
@@ -55,62 +62,6 @@ def _load_runtime_llm_config(session_id: str, session: Session) -> dict | None:
     if config is not None:
         config["profile_revision"] = settings.profile_revision
     return config
-
-
-# ---------------------------------------------------------------------------
-# Task-title helpers
-# ---------------------------------------------------------------------------
-
-
-def _build_title_context(session: Session, current_turn: Turn) -> str | None:
-    """Build a short prior-context string for task-title recomputation on continuation subturns."""
-    parts: list[str] = []
-    for t in session.completed_turns:
-        if t.task_title:
-            parts.append(f"Previous task: {t.task_title}")
-    for st in current_turn.subturns[:-1]:
-        cs = closed_subturn(current_turn, st)
-        if cs is None:
-            continue
-        user_text = cs.user_text.strip()
-        if len(user_text) > 200:
-            user_text = user_text[:200] + "..."
-        parts.append(f"Previous subturn request: {user_text}")
-    return "\n".join(parts) if parts else None
-
-
-async def _maybe_fetch_task_title(
-    streaming_llm,
-    text: str,
-    watchdog_params: dict,
-    session_id: str,
-    session: Session,
-    current_turn: Turn,
-    turn_id: str,
-    prior_context: str | None = None,
-) -> None:
-    """Fetch a task title and emit + save it if successful.
-
-    The LLM fetch is best-effort (failures are logged, not fatal); saving the
-    title is not, so a failed save propagates like any other save.
-    """
-    try:
-        title = await _fetch_task_title(
-            streaming_llm,
-            text,
-            watchdog_params,
-            on_usage=_make_sampler_usage_tracker(session_id, "task_title"),
-            on_request_log=_make_sampler_request_logger(session_id, "task_title"),
-            on_response=_make_sampler_response_logger(session_id, "task_title"),
-            prior_context=prior_context,
-        )
-    except Exception:
-        logger.warning("Task title fetch failed for turn %s", turn_id, exc_info=True)
-        return
-    if title:
-        current_turn.task_title = title
-        _emit_and_log(session_id, "task_title", {"turn_id": turn_id, "title": title})
-        write_title(session_id, session, current_turn)
 
 
 # Turn-starting socket event handlers
@@ -142,13 +93,15 @@ def new_user_message(
     *,
     background: bool = False,
     origin: str = SUBTURN_ORIGIN_USER,
+    on_finished: Callable[[TurnOutcome], None] | None = None,
 ) -> bool:
     """Admit and run one user message for a session, with no socket context.
 
     Returns False (and does nothing) when the session already has a turn in
     progress. With ``background=True`` the turn runs on its own thread and
     this returns as soon as the turn has been admitted. ``origin`` is
-    recorded on the new subturn (see ``Subturn.origin``).
+    recorded on the new subturn (see ``Subturn.origin``). ``on_finished``
+    (if given) receives a ``TurnOutcome`` after the reservation is released.
     """
     if not _state.try_reserve_turn(session_id, origin):
         logger.warning(
@@ -167,8 +120,9 @@ def new_user_message(
     )
 
     def _run_admitted() -> None:
+        outcome: TurnOutcome | None = None
         try:
-            _handle_admitted_user_message(
+            outcome = _handle_admitted_user_message(
                 data,
                 session_id,
                 turn_id,
@@ -185,6 +139,7 @@ def new_user_message(
                 turn_id,
             )
             _emit_and_log(session_id, "error", {"message": failure_message(exc)})
+            outcome = TurnOutcome.failed(failure_message(exc))
         finally:
             _state.release_turn(session_id)
             logger.info(
@@ -193,6 +148,7 @@ def new_user_message(
                 turn_id,
                 followup_behavior,
             )
+            deliver_outcome(on_finished, outcome, session_id=session_id)
 
     if not background:
         _run_admitted()
@@ -227,10 +183,10 @@ def _handle_admitted_user_message(
     followup_behavior: str,
     *,
     origin: str = SUBTURN_ORIGIN_USER,
-) -> None:
+) -> TurnOutcome:
     text = (data.get("text") or "").strip()
     if not text:
-        return
+        return TurnOutcome.failed("the message was empty")
 
     session = _load_session(session_id)
     _session_profile = session.profile_name
@@ -245,7 +201,7 @@ def _handle_admitted_user_message(
                 "turn_id": turn_id,
             },
         )
-        return
+        return TurnOutcome.failed("no active token/endpoint is configured")
 
     streaming_llm = make_llm_refreshing(
         timeout_s=60,
@@ -319,7 +275,7 @@ def _handle_admitted_user_message(
                     "turn_id": turn_id,
                 },
             )
-            return
+            return TurnOutcome.failed(_classified["gui_message"])
         finally:
             _loop_for_watchdog.close()
 
@@ -489,3 +445,6 @@ def _handle_admitted_user_message(
         loop.run_until_complete(_run())
     finally:
         loop.close()
+    if cancel_event.is_set():
+        return TurnOutcome(cancelled=True)
+    return outcome_from_turn(current_turn, current_subturn)
