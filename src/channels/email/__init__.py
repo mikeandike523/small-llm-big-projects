@@ -8,7 +8,11 @@ import threading
 from src.channels.email.config import EmailConfig, load_email_config
 from src.channels.email.credentials import validate_service_account_file
 from src.channels.email.gmail_client import build_gmail_client
-from src.channels.email.state import ensure_mailbox_state, load_mailbox_state
+from src.channels.email.state import (
+    clear_stale_sync_lease,
+    ensure_mailbox_state,
+    load_mailbox_state,
+)
 from src.channels.email.watch_daemon import EmailWatchDaemon
 from src.utils.param_helper import get_param_value
 from src.utils.sql.kv_manager import KVManager
@@ -47,6 +51,12 @@ def startup_email() -> EmailWatchDaemon | None:
         credential_path = validate_service_account_file(config)
         ensure_mailbox_state(config.mailbox_email)
         load_mailbox_state(config.mailbox_email)
+        if clear_stale_sync_lease(config.mailbox_email):
+            logger.warning(
+                "Email integration: cleared a Gmail sync lease left by a previous "
+                "server process: mailbox=%s",
+                config.mailbox_email,
+            )
     except Exception as exc:
         logger.critical("Email integration startup failed: %s", exc, exc_info=True)
         raise

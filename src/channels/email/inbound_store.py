@@ -6,11 +6,14 @@ that every reply about that email is threaded against.
 
 Status flow::
 
-    queued -> running -> done | failed | cancelled
+    queued -> running -> done | failed | cancelled | interrupted
     queued -> discarded            (alias changed / email disabled; no reply)
 
-``final_reply_sent_at`` guards the one end-of-turn reply (answer, error or
-cancellation notice); a row in done/failed/cancelled without it still owes a
+A ``running`` row found at startup died with the previous server process and
+becomes ``interrupted``.
+
+``final_reply_sent_at`` guards the one end-of-turn reply (answer, error,
+cancellation or interruption notice); a finished row without it still owes a
 reply, so a failed send is retried by the runner's next pass.
 """
 
@@ -25,9 +28,15 @@ STATUS_RUNNING = "running"
 STATUS_DONE = "done"
 STATUS_FAILED = "failed"
 STATUS_CANCELLED = "cancelled"
+STATUS_INTERRUPTED = "interrupted"
 STATUS_DISCARDED = "discarded"
 
-FINISHED_STATUSES = (STATUS_DONE, STATUS_FAILED, STATUS_CANCELLED)
+FINISHED_STATUSES = (
+    STATUS_DONE,
+    STATUS_FAILED,
+    STATUS_CANCELLED,
+    STATUS_INTERRUPTED,
+)
 
 REPLY_QUEUED = "queued_reply_sent_at"
 REPLY_WORKING = "working_reply_sent_at"
@@ -255,11 +264,11 @@ def discard_queued(session_id: str) -> int:
     )
 
 
-def fail_orphaned_running(error_detail: str) -> int:
+def mark_orphaned_interrupted() -> int:
     """At startup no email turn can be running; such rows died with the server."""
     return _execute(
-        "UPDATE email_inbound SET status = %s, error_detail = %s WHERE status = %s",
-        (STATUS_FAILED, error_detail, STATUS_RUNNING),
+        "UPDATE email_inbound SET status = %s WHERE status = %s",
+        (STATUS_INTERRUPTED, STATUS_RUNNING),
     )
 
 

@@ -256,6 +256,27 @@ def release_sync_lease(mailbox_email: str, owner: str) -> None:
         conn.commit()
 
 
+def clear_stale_sync_lease(mailbox_email: str) -> bool:
+    """Drop a lease left by a killed server; call only before sync can start.
+
+    Only one server runs at a time, so any lease present at startup belongs to
+    a dead process. Returns True when one was cleared.
+    """
+    pool = get_pool()
+    with pool.get_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE gmail_mailbox_state
+            SET lease_owner = NULL, lease_expires_unix = NULL
+            WHERE mailbox_email = %s AND lease_owner IS NOT NULL
+            """,
+            (mailbox_email,),
+        )
+        cleared = cur.rowcount == 1
+        conn.commit()
+    return cleared
+
+
 def _update(mailbox_email: str, assignment: str, values: tuple) -> None:
     pool = get_pool()
     with pool.get_connection() as conn, conn.cursor() as cur:

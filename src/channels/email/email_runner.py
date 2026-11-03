@@ -11,8 +11,10 @@ turn reservation is released, when settings change, and every
    queued email (compare-and-set) and launches it; busy -> back to queued.
 
 Turn threads only record outcomes in the database (``on_finished``) and wake
-the runner; they never send mail themselves. A failed send leaves its
-``*_reply_sent_at`` column empty, so the next pass retries it.
+the runner; they never send mail themselves. A failed end-of-turn or queued
+reply leaves its ``*_reply_sent_at`` column empty, so a later pass retries it.
+The ``[... is working...]`` note is only tried once: sent late, it would be
+misleading.
 """
 
 from __future__ import annotations
@@ -40,7 +42,9 @@ from src.utils.email_settings import email_agent_label
 logger = logging.getLogger(__name__)
 
 SWEEP_SECONDS = 30.0
-SERVER_RESTART_ERROR = "the server restarted while the agent was working"
+INTERRUPTED_NOTE = (
+    "[Turn interrupted. You can re-send your message by replying to this email.]"
+)
 
 Launch = Callable[[str, str, str, Callable[[Any], None]], bool]
 
@@ -110,12 +114,12 @@ class EmailRunner:
     def start(self) -> None:
         if self._thread is not None and self._thread.is_alive():
             return
-        failed = store.fail_orphaned_running(SERVER_RESTART_ERROR)
-        if failed:
+        interrupted = store.mark_orphaned_interrupted()
+        if interrupted:
             logger.warning(
                 "Email runner: %d email turn(s) were interrupted by a server "
-                "restart; error replies will be sent",
-                failed,
+                "restart; senders will be told",
+                interrupted,
             )
         self._stop.clear()
         self._thread = threading.Thread(
@@ -253,6 +257,8 @@ class EmailRunner:
             )
         if row.status == store.STATUS_CANCELLED:
             text = cancelled_note(agent)
+        elif row.status == store.STATUS_INTERRUPTED:
+            text = INTERRUPTED_NOTE
         else:
             text = failed_note(agent, row.error_detail)
         return self._send_status(row, store.REPLY_FINAL, text)

@@ -52,7 +52,16 @@ class FakeStore:
     def install(self, monkeypatch) -> None:
         ordered = lambda rows: sorted(rows, key=lambda r: (r.received_at, r.id))
         m = monkeypatch.setattr
-        m(store, "fail_orphaned_running", lambda _e: 0)
+
+        def mark_orphaned_interrupted():
+            running = [
+                r.id for r in self.rows.values() if r.status == store.STATUS_RUNNING
+            ]
+            for row_id in running:
+                self._set(row_id, status=store.STATUS_INTERRUPTED)
+            return len(running)
+
+        m(store, "mark_orphaned_interrupted", mark_orphaned_interrupted)
         m(
             store,
             "sessions_with_pending_work",
@@ -211,6 +220,22 @@ def test_cancel_and_failure_replies(monkeypatch, outcome, expected) -> None:
     h.callbacks[0](outcome)
     h.runner.run_pass()
     assert h.sent[-1] == (row.id, expected)
+
+
+def test_turn_running_at_startup_is_reported_as_interrupted(monkeypatch) -> None:
+    h = Harness(monkeypatch)
+    row = h.store.add(status=store.STATUS_RUNNING)
+    h.runner.start()
+    h.runner.stop()
+    h.runner.run_pass()
+    assert h.store.rows[row.id].status == store.STATUS_INTERRUPTED
+    assert h.sent == [
+        (
+            row.id,
+            "[Turn interrupted. You can re-send your message by replying to this email.]",
+        )
+    ]
+    assert h.launches == []
 
 
 def test_emails_run_one_at_a_time_in_order(monkeypatch) -> None:

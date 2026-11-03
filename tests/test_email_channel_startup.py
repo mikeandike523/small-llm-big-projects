@@ -105,6 +105,39 @@ def test_enabled_email_credential_failure_is_fatal(monkeypatch, caplog) -> None:
     assert "Email integration startup failed: missing key" in caplog.text
 
 
+def test_startup_clears_stale_lease_before_daemon_starts(monkeypatch, caplog) -> None:
+    import src.channels.email.email_runner as runner_module
+
+    events: list[str] = []
+
+    class FakeDaemon:
+        def __init__(self, **_kwargs) -> None:
+            pass
+
+        def start(self) -> None:
+            events.append("daemon")
+
+    m = monkeypatch.setattr
+    m(email_channel, "_daemon", None)
+    m(email_channel, "_config", None)
+    m(email_channel, "is_email_enabled", lambda: True)
+    m(email_channel, "load_email_config", _config)
+    m(email_channel, "validate_service_account_file", lambda _c: Path("key.json"))
+    m(email_channel, "ensure_mailbox_state", lambda _m: None)
+    m(email_channel, "load_mailbox_state", lambda _m: _state(100.0))
+    m(
+        email_channel,
+        "clear_stale_sync_lease",
+        lambda _m: events.append("lease") or True,
+    )
+    m(email_channel, "EmailWatchDaemon", FakeDaemon)
+    m(runner_module, "start_email_runner", lambda *_a: events.append("runner"))
+    with caplog.at_level(logging.WARNING):
+        email_channel.startup_email()
+    assert events == ["lease", "daemon", "runner"]
+    assert "cleared a Gmail sync lease" in caplog.text
+
+
 def test_due_calculation_uses_last_success_and_retry_time() -> None:
     assert is_watch_refresh_due(_state(None), 100.0)
     assert not is_watch_refresh_due(_state(100.0), 100.0 + 86_399)
