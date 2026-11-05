@@ -670,6 +670,7 @@ async def _async_agent_loop(
                 session.session_data.get("todo_list") or []
             )
             marker = abnormal_end["history_marker"]
+            current_subturn.failure_message = abnormal_end["gui_message"]
             current_subturn.exchanges.append(
                 LLMExchange(assistant_content=marker, is_final=True)
             )
@@ -717,6 +718,7 @@ async def _async_agent_loop(
                 marker = classified["history_marker"]
                 if classified["log_object"] is not None:
                     _emit_backend_log(session_id, classified["log_object"])
+            current_subturn.failure_message = err_msg
             current_turn.completed = True
             current_turn.todo_snapshot = _todo_format_items_for_ui(
                 session.session_data.get("todo_list") or []

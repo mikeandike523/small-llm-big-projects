@@ -204,6 +204,17 @@ def test_outcome_maps_answer_cancel_and_missing_answer() -> None:
     assert missing.final_text is None and missing.error == NO_FINAL_ANSWER_ERROR
 
 
+def test_outcome_does_not_treat_a_failure_marker_as_the_answer() -> None:
+    marker = LLMExchange(
+        assistant_content="[Request Failed - Network Error]", is_final=True
+    )
+    turn, subturn = _turn_with([marker])
+    subturn.failure_message = "Request failed: could not connect."
+    assert outcome_from_turn(turn, subturn) == TurnOutcome.failed(
+        "Request failed: could not connect."
+    )
+
+
 # -- system prompt note ------------------------------------------------------
 
 

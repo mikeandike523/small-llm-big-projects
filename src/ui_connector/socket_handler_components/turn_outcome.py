@@ -36,6 +36,9 @@ class TurnOutcome:
 def outcome_from_turn(turn: Turn, subturn: Subturn) -> TurnOutcome:
     if turn.was_cancelled:
         return TurnOutcome(cancelled=True)
+    # Checked before the answer: a failed turn's final exchange is only a marker.
+    if subturn.failure_message:
+        return TurnOutcome.failed(subturn.failure_message)
     answer = final_answer(subturn)
     if answer is None or not answer.strip():
         return TurnOutcome.failed(NO_FINAL_ANSWER_ERROR)

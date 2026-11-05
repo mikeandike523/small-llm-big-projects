@@ -115,6 +115,10 @@ class Subturn:
     # How many of `exchanges` are already in session_events. In memory only:
     # replay sets it, and session_writes advances it after each commit.
     saved_exchanges: int = field(default=0, compare=False, repr=False)
+    # Why the agent stopped abnormally (the same text as the UI "error" event).
+    # In memory only: the permanent record is the marker exchange, which looks
+    # like a final answer, so headless callers must check this first.
+    failure_message: str | None = field(default=None, compare=False, repr=False)
 
     def count_tool_calls(self) -> int:
         return sum(len(ex.tool_calls) for ex in self.exchanges)

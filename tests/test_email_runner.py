@@ -11,6 +11,7 @@ from src.channels.email.config import EmailConfig
 from src.channels.email.inbound_store import InboundEmail
 from src.ui_connector.socket_handler_components.turn_outcome import TurnOutcome
 from src.utils.email_settings import DEFAULT_EMAIL_SETTINGS
+from src.utils.param_registry import REGISTRY
 
 
 class FakeStore:
@@ -141,6 +142,11 @@ class Harness:
             "agent_name": "Helper",
             "followup_behavior": "new-task",
         }
+        self.params = {
+            runner_module.SYSTEM_MESSAGES_PARAM: True,
+            runner_module.ADMIN_NAME_PARAM: "Sam Admin",
+            runner_module.ADMIN_EMAIL_PARAM: "admin@example.test",
+        }
         monkeypatch.setattr(runner_module, "send_message", self._send)
         monkeypatch.setattr(runner_module, "log_google_error", lambda *a, **k: None)
         self.runner = runner_module.EmailRunner(
@@ -158,6 +164,7 @@ class Harness:
             gmail_factory=lambda: object(),
             launch=self._launch,
             settings_for=lambda _sid: self.settings,
+            read_param=lambda name: self.params[name],
             clock=lambda: 50.0,
         )
 
@@ -209,7 +216,8 @@ def test_final_answer_is_sent_after_turn_finishes(monkeypatch) -> None:
         (TurnOutcome(cancelled=True), "[Helper's task was cancelled in session UI]"),
         (
             TurnOutcome.failed("model offline"),
-            "[Helper could not finish: model offline]",
+            "[Helper had a network or system error. Please contact system "
+            "administrator Sam Admin at mailto:admin@example.test]",
         ),
     ],
 )
@@ -278,6 +286,90 @@ def test_failed_send_is_retried_on_next_pass(monkeypatch) -> None:
     h.send_fails = False
     h.runner.run_pass()
     assert h.sent[-1] == (row.id, "FINAL:answer")
+
+
+def test_progress_notes_off_leaves_only_the_final_reply(monkeypatch) -> None:
+    h = Harness(monkeypatch)
+    h.params[runner_module.SYSTEM_MESSAGES_PARAM] = False
+    first = h.store.add()
+    second = h.store.add(needs_queued_reply=True)
+    h.runner.run_pass()
+    assert h.sent == []
+    h.callbacks[0](TurnOutcome(final_text="one"))
+    h.runner.run_pass()
+    assert h.sent == [(first.id, "FINAL:one")]
+    assert h.store.rows[second.id].status == store.STATUS_RUNNING
+
+
+def test_progress_notes_off_when_session_is_busy(monkeypatch) -> None:
+    h = Harness(monkeypatch, launch_results=[False, True])
+    h.params[runner_module.SYSTEM_MESSAGES_PARAM] = False
+    row = h.store.add()
+    h.runner.run_pass()
+    assert h.store.rows[row.id].status == store.STATUS_QUEUED
+    assert h.sent == []
+    h.runner.run_pass()
+    assert h.store.rows[row.id].status == store.STATUS_RUNNING
+    assert h.sent == []
+
+
+@pytest.mark.parametrize(
+    ("status", "expected"),
+    [
+        (store.STATUS_CANCELLED, "[Helper's task was cancelled in session UI]"),
+        (
+            store.STATUS_INTERRUPTED,
+            "[Turn interrupted. You can re-send your message by replying to this email.]",
+        ),
+        (
+            store.STATUS_FAILED,
+            "[Helper had a network or system error. Please contact system "
+            "administrator Sam Admin at mailto:admin@example.test]",
+        ),
+    ],
+)
+def test_progress_notes_off_keeps_end_of_turn_notes(
+    monkeypatch, status, expected
+) -> None:
+    h = Harness(monkeypatch)
+    h.params[runner_module.SYSTEM_MESSAGES_PARAM] = False
+    row = h.store.add(status=status)
+    h.runner.run_pass()
+    assert h.sent == [(row.id, expected)]
+
+
+@pytest.mark.parametrize(
+    ("name", "address", "contact"),
+    [
+        ("Sam", "a@example.test", "system administrator Sam at mailto:a@example.test"),
+        ("Sam", None, "system administrator Sam"),
+        (None, "a@example.test", "your system administrator at mailto:a@example.test"),
+        (None, None, "your system administrator"),
+        ("  ", "", "your system administrator"),
+    ],
+)
+def test_failed_note_contact_fallbacks(name, address, contact) -> None:
+    assert (
+        runner_module.failed_note("Helper", name, address)
+        == f"[Helper had a network or system error. Please contact {contact}]"
+    )
+
+
+def test_failed_turn_keeps_the_error_detail_out_of_the_email(monkeypatch) -> None:
+    h = Harness(monkeypatch)
+    row = h.store.add()
+    h.runner.run_pass()
+    h.callbacks[0](TurnOutcome.failed("Check your API token"))
+    h.runner.run_pass()
+    assert "API token" not in h.sent[-1][1]
+    assert h.store.rows[row.id].error_detail == "Check your API token"
+
+
+def test_new_params_are_global_with_the_requested_defaults() -> None:
+    enabled = REGISTRY[runner_module.SYSTEM_MESSAGES_PARAM]
+    assert (enabled.scope, enabled.default) == ("global", False)
+    for name in (runner_module.ADMIN_NAME_PARAM, runner_module.ADMIN_EMAIL_PARAM):
+        assert (REGISTRY[name].scope, REGISTRY[name].default) == ("global", None)
 
 
 def test_missing_agent_name_uses_generic_label(monkeypatch) -> None:
