@@ -208,7 +208,7 @@ class Harness:
             launch=self._launch,
             agent_for=lambda _sid: self.agent,
             assign_session=self._assign,
-            prepare_folder=lambda _row: "users/person",
+            ensure_folder=lambda _row: None,
             read_param=lambda name: self.params[name],
             clock=lambda: 50.0,
         )
@@ -242,8 +242,7 @@ def test_idle_email_is_launched_with_working_note(monkeypatch) -> None:
     assert h.launches[0][0] == "s1"
     assert h.launches[0][2] == "Message from person@example.test, id=t1"
     assert h.launches[0][1].startswith(
-        "[Email from person@example.test, user folder = users/person, "
-        'subject "Hello"'
+        '[Email from person@example.test, subject "Hello"'
     )
     assert h.sent == [(row.id, "[Helper is working...]")]
     assert h.store.rows[row.id].status == store.STATUS_RUNNING

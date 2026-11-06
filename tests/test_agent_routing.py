@@ -172,11 +172,11 @@ def test_folder_never_follows_a_changed_display_name(db) -> None:
     assert db["names"] == [("ana@example.test", "Someone Else")]
 
 
-def test_prepare_folder_recreates_it_and_labels_it(db) -> None:
+def test_ensure_folder_recreates_it(db) -> None:
     db["senders"]["ana@example.test"] = AgentSender(
         "a1", "ana@example.test", "ana-diaz", "Ana Diaz"
     )
-    assert spawn.prepare_user_folder(_row()) == "users/ana-diaz"
+    assert spawn.ensure_user_folder(_row()) is None
     assert db["user_dirs"] == ["/agents/helper/workspace/users/ana-diaz"]
 
 

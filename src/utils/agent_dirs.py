@@ -30,11 +30,6 @@ def get_user_dir(agent_slug: str, user_slug: str) -> str:
     return _portable(Path(get_agent_workspace(agent_slug)) / USERS_DIR / user_slug)
 
 
-def user_folder_label(user_slug: str) -> str:
-    """The user's folder relative to the agent workspace, shown to the agent."""
-    return f"{USERS_DIR}/{user_slug}"
-
-
 def ensure_agent_dirs(agent_slug: str) -> None:
     """Create the workspace and its empty identity files. Raises OSError."""
     workspace = Path(get_agent_workspace(agent_slug))

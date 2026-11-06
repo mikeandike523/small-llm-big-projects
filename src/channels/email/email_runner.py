@@ -47,7 +47,7 @@ from src.channels.email.outbound import (
     build_status_reply,
     send_message,
 )
-from src.channels.email.session_spawn import prepare_user_folder, session_for_email
+from src.channels.email.session_spawn import ensure_user_folder, session_for_email
 from src.utils.agent_store import agent_for_session
 from src.utils.automation_approval_policies import AUTOMATION_FOLLOWUP_FORCE_FOLLOW_UP
 from src.utils.param_helper import get_param_value
@@ -150,7 +150,7 @@ class EmailRunner:
         launch: Launch = _launch_email_turn,
         agent_for: Callable[[str], Agent | None] = agent_for_session,
         assign_session: Callable[[InboundEmail], str] = session_for_email,
-        prepare_folder: Callable[[InboundEmail], str] = prepare_user_folder,
+        ensure_folder: Callable[[InboundEmail], None] = ensure_user_folder,
         read_param: Callable[[str], Any] = _read_global_param,
         sweep_seconds: float = SWEEP_SECONDS,
         clock: Callable[[], float] = time.time,
@@ -161,7 +161,7 @@ class EmailRunner:
         self._launch = launch
         self._agent_for = agent_for
         self._assign_session = assign_session
-        self._prepare_folder = prepare_folder
+        self._ensure_folder = ensure_folder
         self._read_param = read_param
         self._sweep_seconds = sweep_seconds
         self._clock = clock
@@ -264,9 +264,10 @@ class EmailRunner:
         with self._running_lock:
             self._running.add(session_id)
         try:
+            self._ensure_folder(row)
             launched = self._launch(
                 session_id,
-                frame_inbound_email(row, self._prepare_folder(row)),
+                frame_inbound_email(row),
                 turn_title(row),
                 lambda outcome: self._on_finished(session_id, row, outcome),
             )

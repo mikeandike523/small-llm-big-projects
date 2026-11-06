@@ -11,7 +11,7 @@ import logging
 import uuid
 
 from src.channels.email.inbound_store import InboundEmail
-from src.utils.agent_dirs import ensure_user_dir, user_folder_label
+from src.utils.agent_dirs import ensure_user_dir
 from src.utils.agent_store import get_agent
 from src.utils.session_dirs import ensure_session_dirs
 from src.utils.session_events import derive_meta, session_created_payload
@@ -110,12 +110,12 @@ def session_for_email(row: InboundEmail) -> str:
     return session_id
 
 
-def prepare_user_folder(row: InboundEmail) -> str:
+def ensure_user_folder(row: InboundEmail) -> None:
     """Re-create the person's folder if it is gone (it is the session's cwd, and
-    nothing else re-creates it) and return its label for the email header."""
+    nothing else re-creates it). The email header does not name it: the session
+    already starts there."""
     agent = get_agent(row.agent_id)
     if agent is None:
         raise LookupError(f"Agent {row.agent_id} does not exist.")
     sender = _ensure_sender(agent, row)
     ensure_user_dir(agent.slug, sender.slug)
-    return user_folder_label(sender.slug)

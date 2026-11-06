@@ -84,7 +84,6 @@ def test_agent_dirs_are_created_and_existing_files_kept(monkeypatch, tmp_path) -
     assert (workspace / "MEMORY.md").read_text(encoding="utf-8") == ""
     agent_dirs.ensure_agent_dirs("helper")
     assert (workspace / "SOUL.md").read_text(encoding="utf-8") == "kept"
-    assert agent_dirs.user_folder_label("ana") == "users/ana"
 
 
 # -- identity ----------------------------------------------------------------
