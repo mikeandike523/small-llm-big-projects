@@ -159,7 +159,7 @@ def db(monkeypatch):
     m.setattr(ingest_module, "upsert_debug_message", record.upserts.append)
     m.setattr(ingest_module, "route_inbound_message", lambda *_a, **_k: [])
     m.setattr(
-        ingest_module, "list_all_claimed_aliases", lambda: {"assistant@example.test"}
+        ingest_module, "list_registered_emails", lambda: {"assistant@example.test"}
     )
     m.setattr(
         ingest_module,

@@ -34,7 +34,6 @@ from src.utils.session_model import (
     llm_exchange_to_dict,
 )
 from src.utils.approval_modes import APPROVAL_MODE_DEFAULT
-from src.utils.email_settings import normalize_email_settings
 from src.utils.heartbeat_settings import normalize_heartbeat_settings
 
 # ---------------------------------------------------------------------------
@@ -58,7 +57,6 @@ EVT_TODO_LIST_SET = "todo_list_set"
 EVT_APPROVAL_MODE_SET = "approval_mode_set"
 EVT_PROFILE_SET = "profile_set"
 EVT_HEARTBEAT_SETTINGS_SET = "heartbeat_settings_set"
-EVT_EMAIL_SETTINGS_SET = "email_settings_set"
 
 
 # ---------------------------------------------------------------------------
@@ -101,6 +99,7 @@ def session_created_payload(session: Session) -> dict:
         "startup_done": session.startup_done,
         "created_at": session.created_at,
         "schema_version": session.schema_version,
+        "agent_id": session.agent_id,
     }
 
 
@@ -125,10 +124,6 @@ def profile_payload(profile_name: str | None) -> dict:
 
 
 def heartbeat_settings_payload(settings: dict) -> dict:
-    return {"settings": settings}
-
-
-def email_settings_payload(settings: dict) -> dict:
     return {"settings": settings}
 
 
@@ -229,6 +224,7 @@ def _on_session_created(state: ReplayState, p: dict) -> None:
     s.startup_done = p.get("startup_done", False)
     s.created_at = p.get("created_at", 0.0)
     s.schema_version = p.get("schema_version", CURRENT_SCHEMA_VERSION)
+    s.agent_id = p.get("agent_id")
 
 
 def _on_turn_started(state: ReplayState, p: dict) -> None:
@@ -315,12 +311,6 @@ def _on_heartbeat_settings_set(state: ReplayState, p: dict) -> None:
     )
 
 
-def _on_email_settings_set(state: ReplayState, p: dict) -> None:
-    state.session.session_data["email_settings"] = normalize_email_settings(
-        p.get("settings")
-    )
-
-
 _HANDLERS = {
     EVT_SESSION_CREATED: _on_session_created,
     EVT_TURN_STARTED: _on_turn_started,
@@ -336,7 +326,6 @@ _HANDLERS = {
     EVT_APPROVAL_MODE_SET: _on_approval_mode_set,
     EVT_PROFILE_SET: _on_profile_set,
     EVT_HEARTBEAT_SETTINGS_SET: _on_heartbeat_settings_set,
-    EVT_EMAIL_SETTINGS_SET: _on_email_settings_set,
 }
 
 
@@ -381,7 +370,6 @@ SESSION_LEVEL_EVENT_TYPES = (
     EVT_APPROVAL_MODE_SET,
     EVT_PROFILE_SET,
     EVT_HEARTBEAT_SETTINGS_SET,
-    EVT_EMAIL_SETTINGS_SET,
 )
 
 

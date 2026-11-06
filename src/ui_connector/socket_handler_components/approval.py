@@ -39,6 +39,8 @@ def _request_approval(
         "turn_id": turn_id,
         "subturn_id": subturn_id,
         "tool_id": tool_id,
+        "tool_name": tool_name,
+        "args": args,
         "cancel_event": cancel_event,
     }
     with _state._pending_approvals_lock:
@@ -68,6 +70,7 @@ def _request_approval(
                 "subturn_id": subturn_id,
             },
         )
+        _state.notify_approval_wait(session_id)
 
         while True:
             if ev.wait(timeout=0.5):

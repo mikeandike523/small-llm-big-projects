@@ -30,28 +30,44 @@ export const HEARTBEAT_FOLLOWUP_BEHAVIORS: {
   { value: "new-task", label: "force-new-task" },
 ];
 
-export interface EmailSettings {
-  enabled: boolean;
-  /** The alias this session answers; "" = none (replies to nobody). */
-  alias: string;
-  agent_name: string;
-  /** Normalized addresses; the dialog edits them one per line. */
-  allowed_senders: string[];
-  email_approval_policy: "wait-for-human" | "force-fail" | "force-approve";
-  followup_behavior: "auto" | "follow-up" | "new-task";
-  /** Server-set unix time of the current alias claim. */
-  alias_claimed_at: number | null;
+export type AutomationApprovalPolicy =
+  HeartbeatSettings["heartbeat_approval_policy"];
+
+export const AUTOMATION_APPROVAL_POLICIES = HEARTBEAT_APPROVAL_POLICIES;
+
+/** One conversation in an agent's pool: a one-liner on the dashboard. */
+export interface AgentPoolSession {
+  session_id: string;
+  sender_address: string;
+  /** From the sender's From header, so unverified. */
+  display_name: string | null;
+  gmail_thread_id: string;
+  /** Subject of the latest email from the sender. */
+  subject: string;
+  status:
+    | "idle"
+    | "running"
+    | "waiting_approval"
+    | "queued"
+    | "failed"
+    | "cancelled"
+    | "interrupted";
 }
 
-export const DEFAULT_EMAIL_SETTINGS: EmailSettings = {
-  enabled: false,
-  alias: "",
-  agent_name: "",
-  allowed_senders: [],
-  email_approval_policy: "wait-for-human",
-  followup_behavior: "auto",
-  alias_claimed_at: null,
-};
+export interface AgentSummary {
+  id: string;
+  slug: string;
+  /** Name and email are null while the agent is unregistered. */
+  name: string | null;
+  email: string | null;
+  enabled: boolean;
+  allowed_senders: string[];
+  profile_name: string;
+  approval_mode: string;
+  automation_approval_policy: AutomationApprovalPolicy;
+  workspace: string;
+  sessions: AgentPoolSession[];
+}
 
 export interface PatchRewriteState {
   status: "in_progress" | "success" | "failed";

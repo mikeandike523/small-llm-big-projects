@@ -173,6 +173,9 @@ class Session:
     created_at: float = field(default_factory=time.time)
     profile_name: str | None = None
     approval_mode: str = APPROVAL_MODE_DEFAULT
+    # Set at creation for a session in an agent's pool: its profile and approval
+    # settings come from the agent, and it only takes turns from email.
+    agent_id: str | None = None
     # session_meta.history_cache_compatible: chat_turn_index/chat_history_cache
     # are complete for this session, so saves keep them up to date.
     history_cache_compatible: bool = True

@@ -49,6 +49,7 @@ def test_same_session_message_admission_is_atomic(monkeypatch):
             rejected.set()
 
     monkeypatch.setattr(turn_events, "request", SimpleNamespace(sid=sid))
+    monkeypatch.setattr(turn_events, "load_session_meta", lambda _sid: None)
     monkeypatch.setattr(state, "try_reserve_turn", racing_try_reserve)
     monkeypatch.setattr(turn_events, "_handle_admitted_user_message", admitted_handler)
     monkeypatch.setattr(turn_events, "emit", capture_emit)
@@ -92,6 +93,7 @@ def test_turn_reservation_is_released_when_admitted_handler_fails(monkeypatch):
         raise RuntimeError("setup failed")
 
     emitted: list[tuple] = []
+    monkeypatch.setattr(turn_events, "load_session_meta", lambda _sid: None)
     monkeypatch.setattr(turn_events, "_handle_admitted_user_message", fail)
     monkeypatch.setattr(
         turn_events, "_emit_and_log", lambda *args: emitted.append(args)

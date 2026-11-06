@@ -14,7 +14,7 @@ from src.channels.email.google_errors import is_google_not_found
 from src.channels.email.mime import parse_gmail_message
 from src.channels.email.router import route_inbound_message
 from src.channels.email.state import SyncLeaseLostError, renew_sync_lease
-from src.utils.sql.email_alias_db import list_all_claimed_aliases
+from src.utils.sql.agents_db import list_registered_emails
 
 logger = logging.getLogger(__name__)
 
@@ -43,9 +43,9 @@ class IngestRun:
         self._claimed_aliases: frozenset[str] | None = None
 
     def _aliases(self) -> frozenset[str]:
-        """Claimed aliases, read once per sync run."""
+        """Registered agent emails, read once per sync run."""
         if self._claimed_aliases is None:
-            self._claimed_aliases = frozenset(list_all_claimed_aliases())
+            self._claimed_aliases = frozenset(list_registered_emails())
         return self._claimed_aliases
 
     def renew_lease(self) -> None:
@@ -102,13 +102,13 @@ class IngestRun:
                 classify_alias_message(parse_gmail_message(raw_message), aliases)
             )
 
-        # Queue rows are de-duplicated by (session, gmail_message_id), so the
+        # Queue rows are de-duplicated by (agent, gmail_message_id), so the
         # re-delivery caused by cursor recovery or lease takeover is harmless.
         if parsed.relevant_to_alias:
             route_inbound_message(parsed, on_queued=self._on_queued)
 
     @staticmethod
-    def _on_queued(_session_id: str) -> None:
+    def _on_queued(_agent_id: str) -> None:
         from src.channels.email.email_runner import notify_email_runner
 
         notify_email_runner()

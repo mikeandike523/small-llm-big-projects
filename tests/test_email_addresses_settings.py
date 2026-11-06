@@ -9,23 +9,23 @@ from src.utils.email_addresses import (
     normalize_email_address,
     parse_email_address,
 )
-from src.utils.email_settings import (
-    DEFAULT_EMAIL_SETTINGS,
-    InvalidEmailSettingsError,
-    normalize_email_settings,
+from src.utils.agent_settings import (
+    InvalidAgentSettingsError,
+    parse_agent_identity,
+    parse_agent_settings,
     parse_allowed_senders,
-    parse_email_settings_input,
 )
 
 
 def _input(**overrides) -> dict:
     return {
+        "name": "  Helper  ",
+        "email": "Agent@Example.TEST",
         "enabled": True,
-        "alias": "Agent@Example.TEST",
-        "agent_name": "  Helper  ",
         "allowed_senders": "",
-        "email_approval_policy": "wait-for-human",
-        "followup_behavior": "auto",
+        "profile_name": "default-profile",
+        "approval_mode": "default",
+        "automation_approval_policy": "wait-for-human",
         **overrides,
     }
 
@@ -100,15 +100,11 @@ def test_header_addresses_collects_valid_recipients_only() -> None:
 # -- settings ----------------------------------------------------------------
 
 
-def test_parse_settings_normalizes_and_never_trusts_claim_time() -> None:
-    settings = parse_email_settings_input(_input(alias_claimed_at=123.0))
-    assert settings["alias"] == "agent@example.test"
-    assert settings["agent_name"] == "Helper"
-    assert settings["alias_claimed_at"] is None
-
-
-def test_empty_alias_means_no_claim() -> None:
-    assert parse_email_settings_input(_input(alias="   "))["alias"] == ""
+def test_identity_lowercases_the_email_and_keeps_the_name_case() -> None:
+    identity = parse_agent_identity(_input())
+    assert identity.email == "agent@example.test"
+    assert identity.name == "Helper"
+    assert identity.name_key == "helper"
 
 
 def test_allowed_senders_one_per_line_deduplicated() -> None:
@@ -118,12 +114,12 @@ def test_allowed_senders_one_per_line_deduplicated() -> None:
 
 
 def test_allowed_senders_commas_are_not_separators() -> None:
-    with pytest.raises(InvalidEmailSettingsError, match="line 1"):
+    with pytest.raises(InvalidAgentSettingsError, match="line 1"):
         parse_allowed_senders("a@example.test, b@example.test")
 
 
 def test_invalid_sender_line_names_the_line_and_reason() -> None:
-    with pytest.raises(InvalidEmailSettingsError) as info:
+    with pytest.raises(InvalidAgentSettingsError) as info:
         parse_allowed_senders("ok@example.test\npаypal@example.test")
     assert info.value.field == "allowed_senders"
     assert "line 2" in str(info.value)
@@ -134,22 +130,28 @@ def test_invalid_sender_line_names_the_line_and_reason() -> None:
     ("overrides", "field"),
     [
         ({"enabled": "yes"}, "enabled"),
-        ({"alias": "not-an-address"}, "alias"),
-        ({"agent_name": 'Bad "name"'}, "agent_name"),
-        ({"agent_name": "x" * 81}, "agent_name"),
-        ({"email_approval_policy": "maybe"}, "email_approval_policy"),
-        ({"followup_behavior": "sometimes"}, "followup_behavior"),
+        ({"profile_name": " "}, "profile_name"),
+        ({"approval_mode": "maybe"}, "approval_mode"),
+        ({"automation_approval_policy": "maybe"}, "automation_approval_policy"),
     ],
 )
 def test_invalid_settings_report_their_field(overrides: dict, field: str) -> None:
-    with pytest.raises(InvalidEmailSettingsError) as info:
-        parse_email_settings_input(_input(**overrides))
+    with pytest.raises(InvalidAgentSettingsError) as info:
+        parse_agent_settings(_input(**overrides))
     assert info.value.field == field
 
 
-def test_normalize_fills_fields_added_later() -> None:
-    assert normalize_email_settings({"enabled": True}) == {
-        **DEFAULT_EMAIL_SETTINGS,
-        "enabled": True,
-    }
-    assert normalize_email_settings(None) == DEFAULT_EMAIL_SETTINGS
+@pytest.mark.parametrize(
+    ("overrides", "field"),
+    [
+        ({"email": "not-an-address"}, "email"),
+        ({"email": " "}, "email"),
+        ({"name": " "}, "name"),
+        ({"name": 'Bad "name"'}, "name"),
+        ({"name": "x" * 81}, "name"),
+    ],
+)
+def test_invalid_identity_reports_its_field(overrides: dict, field: str) -> None:
+    with pytest.raises(InvalidAgentSettingsError) as info:
+        parse_agent_identity(_input(**overrides))
+    assert info.value.field == field

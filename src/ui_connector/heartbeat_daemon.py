@@ -96,7 +96,8 @@ def _heartbeat_settings_for(session_id: str) -> dict:
 def _load_enabled_sessions() -> list[HeartbeatSession]:
     enabled: list[HeartbeatSession] = []
     for row in list_session_meta():
-        if not row.get("heartbeat_enabled"):
+        # Sessions in an agent's pool have no heartbeat.
+        if not row.get("heartbeat_enabled") or row.get("agent_id"):
             continue
         session_id = row["session_id"]
         settings = _heartbeat_settings_for(session_id)

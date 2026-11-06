@@ -99,6 +99,7 @@ confirmed none present — see Issues section for anything notable).
 - [x] src/tools/read_text_file.py
 - [x] src/tools/remove_dir.py
 - [x] src/tools/report_impossible.py
+- [x] src/tools/sleep.py
 - [x] src/tools/restore_file.py
 - [x] src/tools/scrape_web_page.py
 - [x] src/tools/search_filesystem_by_regex.py
@@ -205,6 +206,7 @@ confirmed none present — see Issues section for anything notable).
 - [x] tool_tests/individual/test_list_working_tree.py
 - [x] tool_tests/individual/test_remove_dir.py
 - [x] tool_tests/individual/test_report_impossible.py
+- [x] tool_tests/individual/test_sleep.py
 - [x] tool_tests/individual/test_scrape_web_page.py
 - [x] tool_tests/individual/test_search_filesystem_by_regex.py
 - [x] tool_tests/individual/test_wikipedia.py

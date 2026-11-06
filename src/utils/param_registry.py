@@ -260,6 +260,18 @@ REGISTRY["system.metadata.system-admin.contact-name"] = ParamSpec(
         "a channel when it has a network or system error."
     ),
 )
+REGISTRY["system.standalone-sessions.clear-workspace-on-delete"] = ParamSpec(
+    name="system.standalone-sessions.clear-workspace-on-delete",
+    value_type="boolean",
+    scope="global",
+    default=False,
+    description=(
+        "Also delete a session's ~/.slbp/workspaces/<session-id> folder when the "
+        "session is deleted. Off by default, because that folder holds what the user "
+        "asked the agent to make. A session's scratchpad is always deleted, and a "
+        "real project folder or an agent's folder is never touched."
+    ),
+)
 REGISTRY["system.metadata.system-admin.contact-email"] = ParamSpec(
     name="system.metadata.system-admin.contact-email",
     value_type="string",

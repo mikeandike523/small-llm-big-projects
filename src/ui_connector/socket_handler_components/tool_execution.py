@@ -34,6 +34,7 @@ from src.tools import (
 )
 from src.tools import _dirty_cache
 from src.tools import _file_snapshot
+from src.tools._agent_file_guard import scope_for_session
 from src.tools.todo_list import format_items_for_ui as _todo_format_items_for_ui
 from src.utils.session_dirs import get_session_scratchpad_dir
 from src.utils.session_model import Session, Turn, LLMExchange, ToolCallRecord
@@ -92,6 +93,7 @@ def _execute_tools(
         "session_current_working_dir": _current_cwd,
         "session_scratchpad_dir": get_session_scratchpad_dir(session_id),
         "approval_mode": approval_mode,
+        "agent_file_scope": scope_for_session(session.agent_id, session.initial_cwd),
         "create_file_auto_eol": create_file_auto_eol,
         "on_cwd_change": None,
         "cancel_event": cancel_event,

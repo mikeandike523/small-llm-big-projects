@@ -19,7 +19,6 @@ from __future__ import annotations
 
 from src.utils.session_events import (
     EVT_EXCHANGE_RECORDED,
-    EVT_EMAIL_SETTINGS_SET,
     EVT_HEARTBEAT_SETTINGS_SET,
     EVT_SESSION_CREATED,
     EVT_SKILLS_SELECTED,
@@ -32,7 +31,6 @@ from src.utils.session_events import (
     EVT_TURN_REOPENED,
     EVT_TURN_STARTED,
     exchange_payload,
-    email_settings_payload,
     heartbeat_settings_payload,
     session_created_payload,
     subturn_started_payload,
@@ -52,9 +50,6 @@ def session_created_events(session: Session) -> list[Event]:
         events.append(
             (EVT_HEARTBEAT_SETTINGS_SET, heartbeat_settings_payload(heartbeat_settings))
         )
-    email_settings = session.session_data.get("email_settings")
-    if email_settings is not None:
-        events.append((EVT_EMAIL_SETTINGS_SET, email_settings_payload(email_settings)))
     return events
 
 

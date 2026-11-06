@@ -9,9 +9,27 @@ import src.channels.email.email_runner as runner_module
 import src.channels.email.inbound_store as store
 from src.channels.email.config import EmailConfig
 from src.channels.email.inbound_store import InboundEmail
+from src.utils.sql.agents_db import Agent
 from src.ui_connector.socket_handler_components.turn_outcome import TurnOutcome
-from src.utils.email_settings import DEFAULT_EMAIL_SETTINGS
 from src.utils.param_registry import REGISTRY
+
+
+def _agent(**overrides) -> Agent:
+    values = dict(
+        id="a1",
+        slug="helper",
+        name="Helper",
+        email="agent@example.test",
+        registered_at=1.0,
+        enabled=True,
+        allowed_senders=("person@example.test",),
+        profile_name="p",
+        approval_mode="default",
+        automation_approval_policy="wait-for-human",
+        created_at=1.0,
+    )
+    values.update(overrides)
+    return Agent(**values)
 
 
 class FakeStore:
@@ -19,17 +37,20 @@ class FakeStore:
 
     def __init__(self) -> None:
         self.rows: dict[int, InboundEmail] = {}
+        self.approval_requested: set[int] = set()
         self._ids = itertools.count(1)
 
     def add(self, **overrides) -> InboundEmail:
         row_id = next(self._ids)
         row = InboundEmail(
             id=row_id,
+            agent_id="a1",
             session_id="s1",
             gmail_message_id=f"m{row_id}",
             gmail_thread_id="t1",
             alias="agent@example.test",
             sender_address="person@example.test",
+            sender_display_name=None,
             subject="Hello",
             message_id_header=f"<m{row_id}@mail.example.test>",
             references_header="",
@@ -40,6 +61,7 @@ class FakeStore:
             queued_reply_sent_at=None,
             working_reply_sent_at=None,
             final_reply_sent_at=None,
+            approval_notice_sent_at=None,
             final_text=None,
             error_detail=None,
         )
@@ -66,7 +88,33 @@ class FakeStore:
         m(
             store,
             "sessions_with_pending_work",
-            lambda: sorted({r.session_id for r in self.rows.values()}),
+            lambda: sorted({r.session_id for r in self.rows.values() if r.session_id}),
+        )
+        m(
+            store,
+            "queued_without_session",
+            lambda: ordered(
+                r
+                for r in self.rows.values()
+                if r.session_id is None and r.status == store.STATUS_QUEUED
+            ),
+        )
+        m(
+            store,
+            "assign_session",
+            lambda rid, sid: self._set(rid, session_id=sid),
+        )
+        m(
+            store,
+            "running_needing_approval_notice",
+            lambda sid: ordered(
+                r
+                for r in self.rows.values()
+                if r.session_id == sid
+                and r.status == store.STATUS_RUNNING
+                and r.id in self.approval_requested
+                and r.approval_notice_sent_at is None
+            ),
         )
         m(
             store,
@@ -135,13 +183,8 @@ class Harness:
         self.callbacks: list = []
         self.launch_results = iter(launch_results or itertools.repeat(True))
         self.send_fails = send_fails
-        self.settings = {
-            **DEFAULT_EMAIL_SETTINGS,
-            "enabled": True,
-            "alias": "agent@example.test",
-            "agent_name": "Helper",
-            "followup_behavior": "new-task",
-        }
+        self.agent = _agent()
+        self.spawned: list[int] = []
         self.params = {
             runner_module.SYSTEM_MESSAGES_PARAM: True,
             runner_module.ADMIN_NAME_PARAM: "Sam Admin",
@@ -163,13 +206,19 @@ class Harness:
             ),
             gmail_factory=lambda: object(),
             launch=self._launch,
-            settings_for=lambda _sid: self.settings,
+            agent_for=lambda _sid: self.agent,
+            assign_session=self._assign,
+            prepare_folder=lambda _row: "users/person",
             read_param=lambda name: self.params[name],
             clock=lambda: 50.0,
         )
 
-    def _launch(self, session_id, text, behavior, on_finished) -> bool:
-        self.launches.append((session_id, text, behavior))
+    def _assign(self, row) -> str:
+        self.spawned.append(row.id)
+        return f"spawned-{row.gmail_thread_id}"
+
+    def _launch(self, session_id, text, title, on_finished) -> bool:
+        self.launches.append((session_id, text, title))
         result = next(self.launch_results)
         if result:
             self.callbacks.append(on_finished)
@@ -191,9 +240,10 @@ def test_idle_email_is_launched_with_working_note(monkeypatch) -> None:
     row = h.store.add()
     h.runner.run_pass()
     assert h.launches[0][0] == "s1"
-    assert h.launches[0][2] == "new-task"
+    assert h.launches[0][2] == "Message from person@example.test, id=t1"
     assert h.launches[0][1].startswith(
-        '[Email from person@example.test, subject "Hello"'
+        "[Email from person@example.test, user folder = users/person, "
+        'subject "Hello"'
     )
     assert h.sent == [(row.id, "[Helper is working...]")]
     assert h.store.rows[row.id].status == store.STATUS_RUNNING
@@ -374,7 +424,7 @@ def test_new_params_are_global_with_the_requested_defaults() -> None:
 
 def test_missing_agent_name_uses_generic_label(monkeypatch) -> None:
     h = Harness(monkeypatch)
-    h.settings["agent_name"] = ""
+    h.agent = _agent(name=None)
     row = h.store.add()
     h.runner.run_pass()
     assert h.sent == [(row.id, "[The agent is working...]")]

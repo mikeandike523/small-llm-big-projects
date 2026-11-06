@@ -41,6 +41,7 @@ from src.ui_connector.socket_handler_components.session_setup import (
     _build_prompt_placeholders,
 )
 from src.ui_connector.app import socketio
+from src.logic.agent_prompt import build_agent_prompt_section
 from src.logic.system_prompt import (
     build_injected_skills_section,
     resolve_skill_dependency_closure,
@@ -150,6 +151,11 @@ async def _async_agent_loop(
             if turn_only_skills
             else ""
         )
+        agent_section = build_agent_prompt_section(session)
+        if agent_section:
+            active_skills_section = "\n\n".join(
+                part for part in (active_skills_section, agent_section) if part
+            )
 
         while True:
             if cancel_event.is_set():

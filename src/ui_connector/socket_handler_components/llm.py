@@ -33,7 +33,6 @@ from src.utils.context_errors import (
 from src.utils.exceptions import ContextReductionExhaustedError
 from src.utils.llm.streaming import StreamingLLM
 from src.utils.conversation_history import assistant_context, closed_subturn
-from src.utils.email_settings import EMAIL_MULTITASK_PROMPT_NOTE
 from src.utils.session_model import Session, Turn, Subturn
 
 logger = logging.getLogger(__name__)
@@ -61,17 +60,6 @@ def sanitize_messages_for_llm(messages: list[dict]) -> list[dict]:
 # ---------------------------------------------------------------------------
 # Payload construction
 # ---------------------------------------------------------------------------
-
-
-def _email_channel_enabled(session: Session) -> bool:
-    """Live email-channel flag (falls back to the loaded session's copy)."""
-    live = runtime_settings.peek(session.session_id)
-    settings = (
-        live.email_settings
-        if live is not None
-        else session.session_data.get("email_settings") or {}
-    )
-    return bool(settings.get("enabled"))
 
 
 def _append_closed_subturn(messages: list[dict], turn: Turn, subturn: Subturn) -> None:
@@ -109,8 +97,6 @@ def _build_llm_payload(
     system_content = _get_session_system_prompt(session.session_id)
     if skills_section:
         system_content = system_content + "\n" + skills_section
-    if _email_channel_enabled(session):
-        system_content = system_content + "\n\n" + EMAIL_MULTITASK_PROMPT_NOTE
     messages: list[dict] = [{"role": "system", "content": system_content}]
 
     for turn in session.completed_turns:

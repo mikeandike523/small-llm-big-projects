@@ -159,6 +159,7 @@ def load_latest_turn(session_id: str) -> dict:
     )
     live_todo_items = None
     if running:
+        unsaved = _with_pending_approval(session_id, unsaved)
         # The session-level todo list as of the cutoff; newer
         # todo_list_update events in `unsaved` override it on the client.
         payload = load_latest_event_payload(
@@ -173,6 +174,38 @@ def load_latest_turn(session_id: str) -> dict:
         "events": unsaved,
         "liveTodoItems": live_todo_items,
     }
+
+
+def _with_pending_approval(session_id: str, events: list[dict]) -> list[dict]:
+    """Add the approval this turn is waiting on, if the log no longer has it.
+
+    The log expires after an hour, but an approval waits indefinitely, so someone
+    answering an email notice later must still be shown it.
+    """
+    with _state._pending_approvals_lock:
+        entry = _state._pending_approvals.get(session_id)
+    if entry is None:
+        return events
+    if any(
+        event.get("type") == "approval_request"
+        and (event.get("data") or {}).get("id") == entry["tool_id"]
+        for event in events
+    ):
+        return events
+    return [
+        *events,
+        {
+            "id": "",
+            "type": "approval_request",
+            "data": {
+                "id": entry["tool_id"],
+                "tool_name": entry["tool_name"],
+                "args": entry["args"],
+                "turn_id": entry["turn_id"],
+                "subturn_id": entry["subturn_id"],
+            },
+        },
+    ]
 
 
 def _unsaved_events(r, session_id: str) -> list[dict]:

@@ -75,6 +75,14 @@ from src.utils.startup_tool_calls import validate_startup_tool_calls
 logger = logging.getLogger(__name__)
 
 
+def _agent_locked_response():
+    """A pool session's settings belong to its agent, whatever the UI shows."""
+    return (
+        jsonify({"error": "This session's settings are managed by its agent."}),
+        409,
+    )
+
+
 @app.route("/api/sessions", methods=["POST"])
 def api_create_session():
     """
@@ -312,6 +320,9 @@ def api_list_sessions():
     # blob parsing or re-sort is needed here.
     results = []
     for row in rows:
+        # Pool sessions are listed under their agent (GET /api/agents).
+        if row.get("agent_id"):
+            continue
         session_id = row["session_id"]
         results.append(
             {
@@ -332,7 +343,6 @@ def api_list_sessions():
                 "profile_name": row.get("profile_name") or None,
                 "corrupt": row.get("corrupt", False),
                 "heartbeat_enabled": row.get("heartbeat_enabled", False),
-                "email_enabled": row.get("email_enabled", False),
             }
         )
     return jsonify(results)
@@ -367,6 +377,8 @@ def api_reload_custom_skills_tools(session_id: str):
     session = _load_session_info(session_id)
     if session is None:
         return jsonify({"error": "Session not found"}), 404
+    if session.agent_id:
+        return _agent_locked_response()
     if not session.load_custom_skills_tools:
         _emit_backend_log(
             session_id,
@@ -483,6 +495,8 @@ def api_session_set_profile(session_id: str):
     session = _load_session_info(session_id)
     if session is None:
         return jsonify({"error": "Session not found"}), 404
+    if session.agent_id:
+        return _agent_locked_response()
     from src.ui_connector.socket_handler_components import runtime_settings
 
     settings = runtime_settings.set_profile(session_id, session, profile_name)
@@ -524,6 +538,8 @@ def api_session_set_approval_mode(session_id: str):
     session = _load_session_info(session_id)
     if session is None:
         return jsonify({"error": "Session not found"}), 404
+    if session.agent_id:
+        return _agent_locked_response()
     from src.ui_connector.socket_handler_components import runtime_settings
 
     settings = runtime_settings.set_approval_mode(session_id, session, approval_mode)
@@ -558,6 +574,8 @@ def api_session_set_heartbeat_settings(session_id: str):
     session = _load_session_info(session_id)
     if session is None:
         return jsonify({"error": "Session not found"}), 404
+    if session.agent_id:
+        return _agent_locked_response()
     from src.ui_connector.socket_handler_components import runtime_settings
 
     settings = runtime_settings.set_heartbeat_settings(

@@ -11,8 +11,6 @@ import type {
   SubturnOrigin,
 } from "../types";
 import { DEFAULT_HEARTBEAT_SETTINGS, toSubturnOrigin } from "../types";
-import { useEmailSettingsState } from "./emailSettingsState";
-import type { EmailSettingsWire } from "./emailSettingsState";
 import type {
   BackendLogEntry,
   BackendLogContent,
@@ -92,6 +90,8 @@ export default function useSocketWiring(socket: Socket) {
   const [connected, setConnected] = useState(false);
   const [busy, setBusy] = useState(false);
   const [loadCustomSkillsTools, setLoadCustomSkillsTools] = useState(false);
+  // undefined until session_state says; a string for a session in an agent's pool.
+  const [agentId, setAgentId] = useState<string | null | undefined>(undefined);
   const [cancelling, setCancelling] = useState(false);
   const [pwd, setPwd] = useState<string>("");
   const [skillsInfo, setSkillsInfo] = useState<{
@@ -147,9 +147,6 @@ export default function useSocketWiring(socket: Socket) {
   const [heartbeatSettings, setHeartbeatSettings] = useState<HeartbeatSettings>(
     DEFAULT_HEARTBEAT_SETTINGS,
   );
-  const email = useEmailSettingsState();
-  const applyEmailSessionState = email.applySessionState;
-  const applyEmailSettingsUpdate = email.applySettingsUpdate;
   const [contextUsageData, setContextUsageData] = useState<{
     prompt_tokens: number;
     completion_tokens: number;
@@ -384,10 +381,12 @@ export default function useSocketWiring(socket: Socket) {
             args: data.args as Record<string, unknown>,
             subturnId: (data.subturn_id as string | undefined) ?? undefined,
           };
-          updateTurn(turnId, (t) => ({
-            ...t,
-            approvalItems: [...t.approvalItems, item],
-          }));
+          // A page load can also re-send the approval the turn is waiting on.
+          updateTurn(turnId, (t) =>
+            t.approvalItems.some((existing) => existing.id === item.id)
+              ? t
+              : { ...t, approvalItems: [...t.approvalItems, item] },
+          );
           break;
         }
         case "approval_resolved": {
@@ -706,17 +705,14 @@ export default function useSocketWiring(socket: Socket) {
         });
       }
     }
-    function onSessionSettingsUpdate(
-      data: {
-        profileName: string | null;
-        profileRevision: number;
-        approvalMode: string;
-        approvalModeRevision: number;
-        heartbeatSettings?: HeartbeatSettings;
-        heartbeatSettingsRevision?: number;
-      } & EmailSettingsWire,
-    ) {
-      applyEmailSettingsUpdate(data);
+    function onSessionSettingsUpdate(data: {
+      profileName: string | null;
+      profileRevision: number;
+      approvalMode: string;
+      approvalModeRevision: number;
+      heartbeatSettings?: HeartbeatSettings;
+      heartbeatSettingsRevision?: number;
+    }) {
       if (data.profileRevision >= profileRevisionRef.current) {
         profileRevisionRef.current = data.profileRevision;
         sessionProfileRef.current = data.profileName;
@@ -779,20 +775,20 @@ export default function useSocketWiring(socket: Socket) {
     }
 
     // Session state (response to resume_session)
-    function onSessionState(
-      data: {
-        startupDone?: boolean;
-        schemaInvalid?: boolean;
-        profileName?: string | null;
-        approvalMode?: string;
-        profileRevision?: number;
-        approvalModeRevision?: number;
-        heartbeatSettings?: HeartbeatSettings;
-        heartbeatSettingsRevision?: number;
-        loadCustomSkillsTools?: boolean;
-      } & EmailSettingsWire,
-    ) {
+    function onSessionState(data: {
+      startupDone?: boolean;
+      schemaInvalid?: boolean;
+      profileName?: string | null;
+      approvalMode?: string;
+      profileRevision?: number;
+      approvalModeRevision?: number;
+      heartbeatSettings?: HeartbeatSettings;
+      heartbeatSettingsRevision?: number;
+      loadCustomSkillsTools?: boolean;
+      agentId?: string | null;
+    }) {
       if (data.schemaInvalid) {
+        setAgentId(null);
         // Schema mismatch — there is no history to load.
         pages.markReady();
         finishHistoryLoad(null);
@@ -825,7 +821,7 @@ export default function useSocketWiring(socket: Socket) {
       }
       heartbeatSettingsRevisionRef.current =
         data.heartbeatSettingsRevision ?? 0;
-      applyEmailSessionState(data);
+      setAgentId(data.agentId ?? null);
       if (data.loadCustomSkillsTools !== undefined) {
         setLoadCustomSkillsTools(data.loadCustomSkillsTools);
       }
@@ -1213,14 +1209,7 @@ export default function useSocketWiring(socket: Socket) {
       socket.disconnect();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    socket,
-    applyReplayEvent,
-    updateTurn,
-    noteTurnStarted,
-    applyEmailSessionState,
-    applyEmailSettingsUpdate,
-  ]);
+  }, [socket, applyReplayEvent, updateTurn, noteTurnStarted]);
 
   return {
     thread,
@@ -1230,6 +1219,7 @@ export default function useSocketWiring(socket: Socket) {
     busy,
     setBusy,
     loadCustomSkillsTools,
+    agentId,
     cancelling,
     setCancelling,
     pwd,
@@ -1259,8 +1249,6 @@ export default function useSocketWiring(socket: Socket) {
     setApprovalMode,
     heartbeatSettings,
     setHeartbeatSettings,
-    emailSettings: email.emailSettings,
-    setEmailSettings: email.setEmailSettings,
     contextUsageData,
     setContextUsageData,
     terminalOpen,

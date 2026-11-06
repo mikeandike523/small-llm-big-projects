@@ -6,24 +6,18 @@ import pytest
 
 # Import the app first: importing emit-dependent modules in isolation hits a
 # pre-existing emit <-> session_store circular import.
-from src.ui_connector.app import app  # noqa: I001
+from src.ui_connector.app import app  # noqa: I001, F401
 
-import src.channels.email.email_runner as email_runner
 import src.ui_connector.socket_handler_components.automation_approval as approval
-import src.ui_connector.socket_handler_components.email_settings_api as api
 from src.ui_connector.heartbeat_daemon import HeartbeatSession
 from src.ui_connector.heartbeat_runner import HeartbeatRunner
 from src.ui_connector.socket_handler_components import runtime_settings
-from src.ui_connector.socket_handler_components.llm import _build_llm_payload
 from src.ui_connector.socket_handler_components.turn_outcome import (
     NO_FINAL_ANSWER_ERROR,
     TurnOutcome,
     outcome_from_turn,
 )
-from src.utils.email_settings import (
-    DEFAULT_EMAIL_SETTINGS,
-    EMAIL_MULTITASK_PROMPT_NOTE,
-)
+from src.utils.sql.agents_db import Agent
 from src.utils.session_model import (
     SUBTURN_ORIGIN_EMAIL,
     SUBTURN_ORIGIN_HEARTBEAT,
@@ -35,104 +29,22 @@ from src.utils.session_model import (
 )
 
 
-class DuplicateKey(Exception):
-    errno = 1062
-
-
-def _body(**overrides) -> dict:
-    return {
-        "enabled": True,
-        "alias": "Agent@Example.test",
-        "agent_name": "Helper",
-        "allowed_senders": "person@example.test",
-        "email_approval_policy": "force-fail",
-        "followup_behavior": "auto",
-        **overrides,
-    }
-
-
-@pytest.fixture
-def route_env(monkeypatch):
-    session_id = "email-route-s1"
-    state = {"persisted": [], "owner": None, "persist_error": None, "discarded": []}
-    monkeypatch.setattr(api, "_load_session_info", lambda sid: Session(session_id=sid))
-    monkeypatch.setattr(api, "find_alias_owner", lambda *_a, **_k: state["owner"])
-
-    def persist(sid, settings):
-        if state["persist_error"] is not None:
-            raise state["persist_error"]
-        state["persisted"].append(settings)
-
-    monkeypatch.setattr(api, "persist_email_settings", persist)
-    monkeypatch.setattr(api.socketio, "emit", lambda *a, **k: None)
-    monkeypatch.setattr(
-        email_runner,
-        "discard_queued_email",
-        lambda sid: state["discarded"].append(sid) or 0,
+def _agent(**overrides) -> Agent:
+    values = dict(
+        id="agent-1",
+        slug="helper",
+        name="Helper",
+        email="agent@example.test",
+        registered_at=1.0,
+        enabled=True,
+        allowed_senders=("person@example.test",),
+        profile_name="agent-profile",
+        approval_mode="full-auto",
+        automation_approval_policy="force-fail",
+        created_at=1.0,
     )
-    monkeypatch.setattr(email_runner, "notify_email_runner", lambda: None)
-    yield session_id, state, app.test_client()
-    runtime_settings.discard(session_id)
-
-
-def _patch(client, session_id, body):
-    return client.patch(f"/api/sessions/{session_id}/email-settings", json=body)
-
-
-def test_claim_sets_server_claim_time_and_normalizes(route_env) -> None:
-    session_id, state, client = route_env
-    response = _patch(client, session_id, _body(alias_claimed_at=1.0))
-    assert response.status_code == 200
-    saved = state["persisted"][0]
-    assert saved["alias"] == "agent@example.test"
-    assert saved["allowed_senders"] == ["person@example.test"]
-    assert saved["alias_claimed_at"] > 1.0
-    assert response.get_json()["emailSettings"]["alias"] == "agent@example.test"
-    assert state["discarded"] == [session_id]  # alias changed
-
-
-def test_unchanged_alias_keeps_its_claim_time(route_env) -> None:
-    session_id, state, client = route_env
-    _patch(client, session_id, _body())
-    first = state["persisted"][0]["alias_claimed_at"]
-    _patch(client, session_id, _body(agent_name="Renamed"))
-    assert state["persisted"][1]["alias_claimed_at"] == first
-    assert state["discarded"] == [session_id]  # only the first save discarded
-
-
-def test_alias_owned_by_another_session_is_409(route_env) -> None:
-    session_id, state, client = route_env
-    state["owner"] = {"session_id": "other", "title": "Other task"}
-    response = _patch(client, session_id, _body())
-    assert response.status_code == 409
-    data = response.get_json()
-    assert data["field"] == "alias"
-    assert data["owner_session_id"] == "other"
-    assert "Other task" in data["error"]
-    assert state["persisted"] == []
-
-
-def test_unique_index_race_is_also_409(route_env) -> None:
-    session_id, state, client = route_env
-    state["persist_error"] = DuplicateKey("duplicate entry")
-    response = _patch(client, session_id, _body())
-    assert response.status_code == 409
-    assert response.get_json()["field"] == "alias"
-
-
-def test_invalid_sender_line_is_400_with_field(route_env) -> None:
-    session_id, _state, client = route_env
-    response = _patch(client, session_id, _body(allowed_senders="ok@example.test\nbad"))
-    assert response.status_code == 400
-    assert response.get_json()["field"] == "allowed_senders"
-
-
-def test_disabling_discards_queue_but_keeps_alias(route_env) -> None:
-    session_id, state, client = route_env
-    _patch(client, session_id, _body())
-    _patch(client, session_id, _body(enabled=False))
-    assert state["persisted"][1]["alias"] == "agent@example.test"
-    assert state["discarded"] == [session_id, session_id]
+    values.update(overrides)
+    return Agent(**values)
 
 
 # -- approval policy by origin ----------------------------------------------
@@ -146,18 +58,15 @@ def test_disabling_discards_queue_but_keeps_alias(route_env) -> None:
         (SUBTURN_ORIGIN_USER, None),
     ],
 )
-def test_email_policy_applies_only_to_email_subturns(
+def test_agent_policy_applies_only_to_email_subturns(
     monkeypatch, origin, expected
 ) -> None:
     monkeypatch.setattr(approval, "_emit_backend_log", lambda *_a: None)
+    monkeypatch.setattr(approval, "get_agent", lambda _id: _agent())
+    monkeypatch.setattr(runtime_settings, "get_agent", lambda _id: _agent())
     session_id = f"email-approval-{origin}"
-    session = Session(session_id=session_id)
+    session = Session(session_id=session_id, agent_id="agent-1")
     turn = Turn(id="t1", subturns=[Subturn("st1", "hi", "hi", origin=origin)])
-    runtime_settings.set_email_settings(
-        session_id,
-        session,
-        {**DEFAULT_EMAIL_SETTINGS, "email_approval_policy": "force-fail"},
-    )
     try:
         assert (
             approval.automation_approval_override(
@@ -213,29 +122,3 @@ def test_outcome_does_not_treat_a_failure_marker_as_the_answer() -> None:
     assert outcome_from_turn(turn, subturn) == TurnOutcome.failed(
         "Request failed: could not connect."
     )
-
-
-# -- system prompt note ------------------------------------------------------
-
-
-def test_prompt_note_follows_the_live_enabled_flag() -> None:
-    session_id = "email-prompt-note"
-    session = Session(session_id=session_id)
-    turn = Turn(id="t1", subturns=[Subturn("st1", "hi", "hi")])
-    try:
-        runtime_settings.set_email_settings(
-            session_id, session, {**DEFAULT_EMAIL_SETTINGS, "enabled": True}
-        )
-        assert (
-            EMAIL_MULTITASK_PROMPT_NOTE
-            in _build_llm_payload(session, turn)[0]["content"]
-        )
-        runtime_settings.set_email_settings(
-            session_id, session, {**DEFAULT_EMAIL_SETTINGS, "enabled": False}
-        )
-        assert (
-            EMAIL_MULTITASK_PROMPT_NOTE
-            not in _build_llm_payload(session, turn)[0]["content"]
-        )
-    finally:
-        runtime_settings.discard(session_id)

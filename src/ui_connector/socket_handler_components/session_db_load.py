@@ -31,6 +31,7 @@ from termcolor import colored
 
 import src.ui_connector.socket_handler_components.state as _state
 from src.ui_connector.socket_handler_components.emit import _emit_backend_log
+from src.utils.agent_store import get_agent
 from src.utils.session_cache_projection import stub_turn_from_cache
 from src.utils.session_events import (
     SESSION_LEVEL_EVENT_TYPES,
@@ -86,6 +87,17 @@ def _replay_rows(state: ReplayState, rows) -> None:
 # ---------------------------------------------------------------------------
 
 
+def _apply_agent_settings(session: Session) -> None:
+    """A pool session's settings live on its agent: every loaded Session gets
+    them, so code reading session.profile_name sees the right value."""
+    if session.agent_id is None:
+        return
+    agent = get_agent(session.agent_id)
+    if agent is not None:
+        session.profile_name = agent.profile_name
+        session.approval_mode = agent.approval_mode
+
+
 def load_session_info_from_db(session_id: str) -> Session | None:
     """Session-level state without turns, or None if there is no such session."""
     meta = load_session_meta(session_id)
@@ -96,6 +108,7 @@ def load_session_info_from_db(session_id: str) -> Session | None:
     session = state.to_session()
     session.turns_loaded = False
     session.history_cache_compatible = bool(meta.get("history_cache_compatible"))
+    _apply_agent_settings(session)
     _restore_once(session_id, meta, session.profile_name)
     return session
 
@@ -129,6 +142,7 @@ def load_session_from_db(session_id: str) -> Session | None:
         # follow-up can reopen.
         session.completed_turns.append(session.current_turn)
         session.current_turn = None
+    _apply_agent_settings(session)
     _restore_once(session_id, meta, session.profile_name)
     return session
 

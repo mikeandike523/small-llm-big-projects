@@ -6,8 +6,7 @@ import pytest
 
 import src.channels.email.router as router
 from src.channels.email.mime import ParsedGmailMessage
-from src.utils.email_settings import DEFAULT_EMAIL_SETTINGS
-from src.utils.sql.email_alias_db import AliasClaim
+from src.utils.sql.agents_db import Agent
 
 GOOD_AUTH = (
     "mx.google.com; dkim=pass header.i=@example.test; "
@@ -43,31 +42,37 @@ def _message(**overrides) -> ParsedGmailMessage:
     return ParsedGmailMessage(**values)
 
 
-def _claim(session_id="s1", alias="agent@example.test", **overrides) -> AliasClaim:
+def _agent(agent_id="a1", email="agent@example.test", **overrides) -> Agent:
     values = dict(
-        session_id=session_id,
-        alias=alias,
+        id=agent_id,
+        slug=agent_id,
+        name="Helper",
+        email=email,
+        registered_at=1000.0,
         enabled=True,
-        claimed_at=1000.0,
+        allowed_senders=("person@example.test",),
+        profile_name="p",
+        approval_mode="default",
+        automation_approval_policy="wait-for-human",
         created_at=1.0,
     )
     values.update(overrides)
-    return AliasClaim(**values)
+    return Agent(**values)
 
 
 class Env:
-    def __init__(self, monkeypatch, claims, *, senders=("person@example.test",)):
-        self.claims = claims
+    def __init__(self, monkeypatch, agents):
+        self.agents = agents
         self.inserted: list = []
         self.busy = False
-        self.settings = {**DEFAULT_EMAIL_SETTINGS, "allowed_senders": list(senders)}
         monkeypatch.setattr(
             router,
-            "list_alias_claims",
-            lambda aliases: [c for c in self.claims if c.alias in aliases],
+            "load_agents_for_emails",
+            lambda emails: [a for a in self.agents if a.email in emails],
         )
-        monkeypatch.setattr(router, "email_settings_for", lambda _sid: self.settings)
-        monkeypatch.setattr(router, "_session_is_busy", lambda _sid: self.busy)
+        monkeypatch.setattr(
+            router, "conversation_has_unfinished_work", lambda *_a: self.busy
+        )
         monkeypatch.setattr(router, "sent_final_texts", lambda *_a: [])
         monkeypatch.setattr(router, "insert_inbound", self._insert)
 
@@ -77,26 +82,28 @@ class Env:
 
 
 def test_allowed_authenticated_mail_is_queued(monkeypatch) -> None:
-    env = Env(monkeypatch, [_claim()])
+    env = Env(monkeypatch, [_agent()])
     woken: list[str] = []
-    assert router.route_inbound_message(_message(), on_queued=woken.append) == ["s1"]
+    assert router.route_inbound_message(_message(), on_queued=woken.append) == ["a1"]
     item, needs_queued_reply = env.inserted[0]
+    assert item.agent_id == "a1"
     assert item.sender_address == "person@example.test"
+    assert item.sender_display_name == "Person"
     assert item.alias == "agent@example.test"
     assert item.received_at == 2000.0
     assert needs_queued_reply is False
-    assert woken == ["s1"]
+    assert woken == ["a1"]
 
 
-def test_busy_session_marks_queued_reply(monkeypatch) -> None:
-    env = Env(monkeypatch, [_claim()])
+def test_busy_conversation_marks_queued_reply(monkeypatch) -> None:
+    env = Env(monkeypatch, [_agent()])
     env.busy = True
     router.route_inbound_message(_message())
     assert env.inserted[0][1] is True
 
 
-def test_unclaimed_alias_is_ignored_silently(monkeypatch, caplog) -> None:
-    env = Env(monkeypatch, [_claim(alias="other@example.test")])
+def test_unregistered_email_is_ignored_silently(monkeypatch, caplog) -> None:
+    env = Env(monkeypatch, [_agent(email="other@example.test")])
     with caplog.at_level(logging.DEBUG):
         assert router.route_inbound_message(_message()) == []
     assert env.inserted == []
@@ -112,20 +119,20 @@ def test_unclaimed_alias_is_ignored_silently(monkeypatch, caplog) -> None:
     ],
 )
 def test_own_and_automated_mail_is_dropped(monkeypatch, overrides) -> None:
-    env = Env(monkeypatch, [_claim()])
+    env = Env(monkeypatch, [_agent()])
     assert router.route_inbound_message(_message(**overrides)) == []
     assert env.inserted == []
 
 
 def test_auto_submitted_no_is_a_normal_message(monkeypatch) -> None:
-    Env(monkeypatch, [_claim()])
-    assert router.route_inbound_message(_message(auto_submitted_header="no")) == ["s1"]
+    Env(monkeypatch, [_agent()])
+    assert router.route_inbound_message(_message(auto_submitted_header="no")) == ["a1"]
 
 
-def test_disabled_or_before_claim_is_dropped(monkeypatch) -> None:
-    env = Env(monkeypatch, [_claim(enabled=False)])
+def test_disabled_or_before_registration_is_dropped(monkeypatch) -> None:
+    env = Env(monkeypatch, [_agent(enabled=False)])
     assert router.route_inbound_message(_message()) == []
-    env.claims = [_claim(claimed_at=5000.0)]
+    env.agents = [_agent(registered_at=5000.0)]
     assert router.route_inbound_message(_message()) == []
     assert env.inserted == []
 
@@ -145,7 +152,7 @@ def test_disabled_or_before_claim_is_dropped(monkeypatch) -> None:
 def test_unknown_or_unauthenticated_sender_is_logged(
     monkeypatch, caplog, overrides, senders, reason
 ) -> None:
-    env = Env(monkeypatch, [_claim()], senders=senders)
+    env = Env(monkeypatch, [_agent(allowed_senders=senders)])
     with caplog.at_level(logging.WARNING):
         assert router.route_inbound_message(_message(**overrides)) == []
     assert env.inserted == []
@@ -153,30 +160,25 @@ def test_unknown_or_unauthenticated_sender_is_logged(
     assert reason in caplog.text
 
 
-def test_message_for_two_aliases_goes_to_both_sessions(monkeypatch) -> None:
+def test_message_for_two_agents_goes_to_both(monkeypatch) -> None:
     env = Env(
         monkeypatch,
-        [_claim("s1", "agent@example.test"), _claim("s2", "second@example.test")],
+        [_agent("a1", "agent@example.test"), _agent("a2", "second@example.test")],
     )
     message = _message(cc_header="second@example.test")
-    assert sorted(router.route_inbound_message(message)) == ["s1", "s2"]
+    assert sorted(router.route_inbound_message(message)) == ["a1", "a2"]
     assert len(env.inserted) == 2
 
 
-def test_duplicate_claims_fall_back_to_the_earliest_session(monkeypatch) -> None:
-    Env(monkeypatch, [_claim("old", created_at=1.0), _claim("new", created_at=2.0)])
-    assert router.route_inbound_message(_message()) == ["old"]
-
-
 def test_redelivery_queues_nothing(monkeypatch) -> None:
-    env = Env(monkeypatch, [_claim()])
+    env = Env(monkeypatch, [_agent()])
     monkeypatch.setattr(router, "insert_inbound", lambda *_a, **_k: False)
     assert router.route_inbound_message(_message()) == []
     assert env.inserted == []
 
 
 def test_quoted_history_is_stripped_before_queueing(monkeypatch) -> None:
-    env = Env(monkeypatch, [_claim()])
+    env = Env(monkeypatch, [_agent()])
     body = "New question\n\nOn Mon, Agent <agent@example.test> wrote:\n> old\n"
     router.route_inbound_message(_message(text_body=body))
     assert env.inserted[0][0].body_text == "New question"

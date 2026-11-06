@@ -134,6 +134,7 @@ def handle_resume_session(data: dict | None = None):
             "startupDone": session.startup_done,
             "isTurnActive": is_turn_active,
             "loadCustomSkillsTools": session.load_custom_skills_tools,
+            "agentId": session.agent_id,
             **runtime_settings.payload(runtime_settings.snapshot(session_id, session)),
         },
     )

@@ -34,6 +34,7 @@ from src.tools import list_working_tree
 from src.tools import read_text_file
 from src.tools import remove_dir
 from src.tools import report_impossible
+from src.tools import sleep
 from src.tools import restore_file
 from src.tools import scrape_web_page
 from src.tools import snapshot_file
@@ -46,6 +47,7 @@ from src.tools import wikipedia
 from src.tools import write_text_file
 from src.utils.tool_calling.arguments import validate_tool_args
 from src.config.tool_execution import MAX_TOOL_DELEGATION_HOPS
+from src.tools._agent_file_guard import guarded_call, is_always_allowed
 from src.tools._cancellation import check_cancelled, get_cancel_event
 from src.tools._custom_tool_reload import reload_modules
 
@@ -182,6 +184,7 @@ ALL_TOOL_DEFINITIONS: list[dict] = [
     _inject_framework_params(read_text_file, read_text_file.DEFINITION),
     _inject_framework_params(remove_dir, remove_dir.DEFINITION),
     _inject_framework_params(report_impossible, report_impossible.DEFINITION),
+    _inject_framework_params(sleep, sleep.DEFINITION),
     _inject_framework_params(restore_file, restore_file.DEFINITION),
     _inject_framework_params(scrape_web_page, scrape_web_page.DEFINITION),
     _inject_framework_params(snapshot_file, snapshot_file.DEFINITION),
@@ -222,6 +225,7 @@ _TOOL_MAP: dict[str, object] = {
     "read_text_file": read_text_file,
     "remove_dir": remove_dir,
     "report_impossible": report_impossible,
+    "sleep": sleep,
     "restore_file": restore_file,
     "scrape_web_page": scrape_web_page,
     "snapshot_file": snapshot_file,
@@ -430,6 +434,12 @@ def check_needs_approval(
         # own constructed delegation args) — same hard gate, re-checked per hop.
         if hop_args.get("request_unredacted"):
             return True
+        # Here rather than in needs_path_approval: in default mode the write
+        # tools ask without consulting the path at all.
+        if is_always_allowed(
+            module.DEFINITION["function"]["name"], hop_args, special_resources
+        ):
+            return False
         fn = getattr(module, "needs_approval", None)
         if fn is None:
             return False
@@ -565,7 +575,13 @@ def execute_tool(
             # using the final (fully strict) values, not this per-hop signal.
             fn_special_resources = dict(special_resources)
             fn_special_resources["request_unredacted"] = bypass_so_far
-            result = fn(clean_args, session_data, fn_special_resources)
+            # After approval, so no file lock is ever held during an approval wait.
+            result = guarded_call(
+                module.DEFINITION["function"]["name"],
+                clean_args,
+                special_resources,
+                lambda: fn(clean_args, session_data, fn_special_resources),
+            )
         else:
             result = fn(clean_args, session_data)
         check_cancelled(name, cancel_event)

@@ -2,23 +2,30 @@
 
 One daemon thread does all of it, so replies about one email are always sent
 in order (queued -> working -> final). It wakes when mail is queued, when any
-turn reservation is released, when settings change, and every
-``SWEEP_SECONDS`` as a fallback. Per session with pending work, a pass:
+turn reservation is released, when a turn starts waiting for approval, when
+settings change, and every ``SWEEP_SECONDS`` as a fallback. A pass first gives
+new mail to its conversation's session, spawning the session on a conversation's
+first email. Then, per session with pending work, it:
 
 1. sends each owed end-of-turn reply (answer / error / cancellation);
-2. sends each owed ``[message queued]`` note;
-3. unless an email turn it launched is still running, claims the oldest
+2. sends each owed awaiting-approval notice;
+3. sends each owed ``[message queued]`` note;
+4. unless an email turn it launched is still running, claims the oldest
    queued email (compare-and-set) and launches it; busy -> back to queued.
 
+Sessions do not wait for each other, so conversations run in parallel while each
+one stays in order.
+
 Turn threads only record outcomes in the database (``on_finished``) and wake
-the runner; they never send mail themselves. A failed end-of-turn or queued
-reply leaves its ``*_reply_sent_at`` column empty, so a later pass retries it.
-The ``[... is working...]`` note is only tried once: sent late, it would be
+the runner; they never send mail themselves. A failed end-of-turn, approval or
+queued reply leaves its column empty, so a later pass retries it. The
+``[... is working...]`` note is only tried once: sent late, it would be
 misleading.
 
 The queued and working notes are progress notes, sent only when
 ``system.channels.email.system-messages.enabled`` is true. End-of-turn replies
-are always sent, because they are the sender's only answer.
+and the awaiting-approval notice are always sent: the first is the sender's only
+answer, and the second explains why that answer has stopped coming.
 """
 
 from __future__ import annotations
@@ -40,9 +47,11 @@ from src.channels.email.outbound import (
     build_status_reply,
     send_message,
 )
-from src.channels.email.router import email_settings_for
-from src.utils.email_settings import email_agent_label
+from src.channels.email.session_spawn import prepare_user_folder, session_for_email
+from src.utils.agent_store import agent_for_session
+from src.utils.automation_approval_policies import AUTOMATION_FOLLOWUP_FORCE_FOLLOW_UP
 from src.utils.param_helper import get_param_value
+from src.utils.sql.agents_db import Agent
 from src.utils.sql.kv_manager import KVManager
 
 logger = logging.getLogger(__name__)
@@ -65,23 +74,33 @@ def _read_global_param(name: str) -> Any:
         return get_param_value(KVManager(conn), name)
 
 
-def _launch_email_turn(
-    session_id: str, text: str, followup_behavior: str, on_finished
-) -> bool:
+def _launch_email_turn(session_id: str, text: str, title: str, on_finished) -> bool:
     from src.ui_connector.socket_handler_components.socket_events_turn import (
         new_user_message,
     )
     from src.utils.session_model import SUBTURN_ORIGIN_EMAIL
 
+    # A session is one conversation: its first email has no earlier turn, so this
+    # starts a new task, and every reply continues it.
     return new_user_message(
         session_id,
         {"text": text},
         str(uuid.uuid4()),
-        followup_behavior,
+        AUTOMATION_FOLLOWUP_FORCE_FOLLOW_UP,
         background=True,
         origin=SUBTURN_ORIGIN_EMAIL,
         on_finished=on_finished,
+        fixed_title=title,
     )
+
+
+def turn_title(row: InboundEmail) -> str:
+    return f"Message from {row.sender_address}, id={row.gmail_thread_id}"
+
+
+def agent_label(agent: Agent | None) -> str:
+    """The agent's name for status replies; falls back to a generic label."""
+    return (agent.name if agent is not None else None) or "The agent"
 
 
 def queued_note(_agent: str) -> str:
@@ -92,23 +111,34 @@ def working_note(agent: str) -> str:
     return f"[{agent} is working...]"
 
 
-def failed_note(agent: str, admin_name: str | None, admin_email: str | None) -> str:
-    """The error text is for operators: it stays in ``error_detail`` and the UI."""
+def _admin_contact(admin_name: str | None, admin_email: str | None) -> str:
     name = (admin_name or "").strip()
     address = (admin_email or "").strip()
     if name and address:
-        contact = f"system administrator {name} at mailto:{address}"
-    elif name:
-        contact = f"system administrator {name}"
-    elif address:
-        contact = f"your system administrator at mailto:{address}"
-    else:
-        contact = "your system administrator"
+        return f"system administrator {name} at mailto:{address}"
+    if name:
+        return f"system administrator {name}"
+    if address:
+        return f"your system administrator at mailto:{address}"
+    return "your system administrator"
+
+
+def failed_note(agent: str, admin_name: str | None, admin_email: str | None) -> str:
+    """The error text is for operators: it stays in ``error_detail`` and the UI."""
+    contact = _admin_contact(admin_name, admin_email)
     return f"[{agent} had a network or system error. Please contact {contact}]"
 
 
 def cancelled_note(agent: str) -> str:
     return f"[{agent}'s task was cancelled in session UI]"
+
+
+def approval_note(agent: str, admin_name: str | None, admin_email: str | None) -> str:
+    contact = _admin_contact(admin_name, admin_email)
+    return (
+        f"[{agent} is awaiting approval on the system UI. If you were not expecting "
+        f"this message, please contact {contact}]"
+    )
 
 
 class EmailRunner:
@@ -118,7 +148,9 @@ class EmailRunner:
         config: EmailConfig,
         gmail_factory: Callable[[], Any],
         launch: Launch = _launch_email_turn,
-        settings_for: Callable[[str], dict] = email_settings_for,
+        agent_for: Callable[[str], Agent | None] = agent_for_session,
+        assign_session: Callable[[InboundEmail], str] = session_for_email,
+        prepare_folder: Callable[[InboundEmail], str] = prepare_user_folder,
         read_param: Callable[[str], Any] = _read_global_param,
         sweep_seconds: float = SWEEP_SECONDS,
         clock: Callable[[], float] = time.time,
@@ -127,7 +159,9 @@ class EmailRunner:
         self._gmail_factory = gmail_factory
         self._gmail: Any | None = None
         self._launch = launch
-        self._settings_for = settings_for
+        self._agent_for = agent_for
+        self._assign_session = assign_session
+        self._prepare_folder = prepare_folder
         self._read_param = read_param
         self._sweep_seconds = sweep_seconds
         self._clock = clock
@@ -181,42 +215,60 @@ class EmailRunner:
     # -- one pass ----------------------------------------------------------
 
     def run_pass(self) -> None:
+        self._assign_new_mail()
         for session_id in store.sessions_with_pending_work():
             try:
                 self._process_session(session_id)
             except Exception:
                 logger.exception("Email runner failed for session_id=%s", session_id)
 
+    def _assign_new_mail(self) -> None:
+        for row in store.queued_without_session():
+            try:
+                store.assign_session(row.id, self._assign_session(row))
+            except Exception:
+                # It stays queued, so a later pass tries again.
+                logger.exception("Email session spawn failed: inbound_id=%s", row.id)
+
     def _process_session(self, session_id: str) -> None:
-        settings = self._settings_for(session_id)
-        agent = email_agent_label(settings)
+        agent = self._agent_for(session_id)
+        label = agent_label(agent)
         # Read each pass, so changing the param needs no restart.
         progress_notes = bool(self._read_param(SYSTEM_MESSAGES_PARAM))
         for row in store.finished_needing_final_reply(session_id):
-            self._send_final(row, settings, agent)
+            self._send_final(row, agent, label)
+        for row in store.running_needing_approval_notice(session_id):
+            self._send_status(
+                row,
+                store.REPLY_APPROVAL,
+                approval_note(
+                    label,
+                    self._read_param(ADMIN_NAME_PARAM),
+                    self._read_param(ADMIN_EMAIL_PARAM),
+                ),
+            )
         if progress_notes:
             for row in store.queued_needing_queued_reply(session_id):
-                self._send_status(row, store.REPLY_QUEUED, queued_note(agent))
+                self._send_status(row, store.REPLY_QUEUED, queued_note(label))
         with self._running_lock:
             if session_id in self._running:
                 return
         row = store.oldest_queued(session_id)
         if row is None or not store.try_mark_running(row.id):
             return
-        self._start_turn(row, settings, agent, progress_notes)
+        self._start_turn(session_id, row, label, progress_notes)
 
     def _start_turn(
-        self, row: InboundEmail, settings: dict, agent: str, progress_notes: bool
+        self, session_id: str, row: InboundEmail, label: str, progress_notes: bool
     ) -> None:
-        session_id = row.session_id
         with self._running_lock:
             self._running.add(session_id)
         try:
             launched = self._launch(
                 session_id,
-                frame_inbound_email(row),
-                settings["followup_behavior"],
-                lambda outcome: self._on_finished(row, outcome),
+                frame_inbound_email(row, self._prepare_folder(row)),
+                turn_title(row),
+                lambda outcome: self._on_finished(session_id, row, outcome),
             )
         except Exception:
             logger.exception("Email turn launch failed: session_id=%s", session_id)
@@ -227,7 +279,7 @@ class EmailRunner:
             store.requeue(row.id)
             # Busy (e.g. a human's turn started first): tell the sender once.
             if progress_notes and row.queued_reply_sent_at is None:
-                self._send_status(row, store.REPLY_QUEUED, queued_note(agent))
+                self._send_status(row, store.REPLY_QUEUED, queued_note(label))
             return
         logger.info(
             "Email turn launched: session_id=%s inbound_id=%s sender=%s",
@@ -236,9 +288,9 @@ class EmailRunner:
             row.sender_address,
         )
         if progress_notes:
-            self._send_status(row, store.REPLY_WORKING, working_note(agent))
+            self._send_status(row, store.REPLY_WORKING, working_note(label))
 
-    def _on_finished(self, row: InboundEmail, outcome: Any) -> None:
+    def _on_finished(self, session_id: str, row: InboundEmail, outcome: Any) -> None:
         """Runs on the turn thread: record only, then wake the runner."""
         try:
             if outcome.cancelled:
@@ -253,7 +305,7 @@ class EmailRunner:
                 )
         finally:
             with self._running_lock:
-                self._running.discard(row.session_id)
+                self._running.discard(session_id)
             self.notify()
 
     # -- sending -----------------------------------------------------------
@@ -282,21 +334,21 @@ class EmailRunner:
             row, column, lambda: build_status_reply(row, self._config, text)
         )
 
-    def _send_final(self, row: InboundEmail, settings: dict, agent: str) -> bool:
+    def _send_final(self, row: InboundEmail, agent: Agent | None, label: str) -> bool:
         if row.status == store.STATUS_DONE:
-            agent_name = str(settings.get("agent_name") or "").strip()
+            agent_name = (agent.name if agent is not None else None) or ""
             return self._send(
                 row,
                 store.REPLY_FINAL,
                 lambda: build_final_reply(row, agent_name, row.final_text or ""),
             )
         if row.status == store.STATUS_CANCELLED:
-            text = cancelled_note(agent)
+            text = cancelled_note(label)
         elif row.status == store.STATUS_INTERRUPTED:
             text = INTERRUPTED_NOTE
         else:
             text = failed_note(
-                agent,
+                label,
                 self._read_param(ADMIN_NAME_PARAM),
                 self._read_param(ADMIN_EMAIL_PARAM),
             )
@@ -310,6 +362,7 @@ _runner: EmailRunner | None = None
 def start_email_runner(config: EmailConfig, gmail_factory: Callable[[], Any]) -> None:
     global _runner
     from src.ui_connector.socket_handler_components.state import (
+        add_approval_wait_listener,
         add_turn_release_listener,
     )
 
@@ -318,6 +371,7 @@ def start_email_runner(config: EmailConfig, gmail_factory: Callable[[], Any]) ->
             _runner = EmailRunner(config=config, gmail_factory=gmail_factory)
         runner = _runner
     add_turn_release_listener(_on_turn_released)
+    add_approval_wait_listener(on_approval_wait)
     runner.start()
 
 
@@ -333,13 +387,20 @@ def _on_turn_released(_session_id: str) -> None:
     notify_email_runner()
 
 
+def on_approval_wait(session_id: str) -> None:
+    """Runs on the turn thread: record only, then wake the runner to send it."""
+    from src.ui_connector.socket_handler_components.state import reserved_turn_origin
+    from src.utils.session_model import SUBTURN_ORIGIN_EMAIL
+
+    # A person at the UI already knows; only an email sender is left wondering.
+    if reserved_turn_origin(session_id) != SUBTURN_ORIGIN_EMAIL:
+        return
+    if store.request_approval_notice(session_id, time.time()):
+        notify_email_runner()
+
+
 def notify_email_runner() -> None:
     with _runner_lock:
         runner = _runner
     if runner is not None:
         runner.notify()
-
-
-def discard_queued_email(session_id: str) -> int:
-    """Drop not-yet-started mail (alias changed or email disabled); no replies."""
-    return store.discard_queued(session_id)

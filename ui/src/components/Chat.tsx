@@ -31,7 +31,6 @@ import useSessionDownloads from "../hooks/useSessionDownloads";
 import { fetchToolPreviewConfig } from "../api/toolPreviewConfig";
 import { createSocket } from "../socket";
 import HeartbeatSettingsDialog from "./HeartbeatSettingsDialog";
-import EmailHeaderControls from "./EmailHeaderControls";
 import { formatIntervalMinutes } from "../utils/formatInterval";
 import SessionErrorBanner from "../subcomponents/Chat/SessionErrorBanner";
 import StartupToolsButton from "../subcomponents/Chat/StartupToolsButton";
@@ -93,6 +92,7 @@ export default function Chat() {
     busy,
     setBusy,
     loadCustomSkillsTools,
+    agentId,
     cancelling,
     setCancelling,
     pwd,
@@ -119,12 +119,14 @@ export default function Chat() {
     sessionProfile,
     approvalMode,
     heartbeatSettings,
-    emailSettings,
     contextUsageData,
     setContextUsageData,
     terminalOpen,
     setTerminalOpen,
   } = useSocketWiring(socket);
+  // A pool session's settings live on its agent and it only takes turns from
+  // email. Locked until session_state says otherwise, so controls never flash.
+  const lockedByAgent = agentId !== null;
   const { folderCards, startDownload } = useSessionDownloads(
     sessionId,
     appendClientDebugLog,
@@ -370,7 +372,7 @@ export default function Chat() {
               done={startupDone}
               onViewFull={setModalContent}
             />
-            {loadCustomSkillsTools && (
+            {!lockedByAgent && loadCustomSkillsTools && (
               <button
                 onClick={handleReloadCustomizations}
                 disabled={busy || customizationsReloading || !connected}
@@ -404,7 +406,7 @@ export default function Chat() {
                 Skills + Tools
               </button>
             )}
-            {profiles.length > 0 && (
+            {!lockedByAgent && profiles.length > 0 && (
               <select
                 value={sessionProfile ?? ""}
                 onChange={(e) => handleProfileChange(e.target.value)}
@@ -429,30 +431,32 @@ export default function Chat() {
                 ))}
               </select>
             )}
-            <select
-              value={approvalMode}
-              onChange={(e) => handleApprovalModeChange(e.target.value)}
-              disabled={approvalModeChanging}
-              title="Approval mode (takes effect on the next tool approval check)"
-              style={{
-                background: "#101722",
-                border: "1px solid #2a3a6e",
-                borderRadius: 4,
-                color: approvalMode ? "#a0b8f0" : "#666",
-                fontFamily: "inherit",
-                fontSize: 11,
-                padding: "3px 6px",
-                cursor: approvalModeChanging ? "not-allowed" : "pointer",
-                opacity: approvalModeChanging ? 0.5 : 1,
-              }}
-            >
-              {approvalModes.map((mode) => (
-                <option key={mode} value={mode}>
-                  {mode}
-                </option>
-              ))}
-            </select>
-            {heartbeatSettings.enabled && (
+            {!lockedByAgent && (
+              <select
+                value={approvalMode}
+                onChange={(e) => handleApprovalModeChange(e.target.value)}
+                disabled={approvalModeChanging}
+                title="Approval mode (takes effect on the next tool approval check)"
+                style={{
+                  background: "#101722",
+                  border: "1px solid #2a3a6e",
+                  borderRadius: 4,
+                  color: approvalMode ? "#a0b8f0" : "#666",
+                  fontFamily: "inherit",
+                  fontSize: 11,
+                  padding: "3px 6px",
+                  cursor: approvalModeChanging ? "not-allowed" : "pointer",
+                  opacity: approvalModeChanging ? 0.5 : 1,
+                }}
+              >
+                {approvalModes.map((mode) => (
+                  <option key={mode} value={mode}>
+                    {mode}
+                  </option>
+                ))}
+              </select>
+            )}
+            {!lockedByAgent && heartbeatSettings.enabled && (
               <span
                 title={`Heartbeat enabled: every ${formatIntervalMinutes(heartbeatSettings.interval_minutes)}`}
                 aria-label="Heartbeat enabled"
@@ -461,31 +465,29 @@ export default function Chat() {
                 <FaHeartbeat size={14} />
               </span>
             )}
-            <button
-              onClick={() => setHeartbeatDialogOpen(true)}
-              title={
-                heartbeatSettings.enabled
-                  ? `Heartbeat: every ${formatIntervalMinutes(heartbeatSettings.interval_minutes)}`
-                  : "Heartbeat: disabled"
-              }
-              aria-label="Heartbeat settings"
-              style={{
-                background: "#101722",
-                border: "1px solid #2a3a6e",
-                borderRadius: 4,
-                color: heartbeatSettings.enabled ? "#8aacff" : "#666",
-                fontFamily: "inherit",
-                fontSize: 11,
-                padding: "3px 6px",
-                cursor: "pointer",
-              }}
-            >
-              ⏱
-            </button>
-            <EmailHeaderControls
-              sessionId={sessionId}
-              settings={emailSettings}
-            />
+            {!lockedByAgent && (
+              <button
+                onClick={() => setHeartbeatDialogOpen(true)}
+                title={
+                  heartbeatSettings.enabled
+                    ? `Heartbeat: every ${formatIntervalMinutes(heartbeatSettings.interval_minutes)}`
+                    : "Heartbeat: disabled"
+                }
+                aria-label="Heartbeat settings"
+                style={{
+                  background: "#101722",
+                  border: "1px solid #2a3a6e",
+                  borderRadius: 4,
+                  color: heartbeatSettings.enabled ? "#8aacff" : "#666",
+                  fontFamily: "inherit",
+                  fontSize: 11,
+                  padding: "3px 6px",
+                  cursor: "pointer",
+                }}
+              >
+                ⏱
+              </button>
+            )}
             {sessionCost !== null && (
               <span
                 css={sessionCostCss}
@@ -539,60 +541,81 @@ export default function Chat() {
           message={sessionError}
           onDismiss={clearSessionError}
         />
-        <div css={inputBarCss}>
-          <textarea
-            css={textareaCss}
-            rows={3}
-            placeholder="Send a message… (Enter to send, Shift+Enter for newline)"
-            value={inputText}
-            onChange={(e) => setInputText(e.target.value)}
-            onKeyDown={onKeyDown}
-            disabled={busy || !connected || historyLoading}
-          />
-          {busy && (
-            <button
-              css={stopButtonCss}
-              onClick={cancelTurn}
-              disabled={cancelling}
-            >
-              {cancelling ? "..." : "Stop"}
-            </button>
-          )}
-          <button
-            css={sendButtonCss}
-            onClick={send}
-            disabled={busy || !connected || historyLoading || !inputText.trim()}
-          >
-            <span
-              css={
-                busy
-                  ? css`
-                      visibility: hidden;
-                    `
-                  : undefined
-              }
-            >
-              Send
+        {agentId ? (
+          <div css={inputBarCss}>
+            <span style={{ flex: 1, fontSize: 12, color: "#7a86a8" }}>
+              Replies come from email.
             </span>
-            {busy && <span css={spinnerCss} />}
-          </button>
-        </div>
-        <div css={followupFooterCss}>
-          <span css={followupLabelCss}>Follow up behavior</span>
-          {(["auto", "follow-up", "new-task"] as const).map((opt) => (
-            <button
-              key={opt}
-              css={followupOptionCss(followupBehavior === opt)}
-              onClick={() => setFollowupBehavior(opt)}
-            >
-              {opt === "auto"
-                ? "auto-detect"
-                : opt === "follow-up"
-                  ? "force-follow-up"
-                  : "force-new-task"}
-            </button>
-          ))}
-        </div>
+            {busy && (
+              <button
+                css={stopButtonCss}
+                onClick={cancelTurn}
+                disabled={cancelling}
+              >
+                {cancelling ? "..." : "Stop"}
+              </button>
+            )}
+          </div>
+        ) : agentId === null ? (
+          <>
+            <div css={inputBarCss}>
+              <textarea
+                css={textareaCss}
+                rows={3}
+                placeholder="Send a message… (Enter to send, Shift+Enter for newline)"
+                value={inputText}
+                onChange={(e) => setInputText(e.target.value)}
+                onKeyDown={onKeyDown}
+                disabled={busy || !connected || historyLoading}
+              />
+              {busy && (
+                <button
+                  css={stopButtonCss}
+                  onClick={cancelTurn}
+                  disabled={cancelling}
+                >
+                  {cancelling ? "..." : "Stop"}
+                </button>
+              )}
+              <button
+                css={sendButtonCss}
+                onClick={send}
+                disabled={
+                  busy || !connected || historyLoading || !inputText.trim()
+                }
+              >
+                <span
+                  css={
+                    busy
+                      ? css`
+                          visibility: hidden;
+                        `
+                      : undefined
+                  }
+                >
+                  Send
+                </span>
+                {busy && <span css={spinnerCss} />}
+              </button>
+            </div>
+            <div css={followupFooterCss}>
+              <span css={followupLabelCss}>Follow up behavior</span>
+              {(["auto", "follow-up", "new-task"] as const).map((opt) => (
+                <button
+                  key={opt}
+                  css={followupOptionCss(followupBehavior === opt)}
+                  onClick={() => setFollowupBehavior(opt)}
+                >
+                  {opt === "auto"
+                    ? "auto-detect"
+                    : opt === "follow-up"
+                      ? "force-follow-up"
+                      : "force-new-task"}
+                </button>
+              ))}
+            </div>
+          </>
+        ) : null}
       </div>
 
       {/* Terminal panel */}

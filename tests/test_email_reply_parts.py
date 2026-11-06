@@ -40,7 +40,10 @@ def _config() -> EmailConfig:
 def _anchor(**overrides) -> InboundEmail:
     values = dict(
         id=7,
+        agent_id="a1",
         session_id="s1",
+        sender_display_name=None,
+        approval_notice_sent_at=None,
         gmail_message_id="m1",
         gmail_thread_id="t1",
         alias="agent@example.test",

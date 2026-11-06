@@ -2,7 +2,10 @@
 import { css, keyframes } from "@emotion/react";
 import React, { useEffect, useRef, useState, useCallback } from "react";
 import { useNavigate, Link } from "react-router-dom";
-import { FaEnvelope, FaHeartbeat } from "react-icons/fa";
+import { FaHeartbeat } from "react-icons/fa";
+import type { AgentPoolSession, AgentSummary } from "../types";
+import AgentPoolWidget from "./AgentPoolWidget";
+import AgentSettingsDialog from "./AgentSettingsDialog";
 import NewSessionDialog, { type SessionDefaults } from "./NewSessionDialog";
 import ConfirmDialog from "./ConfirmDialog";
 import VersionWidget from "./VersionWidget";
@@ -24,7 +27,6 @@ interface SessionSummary {
   task_title_count: number;
   load_custom_skills_tools: boolean;
   heartbeat_enabled: boolean;
-  email_enabled?: boolean;
 }
 
 interface BulkDeleteResponse {
@@ -581,6 +583,13 @@ const configLinkCss = css`
 export default function Dashboard() {
   const navigate = useNavigate();
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
+  const [agents, setAgents] = useState<AgentSummary[]>([]);
+  // undefined = closed, null = the New Agent wizard, otherwise the agent to edit.
+  const [agentDialog, setAgentDialog] = useState<
+    AgentSummary | null | undefined
+  >(undefined);
+  const [poolDeleteTarget, setPoolDeleteTarget] =
+    useState<AgentPoolSession | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showNewSession, setShowNewSession] = useState(false);
@@ -627,6 +636,9 @@ export default function Dashboard() {
       if (!res.ok) throw new Error(`Server returned ${res.status}`);
       const data: SessionSummary[] = await res.json();
       setSessions(data);
+      const agentsRes = await fetch("/api/agents");
+      if (!agentsRes.ok) throw new Error(`Server returned ${agentsRes.status}`);
+      setAgents(await agentsRes.json());
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not reach server");
@@ -677,6 +689,27 @@ export default function Dashboard() {
     } finally {
       setDeleting(false);
       setDeleteTarget(null);
+    }
+  }
+
+  async function confirmPoolDelete() {
+    if (!poolDeleteTarget) return;
+    setDeleting(true);
+    try {
+      const res = await fetch(`/api/sessions/${poolDeleteTarget.session_id}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        alert(body.error ?? `Delete failed (${res.status})`);
+      } else {
+        await fetchSessions();
+      }
+    } catch {
+      alert("Could not reach server");
+    } finally {
+      setDeleting(false);
+      setPoolDeleteTarget(null);
     }
   }
 
@@ -780,6 +813,17 @@ export default function Dashboard() {
           </Link>
           <button
             css={newSessionBtnCss}
+            onClick={() => setAgentDialog(null)}
+            disabled={
+              sessionDefaults === null ||
+              sessionDefaults.default_profile === null
+            }
+            title="Create an agent that answers email"
+          >
+            + New Agent
+          </button>
+          <button
+            css={newSessionBtnCss}
             onClick={() => {
               setNewSessionCwd(null);
               setShowNewSession(true);
@@ -831,7 +875,17 @@ export default function Dashboard() {
             </div>
           )}
 
-        {!loading && sessions.length === 0 && !error && (
+        {agents.map((agent) => (
+          <AgentPoolWidget
+            key={agent.id}
+            agent={agent}
+            onOpenSession={openSession}
+            onDeleteSession={setPoolDeleteTarget}
+            onOpenSettings={() => setAgentDialog(agent)}
+          />
+        ))}
+
+        {!loading && sessions.length === 0 && agents.length === 0 && !error && (
           <div css={emptyStateCss}>
             <div style={{ fontSize: 32, opacity: 0.15 }}>◈</div>
             <div>No sessions yet.</div>
@@ -921,6 +975,33 @@ export default function Dashboard() {
           }}
           initialCwd={newSessionCwd ?? undefined}
         />
+      )}
+
+      {agentDialog !== undefined && sessionDefaults && (
+        <AgentSettingsDialog
+          agent={agentDialog}
+          sessionDefaults={sessionDefaults}
+          onChanged={fetchSessions}
+          onClose={() => setAgentDialog(undefined)}
+        />
+      )}
+
+      {poolDeleteTarget && (
+        <ConfirmDialog
+          title="Delete Conversation Session?"
+          confirmLabel="Delete"
+          busyLabel="Deleting..."
+          busy={deleting}
+          onConfirm={confirmPoolDelete}
+          onCancel={() => setPoolDeleteTarget(null)}
+        >
+          This permanently deletes the session for{" "}
+          <strong style={{ color: "#ccc" }}>
+            {poolDeleteTarget.sender_address}
+          </strong>
+          , including all its turns and any queued email. The agent&apos;s files
+          are kept. A later reply in this thread starts a new session.
+        </ConfirmDialog>
       )}
 
       {deleteTarget && (
@@ -1038,16 +1119,6 @@ function SessionCard({
                 aria-label="Heartbeat enabled"
               >
                 <FaHeartbeat size={13} />
-              </span>
-            </Tooltip>
-          )}
-          {session.email_enabled && (
-            <Tooltip label="Email enabled">
-              <span
-                style={{ display: "flex", color: "#7fb2e6" }}
-                aria-label="Email enabled"
-              >
-                <FaEnvelope size={13} />
               </span>
             </Tooltip>
           )}

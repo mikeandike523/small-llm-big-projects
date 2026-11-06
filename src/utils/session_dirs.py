@@ -5,7 +5,8 @@ Every session gets two folders keyed by its id:
 - ``~/.slbp/workspaces/<session-id>`` -- the folder the New Session dialog
   suggests as the session's initial cwd. It has no special meaning to the
   agent; it is only created when a session actually starts inside it, and it
-  is kept when the session is deleted (it holds the user's deliverables).
+  is kept when the session is deleted (it holds the user's deliverables) unless
+  ``system.standalone-sessions.clear-workspace-on-delete`` is on.
 - ``~/.slbp/scratchpads/<session-id>`` -- disposable scratch space for the
   agent. Always created (and re-ensured whenever a session loads), approved
   like the session's cwd, and deleted with the session.
@@ -76,15 +77,25 @@ def ensure_session_dirs(session_id: str, initial_cwd: str | None) -> None:
         Path(initial_cwd).mkdir(parents=True, exist_ok=True)
 
 
-def delete_session_scratchpad(session_id: str) -> None:
-    """Remove the session's scratchpad folder. Failures are logged, not raised:
-    the session itself is already gone by the time this runs."""
-    if not is_valid_session_id(session_id):
-        return
-    path = Path(get_session_scratchpad_dir(session_id))
+def _delete_session_folder(path: Path) -> None:
+    """Failures are logged, not raised: the session itself is already gone by the
+    time this runs."""
     if not path.exists():
         return
     try:
         shutil.rmtree(path)
     except OSError as exc:
-        logger.warning("Could not delete scratchpad %s: %s", path, exc)
+        logger.warning("Could not delete session folder %s: %s", path, exc)
+
+
+def delete_session_scratchpad(session_id: str) -> None:
+    """Remove the session's scratchpad folder."""
+    if is_valid_session_id(session_id):
+        _delete_session_folder(Path(get_session_scratchpad_dir(session_id)))
+
+
+def delete_session_workspace(session_id: str) -> None:
+    """Remove ``workspaces/<session-id>``. Only that folder, and only for a valid
+    id: a session's real project folder is never touched."""
+    if is_valid_session_id(session_id):
+        _delete_session_folder(Path(get_session_workspace_dir(session_id)))

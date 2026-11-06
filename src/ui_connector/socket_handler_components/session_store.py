@@ -21,11 +21,11 @@ from src.logic.system_prompt import (
     get_autoload_skill_entries,
 )
 from src.utils.event_log import watermark_key
-from src.utils.session_dirs import delete_session_scratchpad
+from src.utils.session_dirs import delete_session_scratchpad, delete_session_workspace
 from src.utils.session_memory import SessionMemory
 from src.utils.session_model import Session
 from src.utils.sql.session_memory_db import list_memory_keys
-from src.utils.sql.session_store_db import delete_sessions
+from src.utils.sql.session_store_db import delete_sessions, load_session_meta
 from src.ui_connector.socket_handler_components.session_db_load import (
     forget_restored_session,
     load_session_from_db,
@@ -260,10 +260,37 @@ def _load_session(session_id: str) -> Session:
     return session
 
 
+CLEAR_WORKSPACE_ON_DELETE_PARAM = "system.standalone-sessions.clear-workspace-on-delete"
+
+
+def _standalone_workspaces_to_clear(session_ids: list[str]) -> list[str]:
+    """Sessions whose ``workspaces/<id>`` folder should go with them: none unless
+    the param is on, and never a pool session (its folder is the agent's)."""
+    from src.data import get_pool
+    from src.utils.param_helper import get_param_value
+    from src.utils.sql.kv_manager import KVManager
+
+    with get_pool().get_connection() as conn:
+        if not get_param_value(KVManager(conn), CLEAR_WORKSPACE_ON_DELETE_PARAM):
+            return []
+    return [
+        session_id
+        for session_id in session_ids
+        if not (load_session_meta(session_id) or {}).get("agent_id")
+    ]
+
+
 def _delete_sessions(session_ids: list[str]) -> None:
     """Delete many sessions from MySQL, Redis and in-memory caches."""
     if not session_ids:
         return
+    from src.channels.email.inbound_store import discard_queued_for_session
+    from src.tools._agent_file_guard import clear_session as clear_file_guard
+
+    workspaces_to_clear = _standalone_workspaces_to_clear(session_ids)
+    # Queued mail loses its session below; left queued, it would spawn a new one.
+    for session_id in session_ids:
+        discard_queued_for_session(session_id)
     # A failed MySQL delete propagates (and leaves Redis and caches intact).
     delete_sessions(session_ids)
 
@@ -288,7 +315,10 @@ def _delete_sessions(session_ids: list[str]) -> None:
         _state._session_costs.pop(session_id, None)
         _state._session_last_context_usage.pop(session_id, None)
         forget_restored_session(session_id)
+        clear_file_guard(session_id)
         delete_session_scratchpad(session_id)
+    for session_id in workspaces_to_clear:
+        delete_session_workspace(session_id)
 
 
 def _delete_session(session_id: str) -> None:

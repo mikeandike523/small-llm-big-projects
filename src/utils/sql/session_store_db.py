@@ -292,13 +292,14 @@ def execute_upsert_session_meta(
     load_custom_skills_tools: bool,
     heartbeat_enabled: bool = False,
     last_context_usage: dict | None = None,
+    agent_id: str | None = None,
 ) -> None:
     """Run the session_meta upsert on an open cursor (caller commits).
 
     `created_at` is set only on insert (it's the authoritative session
-    wall-clock); subsequent upserts leave it untouched. So is
-    `history_cache_compatible`: a new row takes the column default (1), and an
-    existing row keeps its value.
+    wall-clock); subsequent upserts leave it untouched. So is `agent_id`, which
+    never changes, and `history_cache_compatible`: a new row takes the column
+    default (1), and an existing row keeps its value.
     """
     cur.execute(
         """
@@ -307,9 +308,9 @@ def execute_upsert_session_meta(
             initial_cwd, current_cwd, total_cost_usd, turn_count,
             recent_task_titles, task_title_count, interim_response_as_thinking,
             load_custom_skills_tools, corrupt, last_context_usage,
-            heartbeat_enabled
+            heartbeat_enabled, agent_id
         )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 0, %s, %s)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 0, %s, %s, %s)
         AS incoming
         ON DUPLICATE KEY UPDATE
             schema_version               = incoming.schema_version,
@@ -345,6 +346,7 @@ def execute_upsert_session_meta(
                 else None
             ),
             1 if heartbeat_enabled else 0,
+            agent_id,
         ),
     )
 
@@ -354,7 +356,7 @@ _META_LIST_COLS = (
     "session_id, created_at, schema_version, profile_name, initial_cwd, "
     "current_cwd, total_cost_usd, turn_count, recent_task_titles, "
     "task_title_count, interim_response_as_thinking, load_custom_skills_tools, "
-    "corrupt, heartbeat_enabled, email_enabled, history_cache_compatible"
+    "corrupt, heartbeat_enabled, agent_id, history_cache_compatible"
 )
 
 
@@ -375,7 +377,7 @@ def _row_to_meta(row: dict) -> dict:
         "corrupt": bool(row.get("corrupt")),
         "last_context_usage": _normalize_json(row.get("last_context_usage")),
         "heartbeat_enabled": bool(row.get("heartbeat_enabled")),
-        "email_enabled": bool(row.get("email_enabled")),
+        "agent_id": row.get("agent_id"),
         "history_cache_compatible": bool(row.get("history_cache_compatible")),
     }
 

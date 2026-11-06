@@ -100,6 +100,27 @@ def add_turn_release_listener(listener: Callable[[str], None]) -> None:
         _turn_release_listeners.append(listener)
 
 
+# Called on the turn's thread when a tool call starts waiting for a person's
+# approval, e.g. so the email runner can tell the sender. Must be cheap; failures
+# are logged and never affect the turn. Registered at startup.
+_approval_wait_listeners: list[Callable[[str], None]] = []
+
+
+def add_approval_wait_listener(listener: Callable[[str], None]) -> None:
+    if listener not in _approval_wait_listeners:
+        _approval_wait_listeners.append(listener)
+
+
+def notify_approval_wait(session_id: str) -> None:
+    for listener in list(_approval_wait_listeners):
+        try:
+            listener(session_id)
+        except Exception:
+            logging.getLogger(__name__).exception(
+                "Approval wait listener failed: session_id=%s", session_id
+            )
+
+
 def release_turn(session_id: str) -> None:
     """Release a previously admitted user-message operation."""
     with _turn_reservations_lock:

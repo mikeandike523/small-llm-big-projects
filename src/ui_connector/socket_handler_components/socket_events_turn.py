@@ -23,6 +23,7 @@ from src.ui_connector.socket_handler_components.session_store import (
     _load_session,
 )
 from src.ui_connector.socket_handler_components.session_writes import (
+    write_title,
     write_turn_start,
 )
 from src.ui_connector.socket_handler_components.watchdogs import (
@@ -51,6 +52,7 @@ from src.utils.session_model import (
     Subturn,
     Turn,
 )
+from src.utils.sql.session_store_db import load_session_meta
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +77,11 @@ def handle_user_message(data: dict):
     if not session_id:
         emit("error", {"message": "No session_id — reconnect required."})
         return
+    # Every turn in a pool session must come from an email, or its answer would
+    # have nobody to go to.
+    if (load_session_meta(session_id) or {}).get("agent_id"):
+        emit("error", {"message": "This session only takes messages by email."})
+        return
 
     turn_id: str = data.get("clientTurnId") or str(_uuid_module.uuid4())
     followup_behavior = data.get("followup_behavior", "auto")
@@ -94,6 +101,7 @@ def new_user_message(
     background: bool = False,
     origin: str = SUBTURN_ORIGIN_USER,
     on_finished: Callable[[TurnOutcome], None] | None = None,
+    fixed_title: str | None = None,
 ) -> bool:
     """Admit and run one user message for a session, with no socket context.
 
@@ -102,6 +110,7 @@ def new_user_message(
     this returns as soon as the turn has been admitted. ``origin`` is
     recorded on the new subturn (see ``Subturn.origin``). ``on_finished``
     (if given) receives a ``TurnOutcome`` after the reservation is released.
+    ``fixed_title`` (if given) names the turn in place of the LLM title call.
     """
     if not _state.try_reserve_turn(session_id, origin):
         logger.warning(
@@ -128,6 +137,7 @@ def new_user_message(
                 turn_id,
                 followup_behavior,
                 origin=origin,
+                fixed_title=fixed_title,
             )
         except Exception as exc:
             # E.g. the session could not be loaded. Tell the client (this also
@@ -183,6 +193,7 @@ def _handle_admitted_user_message(
     followup_behavior: str,
     *,
     origin: str = SUBTURN_ORIGIN_USER,
+    fixed_title: str | None = None,
 ) -> TurnOutcome:
     text = (data.get("text") or "").strip()
     if not text:
@@ -345,6 +356,12 @@ def _handle_admitted_user_message(
     write_turn_start(
         session_id, session, current_turn, current_subturn, reopened=_is_cont
     )
+    if fixed_title is not None:
+        current_turn.task_title = fixed_title
+        _emit_and_log(
+            session_id, "task_title", {"turn_id": turn_id, "title": fixed_title}
+        )
+        write_title(session_id, session, current_turn)
 
     cancel_event = threading.Event()
 
@@ -358,7 +375,9 @@ def _handle_admitted_user_message(
         _state.register_active_turn_handles(session_id, loop, task)
         title_task: asyncio.Task | None = None
         try:
-            if _is_cont:
+            if fixed_title is not None:
+                pass  # Already named above.
+            elif _is_cont:
                 # Continuation subturn: fire title recomputation at subturn start.
                 title_task = asyncio.create_task(
                     _maybe_fetch_task_title(
