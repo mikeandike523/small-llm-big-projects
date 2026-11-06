@@ -75,6 +75,7 @@ class Env:
         )
         monkeypatch.setattr(router, "sent_final_texts", lambda *_a: [])
         monkeypatch.setattr(router, "insert_inbound", self._insert)
+        monkeypatch.setattr(router, "list_alias_claims", lambda _emails: [])
 
     def _insert(self, item, *, needs_queued_reply):
         self.inserted.append((item, needs_queued_reply))

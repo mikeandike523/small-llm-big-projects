@@ -13,8 +13,14 @@ first email. Then, per session with pending work, it:
 4. unless an email turn it launched is still running, claims the oldest
    queued email (compare-and-set) and launches it; busy -> back to queued.
 
-Sessions do not wait for each other, so conversations run in parallel while each
-one stays in order.
+A session is either one conversation in an agent's pool or a single session
+holding an alias; ``EmailResponder`` holds what differs between them. Sessions do
+not wait for each other, so they run in parallel while each one stays in order:
+earliest sent date first.
+
+A queue can only be sorted once mail is in it, so step 4 waits while a mailbox
+sync is delivering a batch (``begin_intake`` / ``end_intake``). Replies still go
+out meanwhile.
 
 Turn threads only record outcomes in the database (``on_finished``) and wake
 the runner; they never send mail themselves. A failed end-of-turn, approval or
@@ -35,6 +41,7 @@ import threading
 import time
 import uuid
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any
 
 from src.channels.email import inbound_store as store
@@ -47,6 +54,7 @@ from src.channels.email.outbound import (
     build_status_reply,
     send_message,
 )
+from src.channels.email.router import email_settings_for
 from src.channels.email.session_spawn import ensure_user_folder, session_for_email
 from src.utils.agent_store import agent_for_session
 from src.utils.automation_approval_policies import AUTOMATION_FOLLOWUP_FORCE_FOLLOW_UP
@@ -64,7 +72,40 @@ SYSTEM_MESSAGES_PARAM = "system.channels.email.system-messages.enabled"
 ADMIN_NAME_PARAM = "system.metadata.system-admin.contact-name"
 ADMIN_EMAIL_PARAM = "system.metadata.system-admin.contact-email"
 
-Launch = Callable[[str, str, str, Callable[[Any], None]], bool]
+Launch = Callable[[str, str, str, str | None, Callable[[Any], None]], bool]
+
+
+@dataclass(frozen=True)
+class EmailResponder:
+    """What differs between a pool session and a single session answering mail."""
+
+    name: str
+    followup_behavior: str
+    # A pool session is one conversation in the sender's folder, with fixed titles.
+    is_pool: bool
+
+
+_intake_lock = threading.Lock()
+_intakes = 0
+
+
+def begin_intake() -> None:
+    """A sync is delivering mail: start no new turn until the batch is queued."""
+    global _intakes
+    with _intake_lock:
+        _intakes += 1
+
+
+def end_intake() -> None:
+    global _intakes
+    with _intake_lock:
+        _intakes -= 1
+    notify_email_runner()
+
+
+def intake_in_progress() -> bool:
+    with _intake_lock:
+        return _intakes > 0
 
 
 def _read_global_param(name: str) -> Any:
@@ -74,19 +115,23 @@ def _read_global_param(name: str) -> Any:
         return get_param_value(KVManager(conn), name)
 
 
-def _launch_email_turn(session_id: str, text: str, title: str, on_finished) -> bool:
+def _launch_email_turn(
+    session_id: str,
+    text: str,
+    followup_behavior: str,
+    title: str | None,
+    on_finished,
+) -> bool:
     from src.ui_connector.socket_handler_components.socket_events_turn import (
         new_user_message,
     )
     from src.utils.session_model import SUBTURN_ORIGIN_EMAIL
 
-    # A session is one conversation: its first email has no earlier turn, so this
-    # starts a new task, and every reply continues it.
     return new_user_message(
         session_id,
         {"text": text},
         str(uuid.uuid4()),
-        AUTOMATION_FOLLOWUP_FORCE_FOLLOW_UP,
+        followup_behavior,
         background=True,
         origin=SUBTURN_ORIGIN_EMAIL,
         on_finished=on_finished,
@@ -98,9 +143,9 @@ def turn_title(row: InboundEmail) -> str:
     return f"Message from {row.sender_address}, id={row.gmail_thread_id}"
 
 
-def agent_label(agent: Agent | None) -> str:
+def agent_label(name: str) -> str:
     """The agent's name for status replies; falls back to a generic label."""
-    return (agent.name if agent is not None else None) or "The agent"
+    return name or "The agent"
 
 
 def queued_note(_agent: str) -> str:
@@ -149,6 +194,7 @@ class EmailRunner:
         gmail_factory: Callable[[], Any],
         launch: Launch = _launch_email_turn,
         agent_for: Callable[[str], Agent | None] = agent_for_session,
+        settings_for: Callable[[str], dict] = email_settings_for,
         assign_session: Callable[[InboundEmail], str] = session_for_email,
         ensure_folder: Callable[[InboundEmail], None] = ensure_user_folder,
         read_param: Callable[[str], Any] = _read_global_param,
@@ -160,6 +206,7 @@ class EmailRunner:
         self._gmail: Any | None = None
         self._launch = launch
         self._agent_for = agent_for
+        self._settings_for = settings_for
         self._assign_session = assign_session
         self._ensure_folder = ensure_folder
         self._read_param = read_param
@@ -230,13 +277,30 @@ class EmailRunner:
                 # It stays queued, so a later pass tries again.
                 logger.exception("Email session spawn failed: inbound_id=%s", row.id)
 
-    def _process_session(self, session_id: str) -> None:
+    def _responder(self, session_id: str) -> EmailResponder:
         agent = self._agent_for(session_id)
-        label = agent_label(agent)
+        if agent is not None:
+            # One conversation: its first email has no earlier turn, so this starts
+            # a new task, and every reply continues it.
+            return EmailResponder(
+                name=agent.name or "",
+                followup_behavior=AUTOMATION_FOLLOWUP_FORCE_FOLLOW_UP,
+                is_pool=True,
+            )
+        settings = self._settings_for(session_id)
+        return EmailResponder(
+            name=str(settings.get("agent_name") or "").strip(),
+            followup_behavior=settings["followup_behavior"],
+            is_pool=False,
+        )
+
+    def _process_session(self, session_id: str) -> None:
+        responder = self._responder(session_id)
+        label = agent_label(responder.name)
         # Read each pass, so changing the param needs no restart.
         progress_notes = bool(self._read_param(SYSTEM_MESSAGES_PARAM))
         for row in store.finished_needing_final_reply(session_id):
-            self._send_final(row, agent, label)
+            self._send_final(row, responder.name, label)
         for row in store.running_needing_approval_notice(session_id):
             self._send_status(
                 row,
@@ -253,22 +317,31 @@ class EmailRunner:
         with self._running_lock:
             if session_id in self._running:
                 return
+        if intake_in_progress():
+            return
         row = store.oldest_queued(session_id)
         if row is None or not store.try_mark_running(row.id):
             return
-        self._start_turn(session_id, row, label, progress_notes)
+        self._start_turn(session_id, row, responder, label, progress_notes)
 
     def _start_turn(
-        self, session_id: str, row: InboundEmail, label: str, progress_notes: bool
+        self,
+        session_id: str,
+        row: InboundEmail,
+        responder: EmailResponder,
+        label: str,
+        progress_notes: bool,
     ) -> None:
         with self._running_lock:
             self._running.add(session_id)
         try:
-            self._ensure_folder(row)
+            if responder.is_pool:
+                self._ensure_folder(row)
             launched = self._launch(
                 session_id,
                 frame_inbound_email(row),
-                turn_title(row),
+                responder.followup_behavior,
+                turn_title(row) if responder.is_pool else None,
                 lambda outcome: self._on_finished(session_id, row, outcome),
             )
         except Exception:
@@ -335,9 +408,8 @@ class EmailRunner:
             row, column, lambda: build_status_reply(row, self._config, text)
         )
 
-    def _send_final(self, row: InboundEmail, agent: Agent | None, label: str) -> bool:
+    def _send_final(self, row: InboundEmail, agent_name: str, label: str) -> bool:
         if row.status == store.STATUS_DONE:
-            agent_name = (agent.name if agent is not None else None) or ""
             return self._send(
                 row,
                 store.REPLY_FINAL,

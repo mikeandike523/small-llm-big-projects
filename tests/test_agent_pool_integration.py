@@ -417,6 +417,11 @@ def delete_env(monkeypatch):
     monkeypatch.setattr(store, "load_session_meta", lambda sid: state["meta"].get(sid))
     monkeypatch.setattr(
         inbound_store,
+        "delete_single_session_rows",
+        lambda _sid: 0,
+    )
+    monkeypatch.setattr(
+        inbound_store,
         "discard_queued_for_session",
         lambda sid: state["order"].append(f"discard {sid}"),
     )

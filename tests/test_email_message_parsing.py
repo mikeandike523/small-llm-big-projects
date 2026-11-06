@@ -36,6 +36,22 @@ def test_parse_and_classify_inbound_alias_message() -> None:
     assert parsed.alias_match_reason == "to"
 
 
+def test_only_the_first_date_header_is_kept() -> None:
+    parsed = parse_gmail_message(
+        {
+            "id": "m",
+            "threadId": "t",
+            "payload": {
+                "headers": [
+                    {"name": "Date", "value": "Mon, 2 Nov 2026 10:00:00 +0000"},
+                    {"name": "DATE", "value": "Tue, 3 Nov 2026 10:00:00 +0000"},
+                ]
+            },
+        }
+    )
+    assert parsed.date_header == "Mon, 2 Nov 2026 10:00:00 +0000"
+
+
 def test_sent_message_is_not_treated_as_new_inbound_work() -> None:
     raw = {
         "id": "message-2",

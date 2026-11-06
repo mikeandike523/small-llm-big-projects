@@ -6,8 +6,9 @@ mode, plus the ``request_unredacted`` hard gate), and before any approval
 event reaches the UI -- so a forced decision never opens a dialog.
 
 It applies only to subturns an automation started: heartbeat subturns use
-``heartbeat_settings.heartbeat_approval_policy`` and email subturns use their
-agent's ``automation_approval_policy``. A human's follow-up in the same turn
+``heartbeat_settings.heartbeat_approval_policy``, and email subturns use their
+agent's ``automation_approval_policy`` or, outside a pool,
+``email_settings.email_approval_policy``. A human's follow-up in the same turn
 waits for the human as usual.
 """
 
@@ -49,9 +50,12 @@ def _policy_for(origin: str, session_id: str, session: Session) -> str | None:
     if origin == SUBTURN_ORIGIN_HEARTBEAT:
         settings = runtime_settings.snapshot(session_id, session)
         return settings.heartbeat_settings.get("heartbeat_approval_policy")
-    if origin == SUBTURN_ORIGIN_EMAIL and session.agent_id is not None:
-        agent = get_agent(session.agent_id)
-        return agent.automation_approval_policy if agent is not None else None
+    if origin == SUBTURN_ORIGIN_EMAIL:
+        if session.agent_id is not None:
+            agent = get_agent(session.agent_id)
+            return agent.automation_approval_policy if agent is not None else None
+        settings = runtime_settings.snapshot(session_id, session)
+        return settings.email_settings.get("email_approval_policy")
     return None
 
 

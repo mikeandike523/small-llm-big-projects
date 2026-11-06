@@ -9,6 +9,7 @@ import src.channels.email.email_runner as runner_module
 import src.channels.email.inbound_store as store
 from src.channels.email.config import EmailConfig
 from src.channels.email.inbound_store import InboundEmail
+from src.utils.email_settings import DEFAULT_EMAIL_SETTINGS
 from src.utils.sql.agents_db import Agent
 from src.ui_connector.socket_handler_components.turn_outcome import TurnOutcome
 from src.utils.param_registry import REGISTRY
@@ -56,6 +57,7 @@ class FakeStore:
             references_header="",
             body_text=f"body {row_id}",
             received_at=float(row_id),
+            sent_at=float(row_id),
             status=store.STATUS_QUEUED,
             needs_queued_reply=False,
             queued_reply_sent_at=None,
@@ -73,7 +75,9 @@ class FakeStore:
         self.rows[row_id] = replace(self.rows[row_id], **changes)
 
     def install(self, monkeypatch) -> None:
-        ordered = lambda rows: sorted(rows, key=lambda r: (r.received_at, r.id))
+        ordered = lambda rows: sorted(
+            rows, key=lambda r: (r.sent_at, r.received_at, r.id)
+        )
         m = monkeypatch.setattr
 
         def mark_orphaned_interrupted():
@@ -179,7 +183,12 @@ class Harness:
         self.store = FakeStore()
         self.store.install(monkeypatch)
         self.sent: list[tuple[int, str]] = []
-        self.launches: list[tuple[str, str, str]] = []
+        self.launches: list[tuple[str, str, str | None]] = []
+        self.followups: list[str] = []
+        self.folders: list[int] = []
+        self.settings = dict(
+            DEFAULT_EMAIL_SETTINGS, agent_name="Solo", followup_behavior="new-task"
+        )
         self.callbacks: list = []
         self.launch_results = iter(launch_results or itertools.repeat(True))
         self.send_fails = send_fails
@@ -207,8 +216,9 @@ class Harness:
             gmail_factory=lambda: object(),
             launch=self._launch,
             agent_for=lambda _sid: self.agent,
+            settings_for=lambda _sid: self.settings,
             assign_session=self._assign,
-            ensure_folder=lambda _row: None,
+            ensure_folder=lambda row: self.folders.append(row.id),
             read_param=lambda name: self.params[name],
             clock=lambda: 50.0,
         )
@@ -217,8 +227,9 @@ class Harness:
         self.spawned.append(row.id)
         return f"spawned-{row.gmail_thread_id}"
 
-    def _launch(self, session_id, text, title, on_finished) -> bool:
+    def _launch(self, session_id, text, followup, title, on_finished) -> bool:
         self.launches.append((session_id, text, title))
+        self.followups.append(followup)
         result = next(self.launch_results)
         if result:
             self.callbacks.append(on_finished)

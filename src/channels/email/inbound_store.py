@@ -1,16 +1,24 @@
-"""MySQL-backed email queue (`email_inbound`, migrations v23 and v24).
+"""MySQL-backed email queue (`email_inbound`, migrations v23 to v25).
 
-Each row is one inbound email for one agent. It is the queue item, the
-de-duplication record (UNIQUE agent_id + gmail_message_id, so it outlives a
-deleted session) and the anchor that every reply about that email is threaded
-against. The router leaves ``session_id`` empty; the runner fills it in when it
-finds or spawns the conversation's session.
+Each row is one inbound email for one owner. It is the queue item, the
+de-duplication record and the anchor that every reply about that email is
+threaded against. There are two kinds of row:
+
+- Pool row: ``agent_id`` is set. UNIQUE agent_id + gmail_message_id, so the record
+  outlives a deleted session. The router leaves ``session_id`` empty; the runner
+  fills it in when it finds or spawns the conversation's session.
+- Single-session row: ``agent_id`` is NULL and ``session_id`` is the session
+  holding the alias. UNIQUE session_id + gmail_message_id; deleted with the session.
+
+A queue drains by ``sent_at`` (the sender's date, bounded by router.email_sent_time).
+``received_at`` is Gmail's accepted time and breaks ties, since a ``Date`` header
+only has one-second precision.
 
 Status flow::
 
     queued -> running -> done | failed | cancelled | interrupted
-    queued -> discarded            (agent disabled or unregistered, session
-                                    deleted; no reply)
+    queued -> discarded            (owner disabled, alias changed, agent
+                                    unregistered, session deleted; no reply)
 
 A ``running`` row found at startup died with the previous server process and
 becomes ``interrupted``.
@@ -50,23 +58,7 @@ _REPLY_COLUMNS = (REPLY_QUEUED, REPLY_WORKING, REPLY_FINAL, REPLY_APPROVAL)
 
 @dataclass(frozen=True)
 class NewInboundEmail:
-    agent_id: str
-    gmail_message_id: str
-    gmail_thread_id: str
-    alias: str
-    sender_address: str
-    sender_display_name: str | None
-    subject: str
-    message_id_header: str
-    references_header: str
-    body_text: str
-    received_at: float
-
-
-@dataclass(frozen=True)
-class InboundEmail:
-    id: int
-    agent_id: str
+    agent_id: str | None
     session_id: str | None
     gmail_message_id: str
     gmail_thread_id: str
@@ -78,6 +70,25 @@ class InboundEmail:
     references_header: str
     body_text: str
     received_at: float
+    sent_at: float
+
+
+@dataclass(frozen=True)
+class InboundEmail:
+    id: int
+    agent_id: str | None
+    session_id: str | None
+    gmail_message_id: str
+    gmail_thread_id: str
+    alias: str
+    sender_address: str
+    sender_display_name: str | None
+    subject: str
+    message_id_header: str
+    references_header: str
+    body_text: str
+    received_at: float
+    sent_at: float
     status: str
     needs_queued_reply: bool
     queued_reply_sent_at: float | None
@@ -91,7 +102,8 @@ class InboundEmail:
 _SELECT_COLS = (
     "id, agent_id, session_id, gmail_message_id, gmail_thread_id, alias, "
     "sender_address, sender_display_name, subject, message_id_header, "
-    "references_header, body_text, received_at, status, needs_queued_reply, "
+    "references_header, body_text, received_at, sent_at, status, "
+    "needs_queued_reply, "
     "queued_reply_sent_at, working_reply_sent_at, final_reply_sent_at, "
     "approval_notice_sent_at, final_text, error_detail"
 )
@@ -104,7 +116,7 @@ def _row(row: dict) -> InboundEmail:
 
     return InboundEmail(
         id=int(row["id"]),
-        agent_id=str(row["agent_id"]),
+        agent_id=str(row["agent_id"]) if row.get("agent_id") else None,
         session_id=str(row["session_id"]) if row.get("session_id") else None,
         gmail_message_id=str(row["gmail_message_id"]),
         gmail_thread_id=str(row["gmail_thread_id"]),
@@ -116,6 +128,7 @@ def _row(row: dict) -> InboundEmail:
         references_header=str(row.get("references_header") or ""),
         body_text=str(row.get("body_text") or ""),
         received_at=float(row["received_at"]),
+        sent_at=float(row["sent_at"]),
         status=str(row["status"]),
         needs_queued_reply=bool(row.get("needs_queued_reply")),
         queued_reply_sent_at=_opt_float("queued_reply_sent_at"),
@@ -127,7 +140,10 @@ def _row(row: dict) -> InboundEmail:
     )
 
 
-def _select(where: str, params: tuple, *, order: str = "received_at ASC, id ASC"):
+_QUEUE_ORDER = "sent_at ASC, received_at ASC, id ASC"
+
+
+def _select(where: str, params: tuple, *, order: str = _QUEUE_ORDER):
     pool = get_pool()
     with pool.get_connection() as conn, conn.cursor(dictionary=True) as cur:
         cur.execute(
@@ -147,18 +163,20 @@ def _execute(sql: str, params: tuple) -> int:
 
 
 def insert_inbound(item: NewInboundEmail, *, needs_queued_reply: bool) -> bool:
-    """Queue one email; False when this (agent, message) was already seen."""
+    """Queue one email; False when its owner has already seen this message."""
     return (
         _execute(
             """
             INSERT IGNORE INTO email_inbound
-                (agent_id, gmail_message_id, gmail_thread_id, alias,
+                (agent_id, session_id, gmail_message_id, gmail_thread_id, alias,
                  sender_address, sender_display_name, subject, message_id_header,
-                 references_header, body_text, received_at, needs_queued_reply)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                 references_header, body_text, received_at, sent_at,
+                 needs_queued_reply)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
             (
                 item.agent_id,
+                item.session_id,
                 item.gmail_message_id,
                 item.gmail_thread_id,
                 item.alias,
@@ -169,6 +187,7 @@ def insert_inbound(item: NewInboundEmail, *, needs_queued_reply: bool) -> bool:
                 item.references_header,
                 item.body_text,
                 item.received_at,
+                item.sent_at,
                 1 if needs_queued_reply else 0,
             ),
         )
@@ -190,9 +209,24 @@ def conversation_has_unfinished_work(
         return cur.fetchone() is not None
 
 
+def has_unfinished_work(session_id: str) -> bool:
+    """True while any queued or running email exists for the session."""
+    pool = get_pool()
+    with pool.get_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT 1 FROM email_inbound WHERE session_id = %s "
+            "AND status IN (%s, %s) LIMIT 1",
+            (session_id, STATUS_QUEUED, STATUS_RUNNING),
+        )
+        return cur.fetchone() is not None
+
+
 def queued_without_session() -> list[InboundEmail]:
-    """Mail the runner has not yet given to a conversation's session."""
-    return _select("session_id IS NULL AND status = %s", (STATUS_QUEUED,))
+    """Pool mail the runner has not yet given to a conversation's session."""
+    return _select(
+        "session_id IS NULL AND agent_id IS NOT NULL AND status = %s",
+        (STATUS_QUEUED,),
+    )
 
 
 def assign_session(inbound_id: int, session_id: str) -> None:
@@ -325,6 +359,15 @@ def discard_queued_for_session(session_id: str) -> int:
     )
 
 
+def delete_single_session_rows(session_id: str) -> int:
+    """Remove a session's own mail with it. Pool rows stay as the de-duplication
+    record, so re-delivered mail cannot be answered twice."""
+    return _execute(
+        "DELETE FROM email_inbound WHERE session_id = %s AND agent_id IS NULL",
+        (session_id,),
+    )
+
+
 def mark_orphaned_interrupted() -> int:
     """At startup no email turn can be running; such rows died with the server."""
     return _execute(
@@ -346,6 +389,17 @@ def sent_final_texts(
         "AND status = %s AND final_reply_sent_at IS NOT NULL "
         "AND final_text IS NOT NULL",
         (agent_id, gmail_thread_id, sender_address, STATUS_DONE),
+        order="received_at DESC, id DESC",
+    )
+    return [row.final_text for row in rows if row.final_text]
+
+
+def sent_final_texts_for_session(session_id: str, gmail_thread_id: str) -> list[str]:
+    """Answers one session already emailed in a thread (for quote stripping)."""
+    rows = _select(
+        "session_id = %s AND gmail_thread_id = %s AND status = %s "
+        "AND final_reply_sent_at IS NOT NULL AND final_text IS NOT NULL",
+        (session_id, gmail_thread_id, STATUS_DONE),
         order="received_at DESC, id DESC",
     )
     return [row.final_text for row in rows if row.final_text]

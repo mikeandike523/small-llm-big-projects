@@ -25,6 +25,7 @@ def _row(thread="t1", sender="ana@example.test", name="Ana Diaz") -> InboundEmai
         references_header="",
         body_text="hi",
         received_at=1.0,
+        sent_at=1.0,
         status="queued",
         needs_queued_reply=False,
         queued_reply_sent_at=None,

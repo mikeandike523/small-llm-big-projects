@@ -103,6 +103,10 @@ def fake_db(monkeypatch, tmp_path):
         agents_db, "identity_conflict", lambda *_a, **_k: state["conflict"]
     )
     monkeypatch.setattr(store, "ensure_agent_dirs", lambda _slug: None)
+    state["held_by_session"] = None
+    monkeypatch.setattr(
+        store, "held_by_session_message", lambda _email: state["held_by_session"]
+    )
     return state
 
 

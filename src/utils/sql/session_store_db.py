@@ -356,7 +356,8 @@ _META_LIST_COLS = (
     "session_id, created_at, schema_version, profile_name, initial_cwd, "
     "current_cwd, total_cost_usd, turn_count, recent_task_titles, "
     "task_title_count, interim_response_as_thinking, load_custom_skills_tools, "
-    "corrupt, heartbeat_enabled, agent_id, history_cache_compatible"
+    "corrupt, heartbeat_enabled, email_enabled, agent_id, "
+    "history_cache_compatible"
 )
 
 
@@ -377,6 +378,7 @@ def _row_to_meta(row: dict) -> dict:
         "corrupt": bool(row.get("corrupt")),
         "last_context_usage": _normalize_json(row.get("last_context_usage")),
         "heartbeat_enabled": bool(row.get("heartbeat_enabled")),
+        "email_enabled": bool(row.get("email_enabled")),
         "agent_id": row.get("agent_id"),
         "history_cache_compatible": bool(row.get("history_cache_compatible")),
     }

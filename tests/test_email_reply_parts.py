@@ -53,6 +53,7 @@ def _anchor(**overrides) -> InboundEmail:
         references_header="<root@mail.example.test> <mid@mail.example.test>",
         body_text="hello",
         received_at=1000.0,
+        sent_at=1000.0,
         status="running",
         needs_queued_reply=False,
         queued_reply_sent_at=None,

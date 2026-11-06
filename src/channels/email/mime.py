@@ -39,6 +39,8 @@ class ParsedGmailMessage:
     precedence_header: str = ""
     # Every Authentication-Results header, top (newest) first, undecoded.
     authentication_results: tuple[str, ...] = ()
+    # When the sender says they sent it (queue ordering); undecoded.
+    date_header: str = ""
 
 
 def _decode_b64url(value: str) -> bytes:
@@ -152,4 +154,5 @@ def parse_gmail_message(message: dict) -> ParsedGmailMessage:
         auto_submitted_header=_header_value(headers, "Auto-Submitted"),
         precedence_header=_header_value(headers, "Precedence"),
         authentication_results=_header_values(headers, "Authentication-Results"),
+        date_header=next(iter(_header_values(headers, "Date")), ""),
     )

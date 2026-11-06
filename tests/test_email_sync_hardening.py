@@ -161,6 +161,7 @@ def db(monkeypatch):
     m.setattr(
         ingest_module, "list_registered_emails", lambda: {"assistant@example.test"}
     )
+    m.setattr(ingest_module, "list_all_claimed_aliases", set)
     m.setattr(
         ingest_module,
         "parse_gmail_message",
@@ -305,3 +306,24 @@ def test_advance_cursor_refuses_to_move_backwards(monkeypatch) -> None:
     with pytest.raises(RuntimeError, match="backwards"):
         # "99" > "100" as strings; numeric comparison must still reject it.
         state_module.advance_cursor("mailbox@example.test", "100", "99")
+
+
+def test_sync_holds_new_turns_until_it_ends_even_when_it_fails(db, monkeypatch) -> None:
+    import src.channels.email.email_runner as runner_module
+
+    woken: list[bool] = []
+    monkeypatch.setattr(runner_module, "notify_email_runner", lambda: woken.append(True))
+    held_during_fetch: list[bool] = []
+
+    def fail_during_sync(*_a):
+        held_during_fetch.append(runner_module.intake_in_progress())
+        raise ServerError("backend error")
+
+    monkeypatch.setattr(sync_module, "_sync_history", fail_during_sync)
+    with pytest.raises(ServerError):
+        sync_module.synchronize_mailbox(
+            FakeGmail(history=[], messages={}, threads={}), _config(), now=NOW
+        )
+    assert held_during_fetch == [True]
+    assert not runner_module.intake_in_progress()
+    assert woken == [True]

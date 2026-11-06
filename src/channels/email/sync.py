@@ -97,6 +97,9 @@ def synchronize_mailbox(
         logger.info("Gmail sync skipped because another worker owns the lease")
         return False
 
+    from src.channels.email.email_runner import begin_intake, end_intake
+
+    begin_intake()
     try:
         state = load_mailbox_state(config.mailbox_email)
         cursor = state.last_processed_history_id
@@ -161,3 +164,4 @@ def synchronize_mailbox(
         raise
     finally:
         release_sync_lease(config.mailbox_email, owner)
+        end_intake()

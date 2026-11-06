@@ -14,6 +14,7 @@ import uuid
 
 from src.utils.agent_dirs import ensure_agent_dirs
 from src.utils.agent_settings import AgentIdentity, AgentSettings
+from src.utils.email_claims import CLAIM_LOCK, held_by_session_message
 from src.utils.slugs import slug_candidates, slugify
 from src.utils.sql import agents_db
 from src.utils.sql.agents_db import Agent
@@ -66,6 +67,9 @@ def _check_conflict(identity: AgentIdentity, exclude_agent_id: str | None) -> No
         raise AgentConflictError(
             f"{identity.email} is already used by another agent.", field="email"
         )
+    held_by_session = held_by_session_message(identity.email)
+    if held_by_session is not None:
+        raise AgentConflictError(held_by_session, field="email")
 
 
 def _conflict_from_duplicate(exc: Exception, identity: AgentIdentity):
@@ -76,6 +80,11 @@ def _conflict_from_duplicate(exc: Exception, identity: AgentIdentity):
 
 
 def create_agent(identity: AgentIdentity, settings: AgentSettings) -> Agent:
+    with CLAIM_LOCK:
+        return _create_agent_locked(identity, settings)
+
+
+def _create_agent_locked(identity: AgentIdentity, settings: AgentSettings) -> Agent:
     _check_conflict(identity, None)
     base_slug = slugify(identity.name, fallback="agent")
     for slug in slug_candidates(base_slug):
@@ -119,19 +128,20 @@ def update_settings(agent_id: str, settings: AgentSettings) -> None:
 
 def register(agent_id: str, identity: AgentIdentity) -> None:
     """Claim a name + email pair. Only mail received from now on is answered."""
-    _check_conflict(identity, agent_id)
-    try:
-        agents_db.set_agent_identity(
-            agent_id,
-            name=identity.name,
-            name_key=identity.name_key,
-            email=identity.email,
-            registered_at=time.time(),
-        )
-    except Exception as exc:
-        if agents_db.is_duplicate_key_error(exc):
-            raise _conflict_from_duplicate(exc, identity) from exc
-        raise
+    with CLAIM_LOCK:
+        _check_conflict(identity, agent_id)
+        try:
+            agents_db.set_agent_identity(
+                agent_id,
+                name=identity.name,
+                name_key=identity.name_key,
+                email=identity.email,
+                registered_at=time.time(),
+            )
+        except Exception as exc:
+            if agents_db.is_duplicate_key_error(exc):
+                raise _conflict_from_duplicate(exc, identity) from exc
+            raise
     invalidate(agent_id)
 
 

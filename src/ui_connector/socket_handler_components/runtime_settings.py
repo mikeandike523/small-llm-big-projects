@@ -5,6 +5,7 @@ import threading
 
 from src.utils.agent_store import get_agent
 from src.utils.approval_modes import APPROVAL_MODE_DEFAULT
+from src.utils.email_settings import normalize_email_settings
 from src.utils.heartbeat_settings import normalize_heartbeat_settings
 from src.utils.session_model import Session
 
@@ -17,6 +18,8 @@ class RuntimeSettings:
     approval_mode_revision: int
     heartbeat_settings: dict
     heartbeat_settings_revision: int
+    email_settings: dict
+    email_settings_revision: int
     # Set for a session in an agent's pool: the agent's profile and approval
     # mode replace the session's own on every read (see _with_agent_settings).
     agent_id: str | None = None
@@ -64,6 +67,10 @@ def _initialize_stored(session_id: str, session: Session) -> RuntimeSettings:
                     session.session_data.get("heartbeat_settings")
                 ),
                 heartbeat_settings_revision=0,
+                email_settings=normalize_email_settings(
+                    session.session_data.get("email_settings")
+                ),
+                email_settings_revision=0,
                 agent_id=session.agent_id,
             )
             _settings[session_id] = current
@@ -133,11 +140,28 @@ def set_heartbeat_settings(
         return updated
 
 
+def set_email_settings(
+    session_id: str, session: Session, email_settings: dict
+) -> RuntimeSettings:
+    with _lock:
+        current = _initialize_stored(session_id, session)
+        if current.email_settings == email_settings:
+            return current
+        updated = replace(
+            current,
+            email_settings=dict(email_settings),
+            email_settings_revision=current.email_settings_revision + 1,
+        )
+        _settings[session_id] = updated
+        return updated
+
+
 def merge_into_session(session_id: str, session: Session) -> RuntimeSettings:
     current = snapshot(session_id, session)
     session.profile_name = current.profile_name
     session.approval_mode = current.approval_mode
     session.session_data["heartbeat_settings"] = current.heartbeat_settings
+    session.session_data["email_settings"] = current.email_settings
     return current
 
 
@@ -149,6 +173,8 @@ def payload(settings: RuntimeSettings) -> dict:
         "approvalModeRevision": settings.approval_mode_revision,
         "heartbeatSettings": settings.heartbeat_settings,
         "heartbeatSettingsRevision": settings.heartbeat_settings_revision,
+        "emailSettings": settings.email_settings,
+        "emailSettingsRevision": settings.email_settings_revision,
     }
 
 

@@ -284,13 +284,17 @@ def _delete_sessions(session_ids: list[str]) -> None:
     """Delete many sessions from MySQL, Redis and in-memory caches."""
     if not session_ids:
         return
-    from src.channels.email.inbound_store import discard_queued_for_session
+    from src.channels.email.inbound_store import (
+        delete_single_session_rows,
+        discard_queued_for_session,
+    )
     from src.tools._agent_file_guard import clear_session as clear_file_guard
 
     workspaces_to_clear = _standalone_workspaces_to_clear(session_ids)
     # Queued mail loses its session below; left queued, it would spawn a new one.
     for session_id in session_ids:
         discard_queued_for_session(session_id)
+        delete_single_session_rows(session_id)
     # A failed MySQL delete propagates (and leaves Redis and caches intact).
     delete_sessions(session_ids)
 
