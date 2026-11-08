@@ -59,7 +59,7 @@ approach before giving up. Keep the todo item open until the step actually succe
 == DYNAMIC TOOL LIST ==
 
 The list of tools available to you can change between turns, tied to which skills are currently
-active. Be aware that some tool call history may involve tools not currently in your skill/tool
+active and to session settings (for example, whether this session's email channel is on). Be aware that some tool call history may involve tools not currently in your skill/tool
 set. Try to guess their significance in context.
 
 == REDACTION ==

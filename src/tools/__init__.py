@@ -34,6 +34,7 @@ from src.tools import list_working_tree
 from src.tools import read_text_file
 from src.tools import remove_dir
 from src.tools import report_impossible
+from src.tools import send_email
 from src.tools import sleep
 from src.tools import restore_file
 from src.tools import scrape_web_page
@@ -184,6 +185,7 @@ ALL_TOOL_DEFINITIONS: list[dict] = [
     _inject_framework_params(read_text_file, read_text_file.DEFINITION),
     _inject_framework_params(remove_dir, remove_dir.DEFINITION),
     _inject_framework_params(report_impossible, report_impossible.DEFINITION),
+    _inject_framework_params(send_email, send_email.DEFINITION),
     _inject_framework_params(sleep, sleep.DEFINITION),
     _inject_framework_params(restore_file, restore_file.DEFINITION),
     _inject_framework_params(scrape_web_page, scrape_web_page.DEFINITION),
@@ -225,6 +227,7 @@ _TOOL_MAP: dict[str, object] = {
     "read_text_file": read_text_file,
     "remove_dir": remove_dir,
     "report_impossible": report_impossible,
+    "send_email": send_email,
     "sleep": sleep,
     "restore_file": restore_file,
     "scrape_web_page": scrape_web_page,

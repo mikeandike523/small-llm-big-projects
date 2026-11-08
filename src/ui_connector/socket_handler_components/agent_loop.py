@@ -8,6 +8,7 @@ import threading
 from termcolor import colored
 
 import src.ui_connector.socket_handler_components.state as _state
+from src.tools import send_email as send_email_tool
 from src.ui_connector.socket_handler_components import runtime_settings
 from src.ui_connector.socket_handler_components.emit import (
     _emit_and_log,
@@ -132,6 +133,10 @@ async def _async_agent_loop(
         active_skill_ids = {entry["id"] for entry in loaded_skills}
         session_tool_defs, session_tool_map = _get_active_session_tool_defs_and_map(
             session_id, active_skill_ids
+        )
+        # Also non-sticky: send_email only while the session can send email.
+        session_tool_defs, session_tool_map = send_email_tool.filter_unavailable(
+            session_tool_defs, session_tool_map, session_id, session.agent_id
         )
 
         if loaded_skills:

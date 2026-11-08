@@ -250,6 +250,18 @@ REGISTRY["system.channels.email.system-messages.enabled"] = ParamSpec(
         "are always sent, because they are the sender's only reply."
     ),
 )
+REGISTRY["system.channels.email.add-noreply-note"] = ParamSpec(
+    name="system.channels.email.add-noreply-note",
+    value_type="boolean",
+    scope="global",
+    default=False,
+    description=(
+        "Add a short italic note to the end of emails a session sends with the "
+        "send_email tool, telling recipients who are not on the allowlist that "
+        "the address is not monitored (their replies are not answered). When "
+        "false (default for unset), no note is added."
+    ),
+)
 REGISTRY["system.metadata.system-admin.contact-name"] = ParamSpec(
     name="system.metadata.system-admin.contact-name",
     value_type="string",
