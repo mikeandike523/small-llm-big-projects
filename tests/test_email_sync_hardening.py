@@ -312,7 +312,9 @@ def test_sync_holds_new_turns_until_it_ends_even_when_it_fails(db, monkeypatch) 
     import src.channels.email.email_runner as runner_module
 
     woken: list[bool] = []
-    monkeypatch.setattr(runner_module, "notify_email_runner", lambda: woken.append(True))
+    monkeypatch.setattr(
+        runner_module, "notify_email_runner", lambda: woken.append(True)
+    )
     held_during_fetch: list[bool] = []
 
     def fail_during_sync(*_a):

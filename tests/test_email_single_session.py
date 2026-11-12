@@ -214,15 +214,35 @@ def test_agent_can_take_a_free_address(monkeypatch) -> None:
     assert len(inserted) == 1
 
 
-def test_registering_also_checks_sessions(monkeypatch) -> None:
+def test_unretiring_also_checks_sessions(monkeypatch) -> None:
     _agent_db_no_conflict(monkeypatch)
+    retired = agents_db.Agent(
+        id="a1",
+        slug="ana",
+        name="Ana",
+        email="a@example.test",
+        registered_at=1.0,
+        enabled=True,
+        allowed_senders=(),
+        profile_name="p",
+        approval_mode="default",
+        automation_approval_policy="wait-for-human",
+        created_at=1.0,
+        retired_at=2.0,
+    )
+    reactivated: list = []
+    monkeypatch.setattr(agents_db, "load_agent", lambda _aid: retired)
+    monkeypatch.setattr(
+        agents_db, "set_retired", lambda *a, **k: reactivated.append((a, k))
+    )
     monkeypatch.setattr(
         email_claims,
         "find_alias_owner",
         lambda *_a, **_k: {"session_id": "s1", "title": None},
     )
     with pytest.raises(AgentConflictError, match="a session"):
-        agent_store.register("a1", AgentIdentity("Ana", "a@example.test"))
+        agent_store.unretire("a1")
+    assert reactivated == []
 
 
 # -- routing -----------------------------------------------------------------

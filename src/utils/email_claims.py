@@ -29,4 +29,4 @@ def held_by_agent_message(email: str) -> str | None:
     agents = load_agents_for_emails([email])
     if not agents:
         return None
-    return f"{email} is already used by agent {agents[0].name}. Unregister it first."
+    return f"{email} is already used by agent {agents[0].name}. Retire it first."

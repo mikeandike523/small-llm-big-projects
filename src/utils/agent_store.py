@@ -74,7 +74,11 @@ def _check_conflict(identity: AgentIdentity, exclude_agent_id: str | None) -> No
 
 def _conflict_from_duplicate(exc: Exception, identity: AgentIdentity):
     """Two simultaneous claims: the unique keys decide, with the same message."""
-    field = "email" if agents_db.duplicate_key_names(exc, "uq_agents_email") else "name"
+    field = (
+        "email"
+        if agents_db.duplicate_key_names(exc, "uq_agents_active_email")
+        else "name"
+    )
     value = identity.email if field == "email" else identity.name
     return AgentConflictError(f"{value} is already used by another agent.", field=field)
 
@@ -94,6 +98,7 @@ def _create_agent_locked(identity: AgentIdentity, settings: AgentSettings) -> Ag
             name=identity.name,
             email=identity.email,
             registered_at=time.time(),
+            retired_at=None,
             enabled=settings.enabled,
             allowed_senders=tuple(settings.allowed_senders),
             profile_name=settings.profile_name,
@@ -126,30 +131,37 @@ def update_settings(agent_id: str, settings: AgentSettings) -> None:
     invalidate(agent_id)
 
 
-def register(agent_id: str, identity: AgentIdentity) -> None:
-    """Claim a name + email pair. Only mail received from now on is answered."""
+class AgentUnretireError(ValueError):
+    """This agent cannot be reactivated (for example, it has no identity left)."""
+
+
+def retire(agent_id: str) -> None:
+    """Stop answering mail and release the name + email. The agent keeps them
+    for display, along with its sessions and folder."""
+    agents_db.set_retired(agent_id, retired_at=time.time())
+    invalidate(agent_id)
+
+
+def unretire(agent_id: str) -> None:
+    """Claim the agent's name + email again and reactivate the same pool. Only
+    mail received from now on is answered."""
     with CLAIM_LOCK:
+        agent = agents_db.load_agent(agent_id)
+        if agent is None or not agent.is_retired:
+            return
+        if not agent.name or not agent.email:
+            raise AgentUnretireError(
+                "This agent has no recorded name and email, so it cannot be "
+                "unretired. Create a new agent instead."
+            )
+        identity = AgentIdentity(agent.name, agent.email)
         _check_conflict(identity, agent_id)
         try:
-            agents_db.set_agent_identity(
-                agent_id,
-                name=identity.name,
-                name_key=identity.name_key,
-                email=identity.email,
-                registered_at=time.time(),
-            )
+            agents_db.set_retired(agent_id, retired_at=None)
         except Exception as exc:
             if agents_db.is_duplicate_key_error(exc):
                 raise _conflict_from_duplicate(exc, identity) from exc
             raise
-    invalidate(agent_id)
-
-
-def unregister(agent_id: str) -> None:
-    """Release the name + email pair; the agent and its folder remain."""
-    agents_db.set_agent_identity(
-        agent_id, name=None, name_key=None, email=None, registered_at=None
-    )
     invalidate(agent_id)
 
 

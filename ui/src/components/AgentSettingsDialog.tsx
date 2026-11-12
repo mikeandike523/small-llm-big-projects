@@ -77,8 +77,7 @@ export default function AgentSettingsDialog({
   onChanged,
   onClose,
 }: Props) {
-  // Whether the name + email pair is committed. The wizard commits it on create.
-  const [registered, setRegistered] = useState(agent?.email != null);
+  const [retired, setRetired] = useState(agent?.retired_at != null);
   const [name, setName] = useState(agent?.name ?? "");
   const [email, setEmail] = useState(agent?.email ?? "");
   const [enabled, setEnabled] = useState(agent?.enabled ?? true);
@@ -96,11 +95,12 @@ export default function AgentSettingsDialog({
   );
   const [saving, setSaving] = useState(false);
   const [serverError, setServerError] = useState<ServerError | null>(null);
-  const [confirming, setConfirming] = useState<"unregister" | "delete" | null>(
-    null,
-  );
+  const [confirming, setConfirming] = useState<
+    "retire" | "unretire" | "delete" | null
+  >(null);
 
-  const identityEditable = !registered;
+  // The name + email pair is set once, when the agent is created.
+  const identityEditable = agent === null;
   const nameProblem = identityEditable && !name.trim() ? "is required" : null;
   const emailProblem = useMemo(() => {
     if (!identityEditable) return null;
@@ -151,25 +151,22 @@ export default function AgentSettingsDialog({
     if (done) onClose();
   }
 
-  async function handleRegister() {
+  async function handleRetire() {
     if (agent === null) return;
     const done = await run(() =>
-      requestJson(`/api/agents/${agent.id}/register`, "POST", { name, email }),
-    );
-    if (done) setRegistered(true);
-  }
-
-  async function handleUnregister() {
-    if (agent === null) return;
-    const done = await run(() =>
-      requestJson(`/api/agents/${agent.id}/unregister`, "POST"),
+      requestJson(`/api/agents/${agent.id}/retire`, "POST"),
     );
     setConfirming(null);
-    if (done) {
-      setRegistered(false);
-      setName("");
-      setEmail("");
-    }
+    if (done) setRetired(true);
+  }
+
+  async function handleUnretire() {
+    if (agent === null) return;
+    const done = await run(() =>
+      requestJson(`/api/agents/${agent.id}/unretire`, "POST"),
+    );
+    setConfirming(null);
+    if (done) setRetired(false);
   }
 
   async function handleDelete() {
@@ -236,29 +233,34 @@ export default function AgentSettingsDialog({
             </span>
           )}
           <span css={hintCss}>
-            {registered
-              ? "This name and email belong to this agent, even while it is disabled. Unregister to release them."
-              : agent === null
-                ? "Creating the agent commits this name and email. Both must be unique, ignoring case, and the name also sets the agent's folder."
-                : "Register to claim a name and email. Only mail received after that is answered."}
+            {agent === null
+              ? "Creating the agent commits this name and email for good. Both must be unique among active agents, ignoring case, and the name also sets the agent's folder."
+              : retired
+                ? "Retired: this name and email are free for another agent or a single session. Unretire to claim them again and reactivate this pool; only mail received after that is answered."
+                : "This name and email belong to this agent, even while it is disabled. Retire it to release them."}
           </span>
           {agent !== null && (
             <div style={{ display: "flex", marginTop: 8 }}>
-              {registered ? (
+              {retired ? (
                 <button
-                  css={secondaryBtnCss}
-                  disabled={saving}
-                  onClick={() => setConfirming("unregister")}
+                  css={saveBtnCss(saving || agent.email === null)}
+                  disabled={saving || agent.email === null}
+                  title={
+                    agent.email === null
+                      ? "This agent has no recorded name and email"
+                      : undefined
+                  }
+                  onClick={() => setConfirming("unretire")}
                 >
-                  Unregister name and email
+                  Unretire agent
                 </button>
               ) : (
                 <button
-                  css={saveBtnCss(saving || identityInvalid)}
-                  disabled={saving || identityInvalid}
-                  onClick={handleRegister}
+                  css={secondaryBtnCss}
+                  disabled={saving}
+                  onClick={() => setConfirming("retire")}
                 >
-                  Register name and email
+                  Retire agent
                 </button>
               )}
             </div>
@@ -357,7 +359,7 @@ export default function AgentSettingsDialog({
         {agent !== null && <span css={hintCss}>Folder: {agent.workspace}</span>}
 
         <div css={footerCss}>
-          {agent !== null && !registered && (
+          {agent !== null && (
             <button
               css={dangerBtnCss}
               disabled={saving}
@@ -379,19 +381,20 @@ export default function AgentSettingsDialog({
         </div>
       </div>
 
-      {confirming === "unregister" && (
+      {confirming === "retire" && (
         <div onClick={(e) => e.stopPropagation()}>
           <ConfirmDialog
-            title="Unregister Name and Email?"
-            confirmLabel="Unregister"
-            busyLabel="Unregistering..."
+            title="Retire Agent?"
+            confirmLabel="Retire"
+            busyLabel="Retiring..."
             busy={saving}
-            onConfirm={handleUnregister}
+            onConfirm={handleRetire}
             onCancel={() => setConfirming(null)}
           >
             This agent will stop answering email, and its queued mail is
-            discarded. Another agent can then claim this name and email. Its
-            sessions and folder are kept.
+            discarded. Another agent or a single session can then claim this
+            name and email. Its sessions and folder are kept, and you can
+            unretire it later if the name and email are still free.
           </ConfirmDialog>
         </div>
       )}
@@ -405,9 +408,28 @@ export default function AgentSettingsDialog({
             onConfirm={handleDelete}
             onCancel={() => setConfirming(null)}
           >
-            This permanently deletes the agent and all of its sessions. Its
-            folder stays on disk, and an agent created with the same name will
-            reuse it.
+            {retired
+              ? "This permanently deletes the agent and all of its sessions."
+              : "This retires the agent (it stops answering email, its queued mail is discarded and its name and email are released), then permanently deletes it and all of its sessions."}{" "}
+            Its folder stays on disk, and an agent created with the same name
+            will reuse it.
+          </ConfirmDialog>
+        </div>
+      )}
+      {confirming === "unretire" && (
+        <div onClick={(e) => e.stopPropagation()}>
+          <ConfirmDialog
+            title="Unretire Agent?"
+            confirmLabel="Unretire"
+            busyLabel="Unretiring..."
+            busy={saving}
+            onConfirm={handleUnretire}
+            onCancel={() => setConfirming(null)}
+          >
+            This agent claims its name and email again and reactivates its pool
+            with its existing sessions and folder. Only mail received from now
+            on is answered. If a single session or another agent now uses this
+            name or email, release it there first.
           </ConfirmDialog>
         </div>
       )}

@@ -80,7 +80,8 @@ export interface AgentPoolSession {
 export interface AgentSummary {
   id: string;
   slug: string;
-  /** Name and email are null while the agent is unregistered. */
+  /** Null only for agents unregistered before retiring existed. A retired
+   * agent keeps its name and email for display but no longer holds them. */
   name: string | null;
   email: string | null;
   enabled: boolean;
@@ -89,6 +90,12 @@ export interface AgentSummary {
   approval_mode: string;
   automation_approval_policy: AutomationApprovalPolicy;
   workspace: string;
+  /** Unix seconds. */
+  created_at: number;
+  /** Unix seconds, or null while the pool is active. */
+  retired_at: number | null;
+  /** Unix seconds of the newest email in the pool, or null. */
+  last_activity_at: number | null;
   sessions: AgentPoolSession[];
 }
 

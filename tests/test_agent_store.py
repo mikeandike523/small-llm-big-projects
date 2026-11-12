@@ -141,7 +141,7 @@ def test_conflict_names_its_field(fake_db, field) -> None:
 
 def test_simultaneous_claim_is_decided_by_the_unique_key(fake_db, monkeypatch) -> None:
     def insert(_agent, *, name_key):
-        raise DuplicateKey("uq_agents_email")
+        raise DuplicateKey("uq_agents_active_email")
 
     monkeypatch.setattr(agents_db, "insert_agent", insert)
     with pytest.raises(store.AgentConflictError) as info:
@@ -158,7 +158,7 @@ def test_writes_refresh_the_cached_agent(monkeypatch) -> None:
 
     monkeypatch.setattr(agents_db, "load_agent", load)
     monkeypatch.setattr(agents_db, "update_agent_settings", lambda *_a, **_k: None)
-    monkeypatch.setattr(agents_db, "set_agent_identity", lambda *_a, **_k: None)
+    monkeypatch.setattr(agents_db, "set_retired", lambda *_a, **_k: None)
     store.invalidate("cached")
 
     store.get_agent("cached")
@@ -167,7 +167,7 @@ def test_writes_refresh_the_cached_agent(monkeypatch) -> None:
     store.update_settings("cached", SETTINGS)
     store.get_agent("cached")
     assert len(loads) == 2
-    store.unregister("cached")
+    store.retire("cached")
     store.get_agent("cached")
     assert len(loads) == 3
     store.invalidate("cached")

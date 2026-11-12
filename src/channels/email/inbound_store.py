@@ -18,7 +18,7 @@ Status flow::
 
     queued -> running -> done | failed | cancelled | interrupted
     queued -> discarded            (owner disabled, alias changed, agent
-                                    unregistered, session deleted; no reply)
+                                    retired, session deleted; no reply)
 
 A ``running`` row found at startup died with the previous server process and
 becomes ``interrupted``.
@@ -344,7 +344,7 @@ def mark_reply_sent(inbound_id: int, column: str, sent_at: float) -> None:
 
 
 def discard_queued_for_agent(agent_id: str) -> int:
-    """Drop not-yet-started mail after the agent is disabled or unregistered."""
+    """Drop not-yet-started mail after the agent is disabled or retired."""
     return _execute(
         "UPDATE email_inbound SET status = %s WHERE agent_id = %s AND status = %s",
         (STATUS_DISCARDED, agent_id, STATUS_QUEUED),

@@ -46,12 +46,17 @@ def send_identity(
 ) -> SendIdentity | None:
     """The session's sending identity, or None when it may not send email.
 
-    ``agent`` is the pool's agent (None for a single session). A pool agent needs
-    a registered address and must be enabled; a single session needs its email
-    channel on and an alias claimed.
+    ``agent`` is the pool's agent (None for a single session). A pool agent must
+    be active (not retired) and enabled; a single session needs its email channel
+    on and an alias claimed.
     """
     if agent is not None:
-        if not agent.enabled or not agent.email or agent.registered_at is None:
+        if (
+            agent.is_retired
+            or not agent.enabled
+            or not agent.email
+            or agent.registered_at is None
+        ):
             return None
         return SendIdentity(
             address=str(agent.email),

@@ -1,8 +1,10 @@
 """HTTP routes for agents and the dashboard's session pools.
 
-A name + email pair is committed explicitly (create or register) and released
-explicitly (unregister). Each must be unique, ignoring case; the unique keys on
-``agents`` close the race between two simultaneous claims.
+A name + email pair is committed when the agent is created and never edited.
+Retiring releases it (the agent keeps it for display); unretiring claims it
+again and reactivates the same pool. Each must be unique among active agents,
+ignoring case; the unique keys on ``agents`` close the race between two
+simultaneous claims.
 """
 
 from __future__ import annotations
@@ -22,7 +24,7 @@ from src.utils.agent_settings import (
     parse_agent_identity,
     parse_agent_settings,
 )
-from src.utils.agent_store import AgentConflictError
+from src.utils.agent_store import AgentConflictError, AgentUnretireError
 from src.utils.sql import agents_db
 from src.utils.sql.agents_db import Agent
 
@@ -63,7 +65,14 @@ def pool_session_status(session_id: str, latest_email_status: str | None) -> str
     return "idle"
 
 
+def _last_activity_at(rows: list[dict]) -> float | None:
+    """The newest email in the pool: the same order the pool's rows use."""
+    times = [float(row["received_at"]) for row in rows if row.get("received_at")]
+    return max(times) if times else None
+
+
 def _agent_json(agent: Agent, pool_rows: list[dict]) -> dict:
+    rows = [row for row in pool_rows if row["agent_id"] == agent.id]
     return {
         "id": agent.id,
         "slug": agent.slug,
@@ -75,6 +84,9 @@ def _agent_json(agent: Agent, pool_rows: list[dict]) -> dict:
         "approval_mode": agent.approval_mode,
         "automation_approval_policy": agent.automation_approval_policy,
         "workspace": get_agent_workspace(agent.slug),
+        "created_at": agent.created_at,
+        "retired_at": agent.retired_at,
+        "last_activity_at": _last_activity_at(rows),
         "sessions": [
             {
                 "session_id": row["session_id"],
@@ -84,8 +96,7 @@ def _agent_json(agent: Agent, pool_rows: list[dict]) -> dict:
                 "subject": row.get("subject") or "",
                 "status": pool_session_status(row["session_id"], row.get("status")),
             }
-            for row in pool_rows
-            if row["agent_id"] == agent.id
+            for row in rows
         ],
     }
 
@@ -150,48 +161,54 @@ def api_update_agent(agent_id: str):
     return jsonify({"ok": True})
 
 
-@app.route("/api/agents/<agent_id>/register", methods=["POST"])
-def api_register_agent(agent_id: str):
+@app.route("/api/agents/<agent_id>/retire", methods=["POST"])
+def api_retire_agent(agent_id: str):
     agent = agent_store.get_agent(agent_id)
     if agent is None:
         return _not_found()
-    if agent.email is not None:
-        return jsonify({"error": "Unregister the current name and email first."}), 409
-    data = request.get_json(force=True, silent=True) or {}
-    try:
-        agent_store.register(agent_id, parse_agent_identity(data))
-    except InvalidAgentSettingsError as exc:
-        return _invalid(exc)
-    except AgentConflictError as exc:
-        return _conflict(exc)
-    return jsonify({"ok": True})
-
-
-@app.route("/api/agents/<agent_id>/unregister", methods=["POST"])
-def api_unregister_agent(agent_id: str):
-    if agent_store.get_agent(agent_id) is None:
-        return _not_found()
+    if agent.is_retired:
+        return jsonify({"ok": True})
     if _has_running_turn(agent_id):
         return (
             jsonify({"error": "Stop this agent's running turns first."}),
             409,
         )
     _discard_queued(agent_id)
-    agent_store.unregister(agent_id)
+    agent_store.retire(agent_id)
+    logger.info("Agent retired: id=%s slug=%s", agent.id, agent.slug)
+    _notify_runner()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/agents/<agent_id>/unretire", methods=["POST"])
+def api_unretire_agent(agent_id: str):
+    if agent_store.get_agent(agent_id) is None:
+        return _not_found()
+    try:
+        agent_store.unretire(agent_id)
+    except AgentConflictError as exc:
+        return _conflict(exc)
+    except AgentUnretireError as exc:
+        return jsonify({"error": str(exc)}), 409
+    logger.info("Agent unretired: id=%s", agent_id)
     _notify_runner()
     return jsonify({"ok": True})
 
 
 @app.route("/api/agents/<agent_id>", methods=["DELETE"])
 def api_delete_agent(agent_id: str):
-    """Delete the record and its sessions. The agent's folder stays on disk."""
+    """Delete the record and its sessions. The agent's folder stays on disk.
+
+    An active agent is retired first, under the same rules as retiring it."""
     agent = agent_store.get_agent(agent_id)
     if agent is None:
         return _not_found()
-    if agent.email is not None:
-        return jsonify({"error": "Unregister the agent before deleting it."}), 409
     if _has_running_turn(agent_id):
         return jsonify({"error": "Stop this agent's running turns first."}), 409
+    if not agent.is_retired:
+        _discard_queued(agent_id)
+        agent_store.retire(agent_id)
+        _notify_runner()
     _delete_sessions(agents_db.agent_session_ids(agent_id))
     agent_store.delete(agent_id)
     logger.info("Agent deleted: id=%s slug=%s", agent.id, agent.slug)

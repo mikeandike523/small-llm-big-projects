@@ -36,7 +36,9 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
     d = _j(r)
     remaining = [
         it["text"]
-        for it in _j(execute_tool("todo_list", {"action": "list"}, sd)[0]).get("items", [])
+        for it in _j(execute_tool("todo_list", {"action": "list"}, sd)[0]).get(
+            "items", []
+        )
     ]
     cl.check(
         "delete_many basic",
@@ -62,7 +64,9 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
     r, _ = execute_tool(
         "todo_list", {"action": "delete_many_items", "item_paths": ["1.1", "2"]}, sd
     )
-    count = len(_j(execute_tool("todo_list", {"action": "list"}, sd)[0]).get("items", []))
+    count = len(
+        _j(execute_tool("todo_list", {"action": "list"}, sd)[0]).get("items", [])
+    )
     cl.check(
         "delete_many same-parent enforced",
         "Mixed-parent paths error and delete nothing",
@@ -75,7 +79,9 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
     r, _ = execute_tool(
         "todo_list", {"action": "delete_many_items", "item_paths": ["2", "2"]}, sd
     )
-    count = len(_j(execute_tool("todo_list", {"action": "list"}, sd)[0]).get("items", []))
+    count = len(
+        _j(execute_tool("todo_list", {"action": "list"}, sd)[0]).get("items", [])
+    )
     cl.check(
         "delete_many duplicate rejected",
         "Duplicate item_path errors and deletes nothing",
@@ -88,7 +94,9 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
     r, _ = execute_tool(
         "todo_list", {"action": "delete_many_items", "item_paths": ["1", "9"]}, sd
     )
-    count = len(_j(execute_tool("todo_list", {"action": "list"}, sd)[0]).get("items", []))
+    count = len(
+        _j(execute_tool("todo_list", {"action": "list"}, sd)[0]).get("items", [])
+    )
     cl.check(
         "delete_many atomic on bad path",
         "An invalid path leaves the list untouched",
@@ -104,7 +112,9 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
     r, _ = execute_tool(
         "todo_list", {"action": "delete_many_items", "item_paths": ["1", "2"]}, sd
     )
-    count = len(_j(execute_tool("todo_list", {"action": "list"}, sd)[0]).get("items", []))
+    count = len(
+        _j(execute_tool("todo_list", {"action": "list"}, sd)[0]).get("items", [])
+    )
     cl.check(
         "delete_many cascade guard",
         "Promoted item without cascade errors, nothing deleted",
@@ -126,7 +136,9 @@ def add_checks(cl: CheckList, env: TestEnv) -> None:
         },
         sd,
     )
-    count = len(_j(execute_tool("todo_list", {"action": "list"}, sd)[0]).get("items", []))
+    count = len(
+        _j(execute_tool("todo_list", {"action": "list"}, sd)[0]).get("items", [])
+    )
     cl.check(
         "delete_many cascade deletes",
         "cascade_delete=true removes promoted item and leaves empty list",

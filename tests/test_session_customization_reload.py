@@ -36,7 +36,9 @@ def test_reload_publishes_skills_tools_and_prompt_together(monkeypatch, tmp_path
         }
     ]
     monkeypatch.setattr(reloads, "build_skill_registry", lambda **_kwargs: registry)
-    monkeypatch.setattr(reloads, "reload_custom_tools", lambda **_kwargs: _tool_result())
+    monkeypatch.setattr(
+        reloads, "reload_custom_tools", lambda **_kwargs: _tool_result()
+    )
     monkeypatch.setattr(reloads, "build_system_prompt", lambda **_kwargs: "new prompt")
 
     try:

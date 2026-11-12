@@ -10,7 +10,6 @@ import httpx
 from src.tools._cancellation import CANCELLED_HINT, check_cancelled
 from src.utils.exceptions import ToolTimeoutError
 
-
 _CANCEL_POLL_INTERVAL = 0.05
 
 

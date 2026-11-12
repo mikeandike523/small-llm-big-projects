@@ -4,7 +4,6 @@ import threading
 
 from src.utils.exceptions import ToolTimeoutError
 
-
 CANCELLED_HINT = "cancelled by user"
 
 

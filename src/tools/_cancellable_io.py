@@ -7,7 +7,6 @@ import tempfile
 
 from src.tools._cancellation import check_cancelled
 
-
 _BINARY_CHUNK_SIZE = 1024 * 1024
 _TEXT_CHUNK_SIZE = 256 * 1024
 
@@ -87,9 +86,7 @@ def write_text_cancellable(
     parent = os.path.dirname(os.path.abspath(path_string))
     descriptor, temporary = tempfile.mkstemp(prefix=".slbp-write-", dir=parent)
     try:
-        with os.fdopen(
-            descriptor, "w", encoding=encoding, newline=newline
-        ) as handle:
+        with os.fdopen(descriptor, "w", encoding=encoding, newline=newline) as handle:
             for offset in range(0, len(content), _TEXT_CHUNK_SIZE):
                 check_cancelled(tool_name, cancel_event)
                 handle.write(content[offset : offset + _TEXT_CHUNK_SIZE])

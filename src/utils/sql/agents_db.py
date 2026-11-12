@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import time
 from collections.abc import Collection
 from dataclasses import dataclass
 
@@ -11,7 +12,7 @@ from src.data import get_pool
 MYSQL_DUPLICATE_KEY_ERRNO = 1062
 
 _AGENT_COLS = (
-    "id, slug, name, email, registered_at, enabled, allowed_senders, profile_name, "
+    "id, slug, name, email, registered_at, retired_at, enabled, allowed_senders, profile_name, "
     "approval_mode, automation_approval_policy, created_at"
 )
 
@@ -29,6 +30,11 @@ class Agent:
     approval_mode: str
     automation_approval_policy: str
     created_at: float
+    retired_at: float | None = None
+
+    @property
+    def is_retired(self) -> bool:
+        return self.retired_at is not None
 
 
 @dataclass(frozen=True)
@@ -53,12 +59,14 @@ def _row_to_agent(row: dict) -> Agent:
     if isinstance(senders, (str, bytes, bytearray)):
         senders = json.loads(senders)
     registered_at = row.get("registered_at")
+    retired_at = row.get("retired_at")
     return Agent(
         id=str(row["id"]),
         slug=str(row["slug"]),
         name=row.get("name"),
         email=row.get("email"),
         registered_at=float(registered_at) if registered_at is not None else None,
+        retired_at=float(retired_at) if retired_at is not None else None,
         enabled=bool(row.get("enabled")),
         allowed_senders=tuple(senders or ()),
         profile_name=str(row["profile_name"]),
@@ -86,7 +94,11 @@ def _execute(sql: str, params: tuple = ()) -> int:
 
 
 def list_agents() -> list[Agent]:
-    rows = _fetch_all(f"SELECT {_AGENT_COLS} FROM agents ORDER BY created_at ASC")
+    """Active agents first, then retired ones; oldest first within each."""
+    rows = _fetch_all(
+        f"SELECT {_AGENT_COLS} FROM agents "
+        "ORDER BY retired_at IS NOT NULL, created_at ASC"
+    )
     return [_row_to_agent(row) for row in rows]
 
 
@@ -96,32 +108,33 @@ def load_agent(agent_id: str) -> Agent | None:
 
 
 def load_agents_for_emails(emails: Collection[str]) -> list[Agent]:
+    """Active agents holding any of ``emails``. Retired agents hold nothing."""
     wanted = sorted(set(emails))
     if not wanted:
         return []
     placeholders = ", ".join(["%s"] * len(wanted))
     rows = _fetch_all(
-        f"SELECT {_AGENT_COLS} FROM agents WHERE email IN ({placeholders})",
+        f"SELECT {_AGENT_COLS} FROM agents WHERE active_email IN ({placeholders})",
         tuple(wanted),
     )
     return [_row_to_agent(row) for row in rows]
 
 
 def list_registered_emails() -> set[str]:
-    rows = _fetch_all("SELECT email FROM agents WHERE email IS NOT NULL")
-    return {str(row["email"]) for row in rows}
+    rows = _fetch_all("SELECT active_email FROM agents WHERE active_email IS NOT NULL")
+    return {str(row["active_email"]) for row in rows}
 
 
 def identity_conflict(
     name_key: str, email: str, *, exclude_agent_id: str | None
 ) -> str | None:
-    """Which identity field another agent already holds: name, email or None."""
+    """Which identity field another active agent holds: name, email or None."""
     rows = _fetch_all(
-        "SELECT name_key, email FROM agents "
-        "WHERE (name_key = %s OR email = %s) AND id <> %s",
+        "SELECT active_name_key FROM agents "
+        "WHERE (active_name_key = %s OR active_email = %s) AND id <> %s",
         (name_key, email, exclude_agent_id or ""),
     )
-    if any(row.get("name_key") == name_key for row in rows):
+    if any(row.get("active_name_key") == name_key for row in rows):
         return "name"
     return "email" if rows else None
 
@@ -178,18 +191,17 @@ def update_agent_settings(
     )
 
 
-def set_agent_identity(
-    agent_id: str,
-    *,
-    name: str | None,
-    name_key: str | None,
-    email: str | None,
-    registered_at: float | None,
-) -> None:
+def set_retired(agent_id: str, *, retired_at: float | None) -> None:
+    """Retire (a time) or reactivate (None). Reactivating restarts the claim, so
+    only mail received from now on is answered."""
+    if retired_at is not None:
+        _execute(
+            "UPDATE agents SET retired_at = %s WHERE id = %s", (retired_at, agent_id)
+        )
+        return
     _execute(
-        "UPDATE agents SET name = %s, name_key = %s, email = %s, registered_at = %s "
-        "WHERE id = %s",
-        (name, name_key, email, registered_at, agent_id),
+        "UPDATE agents SET retired_at = NULL, registered_at = %s WHERE id = %s",
+        (time.time(), agent_id),
     )
 
 

@@ -154,7 +154,13 @@ def test_heartbeat_daemon_skips_pool_sessions(monkeypatch) -> None:
 
 @pytest.fixture
 def agents_env(monkeypatch):
-    state = {"agents": {}, "discarded": [], "running": False, "deleted": []}
+    state = {
+        "agents": {},
+        "discarded": [],
+        "running": False,
+        "deleted": [],
+        "unretire_conflict": False,
+    }
 
     def create(identity, settings):
         if any(a.email == identity.email for a in state["agents"].values()):
@@ -168,15 +174,26 @@ def agents_env(monkeypatch):
     monkeypatch.setattr(agent_store, "get_agent", state["agents"].get)
     monkeypatch.setattr(
         agent_store,
-        "unregister",
-        lambda aid: state["agents"].update({aid: _agent(name=None, email=None)}),
+        "retire",
+        lambda aid: state["agents"].update({aid: _agent(retired_at=5.0)}),
     )
+
+    def unretire(aid):
+        if state["unretire_conflict"]:
+            raise agent_store.AgentConflictError("taken", field="email")
+        state["agents"][aid] = _agent()
+
+    monkeypatch.setattr(agent_store, "unretire", unretire)
     monkeypatch.setattr(agent_store, "delete", lambda aid: state["agents"].pop(aid))
     monkeypatch.setattr(api, "_discard_queued", state["discarded"].append)
     monkeypatch.setattr(api, "_notify_runner", lambda: None)
     monkeypatch.setattr(api, "_has_running_turn", lambda _aid: state["running"])
     monkeypatch.setattr(api.agents_db, "agent_session_ids", lambda _aid: ["s1", "s2"])
     monkeypatch.setattr(api, "_delete_sessions", state["deleted"].extend)
+    monkeypatch.setattr(
+        api.agents_db, "list_agents", lambda: list(state["agents"].values())
+    )
+    monkeypatch.setattr(api.agents_db, "list_pool_rows", lambda: [])
     return state, app.test_client()
 
 
@@ -217,29 +234,65 @@ def test_invalid_sender_line_is_400_with_field(agents_env) -> None:
     assert response.get_json()["field"] == "allowed_senders"
 
 
-def test_unregister_is_refused_while_a_turn_runs(agents_env) -> None:
+def test_retire_is_refused_while_a_turn_runs(agents_env) -> None:
     state, client = agents_env
     client.post("/api/agents", json=_agent_body())
     state["running"] = True
-    response = client.post("/api/agents/agent-1/unregister")
+    response = client.post("/api/agents/agent-1/retire")
     assert response.status_code == 409
-    assert state["agents"]["agent-1"].email == "agent@example.test"
+    assert not state["agents"]["agent-1"].is_retired
 
 
-def test_unregister_discards_queued_mail_and_releases_the_pair(agents_env) -> None:
+def test_retire_discards_queued_mail_and_keeps_the_identity(agents_env) -> None:
     state, client = agents_env
     client.post("/api/agents", json=_agent_body())
-    assert client.post("/api/agents/agent-1/unregister").status_code == 200
+    assert client.post("/api/agents/agent-1/retire").status_code == 200
     assert state["discarded"] == ["agent-1"]
-    assert state["agents"]["agent-1"].email is None
+    retired = client.get("/api/agents").get_json()[0]
+    assert retired["retired_at"] == 5.0
+    assert retired["email"] == "agent@example.test"
 
 
-def test_delete_needs_unregistering_first_then_removes_sessions(agents_env) -> None:
+def test_unretire_reactivates_or_reports_the_conflict(agents_env) -> None:
     state, client = agents_env
     client.post("/api/agents", json=_agent_body())
+    client.post("/api/agents/agent-1/retire")
+    state["unretire_conflict"] = True
+    response = client.post("/api/agents/agent-1/unretire")
+    assert response.status_code == 409
+    assert response.get_json()["field"] == "email"
+    state["unretire_conflict"] = False
+    assert client.post("/api/agents/agent-1/unretire").status_code == 200
+    assert not state["agents"]["agent-1"].is_retired
+
+
+def test_delete_is_refused_while_a_turn_runs(agents_env) -> None:
+    state, client = agents_env
+    client.post("/api/agents", json=_agent_body())
+    state["running"] = True
     assert client.delete("/api/agents/agent-1").status_code == 409
     assert state["deleted"] == []
-    client.post("/api/agents/agent-1/unregister")
+    assert state["discarded"] == []
+
+
+def test_deleting_an_active_agent_retires_it_first(agents_env, monkeypatch) -> None:
+    state, client = agents_env
+    client.post("/api/agents", json=_agent_body())
+    retired: list = []
+    original = agent_store.retire
+    monkeypatch.setattr(
+        agent_store, "retire", lambda aid: (retired.append(aid), original(aid))
+    )
+    assert client.delete("/api/agents/agent-1").status_code == 200
+    assert retired == ["agent-1"]
+    assert state["discarded"] == ["agent-1"]
+    assert state["deleted"] == ["s1", "s2"]
+
+
+def test_deleting_a_retired_agent_removes_sessions(agents_env) -> None:
+    state, client = agents_env
+    client.post("/api/agents", json=_agent_body())
+    client.post("/api/agents/agent-1/retire")
     assert client.delete("/api/agents/agent-1").status_code == 200
     assert state["deleted"] == ["s1", "s2"]
     assert "agent-1" not in state["agents"]

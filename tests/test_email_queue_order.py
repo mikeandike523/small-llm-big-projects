@@ -191,7 +191,9 @@ def test_no_turn_starts_during_a_sync_and_replies_still_go_out(
 
 def test_ending_a_sync_wakes_the_runner(monkeypatch) -> None:
     woken: list[bool] = []
-    monkeypatch.setattr(runner_module, "notify_email_runner", lambda: woken.append(True))
+    monkeypatch.setattr(
+        runner_module, "notify_email_runner", lambda: woken.append(True)
+    )
     runner_module.begin_intake()
     assert runner_module.intake_in_progress()
     runner_module.end_intake()
@@ -238,7 +240,9 @@ def test_single_session_row_has_no_agent() -> None:
 @pytest.mark.parametrize(
     ("agent_id", "session_id"), [(None, "s1"), ("a1", None)], ids=["single", "pool"]
 )
-def test_insert_stores_the_owner_and_sent_date(monkeypatch, agent_id, session_id) -> None:
+def test_insert_stores_the_owner_and_sent_date(
+    monkeypatch, agent_id, session_id
+) -> None:
     executed: list = []
 
     def execute(sql, params):
@@ -276,7 +280,9 @@ def test_insert_stores_the_owner_and_sent_date(monkeypatch, agent_id, session_id
 
 def test_session_delete_removes_only_its_own_kind_of_row(monkeypatch) -> None:
     executed: list = []
-    monkeypatch.setattr(store, "_execute", lambda sql, params: executed.append((sql, params)))
+    monkeypatch.setattr(
+        store, "_execute", lambda sql, params: executed.append((sql, params))
+    )
     store.delete_single_session_rows("s1")
     sql, params = executed[0]
     assert "agent_id IS NULL" in sql
@@ -285,6 +291,8 @@ def test_session_delete_removes_only_its_own_kind_of_row(monkeypatch) -> None:
 
 def test_spawn_path_never_sees_single_session_rows(monkeypatch) -> None:
     seen: list = []
-    monkeypatch.setattr(store, "_select", lambda where, params: seen.append(where) or [])
+    monkeypatch.setattr(
+        store, "_select", lambda where, params: seen.append(where) or []
+    )
     store.queued_without_session()
     assert "agent_id IS NOT NULL" in seen[0]

@@ -36,7 +36,9 @@ def run(env: TestEnv, server: MicroServer | None = None):
         )
 
         # creating the same file again should yield an error
-        r2, _ = execute_tool("create_text_file", {"path": target_path}, env.session_data)
+        r2, _ = execute_tool(
+            "create_text_file", {"path": target_path}, env.session_data
+        )
         cl.check(
             "duplicate create error",
             "Returns error when file already exists",

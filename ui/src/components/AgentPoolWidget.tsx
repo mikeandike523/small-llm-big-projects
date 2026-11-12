@@ -30,6 +30,37 @@ const widgetCss = css`
   font-family: "Fira Code", "Consolas", monospace;
 `;
 
+const retiredWidgetCss = css`
+  border-style: dashed;
+  background: #0c0c12;
+  opacity: 0.75;
+`;
+
+const retiredBadgeCss = css`
+  border: 1px solid #4a4a5e;
+  border-radius: 3px;
+  padding: 0 5px;
+  font-size: 10px;
+  letter-spacing: 0.05em;
+  color: #9a9ab0;
+`;
+
+const metaCss = css`
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  padding: 0 14px 9px;
+  font-size: 10.5px;
+  color: #7a86a8;
+`;
+
+const folderCss = css`
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+`;
+
 const headerCss = css`
   display: flex;
   align-items: center;
@@ -121,6 +152,14 @@ const emptyCss = css`
   color: #7a86a8;
 `;
 
+function formatDate(unixSeconds: number): string {
+  return new Date(unixSeconds * 1000).toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
+}
+
 function senderLabel(session: AgentPoolSession): string {
   return session.display_name
     ? `${session.display_name} <${session.sender_address}>`
@@ -133,22 +172,34 @@ export default function AgentPoolWidget({
   onDeleteSession,
   onOpenSettings,
 }: Props) {
+  const retired = agent.retired_at !== null;
   return (
-    <div css={widgetCss}>
+    <div css={[widgetCss, retired && retiredWidgetCss]}>
       <div css={headerCss}>
         {agent.name ? (
           <span>
             {agent.name} <span css={mutedCss}>&lt;{agent.email}&gt;</span>
           </span>
         ) : (
-          <span css={mutedCss}>Unregistered agent ({agent.slug})</span>
+          <span css={mutedCss}>Unnamed agent ({agent.slug})</span>
         )}
-        {agent.email !== null && !agent.enabled && (
-          <span css={mutedCss}>disabled</span>
-        )}
+        {retired && <span css={retiredBadgeCss}>RETIRED</span>}
+        {!retired && !agent.enabled && <span css={mutedCss}>disabled</span>}
         <button css={settingsBtnCss} onClick={onOpenSettings}>
           Settings
         </button>
+      </div>
+      <div css={metaCss}>
+        <span css={folderCss} title={agent.workspace}>
+          Folder: {agent.workspace}
+        </span>
+        <span>
+          {formatDate(agent.created_at)} –{" "}
+          {agent.retired_at !== null ? formatDate(agent.retired_at) : "ongoing"}
+        </span>
+        {agent.last_activity_at !== null && (
+          <span>Last email {formatDate(agent.last_activity_at)}</span>
+        )}
       </div>
       {agent.sessions.length === 0 && (
         <div css={emptyCss}>No conversations yet.</div>

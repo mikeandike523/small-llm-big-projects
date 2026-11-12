@@ -100,9 +100,10 @@ def test_cancellable_file_helpers_preserve_normal_behavior(tmp_path) -> None:
         cancel_event=event,
         preserve_metadata=True,
     )
-    assert read_text_cancellable(
-        copied, tool_name="test", cancel_event=event, newline=""
-    ) == "abc\n" * 1000
+    assert (
+        read_text_cancellable(copied, tool_name="test", cancel_event=event, newline="")
+        == "abc\n" * 1000
+    )
 
 
 def test_recursive_remove_refuses_to_start_when_cancelled(tmp_path) -> None:

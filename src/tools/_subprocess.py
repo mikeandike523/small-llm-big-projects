@@ -69,9 +69,7 @@ def run_command(
     try:
         while proc.poll() is None:
             cancelled = (
-                cancel_event.wait(poll_interval)
-                if cancel_event is not None
-                else False
+                cancel_event.wait(poll_interval) if cancel_event is not None else False
             )
             if cancel_event is None:
                 time.sleep(poll_interval)
