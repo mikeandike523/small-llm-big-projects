@@ -10,11 +10,27 @@ const {
 const PROXY_PORT = parseInt(process.env.PROXY_PORT || "0", 10);
 const FLASK_PORT = process.env.FLASK_PORT || "5000";
 const UI_PORT = process.env.UI_PORT || "5173";
+const ARTIFACT_PORT = process.env.ARTIFACT_PORT || "0";
+const ARTIFACT_HOST = (process.env.ARTIFACT_HOST || "artifact.localhost").toLowerCase().replace(/^\.+|\.+$/g, "");
 
 const FLASK_ORIGIN = `http://localhost:${FLASK_PORT}`;
 const UI_ORIGIN = `http://localhost:${UI_PORT}`;
 
 const app = express();
+
+// Wildcard artifact hosts are routed before the normal UI fallback. The
+// artifact service validates the complete host/id again; this rule only keeps
+// artifact traffic out of the UI server.
+app.use(
+  createProxyMiddleware({
+    pathFilter: (_path, req) => {
+      const host = String(req.headers.host || "").split(":")[0].toLowerCase();
+      return host.endsWith(`.${ARTIFACT_HOST}`);
+    },
+    target: `http://127.0.0.1:${ARTIFACT_PORT}`,
+    changeOrigin: false,
+  }),
+);
 
 // /api/** -> Flask (REST only; WebSocket upgrades handled separately below).
 // Mounted at root with pathFilter so Express does not strip the /api prefix.

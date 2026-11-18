@@ -5,6 +5,7 @@
 export interface SlbpDesktopApi {
   /** Open the native folder picker; resolves to a forward-slash path or null on cancel. */
   pickFolder: (initialDir?: string) => Promise<string | null>;
+  openArtifact: (url: string) => Promise<void>;
 }
 
 declare global {

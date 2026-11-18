@@ -121,6 +121,7 @@ def process_doctor(force_kill_all: bool):
     "slbp server run" generations show up as two separate root trees.
 
     Matches on specific script paths (ui/serve.cjs, proxy-server/index.js,
+    proxy-server/artifact-server.js,
     run_ui_connector.sh, ui_connector/main.py, the server-run wrapper) --
     never a bare repo-path substring, so unrelated tooling running from the
     same venv (editor language servers, etc.) is never listed. Only ever

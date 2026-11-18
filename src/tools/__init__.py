@@ -28,6 +28,10 @@ from src.tools import host_check_command
 from src.tools import host_shell
 from src.tools import check_terminal_state
 from src.tools import open_in_terminal
+from src.tools import serve_dir
+from src.tools import list_artifacts
+from src.tools import stop_serving_dir
+from src.tools import open_artifact
 from src.tools import read_open_terminal
 from src.tools import list_dir
 from src.tools import list_working_tree
@@ -179,6 +183,10 @@ ALL_TOOL_DEFINITIONS: list[dict] = [
     _inject_framework_params(host_shell, host_shell.DEFINITION),
     _inject_framework_params(check_terminal_state, check_terminal_state.DEFINITION),
     _inject_framework_params(open_in_terminal, open_in_terminal.DEFINITION),
+    _inject_framework_params(serve_dir, serve_dir.DEFINITION),
+    _inject_framework_params(list_artifacts, list_artifacts.DEFINITION),
+    _inject_framework_params(stop_serving_dir, stop_serving_dir.DEFINITION),
+    _inject_framework_params(open_artifact, open_artifact.DEFINITION),
     _inject_framework_params(read_open_terminal, read_open_terminal.DEFINITION),
     _inject_framework_params(list_dir, list_dir.DEFINITION),
     _inject_framework_params(list_working_tree, list_working_tree.DEFINITION),
@@ -221,6 +229,10 @@ _TOOL_MAP: dict[str, object] = {
     "host_shell": host_shell,
     "check_terminal_state": check_terminal_state,
     "open_in_terminal": open_in_terminal,
+    "serve_dir": serve_dir,
+    "list_artifacts": list_artifacts,
+    "stop_serving_dir": stop_serving_dir,
+    "open_artifact": open_artifact,
     "read_open_terminal": read_open_terminal,
     "list_dir": list_dir,
     "list_working_tree": list_working_tree,

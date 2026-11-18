@@ -115,6 +115,7 @@ export default function useSocketWiring(socket: Socket) {
     customPlugins: { name: string; count: number; path: string }[] | null;
   } | null>(null);
   const [terminalOpen, setTerminalOpen] = useState(storedTerminalOpen);
+  const [artifactUrl, setArtifactUrl] = useState<string | null>(null);
   const [systemPrompt, setSystemPrompt] = useState<string | null>(null);
   const [backendLogs, setBackendLogs] = useState<BackendLogEntry[]>([]);
   const nextClientLogId = useRef(-1);
@@ -1111,6 +1112,14 @@ export default function useSocketWiring(socket: Socket) {
       setTerminalOpen(true);
     }
 
+    function onArtifactOpen(data: { url: string }) {
+      if (window.slbpDesktop) {
+        void window.slbpDesktop.openArtifact(data.url);
+      } else {
+        setArtifactUrl(data.url);
+      }
+    }
+
     function onPatchRewriteStart(data: {
       event_id?: string;
       turn_id?: string;
@@ -1189,6 +1198,7 @@ export default function useSocketWiring(socket: Socket) {
     socket.on("session_state", onSessionState);
     socket.on("session_load_error", onSessionLoadError);
     socket.on("terminal_open_panel", onTerminalOpenPanel);
+    socket.on("artifact_open", onArtifactOpen);
     for (const [event, handler] of Object.entries(liveThreadHandlers)) {
       socket.on(event, handler);
     }
@@ -1214,6 +1224,7 @@ export default function useSocketWiring(socket: Socket) {
       socket.off("session_state", onSessionState);
       socket.off("session_load_error", onSessionLoadError);
       socket.off("terminal_open_panel", onTerminalOpenPanel);
+      socket.off("artifact_open", onArtifactOpen);
       for (const [event, handler] of Object.entries(liveThreadHandlers)) {
         socket.off(event, handler);
       }
@@ -1273,5 +1284,7 @@ export default function useSocketWiring(socket: Socket) {
     setContextUsageData,
     terminalOpen,
     setTerminalOpen,
+    artifactUrl,
+    setArtifactUrl,
   };
 }

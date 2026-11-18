@@ -12,7 +12,7 @@ import {
 
 export const TAB_STRIP_HEIGHT = 40;
 
-export type TabKind = 'session' | 'dashboard';
+export type TabKind = 'session' | 'dashboard' | 'artifact';
 
 interface TabRecord {
   id: string;
@@ -57,7 +57,7 @@ interface PersistedState {
 }
 
 function urlFor(kind: TabKind, proxyOrigin: string, sessionId?: string): string {
-  return kind === 'dashboard'
+  return kind === 'dashboard' || kind === 'artifact'
     ? `${proxyOrigin}/`
     : `${proxyOrigin}/session?sessionId=${sessionId}`;
 }
@@ -146,6 +146,11 @@ export class TabManager {
     return this.createTab('dashboard', proxyOrigin);
   }
 
+  openArtifact(url: string): string {
+    const origin = new URL(url).origin;
+    return this.createTab('artifact', origin, undefined, true, url);
+  }
+
   restore(): void {
     let state: PersistedState | null = null;
     try {
@@ -194,7 +199,7 @@ export class TabManager {
       kind,
       sessionId,
       proxyOrigin,
-      label: kind === 'dashboard' ? 'Dashboard' : 'New Session',
+      label: kind === 'dashboard' ? 'Dashboard' : kind === 'artifact' ? 'Artifact' : 'New Session',
       view,
     };
     this.tabs.set(id, record);

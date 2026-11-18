@@ -10,6 +10,7 @@ import { contextBridge, ipcRenderer } from 'electron';
 export interface SlbpDesktopApi {
   /** Open the native folder picker; resolves to a forward-slash path or null on cancel. */
   pickFolder: (initialDir?: string) => Promise<string | null>;
+  openArtifact: (url: string) => Promise<void>;
 }
 
 const api: SlbpDesktopApi = {
@@ -17,6 +18,7 @@ const api: SlbpDesktopApi = {
     ipcRenderer.invoke('tab:pick-folder', typeof initialDir === 'string' ? initialDir : '') as Promise<
       string | null
     >,
+  openArtifact: (url) => ipcRenderer.invoke('tab:open-artifact', url) as Promise<void>,
 };
 
 contextBridge.exposeInMainWorld('slbpDesktop', api);

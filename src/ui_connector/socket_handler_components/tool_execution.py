@@ -101,6 +101,11 @@ def _execute_tools(
         "create_terminal": lambda cmd, tab_name: _launch_terminal_for_session(
             session_id, cmd, tab_name
         ),
+        "open_artifact": lambda url, artifact_id: socketio.emit(
+            "artifact_open",
+            {"url": url, "artifact_id": artifact_id},
+            room=session_id,
+        ),
         "get_terminal_output": lambda tid, mode, num_lines=None: _read_terminal_output(
             session_id, tid, mode, num_lines
         ),

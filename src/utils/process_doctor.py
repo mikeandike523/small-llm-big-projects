@@ -34,6 +34,7 @@ ROLE_PATTERNS: tuple[tuple[str, re.Pattern], ...] = (
     ("server-run", re.compile(r"[\\/]slbp\s+server\s+run|main\.py\s+server\s+run")),
     ("ui", re.compile(r"[\\/]ui[\\/]serve\.cjs")),
     ("proxy", re.compile(r"[\\/]proxy-server[\\/]index\.js")),
+    ("artifacts", re.compile(r"[\\/]proxy-server[\\/]artifact-server\.js")),
     ("flask-launcher", re.compile(r"[\\/]run_ui_connector\.sh")),
     ("flask", re.compile(r"[\\/]ui_connector[\\/]main\.py")),
 )

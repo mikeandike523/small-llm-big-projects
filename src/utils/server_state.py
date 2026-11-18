@@ -17,7 +17,14 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 _STATE_FILE = _PROJECT_ROOT / ".slbp-server.json"
 
 
-def write_state(flask_port: int, ui_port: int, proxy_port: int) -> None:
+def write_state(
+    flask_port: int,
+    ui_port: int,
+    proxy_port: int,
+    artifact_port: int | None = None,
+    artifact_control_port: int | None = None,
+    artifact_host: str | None = None,
+) -> None:
     """Write port assignments (and this process's pid) to .slbp-server.json."""
     _STATE_FILE.write_text(
         json.dumps(
@@ -26,6 +33,9 @@ def write_state(flask_port: int, ui_port: int, proxy_port: int) -> None:
                 "flask_port": flask_port,
                 "ui_port": ui_port,
                 "pid": os.getpid(),
+                "artifact_port": artifact_port,
+                "artifact_control_port": artifact_control_port,
+                "artifact_host": artifact_host,
             },
             indent=2,
         )

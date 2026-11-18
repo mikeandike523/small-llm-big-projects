@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import secrets
 import subprocess
 import time
 from pathlib import Path
@@ -215,6 +216,14 @@ server.add_command(_task_group)
         "meant to be passed when starting the server manually from a terminal."
     ),
 )
+@click.option(
+    "--artifact-host",
+    default=None,
+    help=(
+        "Wildcard host suffix for static artifacts. Defaults to the SLBP_ARTIFACT_HOST "
+        "environment variable or artifact.localhost."
+    ),
+)
 def server_run(
     tool_tracebacks,
     hotfix_gpt_oss_20b_bad_parser,
@@ -223,6 +232,7 @@ def server_run(
     dashboard_port,
     proxy_port,
     desktop,
+    artifact_host,
 ):
     """
     Start the server: launches the static UI server, gateway proxy, and the
@@ -297,8 +307,19 @@ def server_run(
     flask_port = find_free_port()
     ui_port = dashboard_port if dashboard_port is not None else find_free_port()
     gw_port = proxy_port if proxy_port is not None else find_preferred_port()
+    artifact_port = find_free_port()
+    artifact_control_port = find_free_port()
+    artifact_host = artifact_host or os.environ.get("SLBP_ARTIFACT_HOST", "artifact.localhost")
+    artifact_secret = secrets.token_urlsafe(32)
 
-    write_state(flask_port=flask_port, ui_port=ui_port, proxy_port=gw_port)
+    write_state(
+        flask_port=flask_port,
+        ui_port=ui_port,
+        proxy_port=gw_port,
+        artifact_port=artifact_port,
+        artifact_control_port=artifact_control_port,
+        artifact_host=artifact_host,
+    )
     click.echo(
         f"[slbp] Allocated ports - proxy:{gw_port}  flask:{flask_port}  ui:{ui_port}"
     )
@@ -308,6 +329,14 @@ def server_run(
         "FLASK_PORT": str(flask_port),
         "PROXY_PORT": str(gw_port),
         "SLBP_SERVER_CWD": server_cwd,
+        "ARTIFACT_CONTROL_PORT": str(artifact_control_port),
+        "ARTIFACT_PORT": str(artifact_port),
+        "ARTIFACT_SECRET": artifact_secret,
+        "ARTIFACT_HOST": artifact_host,
+        "SLBP_ARTIFACT_PUBLIC_ORIGIN": os.environ.get(
+            "SLBP_ARTIFACT_PUBLIC_ORIGIN",
+            f"http://{{id}}.{artifact_host}:{gw_port}",
+        ),
     }
     if tool_tracebacks:
         flask_env["SLBP_TOOL_TRACEBACKS"] = "1"
@@ -320,6 +349,8 @@ def server_run(
         "PROXY_PORT": str(gw_port),
         "FLASK_PORT": str(flask_port),
         "UI_PORT": str(ui_port),
+        "ARTIFACT_PORT": str(artifact_port),
+        "ARTIFACT_HOST": artifact_host,
     }
     try:
         # The proxy records /webhooks/** hits into Redis for the email debug page.
@@ -344,6 +375,18 @@ def server_run(
             cmd=["node", str(PROJECT_ROOT / "proxy-server" / "index.js")],
             cwd=PROJECT_ROOT / "proxy-server",
             env=proxy_env,
+        ),
+        ManagedProcess(
+            label="artifacts",
+            cmd=["node", str(PROJECT_ROOT / "proxy-server" / "artifact-server.js")],
+            cwd=PROJECT_ROOT / "proxy-server",
+            env={
+                "ARTIFACT_PORT": str(artifact_port),
+                "ARTIFACT_CONTROL_PORT": str(artifact_control_port),
+                "ARTIFACT_SECRET": artifact_secret,
+                "ARTIFACT_HOST": artifact_host,
+                "ARTIFACT_STATE_FILE": str(PROJECT_ROOT / ".slbp-artifacts.json"),
+            },
         ),
         ManagedProcess(
             label="flask",

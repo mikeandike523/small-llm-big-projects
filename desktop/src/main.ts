@@ -67,6 +67,14 @@ ipcMain.handle('tabs:close', (_event, id: string) => tabManager?.closeTabById(id
 ipcMain.handle('tabs:toggle-overlay', (_event, id: unknown) => {
   if (isOverlayId(id)) tabManager?.toggleOverlay(id);
 });
+ipcMain.handle('tab:open-artifact', (event, url: unknown) => {
+  if (!tabManager?.ownsTabWebContents(event.sender.id) || typeof url !== 'string') return;
+  try {
+    tabManager.openArtifact(url);
+  } catch {
+    // The renderer can only request a valid URL returned by the artifact tool.
+  }
+});
 ipcMain.handle('health:get-snapshot', () => serverLifecycleHandle?.getSnapshot());
 ipcMain.handle('health:restart-server', () => serverLifecycleHandle?.restart());
 ipcMain.handle('health:open-dashboard', () => {
