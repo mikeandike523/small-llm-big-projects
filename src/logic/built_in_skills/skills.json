@@ -12,5 +12,11 @@
     "blurb": "Guidance for searching the web and reading external pages efficiently.",
     "dependencies": [],
     "autoload": false
+  },
+  "artifact_design": {
+    "name": "Designing Static Artifacts",
+    "blurb": "Guidance for building, validating, serving, and presenting static websites as artifacts.",
+    "dependencies": [],
+    "autoload": false
   }
 }
