@@ -5,6 +5,7 @@ import secrets
 import subprocess
 import time
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import click
 from termcolor import colored
@@ -27,6 +28,26 @@ _DOCKER_SERVICES = [
     ("redis", 6379),
     ("piston", 2000),
 ]
+
+
+def _normalize_artifact_origin(raw: str) -> str:
+    value = raw.strip().rstrip("/")
+    if "://" not in value:
+        value = f"http://{value}"
+    parsed = urlsplit(value)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        raise click.ClickException(
+            "ARTIFACT_ORIGIN must be an http(s) origin such as https://artifact.example.com."
+        )
+    if parsed.username or parsed.password or parsed.path not in {"", "/"} or parsed.query or parsed.fragment:
+        raise click.ClickException(
+            "ARTIFACT_ORIGIN must contain only a scheme, hostname, and optional port."
+        )
+    hostname = parsed.hostname.lower()
+    netloc = hostname
+    if parsed.port is not None:
+        netloc = f"{netloc}:{parsed.port}"
+    return f"{parsed.scheme.lower()}://{netloc}"
 
 
 def _ok(label: str) -> None:
@@ -217,11 +238,11 @@ server.add_command(_task_group)
     ),
 )
 @click.option(
-    "--artifact-host",
+    "--artifact-origin",
     default=None,
     help=(
-        "Wildcard host suffix for static artifacts. Defaults to the SLBP_ARTIFACT_HOST "
-        "environment variable or artifact.localhost."
+        "Base origin for static artifacts, such as https://artifact.example.com. "
+        "Defaults to ARTIFACT_ORIGIN or a local artifact.localhost origin."
     ),
 )
 def server_run(
@@ -232,7 +253,7 @@ def server_run(
     dashboard_port,
     proxy_port,
     desktop,
-    artifact_host,
+    artifact_origin,
 ):
     """
     Start the server: launches the static UI server, gateway proxy, and the
@@ -309,7 +330,11 @@ def server_run(
     gw_port = proxy_port if proxy_port is not None else find_preferred_port()
     artifact_port = find_free_port()
     artifact_control_port = find_free_port()
-    artifact_host = artifact_host or os.environ.get("SLBP_ARTIFACT_HOST", "artifact.localhost")
+    artifact_origin = _normalize_artifact_origin(
+        artifact_origin
+        or os.environ.get("ARTIFACT_ORIGIN")
+        or f"http://artifact.localhost:{gw_port}"
+    )
     artifact_secret = secrets.token_urlsafe(32)
 
     write_state(
@@ -318,7 +343,7 @@ def server_run(
         proxy_port=gw_port,
         artifact_port=artifact_port,
         artifact_control_port=artifact_control_port,
-        artifact_host=artifact_host,
+        artifact_origin=artifact_origin,
     )
     click.echo(
         f"[slbp] Allocated ports - proxy:{gw_port}  flask:{flask_port}  ui:{ui_port}"
@@ -332,11 +357,7 @@ def server_run(
         "ARTIFACT_CONTROL_PORT": str(artifact_control_port),
         "ARTIFACT_PORT": str(artifact_port),
         "ARTIFACT_SECRET": artifact_secret,
-        "ARTIFACT_HOST": artifact_host,
-        "SLBP_ARTIFACT_PUBLIC_ORIGIN": os.environ.get(
-            "SLBP_ARTIFACT_PUBLIC_ORIGIN",
-            f"http://{{id}}.{artifact_host}:{gw_port}",
-        ),
+        "ARTIFACT_ORIGIN": artifact_origin,
     }
     if tool_tracebacks:
         flask_env["SLBP_TOOL_TRACEBACKS"] = "1"
@@ -350,7 +371,7 @@ def server_run(
         "FLASK_PORT": str(flask_port),
         "UI_PORT": str(ui_port),
         "ARTIFACT_PORT": str(artifact_port),
-        "ARTIFACT_HOST": artifact_host,
+        "ARTIFACT_ORIGIN": artifact_origin,
     }
     try:
         # The proxy records /webhooks/** hits into Redis for the email debug page.
@@ -384,7 +405,7 @@ def server_run(
                 "ARTIFACT_PORT": str(artifact_port),
                 "ARTIFACT_CONTROL_PORT": str(artifact_control_port),
                 "ARTIFACT_SECRET": artifact_secret,
-                "ARTIFACT_HOST": artifact_host,
+                "ARTIFACT_ORIGIN": artifact_origin,
                 "ARTIFACT_STATE_FILE": str(PROJECT_ROOT / ".slbp-artifacts.json"),
             },
         ),

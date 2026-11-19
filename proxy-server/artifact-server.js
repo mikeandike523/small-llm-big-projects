@@ -8,7 +8,8 @@ const { URL } = require('node:url');
 const PORT = Number(process.env.ARTIFACT_PORT || 0);
 const CONTROL_PORT = Number(process.env.ARTIFACT_CONTROL_PORT || 0);
 const SECRET = process.env.ARTIFACT_SECRET || '';
-const HOST_SUFFIX = (process.env.ARTIFACT_HOST || 'artifact.localhost').toLowerCase().replace(/^\.+|\.+$/g, '');
+const ARTIFACT_ORIGIN = process.env.ARTIFACT_ORIGIN || 'http://artifact.localhost';
+const HOST_SUFFIX = new URL(ARTIFACT_ORIGIN).hostname.toLowerCase().replace(/^\.+|\.+$/g, '');
 const STATE_FILE = process.env.ARTIFACT_STATE_FILE || path.join(process.cwd(), '.slbp-artifacts.json');
 
 let records = new Map();

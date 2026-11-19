@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from typing import Any
+from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 
@@ -48,5 +49,12 @@ def stop_artifact(artifact_id: str) -> dict:
 
 
 def artifact_url(artifact_id: str) -> str:
-    template = os.environ.get("SLBP_ARTIFACT_PUBLIC_ORIGIN", "http://{id}.artifact.localhost")
-    return template.replace("{id}", artifact_id).rstrip("/") + "/"
+    origin = os.environ.get("ARTIFACT_ORIGIN", "http://artifact.localhost").strip().rstrip("/")
+    if "://" not in origin:
+        origin = f"http://{origin}"
+    parsed = urlsplit(origin)
+    hostname = parsed.hostname or "artifact.localhost"
+    host = f"{artifact_id}.{hostname}"
+    if parsed.port is not None:
+        host = f"{host}:{parsed.port}"
+    return urlunsplit((parsed.scheme, host, "", "", "")) + "/"

@@ -20,7 +20,9 @@ WebSockets.
 An artifact receives a permanent, opaque ID and a wildcard-host URL such as:
 
 ```text
-https://<artifact-id>.<artifact-host>/
+`<artifact-id>` is inserted as the leftmost label of the configured
+`ARTIFACT_ORIGIN`, for example `https://artifact.example.com` becomes
+`https://<artifact-id>.artifact.example.com/`.
 ```
 
 The artifact ID is generated when serving begins. IDs are never derived from the
@@ -181,7 +183,8 @@ implementation decision, not a change to the product requirement.
 The gateway should add a host-based rule for the configured artifact domain:
 
 ```text
-<artifact-id>.<artifact-host> -> artifact service
+The hostname derived from `ARTIFACT_ORIGIN` routes `<artifact-id>.<derived-host>`
+to the artifact service.
 ```
 
 The gateway must validate the hostname pattern and preserve enough host

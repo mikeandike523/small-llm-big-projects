@@ -23,7 +23,7 @@ def write_state(
     proxy_port: int,
     artifact_port: int | None = None,
     artifact_control_port: int | None = None,
-    artifact_host: str | None = None,
+    artifact_origin: str | None = None,
 ) -> None:
     """Write port assignments (and this process's pid) to .slbp-server.json."""
     _STATE_FILE.write_text(
@@ -35,7 +35,7 @@ def write_state(
                 "pid": os.getpid(),
                 "artifact_port": artifact_port,
                 "artifact_control_port": artifact_control_port,
-                "artifact_host": artifact_host,
+                "artifact_origin": artifact_origin,
             },
             indent=2,
         )

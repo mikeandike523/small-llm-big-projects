@@ -11,7 +11,8 @@ const PROXY_PORT = parseInt(process.env.PROXY_PORT || "0", 10);
 const FLASK_PORT = process.env.FLASK_PORT || "5000";
 const UI_PORT = process.env.UI_PORT || "5173";
 const ARTIFACT_PORT = process.env.ARTIFACT_PORT || "0";
-const ARTIFACT_HOST = (process.env.ARTIFACT_HOST || "artifact.localhost").toLowerCase().replace(/^\.+|\.+$/g, "");
+const ARTIFACT_ORIGIN = process.env.ARTIFACT_ORIGIN || `http://artifact.localhost:${PROXY_PORT}`;
+const ARTIFACT_HOST = new URL(ARTIFACT_ORIGIN).hostname.toLowerCase().replace(/^\.+|\.+$/g, "");
 
 const FLASK_ORIGIN = `http://localhost:${FLASK_PORT}`;
 const UI_ORIGIN = `http://localhost:${UI_PORT}`;
