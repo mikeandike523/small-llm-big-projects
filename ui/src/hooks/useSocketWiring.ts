@@ -116,6 +116,7 @@ export default function useSocketWiring(socket: Socket) {
   } | null>(null);
   const [terminalOpen, setTerminalOpen] = useState(storedTerminalOpen);
   const [artifactUrl, setArtifactUrl] = useState<string | null>(null);
+  const [artifactReloadKey, setArtifactReloadKey] = useState(0);
   const [systemPrompt, setSystemPrompt] = useState<string | null>(null);
   const [backendLogs, setBackendLogs] = useState<BackendLogEntry[]>([]);
   const nextClientLogId = useRef(-1);
@@ -1116,6 +1117,7 @@ export default function useSocketWiring(socket: Socket) {
       if (window.slbpDesktop) {
         void window.slbpDesktop.openArtifact(data.url);
       } else {
+        setArtifactReloadKey((key) => key + 1);
         setArtifactUrl(data.url);
       }
     }
@@ -1286,5 +1288,6 @@ export default function useSocketWiring(socket: Socket) {
     setTerminalOpen,
     artifactUrl,
     setArtifactUrl,
+    artifactReloadKey,
   };
 }

@@ -127,6 +127,7 @@ export default function Chat() {
     setTerminalOpen,
     artifactUrl,
     setArtifactUrl,
+    artifactReloadKey,
   } = useSocketWiring(socket);
   // A pool session's settings live on its agent and it only takes turns from
   // email. Locked until session_state says otherwise, so controls never flash.
@@ -330,7 +331,7 @@ export default function Chat() {
             <button onClick={() => void navigator.clipboard.writeText(artifactUrl)} title="Copy artifact URL" aria-label="Copy artifact URL">📋</button>
             <button onClick={() => setArtifactUrl(null)} aria-label="Close artifact">Close</button>
           </div>
-          <iframe title="Artifact" src={artifactUrl} style={{ flex: 1, border: 0, background: "white" }} />
+          <iframe key={artifactReloadKey} title="Artifact" src={artifactUrl} style={{ flex: 1, border: 0, background: "white" }} />
         </div>
       )}
       <LeftSidebar

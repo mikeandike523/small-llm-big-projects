@@ -11,9 +11,17 @@ const SECRET = process.env.ARTIFACT_SECRET || '';
 const ARTIFACT_ORIGIN = process.env.ARTIFACT_ORIGIN || 'http://artifact.localhost';
 const HOST_SUFFIX = new URL(ARTIFACT_ORIGIN).hostname.toLowerCase().replace(/^\.+|\.+$/g, '');
 const STATE_FILE = process.env.ARTIFACT_STATE_FILE || path.join(process.cwd(), '.slbp-artifacts.json');
+const MAX_FILE_BYTES = positiveInteger(process.env.ARTIFACT_MAX_FILE_BYTES, 100 * 1024 * 1024);
+const MAX_DIRECTORY_ENTRIES = positiveInteger(process.env.ARTIFACT_MAX_DIRECTORY_ENTRIES, 10000);
+const SERVE_TIMEOUT_MS = positiveInteger(process.env.ARTIFACT_SERVE_TIMEOUT_MS, 5000);
 
 let records = new Map();
 let active = new Map();
+
+function positiveInteger(raw, fallback) {
+  const value = Number(raw);
+  return Number.isSafeInteger(value) && value > 0 ? value : fallback;
+}
 
 function json(res, status, value) {
   const body = JSON.stringify(value);
@@ -67,8 +75,51 @@ function htmlEscape(value) {
   return String(value).replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
 }
 
-async function serveDirectoryListing(res, directory, requestPath) {
-  const entries = (await fsp.readdir(directory, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name));
+function metadataTag(stat) {
+  // Deliberately metadata-based: serving an artifact must never hash an
+  // arbitrarily large file just to create a cache validator.
+  const size = stat.size.toString();
+  const modified = typeof stat.mtimeNs === 'bigint' ? stat.mtimeNs.toString() : String(Math.trunc(stat.mtimeMs * 1e6));
+  return `W/"${modified}-${size}"`;
+}
+
+function lastModified(stat) {
+  return new Date(Number(stat.mtimeMs)).toUTCString();
+}
+
+function hasMatchingEtag(req, etag) {
+  const header = req.headers['if-none-match'];
+  if (!header) return false;
+  const normalized = etag.replace(/^W\//, '');
+  return header.split(',').some((candidate) => {
+    const value = candidate.trim();
+    return value === '*' || value.replace(/^W\//, '') === normalized;
+  });
+}
+
+function sendNotModified(res, etag, modified) {
+  res.writeHead(304, {
+    etag,
+    'last-modified': modified,
+    'cache-control': 'no-cache',
+  });
+  res.end();
+}
+
+async function serveDirectoryListing(req, res, directory, requestPath) {
+  const entries = [];
+  const handle = await fsp.opendir(directory);
+  try {
+    for await (const entry of handle) {
+      entries.push(entry);
+      if (entries.length > MAX_DIRECTORY_ENTRIES) {
+        return json(res, 413, { error: 'directory_listing_too_large', max_entries: MAX_DIRECTORY_ENTRIES });
+      }
+    }
+  } finally {
+    await handle.close().catch(() => {});
+  }
+  entries.sort((a, b) => a.name.localeCompare(b.name));
   const prefix = requestPath.endsWith('/') ? requestPath : `${requestPath}/`;
   const rows = entries.map((entry) => {
     const name = `${entry.name}${entry.isDirectory() ? '/' : ''}`;
@@ -76,7 +127,12 @@ async function serveDirectoryListing(res, directory, requestPath) {
     return `<li><a href="${href}">${htmlEscape(name)}</a></li>`;
   }).join('');
   const body = `<!doctype html><meta charset="utf-8"><title>Index of ${htmlEscape(requestPath)}</title><h1>Index of ${htmlEscape(requestPath)}</h1><ul>${rows}</ul>`;
-  res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
+  const stat = await fsp.stat(directory, { bigint: true });
+  const etag = metadataTag(stat);
+  const modified = lastModified(stat);
+  if (hasMatchingEtag(req, etag)) return sendNotModified(res, etag, modified);
+  res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-cache', etag, 'last-modified': modified, 'content-length': Buffer.byteLength(body) });
+  if (req.method === 'HEAD') return res.end();
   res.end(body);
 }
 
@@ -95,21 +151,43 @@ async function serveArtifact(req, res) {
   if (!root) return json(res, 410, { error: 'artifact_directory_missing' });
   const candidate = path.resolve(root, `.${pathname}`);
   if (candidate !== root && !candidate.startsWith(`${root}${path.sep}`)) return json(res, 403, { error: 'path_forbidden' });
-  const stat = await fsp.stat(candidate).catch(() => null);
+  const stat = await fsp.stat(candidate, { bigint: true }).catch(() => null);
   if (!stat) return json(res, 404, { error: 'not_found' });
   if (stat.isDirectory()) {
     const index = path.join(candidate, 'index.html');
-    if (fs.existsSync(index) && (await fsp.stat(index)).isFile()) return sendFile(res, index, req.method);
-    try { return await serveDirectoryListing(res, candidate, pathname); } catch { return json(res, 404, { error: 'not_found' }); }
+    if (fs.existsSync(index) && (await fsp.stat(index)).isFile()) return sendFile(req, res, index, req.method);
+    try { return await serveDirectoryListing(req, res, candidate, pathname); } catch { return json(res, 404, { error: 'not_found' }); }
   }
-  return sendFile(res, candidate, req.method);
+  return sendFile(req, res, candidate, req.method);
 }
 
-async function sendFile(res, file, method) {
-  const stat = await fsp.stat(file);
-  res.writeHead(200, { 'content-type': contentType(file), 'content-length': stat.size, 'cache-control': 'no-store' });
+async function sendFile(req, res, file, method) {
+  const stat = await fsp.stat(file, { bigint: true });
+  if (stat.size > BigInt(MAX_FILE_BYTES)) {
+    return json(res, 413, { error: 'file_too_large', max_bytes: MAX_FILE_BYTES });
+  }
+  const etag = metadataTag(stat);
+  const modified = lastModified(stat);
+  if (hasMatchingEtag(req, etag)) return sendNotModified(res, etag, modified);
+  res.writeHead(200, { 'content-type': contentType(file), 'content-length': stat.size.toString(), 'cache-control': 'no-cache', etag, 'last-modified': modified });
   if (method === 'HEAD') return res.end();
   fs.createReadStream(file).on('error', () => res.destroy()).pipe(res);
+}
+
+function handleArtifactRequest(req, res) {
+  const timer = setTimeout(() => {
+    if (!res.headersSent) {
+      json(res, 504, { error: 'artifact_request_timeout' });
+    } else {
+      res.destroy();
+    }
+  }, SERVE_TIMEOUT_MS);
+  void serveArtifact(req, res)
+    .catch((error) => {
+      console.error(error);
+      if (!res.headersSent) json(res, 500, { error: 'internal_error' });
+    })
+    .finally(() => clearTimeout(timer));
 }
 
 async function control(req, res) {
@@ -145,7 +223,7 @@ async function control(req, res) {
 
 async function main() {
   await loadState();
-  const publicServer = http.createServer((req, res) => void serveArtifact(req, res).catch((error) => { console.error(error); if (!res.headersSent) json(res, 500, { error: 'internal_error' }); }));
+  const publicServer = http.createServer(handleArtifactRequest);
   const controlServer = http.createServer((req, res) => void control(req, res).catch((error) => { console.error(error); if (!res.headersSent) json(res, 500, { error: 'internal_error' }); }));
   publicServer.listen(PORT, '127.0.0.1', () => console.log(`[artifacts] Public server listening on http://127.0.0.1:${publicServer.address().port}`));
   controlServer.listen(CONTROL_PORT, '127.0.0.1', () => console.log(`[artifacts] Control server listening on http://127.0.0.1:${controlServer.address().port}`));

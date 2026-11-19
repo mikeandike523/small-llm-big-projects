@@ -8,6 +8,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 import click
+from dotenv import load_dotenv
 from termcolor import colored
 
 from src.cli_obj import cli
@@ -280,6 +281,11 @@ def server_run(
 
     if desktop:
         _maybe_clear_desktop_log()
+
+    # The Flask subprocess loads .env itself, but the Node gateway and artifact
+    # subprocesses inherit the server-run process environment. Load it here so
+    # artifact limits and ARTIFACT_ORIGIN apply consistently to every process.
+    load_dotenv(PROJECT_ROOT / ".env")
 
     _run_preflight_checks()
 
