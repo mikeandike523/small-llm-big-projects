@@ -14,6 +14,7 @@ const STATE_FILE = process.env.ARTIFACT_STATE_FILE || path.join(process.cwd(), '
 const MAX_FILE_BYTES = positiveInteger(process.env.ARTIFACT_MAX_FILE_BYTES, 100 * 1024 * 1024);
 const MAX_DIRECTORY_ENTRIES = positiveInteger(process.env.ARTIFACT_MAX_DIRECTORY_ENTRIES, 10000);
 const SERVE_TIMEOUT_MS = positiveInteger(process.env.ARTIFACT_SERVE_TIMEOUT_MS, 5000);
+const ALLOWED_REWRITE_RULES = new Set(['SPA_INDEX']);
 
 let records = new Map();
 let active = new Map();
@@ -151,11 +152,22 @@ async function serveArtifact(req, res) {
   if (!root) return json(res, 410, { error: 'artifact_directory_missing' });
   const candidate = path.resolve(root, `.${pathname}`);
   if (candidate !== root && !candidate.startsWith(`${root}${path.sep}`)) return json(res, 403, { error: 'path_forbidden' });
-  const stat = await fsp.stat(candidate, { bigint: true }).catch(() => null);
+  let stat = await fsp.stat(candidate, { bigint: true }).catch(() => null);
+  if (!stat && record.rewrite_rule === 'SPA_INDEX') {
+    const index = path.join(root, 'index.html');
+    stat = await fsp.stat(index, { bigint: true }).catch(() => null);
+    if (stat?.isFile()) return sendFile(req, res, index, req.method);
+    return json(res, 404, { error: 'not_found' });
+  }
   if (!stat) return json(res, 404, { error: 'not_found' });
   if (stat.isDirectory()) {
     const index = path.join(candidate, 'index.html');
     if (fs.existsSync(index) && (await fsp.stat(index)).isFile()) return sendFile(req, res, index, req.method);
+    if (record.rewrite_rule === 'SPA_INDEX') {
+      const rootIndex = path.join(root, 'index.html');
+      const rootIndexStat = await fsp.stat(rootIndex, { bigint: true }).catch(() => null);
+      if (rootIndexStat?.isFile()) return sendFile(req, res, rootIndex, req.method);
+    }
     try { return await serveDirectoryListing(req, res, candidate, pathname); } catch { return json(res, 404, { error: 'not_found' }); }
   }
   return sendFile(req, res, candidate, req.method);
@@ -201,11 +213,14 @@ async function control(req, res) {
     let payload;
     try { payload = JSON.parse(body || '{}'); } catch { return json(res, 400, { error: 'invalid_json' }); }
     if (typeof payload.directory !== 'string' || typeof payload.session_id !== 'string') return json(res, 400, { error: 'directory_and_session_id_required' });
+    if (payload.rewrite_rule !== undefined && payload.rewrite_rule !== null && (!Array.from(ALLOWED_REWRITE_RULES).includes(payload.rewrite_rule))) {
+      return json(res, 400, { error: 'rewrite_rule_not_allowed', allowed_rewrite_rules: Array.from(ALLOWED_REWRITE_RULES) });
+    }
     const directory = await fsp.realpath(payload.directory).catch(() => null);
     if (!directory || !(await fsp.stat(directory).catch(() => null))?.isDirectory()) return json(res, 400, { error: 'directory_not_found' });
     let id;
     do { id = crypto.randomBytes(15).toString('base64').replace(/[+/=]/g, '').toLowerCase(); } while (records.has(id));
-    const record = { id, session_id: payload.session_id, directory, status: 'active', created_at: new Date().toISOString() };
+    const record = { id, session_id: payload.session_id, directory, rewrite_rule: payload.rewrite_rule || null, status: 'active', created_at: new Date().toISOString() };
     records.set(id, record); active.set(id, record);
     await saveState();
     return json(res, 201, record);

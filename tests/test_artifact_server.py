@@ -68,8 +68,17 @@ def test_artifact_server_uses_metadata_etags_and_revalidates(tmp_path: Path):
             raise AssertionError("artifact control server did not become ready")
 
         control_headers = {"Authorization": "Bearer test-secret", "Content-Type": "application/json"}
+        artifacts_url = health_url.replace("/health", "/artifacts")
+        invalid_rule = _request(
+            artifacts_url,
+            method="POST",
+            headers=control_headers,
+            body=json.dumps({"directory": str(tmp_path), "session_id": "test-session", "rewrite_rule": "UNSAFE_RULE"}).encode(),
+        )
+        assert invalid_rule.code == 400
+
         create = _request(
-            health_url.replace("/health", "/artifacts"),
+            artifacts_url,
             method="POST",
             headers=control_headers,
             body=json.dumps({"directory": str(tmp_path), "session_id": "test-session"}).encode(),
@@ -103,12 +112,32 @@ def test_artifact_server_uses_metadata_etags_and_revalidates(tmp_path: Path):
         )
         assert oversized_listing.code == 413
 
+        spa_create = _request(
+            artifacts_url,
+            method="POST",
+            headers=control_headers,
+            body=json.dumps({"directory": str(tmp_path), "session_id": "test-session", "rewrite_rule": "SPA_INDEX"}).encode(),
+        )
+        spa_artifact = json.loads(spa_create.read())
+        spa_response = _request(
+            file_url.replace("index.html", "dashboard/settings"),
+            headers={"Host": f"{spa_artifact['id']}.artifact.example.com"},
+        )
+        assert spa_response.status == 200
+        assert spa_response.read() == b"<h1>artifact</h1>"
+
         stopped = _request(
             health_url.replace("/health", f"/artifacts/{artifact['id']}"),
             method="DELETE",
             headers={"Authorization": "Bearer test-secret"},
         )
         assert stopped.status == 200
+        spa_stopped = _request(
+            artifacts_url + f"/{spa_artifact['id']}",
+            method="DELETE",
+            headers={"Authorization": "Bearer test-secret"},
+        )
+        assert spa_stopped.status == 200
     finally:
         process.terminate()
         try:

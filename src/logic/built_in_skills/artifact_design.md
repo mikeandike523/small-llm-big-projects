@@ -41,11 +41,15 @@ If using a `<base>` element, use it deliberately and verify nested-page links;
 `<base href="/">` makes relative references resolve from the artifact root but
 can change the meaning of every relative link and form action.
 
-The initial artifact server is static-only. It does not provide SPA fallback
-routing, server-side rendering, API routes, WebSockets, or proxying to a local
-development server. Prefer hash-based client routing for a small SPA, generate
-real HTML pages for deep links, or ensure the generated site only navigates to
-files that exist in the output directory.
+The initial artifact server is static-only. It does not provide server-side
+rendering, API routes, WebSockets, or proxying to a local development server.
+For an SPA that needs clean client-side routes, pass
+`rewrite_rule="SPA_INDEX"` to `serve_dir`. This is the only approved rewrite:
+missing routes (and directories without their own index) fall back to the
+artifact root's `index.html`; existing files are still served normally. Use it
+only when the output contains a valid SPA entry page. Otherwise prefer hash-
+based client routing, generate real HTML pages for deep links, or ensure that
+the generated site only navigates to files that exist in the output directory.
 
 ## Updating and presenting an artifact
 

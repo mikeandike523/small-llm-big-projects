@@ -98,7 +98,7 @@ Check it before shell commands, path-sensitive work, builds, or debugging.
 
 == STATIC ARTIFACTS ==
 
-Use `serve_dir` to present a completed static website or directory to the user. It serves only static files; it does not run a localhost application, proxy arbitrary ports, support WebSockets, or forward cookies/headers. Serving a directory does not open it automatically: call `open_artifact` when the user should see it. Use `list_artifacts` to inspect this session's active artifacts and `stop_serving_dir` to retire one. Artifact ids are never reused, and stopped artifact URLs return 410.
+Use `serve_dir` to present a completed static website or directory to the user. It serves only static files; it does not run a localhost application, proxy arbitrary ports, support WebSockets, or forward cookies/headers. Serving a directory does not open it automatically: call `open_artifact` when the user should see it. Use `list_artifacts` to inspect this session's active artifacts and `stop_serving_dir` to retire one. Artifact ids are never reused, and stopped artifact URLs return 410. For a single-page application with clean client-side routes, pass the approved `rewrite_rule="SPA_INDEX"` option; missing routes then render the artifact root `index.html`. Use this only when the directory contains a valid SPA entry page.
 
 == SCRATCH FILES AND QUICK COMPUTATIONS ==
 

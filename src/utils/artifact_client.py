@@ -36,8 +36,11 @@ def _request(method: str, path: str, **kwargs: Any) -> dict | list:
     return payload
 
 
-def create_artifact(directory: str, session_id: str) -> dict:
-    return _request("POST", "/artifacts", json={"directory": directory, "session_id": session_id})  # type: ignore[return-value]
+def create_artifact(directory: str, session_id: str, rewrite_rule: str | None = None) -> dict:
+    payload = {"directory": directory, "session_id": session_id}
+    if rewrite_rule is not None:
+        payload["rewrite_rule"] = rewrite_rule
+    return _request("POST", "/artifacts", json=payload)  # type: ignore[return-value]
 
 
 def list_artifacts() -> list[dict]:
