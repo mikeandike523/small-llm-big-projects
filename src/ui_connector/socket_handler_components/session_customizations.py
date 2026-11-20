@@ -39,7 +39,16 @@ def manifest_from_custom_tools(result) -> SessionToolManifest:
 
 
 def reload_session_customizations(session: Session, session_id: str) -> None:
-    """Validate and atomically publish refreshed skills, tools, and prompt."""
+    """Validate and atomically publish refreshed skills, tools, and prompt.
+
+    Holds the session cache lock so a reload never interleaves with a first
+    cache build (session_store._init_session_caches) of the same session.
+    """
+    with _state.session_cache_lock(session_id):
+        _reload_session_customizations(session, session_id)
+
+
+def _reload_session_customizations(session: Session, session_id: str) -> None:
     if not session.load_custom_skills_tools:
         raise RuntimeError("Custom skills and tools are disabled for this session.")
 

@@ -3,9 +3,14 @@ from __future__ import annotations
 import logging
 import os
 
+from termcolor import colored
+
 import src.ui_connector.socket_handler_components.state as _state
 from src.ui_connector.app import socketio
-from src.ui_connector.socket_handler_components.emit import _emit_and_log
+from src.ui_connector.socket_handler_components.emit import (
+    _emit_and_log,
+    _emit_backend_log,
+)
 from src.ui_connector.socket_handler_components.terminal import (
     _build_starting_environment_info,
 )
@@ -124,9 +129,52 @@ def _get_tools_info_payload(session_id: str) -> dict:
     )
 
 
+CUSTOM_TOOL_LOAD_ERROR_TOAST = (
+    "Error loading custom tools, please check debug panel logs."
+)
+
+
+def _load_session_custom_tools(
+    session_id: str, custom_tools_path: str, initial_cwd: str, registry: list[dict]
+) -> SessionToolManifest:
+    """Load the session's custom tools, or report the error and use built-ins."""
+    try:
+        result = load_custom_tools(
+            tools_dir=custom_tools_path,
+            workspace_root=initial_cwd or None,
+            session_prefix=session_id[:8],
+            known_skill_ids=frozenset(e["id"] for e in registry),
+        )
+        return manifest_from_custom_tools(result)
+    except RuntimeError as exc:
+        # Never fail silently — a resumed session with a broken custom tool
+        # setup must be just as visible as a freshly-created one (POST
+        # /api/sessions hard-fails on this same error). The full error goes
+        # to the process log and the debug panel; the toast stays short.
+        # Then fall back to built-in-only tools so an existing conversation
+        # isn't bricked.
+        message = f"Custom tool loading failed for session {session_id}: {exc}"
+        logger.error("%s", message)
+        _emit_backend_log(session_id, colored(message, "red", force_color=True))
+        _emit_and_log(session_id, "error", {"message": CUSTOM_TOOL_LOAD_ERROR_TOAST})
+        return SessionToolManifest(
+            base_defs=list(ALL_TOOL_DEFINITIONS), base_map=dict(_TOOL_MAP)
+        )
+
+
 def _init_session_caches(session: Session, session_id: str) -> None:
     """Build per-session skill registry, tool set, and system prompt caches
     (idempotent — skips if already done).
+
+    Serialized per session: concurrent first loads (e.g. UI reconnect plus a
+    heartbeat right after a restart) must not import the custom tools twice.
+    """
+    with _state.session_cache_lock(session_id):
+        _build_session_caches(session, session_id)
+
+
+def _build_session_caches(session: Session, session_id: str) -> None:
+    """Body of _init_session_caches; the caller holds the session cache lock.
 
     Skill registry is built before tool loading: tool loading needs the
     resolved skill id set to validate skill-scoped plugin namespaces against.
@@ -152,32 +200,9 @@ def _init_session_caches(session: Session, session_id: str) -> None:
 
     if session_id not in _state._session_tool_sets:
         if custom_tools_path:
-            known_skill_ids = frozenset(e["id"] for e in registry)
-            try:
-                result = load_custom_tools(
-                    tools_dir=custom_tools_path,
-                    workspace_root=session.initial_cwd or None,
-                    session_prefix=session_id[:8],
-                    known_skill_ids=known_skill_ids,
-                )
-                manifest = manifest_from_custom_tools(result)
-            except RuntimeError as exc:
-                # Never fail silently — a resumed session with a broken custom
-                # tool setup must be just as visible as a freshly-created one
-                # (POST /api/sessions hard-fails on this same error). Surface
-                # it to the client, then fall back to built-in-only tools so
-                # an existing conversation isn't bricked.
-                logger.error(
-                    "Custom tool loading failed for session %s: %s", session_id, exc
-                )
-                _emit_and_log(
-                    session_id,
-                    "error",
-                    {"message": f"Custom tool loading failed: {exc}"},
-                )
-                manifest = SessionToolManifest(
-                    base_defs=list(ALL_TOOL_DEFINITIONS), base_map=dict(_TOOL_MAP)
-                )
+            manifest = _load_session_custom_tools(
+                session_id, custom_tools_path, session.initial_cwd, registry
+            )
         else:
             manifest = SessionToolManifest(
                 base_defs=list(ALL_TOOL_DEFINITIONS), base_map=dict(_TOOL_MAP)
@@ -312,6 +337,7 @@ def _delete_sessions(session_ids: list[str]) -> None:
 
     for session_id in session_ids:
         _state._session_tool_sets.pop(session_id, None)
+        _state.forget_session_cache_lock(session_id)
         _state._session_system_prompts.pop(session_id, None)
         _state._session_skill_registries.pop(session_id, None)
         _state._session_project_config.pop(session_id, None)

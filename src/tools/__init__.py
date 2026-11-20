@@ -54,7 +54,10 @@ from src.utils.tool_calling.arguments import validate_tool_args
 from src.config.tool_execution import MAX_TOOL_DELEGATION_HOPS
 from src.tools._agent_file_guard import guarded_call, is_always_allowed
 from src.tools._cancellation import check_cancelled, get_cancel_event
-from src.tools._custom_tool_reload import reload_modules
+from src.tools._custom_tool_reload import (
+    load_discarding_partial_modules,
+    reload_modules,
+)
 
 # ---------------------------------------------------------------------------
 # Safe sibling-file imports for custom tool authors
@@ -738,7 +741,9 @@ def _load_tool_module(tool_path: str, module_name: str) -> object | None:
     if module_name in sys.modules:
         raise RuntimeError(
             f"Custom tool file {tool_path!r} would be loaded as module {module_name!r},"
-            f" but that name is already in sys.modules. Rename the file to resolve this collision."
+            f" but that name is already in sys.modules. Either another custom tool file"
+            f" in this session maps to the same module name (rename one of them), or"
+            f" this session's custom tools are being loaded twice at the same time."
         )
 
     try:
@@ -808,7 +813,7 @@ def _finalize_tool_def(
     return prefixed_def
 
 
-def load_custom_tools(
+def _load_custom_tools_unguarded(
     tools_dir: str,
     workspace_root: str | None = None,
     session_prefix: str = "",
@@ -1100,6 +1105,29 @@ def load_custom_tools(
     )
 
 
+def load_custom_tools(
+    tools_dir: str,
+    workspace_root: str | None = None,
+    session_prefix: str = "",
+    known_skill_ids: frozenset[str] | None = None,
+) -> CustomToolLoadResult:
+    """Load a session's custom tools (see _load_custom_tools_unguarded).
+
+    If loading fails part-way, every module this load added to sys.modules is
+    removed again, so a later load of the same session starts clean.
+    """
+    return load_discarding_partial_modules(
+        tools_dir=tools_dir,
+        session_prefix=session_prefix,
+        load=lambda: _load_custom_tools_unguarded(
+            tools_dir=tools_dir,
+            workspace_root=workspace_root,
+            session_prefix=session_prefix,
+            known_skill_ids=known_skill_ids,
+        ),
+    )
+
+
 def reload_custom_tools(
     tools_dir: str,
     workspace_root: str | None = None,
@@ -1119,7 +1147,7 @@ def reload_custom_tools(
     return reload_modules(
         tools_dir=tools_dir,
         session_prefix=session_prefix,
-        load=lambda: load_custom_tools(
+        load=lambda: _load_custom_tools_unguarded(
             tools_dir=tools_dir,
             workspace_root=workspace_root,
             session_prefix=session_prefix,

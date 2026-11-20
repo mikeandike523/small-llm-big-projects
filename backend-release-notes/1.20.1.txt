@@ -1,0 +1,1 @@
+Fixed race condition between different threads when loading custom tools.

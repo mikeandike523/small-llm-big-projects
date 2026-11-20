@@ -72,6 +72,25 @@ _session_costs: dict[str, float] = {}
 # Telemetry (like cost, NOT event-sourced); written to session_meta with each
 # session write.
 _session_last_context_usage: dict[str, dict] = {}
+# session_id -> lock serializing builds of that session's skill/tool/prompt
+# caches. Several threads (UI reconnect, HTTP routes, heartbeat) can touch a
+# session at once after a server restart; without this they would each import
+# the session's custom tools and collide in sys.modules.
+_session_cache_locks: dict[str, threading.Lock] = {}
+_session_cache_locks_guard = threading.Lock()
+
+
+def session_cache_lock(session_id: str) -> threading.Lock:
+    """Return the lock that guards building one session's caches."""
+    with _session_cache_locks_guard:
+        return _session_cache_locks.setdefault(session_id, threading.Lock())
+
+
+def forget_session_cache_lock(session_id: str) -> None:
+    with _session_cache_locks_guard:
+        _session_cache_locks.pop(session_id, None)
+
+
 # Atomic admission state for user-message turns. This reservation begins before
 # preprocessing and outlives the asyncio cancellation handles below. The value
 # is the origin (owner) of the subturn being run: SUBTURN_ORIGIN_USER or

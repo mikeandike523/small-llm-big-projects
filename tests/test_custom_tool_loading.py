@@ -279,3 +279,32 @@ def test_failed_reload_leaves_previous_tool_generation_usable(tmp_path: Path) ->
         reload_custom_tools(str(tmp_path), session_prefix=prefix)
 
     assert old_module.execute({}, {}) == "ok"
+
+
+def test_failed_load_discards_modules_it_already_imported(tmp_path: Path) -> None:
+    import sys
+
+    prefix = _prefix()
+    _write(tmp_path / "a_tool.py", _tool_file("a_tool"))
+    _write(tmp_path / "b_tool.py", "this is not valid python")
+
+    with pytest.raises(RuntimeError, match="Failed to import custom tool"):
+        load_custom_tools(str(tmp_path), session_prefix=prefix)
+    assert f"_slbp_{prefix}_a_tool" not in sys.modules
+
+    # Once the broken file is fixed, the same session loads cleanly instead of
+    # colliding with the leftover a_tool module.
+    _write(tmp_path / "b_tool.py", _tool_file("b_tool"))
+    result = load_custom_tools(str(tmp_path), session_prefix=prefix)
+    assert set(result.unscoped_map) == {"a_tool", "b_tool"}
+
+
+def test_second_load_of_same_session_reports_possible_concurrent_load(
+    tmp_path: Path,
+) -> None:
+    prefix = _prefix()
+    _write(tmp_path / "a_tool.py", _tool_file("a_tool"))
+    load_custom_tools(str(tmp_path), session_prefix=prefix)
+
+    with pytest.raises(RuntimeError, match="loaded twice at the same time"):
+        load_custom_tools(str(tmp_path), session_prefix=prefix)
